@@ -156,7 +156,7 @@ export function SetupSheet() {
       <form className="mx-auto max-w-[1500px] px-5 py-8 xl:px-9" onSubmit={handleSubmit(onSubmit)}>
         <nav className="mb-5">
           <Link
-            className="font-plate text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900"
+            className="font-plate text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900"
             href="/turniere"
           >
             Alle Turniere
@@ -410,7 +410,7 @@ export function SetupSheet() {
               </dl>
               <Rule className="mt-4" tone="faint" />
               <p className="mt-3 flex items-baseline justify-between gap-3">
-                <span className="font-plate text-[0.8125rem] font-semibold text-wedge-900">
+                <span className="font-plate text-[0.875rem] font-semibold text-wedge-900">
                   Matches insgesamt
                 </span>
                 <span className="font-numerals text-[2rem] leading-none font-bold tabular text-wedge-900">

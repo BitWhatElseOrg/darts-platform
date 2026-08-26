@@ -32,7 +32,7 @@ export default async function TournamentListPage({ searchParams }: PageProps) {
             </p>
           </div>
           <Link
-            className="inline-flex min-h-11 items-center gap-2 bg-wedge-900 px-5 font-plate text-[0.8125rem] font-semibold uppercase tracking-[0.1em] text-chalk transition-colors hover:bg-wedge-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
+            className="inline-flex min-h-11 items-center gap-2 bg-wedge-900 px-5 font-plate text-[0.875rem] font-semibold uppercase tracking-[0.1em] text-chalk transition-colors hover:bg-wedge-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
             href="/turniere/neu"
           >
             <MarkFlight size={13} />
@@ -44,7 +44,7 @@ export default async function TournamentListPage({ searchParams }: PageProps) {
 
         {tournaments.length === 0 ? (
           <div className="border border-sisal-400 bg-sisal-100 px-6 py-12 text-center">
-            <p className="font-numerals text-[1.75rem] leading-tight font-bold text-wedge-900">
+            <p className="font-numerals text-[1.5rem] leading-tight font-bold text-wedge-900">
               Noch kein Turnier angelegt
             </p>
             <p className="mx-auto mt-2 max-w-md font-plate text-[0.875rem] leading-relaxed text-sisal-500">
@@ -52,7 +52,7 @@ export default async function TournamentListPage({ searchParams }: PageProps) {
               Danach erzeugt die Turnier-Engine Gruppen, Setzung und Spielplan.
             </p>
             <Link
-              className="mt-6 inline-flex min-h-11 items-center gap-2 bg-ring-green px-5 font-plate text-[0.8125rem] font-semibold uppercase tracking-[0.1em] text-chalk transition-colors hover:bg-ring-green-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
+              className="mt-6 inline-flex min-h-11 items-center gap-2 bg-ring-green px-5 font-plate text-[0.875rem] font-semibold uppercase tracking-[0.1em] text-chalk transition-colors hover:bg-ring-green-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
               href="/turniere/neu"
             >
               <MarkFlight size={13} />
@@ -76,7 +76,7 @@ export default async function TournamentListPage({ searchParams }: PageProps) {
                       <h2 className="font-numerals text-[1.5rem] leading-tight font-bold tracking-[-0.01em] text-wedge-900 group-hover:underline group-hover:decoration-1 group-hover:underline-offset-4">
                         {tournament.name}
                       </h2>
-                      <p className="mt-0.5 font-plate text-[0.8125rem] text-sisal-500">
+                      <p className="mt-0.5 font-plate text-[0.875rem] text-sisal-500">
                         {calendarDate(tournament.startsAt)} · {tournament.participantCount}{" "}
                         Teilnehmer · {tournament.boardCount} Boards
                       </p>
@@ -116,7 +116,7 @@ export default async function TournamentListPage({ searchParams }: PageProps) {
         )}
 
         <Rule className="mt-10" />
-        <p className="pt-4 font-plate text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-sisal-500">
+        <p className="pt-4 font-plate text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-sisal-500">
           Synthetische Daten ·{" "}
           <Link
             className="underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900"

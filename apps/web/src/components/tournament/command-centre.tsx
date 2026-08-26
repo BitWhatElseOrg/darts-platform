@@ -211,7 +211,7 @@ export function CommandCentre({ initialDashboard, scenario }: CommandCentreProps
       <div className="mx-auto max-w-[1600px] px-5 py-6 xl:px-9">
         <nav className="mb-5">
           <Link
-            className="font-plate text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900"
+            className="font-plate text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900"
             href="/turniere"
           >
             Alle Turniere
@@ -263,7 +263,7 @@ export function CommandCentre({ initialDashboard, scenario }: CommandCentreProps
               </SheetLabel>
               <ul className="mt-1.5 flex flex-col gap-0.5">
                 {pending.map((command) => (
-                  <li className="font-plate text-[0.8125rem] text-wedge-900" key={command.commandId}>
+                  <li className="font-plate text-[0.875rem] text-wedge-900" key={command.commandId}>
                     {command.label}
                   </li>
                 ))}
@@ -281,7 +281,7 @@ export function CommandCentre({ initialDashboard, scenario }: CommandCentreProps
               <SheetLabel as="h2" id="boards-heading">
                 Boards · Zifferntaste weist zu
               </SheetLabel>
-              <span className="font-numerals text-[0.8125rem] font-bold tabular text-sisal-500">
+              <span className="font-numerals text-[0.875rem] font-bold tabular text-sisal-500">
                 {dashboard.boards.length}
               </span>
             </div>
@@ -328,8 +328,8 @@ export function CommandCentre({ initialDashboard, scenario }: CommandCentreProps
                 aria-current={entry.id === scenario ? "page" : undefined}
                 className={
                   entry.id === scenario
-                    ? "min-h-9 border border-wedge-900 bg-wedge-900 px-3 py-2 font-plate text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-chalk"
-                    : "min-h-9 border border-sisal-400 px-3 py-2 font-plate text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-wedge-900 hover:bg-sisal-100"
+                    ? "min-h-9 border border-wedge-900 bg-wedge-900 px-3 py-2 font-plate text-[0.75rem] font-semibold uppercase tracking-[0.12em] text-chalk"
+                    : "min-h-9 border border-sisal-400 px-3 py-2 font-plate text-[0.75rem] font-semibold uppercase tracking-[0.12em] text-wedge-900 hover:bg-sisal-100"
                 }
                 href={`/turniere/${dashboard.tournament.id}?zustand=${entry.id}`}
                 key={entry.id}

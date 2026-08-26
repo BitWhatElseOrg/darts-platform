@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "arial",
+        "createdAt": "2026-08-26T12:49:38.513Z",
+        "reason": "Phase-0/1 scaffold body font in apps/web/src/app/globals.css, out of scope for the tournament surface and recorded in DESIGN.md as an anti-reference to be replaced when that surface is redesigned"
+      }
+    ]
+  }
+}

@@ -84,7 +84,7 @@ export function DashboardHeader({ connection, dashboard, pendingCount }: Dashboa
         >
           <div className="h-full bg-wedge-900" style={{ width: `${share}%` }} />
         </div>
-        <p className="font-plate text-[0.8125rem] text-sisal-500">
+        <p className="font-plate text-[0.875rem] text-sisal-500">
           <span className="font-numerals text-[0.9375rem] font-bold tabular text-wedge-900">
             {tournament.playedMatches}
           </span>{" "}

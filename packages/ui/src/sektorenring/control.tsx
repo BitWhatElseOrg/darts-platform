@@ -6,7 +6,7 @@ import { cn } from "../lib/cn";
 const controlVariants = cva(
   [
     "inline-flex min-h-11 items-center justify-center gap-2 px-5",
-    "font-plate text-[0.8125rem] font-semibold uppercase tracking-[0.1em]",
+    "font-plate text-[0.875rem] font-semibold uppercase tracking-[0.1em]",
     "transition-colors duration-150",
     "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green",
     "disabled:pointer-events-none disabled:opacity-45",
@@ -28,7 +28,7 @@ const controlVariants = cva(
       },
       density: {
         default: "min-h-11",
-        tight: "min-h-9 px-3 text-[0.6875rem] tracking-[0.12em]",
+        tight: "min-h-9 px-3 text-[0.75rem] tracking-[0.12em]",
       },
     },
     defaultVariants: { variant: "plate", density: "default" },
@@ -63,7 +63,7 @@ export function Control({
       {shortcut ? (
         <kbd
           className={cn(
-            "ml-1 grid min-w-5 place-items-center border px-1 py-px font-numerals text-[0.6875rem] font-bold tabular",
+            "ml-1 grid min-w-5 place-items-center border px-1 py-px font-numerals text-[0.75rem] font-bold tabular",
             variant === "wire"
               ? "border-sisal-400 text-sisal-500"
               : "border-chalk/40 text-chalk/85",

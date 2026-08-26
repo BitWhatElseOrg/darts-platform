@@ -9,7 +9,7 @@ const scoreVariants = cva("font-numerals font-bold tabular", {
       /* The remaining score of the player at the oche: the largest thing on the page. */
       display: "text-[3.5rem] leading-[0.78] tracking-[-0.02em]",
       lead: "text-[2rem] leading-[0.85] tracking-[-0.015em]",
-      quiet: "text-[1.25rem] leading-none tracking-[-0.01em]",
+      quiet: "text-[1.125rem] leading-none tracking-[-0.01em]",
     },
     tone: {
       chalk: "text-chalk",

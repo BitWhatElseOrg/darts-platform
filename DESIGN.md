@@ -40,6 +40,13 @@ typography:
     fontWeight: 700
     lineHeight: 1.1
     letterSpacing: "-0.01em"
+  title-sm:
+    fontFamily: "Saira Condensed, Arial Narrow, sans-serif"
+    fontSize: "1.125rem"
+    fontWeight: 700
+    lineHeight: 1.15
+    letterSpacing: "-0.01em"
+    fontFeature: "tnum 1"
   data:
     fontFamily: "Saira Condensed, Arial Narrow, sans-serif"
     fontSize: "2rem"
@@ -47,11 +54,30 @@ typography:
     lineHeight: 0.85
     letterSpacing: "-0.015em"
     fontFeature: "tnum 1"
+  counter:
+    fontFamily: "Saira Condensed, Arial Narrow, sans-serif"
+    fontSize: "1rem"
+    fontWeight: 700
+    lineHeight: 1
+    letterSpacing: "normal"
+    fontFeature: "tnum 1"
+  field:
+    fontFamily: "Archivo, system-ui, sans-serif"
+    fontSize: "0.9375rem"
+    fontWeight: 600
+    lineHeight: 1.4
+    letterSpacing: "normal"
   body:
     fontFamily: "Archivo, system-ui, sans-serif"
     fontSize: "0.875rem"
     fontWeight: 400
     lineHeight: 1.5
+    letterSpacing: "normal"
+  caption:
+    fontFamily: "Archivo, system-ui, sans-serif"
+    fontSize: "0.75rem"
+    fontWeight: 400
+    lineHeight: 1.4
     letterSpacing: "normal"
   label:
     fontFamily: "Archivo, system-ui, sans-serif"
@@ -204,12 +230,19 @@ Neutrals plus the board's two signals. The palette is restrained on purpose: an 
 **Character:** Saira Condensed is the number ring's lettering — squared terminals, condensed width, built to be read across a room. It carries every numeral and every heading. Archivo does the reading work: a workhorse grotesque with true tabular figures that sits under the numerals without competing. Both are self-hosted through `next/font`.
 
 ### Hierarchy
-- **Display** (Saira Condensed 700, 3.5rem, 0.78 line-height, -0.02em, tabular): the remaining score of the player at the oche. Nothing else on the page uses this size.
+
+Ten steps, and only ten. Saira Condensed carries the top five, Archivo the bottom four; `counter` is the hinge where numerals get small enough to sit in a text line.
+
+- **Display** (Saira Condensed 700, 3.5rem, 0.78 line-height, -0.02em, tabular): the remaining score of the player at the oche. Nothing else on any surface uses this size.
 - **Headline** (Saira Condensed 700, 2.75rem, 0.9 line-height, -0.02em): the page's one `h1` — tournament name, "Turniere", "Turnier anlegen".
-- **Title** (Saira Condensed 700, 1.125–1.5rem, 1.1 line-height): group headings, tournament names in a list, section totals.
-- **Data** (Saira Condensed 700, 2rem / 1.25rem, tabular): the opponent's remaining score, preview counters, leg counts, runtimes.
-- **Body** (Archivo 400–600, 0.8125–0.9375rem, 1.5 line-height): names, reasons, prose. Prose measure stays under 70ch.
-- **Label** (Archivo 600, 0.625–0.6875rem, uppercase, 0.12–0.16em): zone captions, table headers, state words.
+- **Data** (Saira Condensed 700, 2rem, 0.85 line-height, tabular): the opponent's remaining score, the setup sheet's match total, the large board plate's numeral.
+- **Title** (Saira Condensed 700, 1.5rem, 1.1 line-height): tournament names in a list, structure-preview counters, the medium board plate's numeral, the empty state's statement.
+- **Title-sm** (Saira Condensed 700, 1.125rem, 1.15 line-height, tabular): group headings, the quiet score step, header values like version and time.
+- **Counter** (Saira Condensed 700, 1rem, tabular): legs won, zone counts — numerals that sit inline with text.
+- **Field** (Archivo 600, 0.9375rem, 1.4 line-height): input values, board names, the active player's name, the next pairing. The one step where a name must not shrink.
+- **Body** (Archivo 400–600, 0.875rem, 1.5 line-height): prose, reasons, table cells, control labels, runtimes. Prose measure stays under 70ch.
+- **Caption** (Archivo 400–600, 0.75rem, 1.4 line-height): meta lines, stage labels, state words (uppercase at 0.12em), shortcut keys, step labels.
+- **Label** (Archivo 600, 0.625rem, uppercase, 0.14–0.16em): sheet captions and table headers — the ruled caption that doubles as a data group's heading.
 
 ### Named Rules
 **The Oche Rule.** The active player's remaining score is the largest element on the page (3.5rem); the opponent's is set at 2rem in dim steel. The size difference *is* the turn indicator, so it is never softened.
@@ -217,6 +250,8 @@ Neutrals plus the board's two signals. The palette is restrained on purpose: an 
 **The Tabular Rule.** Any numeral that can sit in a column — score, legs, runtime, points, leg difference — uses tabular figures (`.tabular`). A proportional numeral in a table is a defect.
 
 **The One Voice Per Job Rule.** Saira Condensed for numerals and headings, Archivo for everything read as language. No third face, and no system display face substituted for either.
+
+**The Ten Steps Rule.** The ramp has exactly ten steps and they are the ones above. A size one pixel off an existing step is drift, not a decision: pick the neighbour. Every literal `text-[…]` in the tournament surfaces resolves to one of these ten.
 
 ## Layout
 

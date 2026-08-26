@@ -9,7 +9,7 @@ import { cn } from "../lib/cn";
 export function Table({ className, ...props }: ComponentProps<"table">) {
   return (
     <table
-      className={cn("w-full border-collapse font-plate text-[0.8125rem] tabular", className)}
+      className={cn("w-full border-collapse font-plate text-[0.875rem] tabular", className)}
       {...props}
     />
   );

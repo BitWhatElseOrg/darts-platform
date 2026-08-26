@@ -19,13 +19,13 @@ export function QueuePanel({ onAssign, openBoardName, queue }: QueuePanelProps) 
         <SheetLabel as="h2" id="queue-heading">
           Warteschlange
         </SheetLabel>
-        <span className="font-numerals text-[0.8125rem] font-bold tabular text-sisal-500">
+        <span className="font-numerals text-[0.875rem] font-bold tabular text-sisal-500">
           {queue.length}
         </span>
       </div>
       <Rule />
       {queue.length === 0 ? (
-        <p className="py-4 font-plate text-[0.8125rem] text-sisal-500">
+        <p className="py-4 font-plate text-[0.875rem] text-sisal-500">
           Kein Match wartet. Alles Spielbare ist auf einem Board.
         </p>
       ) : (
@@ -35,10 +35,10 @@ export function QueuePanel({ onAssign, openBoardName, queue }: QueuePanelProps) 
             return (
               <li className="border-b border-sisal-300 py-2.5" key={entry.matchId}>
                 <div className="flex items-baseline gap-2.5">
-                  <span className="w-4 shrink-0 font-numerals text-[0.8125rem] font-bold tabular text-sisal-400">
+                  <span className="w-4 shrink-0 font-numerals text-[0.875rem] font-bold tabular text-sisal-400">
                     {entry.position}
                   </span>
-                  <span className="flex-1 font-plate text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-sisal-500">
+                  <span className="flex-1 font-plate text-[0.75rem] font-semibold uppercase tracking-[0.12em] text-sisal-500">
                     {entry.stageLabel}
                   </span>
                   <StateTag

@@ -94,8 +94,8 @@ export function BoardWedge({
             <span
               className={
                 slot.match.overrunning
-                  ? "font-numerals text-[0.8125rem] font-bold tabular text-ring-red-lit"
-                  : "font-numerals text-[0.8125rem] font-bold tabular text-spider/75"
+                  ? "font-numerals text-[0.875rem] font-bold tabular text-ring-red-lit"
+                  : "font-numerals text-[0.875rem] font-bold tabular text-spider/75"
               }
             >
               {runtimeLabel(minutesBetween(slot.match.startedAt, now))}
@@ -131,7 +131,7 @@ export function BoardWedge({
                 {participant.onFinish && participant.checkoutRoute ? (
                   <p className="mt-1 flex items-center gap-1.5">
                     <StateTag label="Finish" on="ink" tone="finish" />
-                    <span className="font-numerals text-[0.8125rem] font-bold tabular text-ring-green-lit">
+                    <span className="font-numerals text-[0.875rem] font-bold tabular text-ring-green-lit">
                       {participant.checkoutRoute}
                     </span>
                   </p>
@@ -151,7 +151,7 @@ export function BoardWedge({
         </div>
       ) : slot.state === "BLOCKED" ? (
         <div className="flex flex-col gap-3 px-4 py-4">
-          <p className="font-plate text-[0.8125rem] text-sisal-300">
+          <p className="font-plate text-[0.875rem] text-sisal-300">
             {slot.blockedReason ?? "Grund nicht erfasst."}
           </p>
           <Control className="self-start" density="tight" onClick={onRelease} variant="wireInk">
@@ -181,7 +181,7 @@ export function BoardWedge({
         </div>
       ) : (
         <div className="flex flex-col gap-2 px-4 py-4">
-          <p className="font-plate text-[0.8125rem] text-sisal-500">
+          <p className="font-plate text-[0.875rem] text-sisal-500">
             Kein Match ist startbereit.
           </p>
           <p className="font-plate text-[0.75rem] text-sisal-400">

@@ -47,12 +47,34 @@
         "purpose": "The remaining score of the player at the oche. Nothing else uses this size."
       },
       "headline": { "displayName": "Page Title", "purpose": "The single h1 per surface." },
-      "title": { "displayName": "Group Title", "purpose": "Group headings and list item names." },
       "data": {
-        "displayName": "Counter",
-        "purpose": "Opponent score, leg counts, runtimes, preview totals. Always tabular."
+        "displayName": "Opponent Score",
+        "purpose": "The waiting player's remaining score, setup totals, the large plate numeral. Always tabular."
       },
-      "body": { "displayName": "Plate Text", "purpose": "Names, reasons, prose. Under 70ch." },
+      "title": {
+        "displayName": "List Title",
+        "purpose": "Tournament names in a list, preview counters, the medium plate numeral, empty-state statements."
+      },
+      "title-sm": {
+        "displayName": "Group Title",
+        "purpose": "Group headings, header values, the quiet score step."
+      },
+      "counter": {
+        "displayName": "Inline Counter",
+        "purpose": "Legs won and zone counts — numerals that sit inline with text."
+      },
+      "field": {
+        "displayName": "Field Value",
+        "purpose": "Input values, board names, the active player's name. The one step where a name must not shrink."
+      },
+      "body": {
+        "displayName": "Plate Text",
+        "purpose": "Prose, reasons, table cells, control labels, runtimes. Under 70ch."
+      },
+      "caption": {
+        "displayName": "Meta Caption",
+        "purpose": "Meta lines, stage labels, state words, shortcut keys, step labels."
+      },
       "label": {
         "displayName": "Sheet Caption",
         "purpose": "Zone captions, table headers, state words. Doubles as the group heading."
@@ -202,6 +224,11 @@
       {
         "name": "The One Voice Per Job Rule",
         "body": "Saira Condensed for numerals and headings, Archivo for everything read as language. No third face, and no system display face substituted for either.",
+        "section": "typography"
+      },
+      {
+        "name": "The Ten Steps Rule",
+        "body": "The ramp has exactly ten steps: 3.5, 2.75, 2, 1.5, 1.125, 1, 0.9375, 0.875, 0.75 and 0.625rem. A size one pixel off an existing step is drift, not a decision: pick the neighbour.",
         "section": "typography"
       },
       {
