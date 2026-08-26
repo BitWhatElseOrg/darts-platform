@@ -1,0 +1,255 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-26T00:00:00.000Z",
+  "title": "Design System: Dart Tournament Platform",
+  "extensions": {
+    "colorMeta": {
+      "sisal-200": {
+        "role": "neutral",
+        "displayName": "Sisal",
+        "canonical": "#e1d3ae",
+        "tonalRamp": ["#6f6144", "#a08e69", "#cdbc93", "#e1d3ae", "#ede3c6", "#f6f0de"]
+      },
+      "wedge-900": {
+        "role": "neutral",
+        "displayName": "Wedge Black",
+        "canonical": "#15130f",
+        "tonalRamp": ["#15130f", "#221f19", "#35301f"]
+      },
+      "ring-green": {
+        "role": "primary",
+        "displayName": "Ring Green",
+        "canonical": "#1e7443",
+        "tonalRamp": ["#124327", "#1e7443", "#4cb277"]
+      },
+      "ring-red": {
+        "role": "secondary",
+        "displayName": "Ring Red",
+        "canonical": "#b4232a",
+        "tonalRamp": ["#7c161c", "#b4232a", "#e2646a"]
+      },
+      "spider": {
+        "role": "neutral",
+        "displayName": "Spider Steel",
+        "canonical": "#c9ccc8",
+        "tonalRamp": ["#6d716c", "#c9ccc8"]
+      },
+      "chalk": {
+        "role": "neutral",
+        "displayName": "Chalk",
+        "canonical": "#f9f5e9",
+        "tonalRamp": ["#f9f5e9"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Oche Score",
+        "purpose": "The remaining score of the player at the oche. Nothing else uses this size."
+      },
+      "headline": { "displayName": "Page Title", "purpose": "The single h1 per surface." },
+      "title": { "displayName": "Group Title", "purpose": "Group headings and list item names." },
+      "data": {
+        "displayName": "Counter",
+        "purpose": "Opponent score, leg counts, runtimes, preview totals. Always tabular."
+      },
+      "body": { "displayName": "Plate Text", "purpose": "Names, reasons, prose. Under 70ch." },
+      "label": {
+        "displayName": "Sheet Caption",
+        "purpose": "Zone captions, table headers, state words. Doubles as the group heading."
+      }
+    },
+    "shadows": [
+      {
+        "name": "mounted-plate",
+        "value": "0 1px 0 #cdbc93, 0 10px 20px -14px rgba(21,19,15,0.55)",
+        "purpose": "The only shadow in the system. A panel screwed to a wall: one seam, one soft offset shadow."
+      }
+    ],
+    "motion": [
+      {
+        "name": "land",
+        "value": "translateY(-11px) to translateY(2px) to translateY(0) over 240ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "The one authored motion: a match landing on a freed board. Reused for result and release."
+      },
+      {
+        "name": "chalk-flash",
+        "value": "inset 0 0 0 2px rgba(249,245,233,0.55) to transparent over 700ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Confirms the landing without moving anything a second time."
+      },
+      {
+        "name": "state-shift",
+        "value": "150ms linear",
+        "purpose": "Control background steps one tone on hover. The only other transition permitted."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "xl", "value": "1280px" },
+      { "name": "container", "value": "1600px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Action",
+      "kind": "button",
+      "refersTo": "control-go",
+      "description": "Starts a match on a free board. One per board, never two competing on screen.",
+      "html": "<button class=\"ds-control-go\"><svg viewBox=\"0 0 16 16\" width=\"13\" height=\"13\" aria-hidden=\"true\"><path d=\"M1.5 8h9\" stroke=\"currentColor\" stroke-width=\"1.75\"/><path d=\"M9 3.5 14.5 8 9 12.5Z\" fill=\"currentColor\"/></svg>Auf Board 3 starten<kbd class=\"ds-control-kbd\">3</kbd></button>",
+      "css": ".ds-control-go { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; padding: 0 1.25rem; background: #1e7443; color: #f9f5e9; border: none; border-radius: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.8125rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: background-color 150ms linear; } .ds-control-go:hover { background: #124327; } .ds-control-go:focus-visible { outline: 2px solid #1e7443; outline-offset: 2px; } .ds-control-kbd { display: grid; place-items: center; min-width: 1.25rem; margin-left: 0.25rem; padding: 1px 0.25rem; border: 1px solid rgba(249,245,233,0.4); font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 0.6875rem; font-weight: 700; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Wire Control",
+      "kind": "button",
+      "refersTo": "control-wire",
+      "description": "Secondary, reversible actions. A wire outline on the sisal ground.",
+      "html": "<button class=\"ds-control-wire\">Board freigeben</button>",
+      "css": ".ds-control-wire { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; padding: 0 1.25rem; background: transparent; color: #15130f; border: 1px solid #a08e69; border-radius: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.8125rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: background-color 150ms linear; } .ds-control-wire:hover { background: #ede3c6; } .ds-control-wire:focus-visible { outline: 2px solid #1e7443; outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input-text",
+      "description": "A ruled entry on the setup sheet: caption above, well below.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-caption\">Name</span><input class=\"ds-field-input\" type=\"text\" placeholder=\"Vereinsmeisterschaft 2026\"></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 0.375rem; max-width: 22rem; } .ds-field-caption { font-family: Archivo, system-ui, sans-serif; font-size: 0.625rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.16em; color: #6f6144; } .ds-field-input { min-height: 2.75rem; padding: 0 0.75rem; background: #f6f0de; color: #15130f; border: 1px solid #a08e69; border-radius: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.9375rem; } .ds-field-input::placeholder { color: #a08e69; } .ds-field-input:focus { border-color: #1e7443; outline: 2px solid #1e7443; outline-offset: 2px; }"
+    },
+    {
+      "name": "Number-Ring Plate",
+      "kind": "custom",
+      "refersTo": "plate-playing",
+      "description": "The board index, taken off the board's number ring. Black while playing, green when free, red-rimmed and hatched when blocked. Decorative for assistive tech: the board name is always text beside it.",
+      "html": "<div class=\"ds-plate-row\"><span class=\"ds-plate ds-plate-playing\" aria-hidden=\"true\">1</span><span class=\"ds-plate ds-plate-free\" aria-hidden=\"true\">3</span><span class=\"ds-plate ds-plate-blocked\" aria-hidden=\"true\">6</span></div>",
+      "css": ".ds-plate-row { display: flex; gap: 0.75rem; } .ds-plate { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 2.75rem; height: 2.75rem; border-radius: 9999px; font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 1.375rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; } .ds-plate-playing { background: #15130f; color: #f9f5e9; box-shadow: inset 0 0 0 1px rgba(201,204,200,0.7); } .ds-plate-free { background: #1e7443; color: #f9f5e9; box-shadow: inset 0 0 0 1px #124327; } .ds-plate-blocked { background: #15130f; color: #cdbc93; box-shadow: inset 0 0 0 2px #b4232a; background-image: repeating-linear-gradient(58deg, rgba(180,35,42,0.55) 0 1.5px, transparent 1.5px 5px); }"
+    },
+    {
+      "name": "State Tag",
+      "kind": "chip",
+      "refersTo": "wedge-plate",
+      "description": "Colour, drawn mark and word in one row. The enforcement mechanism for the Never-Only-Colour Rule.",
+      "html": "<div class=\"ds-tag-row\"><span class=\"ds-tag ds-tag-free\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"4.5\" fill=\"currentColor\"/></svg>frei</span><span class=\"ds-tag ds-tag-finish\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"6.25\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/><circle cx=\"8\" cy=\"8\" r=\"2.5\" fill=\"currentColor\"/></svg>Finish</span><span class=\"ds-tag ds-tag-blocked\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><rect x=\"2.5\" y=\"2.5\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/><path d=\"M3 13 13 3\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg>gesperrt</span></div>",
+      "css": ".ds-tag-row { display: flex; flex-wrap: wrap; gap: 1rem; } .ds-tag { display: inline-flex; align-items: center; gap: 0.375rem; font-family: Archivo, system-ui, sans-serif; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; } .ds-tag-free { color: #124327; } .ds-tag-finish { color: #124327; } .ds-tag-blocked { color: #7c161c; }"
+    },
+    {
+      "name": "Board Wedge — live",
+      "kind": "card",
+      "refersTo": "wedge-live",
+      "description": "A black sector carrying a running match. The active player's remaining score is the largest element; the opponent's is half of it in dim steel.",
+      "html": "<article class=\"ds-wedge ds-wedge-live\"><header class=\"ds-wedge-head\"><span class=\"ds-plate ds-plate-playing\" aria-hidden=\"true\">1</span><div class=\"ds-wedge-id\"><h3 class=\"ds-wedge-name\">Board 1</h3><p class=\"ds-wedge-stage\">Gruppe C · Leg 2 von 3</p></div><div class=\"ds-wedge-meta\"><span class=\"ds-tag ds-tag-live\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><rect x=\"2\" y=\"6.25\" width=\"12\" height=\"3.5\" fill=\"currentColor\"/></svg>läuft</span><span class=\"ds-wedge-time\">12 Min</span></div></header><div class=\"ds-wedge-rule\"></div><div class=\"ds-player ds-player-active\"><div class=\"ds-player-id\"><p class=\"ds-player-name\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><path d=\"M1.5 8h9\" stroke=\"currentColor\" stroke-width=\"1.75\"/><path d=\"M9 3.5 14.5 8 9 12.5Z\" fill=\"currentColor\"/></svg>Reto Meier</p><p class=\"ds-player-finish\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"6.25\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/><circle cx=\"8\" cy=\"8\" r=\"2.5\" fill=\"currentColor\"/></svg>Finish T20 D6</p></div><span class=\"ds-player-legs\">1</span><span class=\"ds-score-display\">72</span></div><div class=\"ds-player\"><div class=\"ds-player-id\"><p class=\"ds-player-name ds-player-quiet\">Sandra Roth</p></div><span class=\"ds-player-legs\">0</span><span class=\"ds-score-lead\">148</span></div></article>",
+      "css": ".ds-wedge { border-radius: 0; box-shadow: 0 1px 0 #cdbc93, 0 10px 20px -14px rgba(21,19,15,0.55); max-width: 34rem; } .ds-wedge-live { background: #15130f; color: #f9f5e9; border: 1px solid #35301f; } .ds-wedge-head { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.875rem 1rem 0.75rem; } .ds-wedge-id { flex: 1; min-width: 0; } .ds-wedge-name { margin: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.9375rem; font-weight: 600; color: #f9f5e9; } .ds-wedge-stage { margin: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.75rem; color: rgba(201,204,200,0.8); } .ds-wedge-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; } .ds-tag-live { color: #c9ccc8; display: inline-flex; align-items: center; gap: 0.375rem; font-family: Archivo, system-ui, sans-serif; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; } .ds-wedge-time { font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 0.8125rem; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(201,204,200,0.75); } .ds-wedge-rule { height: 1px; background: rgba(201,204,200,0.45); } .ds-player { display: flex; align-items: center; gap: 0.75rem; padding: 0.625rem 1rem; border-top: 1px solid rgba(201,204,200,0.15); } .ds-player:first-of-type { border-top: none; } .ds-player-id { flex: 1; min-width: 0; } .ds-player-name { display: flex; align-items: center; gap: 0.375rem; margin: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.9375rem; font-weight: 600; color: #f9f5e9; } .ds-player-quiet { font-size: 0.875rem; font-weight: 400; color: rgba(201,204,200,0.85); } .ds-player-finish { display: flex; align-items: center; gap: 0.375rem; margin: 0.25rem 0 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: #4cb277; } .ds-player-legs { font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(201,204,200,0.6); } .ds-score-display { font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 3.5rem; line-height: 0.78; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: #f9f5e9; } .ds-score-lead { font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 2rem; line-height: 0.85; font-weight: 700; letter-spacing: -0.015em; font-variant-numeric: tabular-nums; color: #6d716c; }"
+    },
+    {
+      "name": "Board Wedge — free",
+      "kind": "card",
+      "refersTo": "wedge-free",
+      "description": "The focal moment: a light plate among black fields, carrying the next match and the one action that starts it. Lands with the `land` motion.",
+      "html": "<article class=\"ds-wedge ds-wedge-free\"><header class=\"ds-wedge-head\"><span class=\"ds-plate ds-plate-free\" aria-hidden=\"true\">3</span><div class=\"ds-wedge-id\"><h3 class=\"ds-wedge-name-ink\">Board 3</h3><p class=\"ds-wedge-stage-ink\">offen für die Zuweisung</p></div><span class=\"ds-tag ds-tag-free\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"4.5\" fill=\"currentColor\"/></svg>frei</span></header><div class=\"ds-wedge-rule-faint\"></div><div class=\"ds-wedge-body\"><p class=\"ds-field-caption\">Nächstes Match</p><p class=\"ds-next-match\">Yves Weber<span class=\"ds-dash\">–</span>Lea Bucher</p><p class=\"ds-wedge-stage-ink\">Gruppe D</p><button class=\"ds-control-go\"><svg viewBox=\"0 0 16 16\" width=\"13\" height=\"13\" aria-hidden=\"true\"><path d=\"M1.5 8h9\" stroke=\"currentColor\" stroke-width=\"1.75\"/><path d=\"M9 3.5 14.5 8 9 12.5Z\" fill=\"currentColor\"/></svg>Auf Board 3 starten<kbd class=\"ds-control-kbd\">3</kbd></button></div></article>",
+      "css": ".ds-wedge-free { background: #ede3c6; color: #15130f; border: 2px solid #1e7443; animation: ds-land 240ms cubic-bezier(0.16, 1, 0.3, 1) both; } @keyframes ds-land { 0% { transform: translateY(-11px); } 62% { transform: translateY(2px); } 100% { transform: translateY(0); } } .ds-wedge-name-ink { margin: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.9375rem; font-weight: 600; color: #15130f; } .ds-wedge-stage-ink { margin: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.75rem; color: #6f6144; } .ds-wedge-rule-faint { height: 1px; background: #cdbc93; } .ds-wedge-body { display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem; align-items: flex-start; } .ds-next-match { margin: 0.25rem 0 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.9375rem; font-weight: 600; color: #15130f; } .ds-dash { padding: 0 0.375rem; color: #a08e69; } @media (prefers-reduced-motion: reduce) { .ds-wedge-free { animation: none; } }"
+    },
+    {
+      "name": "Queue Row",
+      "kind": "list-item",
+      "refersTo": "wedge-plate",
+      "description": "One waiting match. Position, stage, readiness on the first line; the pairing below; the scheduler's reason under a blocked row.",
+      "html": "<ol class=\"ds-queue\"><li class=\"ds-queue-row\"><div class=\"ds-queue-head\"><span class=\"ds-queue-pos\">1</span><span class=\"ds-queue-stage\">Gruppe D</span><span class=\"ds-tag ds-tag-free\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"4.5\" fill=\"currentColor\"/></svg>bereit</span></div><p class=\"ds-queue-pair\">Yves Weber<span class=\"ds-dash\">–</span>Lea Bucher</p></li><li class=\"ds-queue-row\"><div class=\"ds-queue-head\"><span class=\"ds-queue-pos\">3</span><span class=\"ds-queue-stage\">Gruppe B</span><span class=\"ds-tag ds-tag-blocked\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><rect x=\"2.5\" y=\"2.5\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/><path d=\"M3 13 13 3\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg>Spieler belegt</span></div><p class=\"ds-queue-pair\">Bruno Iten<span class=\"ds-dash\">–</span>Petra Odermatt</p><p class=\"ds-queue-reason\">Petra Odermatt spielt auf Board 5.</p></li></ol>",
+      "css": ".ds-queue { list-style: none; margin: 0; padding: 0; max-width: 22rem; } .ds-queue-row { padding: 0.625rem 0; border-bottom: 1px solid #cdbc93; } .ds-queue-head { display: flex; align-items: baseline; gap: 0.625rem; } .ds-queue-pos { width: 1rem; font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 0.8125rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #a08e69; } .ds-queue-stage { flex: 1; font-family: Archivo, system-ui, sans-serif; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: #6f6144; } .ds-queue-pair { margin: 0.125rem 0 0; padding-left: 1.625rem; font-family: Archivo, system-ui, sans-serif; font-size: 0.875rem; font-weight: 600; color: #15130f; } .ds-queue-reason { margin: 0.125rem 0 0; padding-left: 1.625rem; font-family: Archivo, system-ui, sans-serif; font-size: 0.75rem; color: #6f6144; }"
+    },
+    {
+      "name": "Standings Table",
+      "kind": "custom",
+      "refersTo": "wedge-plate",
+      "description": "The printed group sheet: hairlines, tabular figures, no zebra, no card. A qualifying row carries ground, a double-ring mark and a screen-reader note.",
+      "html": "<table class=\"ds-table\"><caption class=\"ds-table-caption\">Gruppe A</caption><thead><tr><th class=\"ds-th ds-th-narrow\" scope=\"col\">Pl</th><th class=\"ds-th\" scope=\"col\">Spieler</th><th class=\"ds-th ds-th-num\" scope=\"col\">S</th><th class=\"ds-th ds-th-num\" scope=\"col\">Legs</th><th class=\"ds-th ds-th-num\" scope=\"col\">Pkt</th></tr></thead><tbody><tr class=\"ds-tr ds-tr-qualified\"><td class=\"ds-td\"><span class=\"ds-pos\"><svg viewBox=\"0 0 16 16\" width=\"10\" height=\"10\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"6.25\" fill=\"none\" stroke=\"#1e7443\" stroke-width=\"1.5\"/><circle cx=\"8\" cy=\"8\" r=\"2.5\" fill=\"#1e7443\"/></svg>1</span></td><td class=\"ds-td ds-td-name\">Urs Keller</td><td class=\"ds-td ds-td-num\">3</td><td class=\"ds-td ds-td-num ds-td-dim\">9:4</td><td class=\"ds-td ds-td-num ds-td-strong\">6</td></tr><tr class=\"ds-tr ds-tr-qualified\"><td class=\"ds-td\"><span class=\"ds-pos\"><svg viewBox=\"0 0 16 16\" width=\"10\" height=\"10\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"6.25\" fill=\"none\" stroke=\"#1e7443\" stroke-width=\"1.5\"/><circle cx=\"8\" cy=\"8\" r=\"2.5\" fill=\"#1e7443\"/></svg>2</span></td><td class=\"ds-td ds-td-name\">Nadja Suter</td><td class=\"ds-td ds-td-num\">2</td><td class=\"ds-td ds-td-num ds-td-dim\">7:6</td><td class=\"ds-td ds-td-num ds-td-strong\">4</td></tr><tr class=\"ds-tr\"><td class=\"ds-td\"><span class=\"ds-pos\">3</span></td><td class=\"ds-td ds-td-name\">Olivier Wyss</td><td class=\"ds-td ds-td-num\">1</td><td class=\"ds-td ds-td-num ds-td-dim\">5:8</td><td class=\"ds-td ds-td-num ds-td-strong\">2</td></tr></tbody></table>",
+      "css": ".ds-table { width: 100%; max-width: 20rem; border-collapse: collapse; font-family: Archivo, system-ui, sans-serif; font-size: 0.8125rem; font-variant-numeric: tabular-nums; color: #15130f; } .ds-table-caption { text-align: left; padding-bottom: 0.25rem; font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 1.125rem; font-weight: 700; letter-spacing: -0.01em; } .ds-th { padding-bottom: 0.375rem; border-bottom: 1px solid #a08e69; text-align: left; font-size: 0.625rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: #6f6144; } .ds-th-narrow { width: 1.5rem; } .ds-th-num { text-align: right; } .ds-td { padding: 0.375rem 0; border-bottom: 1px solid #cdbc93; } .ds-td-name { font-weight: 500; } .ds-td-num { text-align: right; } .ds-td-dim { color: #6f6144; } .ds-td-strong { font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-weight: 700; } .ds-tr-qualified { background: #ede3c6; } .ds-pos { display: inline-flex; align-items: center; gap: 0.25rem; font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-weight: 700; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Der Sektorenring",
+    "overview": "A bristle board is already a precision information graphic: sisal wedges alternating black and oat, a steel spider dividing every sector, stencilled enamel numerals on a fixed ring, and a red/green double ring that has meant *this can end now* for a century. This system takes that apparatus and operates a tournament with it. It is emphatically not a picture of a dartboard — there is no round board on any screen. The board supplies the grammar: fields instead of cards, wire instead of borders, enamel numerals instead of a UI sans, and the sport's own two signal colours instead of an invented status palette.\n\nThe register is dense and matte. A tournament director reads this surface across a noisy hall under mixed light, so the ground is warm and light (sisal) with black fields carrying the live data — the inverse of the dark dashboard this category ships, and chosen from that scene rather than from taste. Density is high and deliberate: eight boards, a queue, a disruption list and eight group tables coexist without a single collapsible. Nothing dims, nothing hides behind a badge.\n\nThe world currently governs the tournament routes and the Sektorenring primitive set in packages/ui. The Phase-0/1 scaffold on / still carries the previous dark slate look; it is scoped out by the .sektorenring class and will be replaced when that surface is redesigned. Treat the scaffold as an anti-reference, not as a second system.",
+    "keyCharacteristics": [
+      "Warm sisal ground, black wedge fields, no rounded rectangles anywhere",
+      "Two chromatic signals only — the board's red and green — always paired with a drawn mark and a word",
+      "Enamel condensed numerals at display scale; the remaining score is the largest thing on the page",
+      "Hairlines instead of boxes: the spider wire is the only divider",
+      "One authored motion: the landing of a match on a board"
+    ],
+    "rules": [
+      {
+        "name": "The Two Signals Rule",
+        "body": "Only red and green carry state. Anything else on the surface is sisal, wedge black, steel or chalk. A third hue would make the first two stop meaning anything.",
+        "section": "colors"
+      },
+      {
+        "name": "The Never-Only-Colour Rule",
+        "body": "Every coloured state also carries a drawn mark (disc, bar, double ring, hatch, cross, clock) and a word. Colour is the third channel, never the only one. This is binding, not stylistic (AGENTS.md §19).",
+        "section": "colors"
+      },
+      {
+        "name": "The Lit-Pair Rule",
+        "body": "A signal colour has two renditions: the true ring colour on sisal, the lit variant on black. Using the true colour on a black field is a contrast failure, not a style choice.",
+        "section": "colors"
+      },
+      {
+        "name": "The Oche Rule",
+        "body": "The active player's remaining score is the largest element on the page (3.5rem); the opponent's is set at 2rem in dim steel. The size difference is the turn indicator, so it is never softened.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Any numeral that can sit in a column — score, legs, runtime, points, leg difference — uses tabular figures. A proportional numeral in a table is a defect.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Voice Per Job Rule",
+        "body": "Saira Condensed for numerals and headings, Archivo for everything read as language. No third face, and no system display face substituted for either.",
+        "section": "typography"
+      },
+      {
+        "name": "The Three Zones Rule",
+        "body": "Boards, queue, disruptions. All three are on screen at the desk anchor, and none of them dims, collapses or hides behind a count. A monitoring surface may not obscure its own state.",
+        "section": "layout"
+      },
+      {
+        "name": "The Disruption-In-View Rule",
+        "body": "Conflicts render in the first viewport, never in a modal and never as a badge that must be clicked. When there is nothing wrong, the zone says so with a green disc and the word ohne Befund.",
+        "section": "layout"
+      },
+      {
+        "name": "The Mounted-Plate Rule",
+        "body": "Panels are mounted, not floating. One seam, one soft shadow, no second elevation step. A zero-offset coloured halo is decoration and has no place here.",
+        "section": "elevation"
+      },
+      {
+        "name": "The No-Radius Rule",
+        "body": "Radius is 0 everywhere except the number-ring plate. A rounded rectangle in this system is a foreign object.",
+        "section": "shapes"
+      },
+      {
+        "name": "The Two-Pixel Rule",
+        "body": "A 2px border means act on this. Free, blocked and alarm own it; nothing else may borrow it.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "Do pair every coloured state with a drawn mark and a word, on every surface, without exception.",
+      "Do use Score at display (3.5rem) for the active player's remaining score and lead (2rem) for the opponent's — the size gap is the turn indicator.",
+      "Do put numerals in Saira Condensed with tabular figures, and language in Archivo.",
+      "Do reach for Rule when content needs separating. A hairline is the answer; a box is not.",
+      "Do keep radius at 0 and let the number-ring plate be the only circle.",
+      "Do pick the lit signal variant (ring-green-lit, ring-red-lit) whenever a signal sits on wedge-900.",
+      "Do show pending commands and version conflicts as visible, actionable states — a queued command listed by name beats a silent retry.",
+      "Do advertise the keyboard path on the control that performs it (shortcut on Control)."
+    ],
+    "donts": [
+      "Don't introduce a third accent hue. Amber, blue and violet have no meaning on a dartboard and would drain red and green of theirs.",
+      "Don't round a corner, anywhere, for any component.",
+      "Don't render a circular dartboard, a wire spider illustration, or any depiction of the board as ornament. The board is the grammar, not the picture.",
+      "Don't dim, collapse or badge-away a zone of the command centre to reduce density. Density is the feature.",
+      "Don't use emerald, slate or any other Tailwind default palette colour on a .sektorenring surface — those belong to the scaffold this world replaces.",
+      "Don't add a second shadow step or a coloured glow; there is exactly one mounted-plate shadow.",
+      "Don't stack a small uppercase caption above a heading as an eyebrow. SheetLabel is the heading for a data group.",
+      "Don't substitute a unicode glyph or emoji for a drawn mark, and don't mix stroke weights in the mark family (1.5px on a 16px box).",
+      "Don't scatter hover animations. The system has one authored motion — the landing — and it belongs to assignment, result and release."
+    ]
+  }
+}

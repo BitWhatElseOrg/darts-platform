@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { ApplicationDashboard } from "@/components/application-dashboard";
 
 export default function HomePage() {
@@ -18,6 +20,13 @@ export default function HomePage() {
         </header>
 
         <ApplicationDashboard />
+
+        <Link
+          className="inline-flex min-h-11 items-center border border-slate-700 px-5 text-sm font-semibold text-slate-100 transition-colors hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 focus-visible:outline-none"
+          href="/turniere"
+        >
+          Turnierleitung
+        </Link>
       </div>
     </main>
   );
