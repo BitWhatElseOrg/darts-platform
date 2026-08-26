@@ -2,7 +2,7 @@
 
 Eine robuste, mandantenfähige Plattform zur Organisation und Durchführung von Dartturnieren, Ligen und Turnierserien – vom Teilnehmermanagement über Live-Scoring bis zur öffentlichen Ergebnisanzeige.
 
-> **Projektstatus:** Phase 0 abgeschlossen. Identity, Tenancy, Audit, reproduzierbare Railway-Deployments, automatisierte Migrationen, strukturiertes Logging und das vollständige CI-Gate sind eingerichtet. Als Nächstes folgt Phase 1 mit dem Playable Match MVP.
+> **Projektstatus:** Phase 1 abgeschlossen. Zwei Spieler können ein vollständiges 501-Double-Out-Match auf einem mobilen Scoreboard spielen – mit Bust, Checkout, Dart Count, Best of Legs, Undo, Idempotenz und Versionsschutz. Als Nächstes folgt das Tournament MVP.
 
 ## Quick Start
 
@@ -65,7 +65,7 @@ Zentrale Architekturprinzipien:
 - **Optimistic Concurrency:** Aktive Matches und Legs werden über eine Version vor konkurrierenden Änderungen geschützt.
 - **Realtime nach Commit:** WebSocket-Events werden erst nach erfolgreicher Persistierung veröffentlicht.
 
-Die aktuelle Foundation bietet:
+Der aktuelle Stand bietet zusätzlich zur Foundation:
 
 - Registrierung, Login, Logout und persistente HttpOnly-Sessions über Better Auth
 - Organisationserstellung mit transaktionaler OWNER-Mitgliedschaft
@@ -77,6 +77,12 @@ Die aktuelle Foundation bietet:
 - Railway Infrastructure as Code für Web, API, PostgreSQL und Redis
 - automatische Migrationen vor dem API-Start und dependency-sensitive Healthchecks
 - strukturierte JSON-Logs mit stabilen Correlation-IDs
+- eine infrastrukturfrei getestete X01-Scoring-Engine
+- tenant-sichere Board- und Matchverwaltung mit granularen Permissions
+- persistente Legs und Visits inklusive Restscore, Bust und Double-Out-Checkout
+- idempotente Score-/Undo-Commands und Optimistic Concurrency mit HTTP 409
+- transaktionale Audit- und Outbox-Einträge für jeden Score-Zustandswechsel
+- ein touchfreundliches Scoreboard für Smartphone und Tablet
 
 Weitere Details stehen in der [Zielarchitektur](./ARCHITECTURE.md) und im [initialen Datenbankschema](./DATABASE_SCHEMA.md).
 
@@ -104,6 +110,7 @@ Weitere Details stehen in der [Zielarchitektur](./ARCHITECTURE.md) und im [initi
 │   └── api/                 # NestJS/Fastify API
 ├── packages/
 │   ├── domain/              # Gemeinsame Domain-Bausteine
+│   ├── scoring-engine/       # Deterministische X01-Regeln und Command-Replay
 │   ├── database/            # Drizzle-Schema, Migrationen und DB-Client
 │   ├── ui/                  # Gemeinsame UI-Komponenten
 │   ├── schemas/             # Geteilte Zod-Schemas
@@ -146,7 +153,7 @@ Alle Phasen und Exit-Kriterien sind in der [Roadmap](./ROADMAP.md) beschrieben.
 | `pnpm lint` | ESLint für das gesamte Monorepo ausführen |
 | `pnpm typecheck` | TypeScript-Prüfung aller Workspaces ausführen |
 | `pnpm test` | Unit- und Integrationstests ausführen |
-| `pnpm test:e2e` | Browser-Smoke-Test für die Foundation ausführen |
+| `pnpm test:e2e` | vollständiges 501-Match im Browser ausführen |
 | `pnpm build` | alle produktiven Builds erstellen |
 
 Die produktiven Container können zusätzlich lokal gebaut werden:
@@ -212,6 +219,7 @@ Verbindliche Architektur- und Arbeitsregeln stehen in [AGENTS.md](./AGENTS.md).
 | [AGENTS.md](./AGENTS.md) | Verbindliche Regeln für Entwicklung und Coding Agents |
 | [ADR 0002](./docs/adr/0002-identity-tenancy.md) | Identität, Tenant-Kontext, Permissions und Audit |
 | [ADR 0003](./docs/adr/0003-phase-0-production-operations.md) | Railway, Migrationen, Healthchecks, Logging und CI-Gate |
+| [ADR 0004](./docs/adr/0004-phase-1-x01-match.md) | X01-Engine, Idempotenz, Versionsprüfung, Undo und Transaktionen |
 | [Railway-Runbook](./infrastructure/railway.md) | Deployment, Variablen, Smoke-Test, Diagnose und Rollback |
 
 ## Lizenz

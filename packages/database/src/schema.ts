@@ -4,6 +4,7 @@ import {
   check,
   index,
   inet,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -270,6 +271,195 @@ export const auditEvents = pgTable(
   ],
 );
 
+export const boards = pgTable(
+  "boards",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 100 }).notNull(),
+    status: varchar("status", { length: 30 }).default("AVAILABLE").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("boards_organization_name_unique").on(table.organizationId, table.name),
+    index("boards_organization_id_idx").on(table.organizationId),
+    check("boards_name_not_empty", sql`length(trim(${table.name})) > 0`),
+    check("boards_status_check", sql`${table.status} in ('AVAILABLE', 'IN_USE', 'OFFLINE')`),
+  ],
+);
+
+export const matches = pgTable(
+  "matches",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    boardId: uuid("board_id").references(() => boards.id, { onDelete: "set null" }),
+    status: varchar("status", { length: 30 }).default("IN_PROGRESS").notNull(),
+    startingScore: integer("starting_score").default(501).notNull(),
+    bestOfLegs: integer("best_of_legs").notNull(),
+    version: integer("version").default(0).notNull(),
+    startingPlayerId: uuid("starting_player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "restrict" }),
+    currentPlayerId: uuid("current_player_id").references(() => players.id, { onDelete: "restrict" }),
+    winnerPlayerId: uuid("winner_player_id").references(() => players.id, { onDelete: "restrict" }),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    index("matches_organization_status_idx").on(table.organizationId, table.status),
+    index("matches_board_id_idx").on(table.boardId),
+    check("matches_status_check", sql`${table.status} in ('IN_PROGRESS', 'COMPLETED')`),
+    check("matches_starting_score_check", sql`${table.startingScore} >= 2`),
+    check("matches_best_of_legs_check", sql`${table.bestOfLegs} > 0 and mod(${table.bestOfLegs}, 2) = 1`),
+    check("matches_version_check", sql`${table.version} >= 0`),
+  ],
+);
+
+export const matchParticipants = pgTable(
+  "match_participants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    matchId: uuid("match_id")
+      .notNull()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "restrict" }),
+    seat: integer("seat").notNull(),
+    legsWon: integer("legs_won").default(0).notNull(),
+  },
+  (table) => [
+    uniqueIndex("match_participants_match_player_unique").on(table.matchId, table.playerId),
+    uniqueIndex("match_participants_match_seat_unique").on(table.matchId, table.seat),
+    index("match_participants_organization_id_idx").on(table.organizationId),
+    check("match_participants_seat_check", sql`${table.seat} in (1, 2)`),
+    check("match_participants_legs_won_check", sql`${table.legsWon} >= 0`),
+  ],
+);
+
+export const legs = pgTable(
+  "legs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    matchId: uuid("match_id")
+      .notNull()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    legNumber: integer("leg_number").notNull(),
+    startingPlayerId: uuid("starting_player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "restrict" }),
+    winnerPlayerId: uuid("winner_player_id").references(() => players.id, { onDelete: "restrict" }),
+    status: varchar("status", { length: 30 }).default("IN_PROGRESS").notNull(),
+    version: integer("version").default(0).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("legs_match_number_unique").on(table.matchId, table.legNumber),
+    index("legs_organization_match_idx").on(table.organizationId, table.matchId),
+    check("legs_number_check", sql`${table.legNumber} > 0`),
+    check("legs_status_check", sql`${table.status} in ('IN_PROGRESS', 'COMPLETED')`),
+    check("legs_version_check", sql`${table.version} >= 0`),
+  ],
+);
+
+export const visits = pgTable(
+  "visits",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    matchId: uuid("match_id")
+      .notNull()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    legId: uuid("leg_id")
+      .notNull()
+      .references(() => legs.id, { onDelete: "cascade" }),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "restrict" }),
+    commandId: uuid("command_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    points: integer("points").notNull(),
+    appliedPoints: integer("applied_points").notNull(),
+    dartsThrown: integer("darts_thrown").notNull(),
+    scoreBefore: integer("score_before").notNull(),
+    scoreAfter: integer("score_after").notNull(),
+    checkoutDouble: integer("checkout_double"),
+    outcome: varchar("outcome", { length: 30 }).notNull(),
+    revertedAt: timestamp("reverted_at", { withTimezone: true }),
+    revertedByCommandId: uuid("reverted_by_command_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("visits_command_id_unique").on(table.commandId),
+    uniqueIndex("visits_match_sequence_unique").on(table.matchId, table.sequence),
+    index("visits_organization_match_idx").on(table.organizationId, table.matchId),
+    index("visits_leg_id_idx").on(table.legId),
+    check("visits_points_check", sql`${table.points} between 0 and 180`),
+    check("visits_applied_points_check", sql`${table.appliedPoints} between 0 and 180`),
+    check("visits_darts_check", sql`${table.dartsThrown} between 1 and 3`),
+    check("visits_scores_check", sql`${table.scoreBefore} >= 0 and ${table.scoreAfter} >= 0`),
+    check("visits_checkout_double_check", sql`${table.checkoutDouble} is null or ${table.checkoutDouble} between 1 and 20 or ${table.checkoutDouble} = 25`),
+    check("visits_outcome_check", sql`${table.outcome} in ('SCORED', 'BUST', 'LEG_WON', 'SET_WON', 'MATCH_WON')`),
+  ],
+);
+
+export const scoreCommands = pgTable(
+  "score_commands",
+  {
+    commandId: uuid("command_id").primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    matchId: uuid("match_id")
+      .notNull()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    type: varchar("type", { length: 30 }).notNull(),
+    payload: jsonb("payload").notNull(),
+    resultingVersion: integer("resulting_version").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("score_commands_organization_match_idx").on(table.organizationId, table.matchId),
+    check("score_commands_type_check", sql`${table.type} in ('SUBMIT_VISIT', 'UNDO_LAST_VISIT')`),
+    check("score_commands_version_check", sql`${table.resultingVersion} >= 0`),
+  ],
+);
+
+export const outboxEvents = pgTable(
+  "outbox_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    aggregateType: varchar("aggregate_type", { length: 100 }).notNull(),
+    aggregateId: uuid("aggregate_id").notNull(),
+    eventType: varchar("event_type", { length: 100 }).notNull(),
+    payload: jsonb("payload").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("outbox_events_unpublished_idx").on(table.publishedAt, table.occurredAt),
+    index("outbox_events_organization_aggregate_idx").on(table.organizationId, table.aggregateId),
+  ],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Organization = typeof organizations.$inferSelect;
@@ -288,3 +478,10 @@ export type OrganizationInvitation = typeof organizationInvitations.$inferSelect
 export type NewOrganizationInvitation = typeof organizationInvitations.$inferInsert;
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type NewAuditEvent = typeof auditEvents.$inferInsert;
+export type Board = typeof boards.$inferSelect;
+export type Match = typeof matches.$inferSelect;
+export type MatchParticipant = typeof matchParticipants.$inferSelect;
+export type Leg = typeof legs.$inferSelect;
+export type Visit = typeof visits.$inferSelect;
+export type ScoreCommand = typeof scoreCommands.$inferSelect;
+export type OutboxEvent = typeof outboxEvents.$inferSelect;

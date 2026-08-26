@@ -9,6 +9,12 @@ export const organizationPermissions = [
   "player:create",
   "player:update",
   "player:archive",
+  "board:read",
+  "board:manage",
+  "match:read",
+  "match:create",
+  "match:score",
+  "match:undo",
 ] as const;
 
 export type OrganizationPermission =
@@ -24,18 +30,32 @@ const rolePermissions = {
     "player:read",
     "player:create",
     "player:update",
+    "board:read",
+    "board:manage",
+    "match:read",
+    "match:create",
+    "match:score",
+    "match:undo",
   ]),
   SCORER: new Set<OrganizationPermission>([
     "organization:read",
     "player:read",
+    "board:read",
+    "match:read",
+    "match:score",
+    "match:undo",
   ]),
   MEMBER: new Set<OrganizationPermission>([
     "organization:read",
     "player:read",
+    "board:read",
+    "match:read",
   ]),
   VIEWER: new Set<OrganizationPermission>([
     "organization:read",
     "player:read",
+    "board:read",
+    "match:read",
   ]),
 } as const satisfies Record<OrganizationRole, ReadonlySet<OrganizationPermission>>;
 

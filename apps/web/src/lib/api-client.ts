@@ -7,16 +7,19 @@ import { publicEnvironment } from "./environment";
 export class ApiClientError extends Error {
   public readonly code: string;
   public readonly correlationId: string | null;
+  public readonly details: unknown;
 
   public constructor(
     message: string,
     code = "REQUEST_FAILED",
     correlationId: string | null = null,
+    details?: unknown,
   ) {
     super(message);
     this.name = "ApiClientError";
     this.code = code;
     this.correlationId = correlationId;
+    this.details = details;
   }
 }
 
@@ -50,6 +53,7 @@ export async function apiRequest<T>(input: {
         error.data.error.message,
         error.data.error.code,
         error.data.error.correlationId,
+        error.data.error.details,
       );
     }
     throw new ApiClientError(`API request returned HTTP ${response.status}.`);

@@ -38,6 +38,14 @@ function getMessage(exception: HttpException): string {
   return exception.message;
 }
 
+function getErrorMetadata(exception: HttpException): { readonly code?: string; readonly details?: unknown } {
+  const response = exception.getResponse();
+  if (typeof response !== "object" || response === null) return {};
+  const code = "code" in response && typeof response.code === "string" ? response.code : undefined;
+  const details = "details" in response ? response.details : undefined;
+  return { ...(code === undefined ? {} : { code }), ...(details === undefined ? {} : { details }) };
+}
+
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(ApiExceptionFilter.name);
@@ -55,6 +63,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
       exception instanceof HttpException
         ? getMessage(exception)
         : "An internal server error occurred.";
+    const metadata = exception instanceof HttpException ? getErrorMetadata(exception) : {};
 
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(
@@ -65,9 +74,10 @@ export class ApiExceptionFilter implements ExceptionFilter {
 
     reply.header("x-correlation-id", correlationId).status(status).send({
       error: {
-        code: errorCodes[status] ?? "INTERNAL_ERROR",
+        code: metadata.code ?? errorCodes[status] ?? "INTERNAL_ERROR",
         message,
         correlationId,
+        ...(metadata.details === undefined ? {} : { details: metadata.details }),
       },
     });
   }

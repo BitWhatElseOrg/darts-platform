@@ -20,10 +20,20 @@ describe("organization permissions", () => {
         "organization:manage_members",
       ),
     ).toBe(false);
+    expect(hasOrganizationPermission("TOURNAMENT_DIRECTOR", "match:create")).toBe(true);
+    expect(hasOrganizationPermission("TOURNAMENT_DIRECTOR", "board:manage")).toBe(true);
   });
 
   it("keeps viewer access read-only", () => {
     expect(hasOrganizationPermission("VIEWER", "player:read")).toBe(true);
     expect(hasOrganizationPermission("VIEWER", "player:update")).toBe(false);
+    expect(hasOrganizationPermission("VIEWER", "match:read")).toBe(true);
+    expect(hasOrganizationPermission("VIEWER", "match:score")).toBe(false);
+  });
+
+  it("allows scorers to score and undo but not create matches", () => {
+    expect(hasOrganizationPermission("SCORER", "match:score")).toBe(true);
+    expect(hasOrganizationPermission("SCORER", "match:undo")).toBe(true);
+    expect(hasOrganizationPermission("SCORER", "match:create")).toBe(false);
   });
 });

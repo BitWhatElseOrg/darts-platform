@@ -5,6 +5,7 @@ export const apiErrorSchema = z.object({
     code: z.string(),
     message: z.string(),
     correlationId: z.uuid(),
+    details: z.unknown().optional(),
   }),
 });
 

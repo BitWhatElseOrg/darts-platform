@@ -5,6 +5,12 @@ export {
   type ServiceHealthStatus,
 } from "./health";
 export { apiErrorSchema, type ApiErrorResponse } from "./api-error";
+export { boardListSchema, boardSchema, boardStatusSchema, createBoardSchema, type BoardResponse, type CreateBoardInput } from "./board";
+export {
+  createMatchSchema, matchListSchema, matchStateSchema, matchStatusSchema, matchVisitSchema,
+  submitVisitSchema, undoVisitSchema, visitOutcomeSchema,
+  type CreateMatchInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput,
+} from "./match";
 export {
   createInvitationSchema,
   createOrganizationSchema,

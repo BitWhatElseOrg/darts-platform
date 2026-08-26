@@ -22,6 +22,7 @@ import {
 import { Button, cn } from "@darts-platform/ui";
 
 import { apiRequest } from "@/lib/api-client";
+import { MatchWorkspace } from "./match-workspace";
 
 const organizationFormSchema = createOrganizationSchema.pick({
   name: true,
@@ -325,6 +326,8 @@ function OrganizationWorkspace({
           </p>
         ) : null}
       </div>
+
+      <MatchWorkspace organization={organization} players={playersQuery.data ?? []} />
 
       {canManageMembers ? (
         <form

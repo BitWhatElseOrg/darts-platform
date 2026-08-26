@@ -58,6 +58,8 @@ dokumentiert.
 
 # Phase 1 – Playable Match MVP
 
+**Status:** Implementiert – 26. August 2026
+
 ## Ziel
 
 Ein vollständiges X01-Match spielen.
@@ -92,7 +94,11 @@ Ein vollständiges X01-Match spielen.
 
 ## Exit Criteria
 
-Zwei Spieler können ein vollständiges 501-Match fehlerfrei spielen.
+- [x] Zwei Spieler können ein vollständiges 501-Double-Out-Match fehlerfrei spielen.
+- [x] Bust, Checkout, Dart Count, Best of Legs und Undo werden deterministisch getestet.
+- [x] Score-Commands sind idempotent und Versionskonflikte liefern den aktuellen Serverzustand.
+- [x] Match-, Visit-, Audit- und Outbox-Daten werden gemeinsam transaktional persistiert.
+- [x] Ein Browser-Test bildet den vollständigen Matchablauf ab.
 
 ---
 

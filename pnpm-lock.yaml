@@ -77,6 +77,9 @@ importers:
       '@darts-platform/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
+      '@darts-platform/scoring-engine':
+        specifier: workspace:*
+        version: link:../../packages/scoring-engine
       '@nestjs/common':
         specifier: ^11.1.0
         version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
@@ -241,6 +244,15 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
+
+  packages/scoring-engine:
+    devDependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(@types/node@24.13.3)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12))
 
   packages/ui:
     dependencies:
