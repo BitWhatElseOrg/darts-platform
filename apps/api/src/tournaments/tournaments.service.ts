@@ -108,6 +108,12 @@ export class TournamentsService {
     return this.projectDashboard(data);
   }
 
+  public async publicDashboard(tournamentId: string): Promise<TournamentDashboard> {
+    const data = await this.repository.getPublicDashboardData(tournamentId);
+    if (data === null) throw new NotFoundException("Turnier nicht gefunden.");
+    return this.projectDashboard(data);
+  }
+
   public async assign(input: {
     readonly organizationId: string;
     readonly tournamentId: string;
@@ -427,6 +433,26 @@ export class TournamentsService {
       queue,
       conflicts,
       groups,
+      bracket: data.matches
+        .filter((match) => match.stageLabel.startsWith("K.-o."))
+        .sort((left, right) => left.round - right.round || left.position - right.position)
+        .map((match) => ({
+          matchId: match.id,
+          stageLabel: match.stageLabel,
+          round: match.round,
+          position: match.position,
+          status: match.status,
+          participantNames: [
+            match.participantOneId === null
+              ? "Noch offen"
+              : (names.get(match.participantOneId) ?? "Unbekannter Teilnehmer"),
+            match.participantTwoId === null
+              ? "Noch offen"
+              : (names.get(match.participantTwoId) ?? "Unbekannter Teilnehmer"),
+          ],
+          winnerDisplayName:
+            match.winnerPlayerId === null ? null : (names.get(match.winnerPlayerId) ?? null),
+        })),
       recentResults: data.matches
         .filter(
           (match) =>

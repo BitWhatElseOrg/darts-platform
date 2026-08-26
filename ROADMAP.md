@@ -161,6 +161,8 @@ Scoring und Result Correction abgedeckt.
 
 # Phase 3 – Realtime & Public Live
 
+**Status:** Implementiert – 26. August 2026
+
 ## Ziel
 
 Turnierdaten live verteilen.
@@ -186,6 +188,12 @@ Score-Änderungen erscheinen live auf:
 - Turnierleitung
 - TV
 - Zuschauer-Smartphone
+
+Umgesetzt sind ein transaktionales Outbox-Relay über Redis und Socket.IO,
+ereignisbasierte Aktualisierung der Turnierleitung sowie öffentliche Live-,
+TV- und Board-Ansichten mit Gruppenranglisten, K.-o.-Tableau,
+Verbindungsstatus und QR-Code je Board. Bei unterbrochener Socket-Verbindung
+fällt die Oberfläche sichtbar auf periodische Synchronisierung zurück.
 
 ---
 

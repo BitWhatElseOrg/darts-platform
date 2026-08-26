@@ -48,7 +48,7 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
           });
 
     if (result.error !== null) {
-      setServerError(result.error.message ?? "Authentication failed.");
+      setServerError(result.error.message ?? "Anmeldung fehlgeschlagen.");
       return;
     }
 
@@ -60,10 +60,10 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
     <section className="w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-900/80 p-5 shadow-2xl shadow-black/20 sm:p-8">
       <div className="mb-6">
         <p className="mb-1 text-xs font-semibold tracking-[0.2em] text-emerald-300 uppercase">
-          Identity
+          Benutzerkonto
         </p>
         <h2 className="text-2xl font-semibold text-white">
-          {mode === "sign-in" ? "Sign in" : "Create account"}
+          {mode === "sign-in" ? "Anmelden" : "Konto erstellen"}
         </h2>
       </div>
 
@@ -80,7 +80,7 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
         ) : null}
 
         <label className="block space-y-2 text-sm text-slate-300">
-          <span>Email</span>
+          <span>E-Mail</span>
           <input
             className={inputClassName}
             type="email"
@@ -90,7 +90,7 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
         </label>
 
         <label className="block space-y-2 text-sm text-slate-300">
-          <span>Password</span>
+          <span>Passwort</span>
           <input
             className={inputClassName}
             type="password"
@@ -107,10 +107,10 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
 
         <Button className="w-full" disabled={form.formState.isSubmitting} type="submit">
           {form.formState.isSubmitting
-            ? "Please wait…"
+            ? "Bitte warten …"
             : mode === "sign-in"
-              ? "Sign in"
-              : "Create account"}
+              ? "Anmelden"
+              : "Konto erstellen"}
         </Button>
       </form>
 
@@ -123,8 +123,8 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
         type="button"
       >
         {mode === "sign-in"
-          ? "Need an account? Register"
-          : "Already registered? Sign in"}
+          ? "Noch kein Konto? Jetzt registrieren"
+          : "Bereits registriert? Anmelden"}
       </button>
     </section>
   );

@@ -13,6 +13,7 @@ import { AppModule } from "./app.module.js";
 import { ApiExceptionFilter } from "./common/api-exception.filter.js";
 import { ApiLoggingInterceptor } from "./common/api-logging.interceptor.js";
 import { StructuredLogger } from "./common/structured-logger.js";
+import { RealtimeService } from "./realtime/realtime.service.js";
 
 async function bootstrap(): Promise<void> {
   const environment = parseApplicationEnvironment(process.env);
@@ -39,6 +40,7 @@ async function bootstrap(): Promise<void> {
 
   const port = environment.PORT ?? environment.API_PORT;
   await app.listen(port, "0.0.0.0");
+  await app.get(RealtimeService).attach(app.getHttpServer());
   Logger.log(
     {
       event: "api_started",

@@ -28,6 +28,7 @@ export {
 export {
   assignMatchSchema,
   boardSlotSchema,
+  bracketMatchSchema,
   boardSlotStateSchema,
   conflictSeveritySchema,
   correctTournamentResultSchema,

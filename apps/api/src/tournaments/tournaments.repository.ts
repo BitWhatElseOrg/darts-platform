@@ -141,6 +141,16 @@ export class TournamentsRepository {
     );
   }
 
+  public async getPublicDashboardData(tournamentId: string): Promise<TournamentDashboardData | null> {
+    const [tournament] = await this.databaseService.database
+      .select({ organizationId: tournaments.organizationId })
+      .from(tournaments)
+      .where(eq(tournaments.id, tournamentId))
+      .limit(1);
+    if (tournament === undefined) return null;
+    return this.getDashboardData(tournament.organizationId, tournamentId);
+  }
+
   public async getDashboardData(
     organizationId: string,
     tournamentId: string,

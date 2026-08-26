@@ -10,7 +10,7 @@ import { Button, cn } from "@darts-platform/ui";
 import { ApiClientError, apiRequest } from "@/lib/api-client";
 
 const inputClassName = "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
-const mutationMessage = (error: unknown) => error instanceof Error ? error.message : "The request failed.";
+const mutationMessage = (error: unknown) => error instanceof Error ? error.message : "Die Anfrage ist fehlgeschlagen.";
 
 export function MatchWorkspace({ organization, players }: { readonly organization: OrganizationSummary; readonly players: readonly PlayerResponse[] }) {
   const queryClient = useQueryClient();
@@ -52,23 +52,23 @@ export function MatchWorkspace({ organization, players }: { readonly organizatio
   return (
     <div className="mt-8 space-y-6 border-t border-slate-800 pt-6">
       <div>
-        <p className="text-xs font-semibold tracking-[0.18em] text-emerald-300 uppercase">Playable Match MVP</p>
+        <p className="text-xs font-semibold tracking-[0.18em] text-emerald-300 uppercase">Spielbares Match</p>
         <h3 className="mt-1 text-xl font-semibold text-white">501 · Double Out</h3>
       </div>
       {canCreate ? (
         <div className="grid gap-4 xl:grid-cols-[0.7fr_1.3fr]">
           <form className="rounded-xl border border-slate-800 bg-slate-950/40 p-4" onSubmit={(event) => { event.preventDefault(); createBoard.mutate(); }}>
             <h4 className="text-sm font-semibold text-slate-200">Boards</h4>
-            <div className="mt-3 flex gap-2"><input aria-label="Board name" className={inputClassName} placeholder="Board 1" value={boardName} onChange={(event) => setBoardName(event.target.value)} /><Button disabled={!boardName.trim() || createBoard.isPending} type="submit">Add</Button></div>
-            <p className="mt-3 text-xs text-slate-400">{boardsQuery.data?.map((board) => `${board.name}: ${board.status}`).join(" · ") || "No board yet."}</p>
+            <div className="mt-3 flex gap-2"><input aria-label="Boardname" className={inputClassName} placeholder="Board 1" value={boardName} onChange={(event) => setBoardName(event.target.value)} /><Button disabled={!boardName.trim() || createBoard.isPending} type="submit">Hinzufügen</Button></div>
+            <p className="mt-3 text-xs text-slate-400">{boardsQuery.data?.map((board) => `${board.name}: ${board.status === "AVAILABLE" ? "frei" : board.status === "IN_USE" ? "belegt" : "offline"}`).join(" · ") || "Noch kein Board vorhanden."}</p>
           </form>
           <form className="grid gap-3 rounded-xl border border-slate-800 bg-slate-950/40 p-4 sm:grid-cols-2" onSubmit={(event) => { event.preventDefault(); createMatch.mutate(); }}>
-            <select aria-label="Player one" className={inputClassName} value={resolvedPlayerOneId} onChange={(event) => { setPlayerOneId(event.target.value); setStartingPlayerId(event.target.value); }}><option value="">Player one</option>{activePlayers.map((player) => <option key={player.id} value={player.id}>{player.displayName}</option>)}</select>
-            <select aria-label="Player two" className={inputClassName} value={resolvedPlayerTwoId} onChange={(event) => setPlayerTwoId(event.target.value)}><option value="">Player two</option>{activePlayers.map((player) => <option key={player.id} value={player.id}>{player.displayName}</option>)}</select>
-            <select aria-label="Starting player" className={inputClassName} value={resolvedStartingPlayerId} onChange={(event) => setStartingPlayerId(event.target.value)}>{activePlayers.filter((player) => [resolvedPlayerOneId, resolvedPlayerTwoId].includes(player.id)).map((player) => <option key={player.id} value={player.id}>{player.displayName} starts</option>)}</select>
-            <select aria-label="Best of legs" className={inputClassName} value={bestOfLegs} onChange={(event) => setBestOfLegs(Number(event.target.value))}><option value={1}>Best of 1</option><option value={3}>Best of 3</option><option value={5}>Best of 5</option><option value={7}>Best of 7</option></select>
-            <select aria-label="Board" className={inputClassName} value={boardId} onChange={(event) => setBoardId(event.target.value)}><option value="">No board</option>{boardsQuery.data?.filter((board) => board.status === "AVAILABLE").map((board) => <option key={board.id} value={board.id}>{board.name}</option>)}</select>
-            <Button disabled={!resolvedPlayerOneId || !resolvedPlayerTwoId || resolvedPlayerOneId === resolvedPlayerTwoId || createMatch.isPending} type="submit">Start match</Button>
+            <select aria-label="Erster Spieler" className={inputClassName} value={resolvedPlayerOneId} onChange={(event) => { setPlayerOneId(event.target.value); setStartingPlayerId(event.target.value); }}><option value="">Erster Spieler</option>{activePlayers.map((player) => <option key={player.id} value={player.id}>{player.displayName}</option>)}</select>
+            <select aria-label="Zweiter Spieler" className={inputClassName} value={resolvedPlayerTwoId} onChange={(event) => setPlayerTwoId(event.target.value)}><option value="">Zweiter Spieler</option>{activePlayers.map((player) => <option key={player.id} value={player.id}>{player.displayName}</option>)}</select>
+            <select aria-label="Startspieler" className={inputClassName} value={resolvedStartingPlayerId} onChange={(event) => setStartingPlayerId(event.target.value)}>{activePlayers.filter((player) => [resolvedPlayerOneId, resolvedPlayerTwoId].includes(player.id)).map((player) => <option key={player.id} value={player.id}>{player.displayName} beginnt</option>)}</select>
+            <select aria-label="Best of Legs" className={inputClassName} value={bestOfLegs} onChange={(event) => setBestOfLegs(Number(event.target.value))}><option value={1}>Best of 1</option><option value={3}>Best of 3</option><option value={5}>Best of 5</option><option value={7}>Best of 7</option></select>
+            <select aria-label="Board" className={inputClassName} value={boardId} onChange={(event) => setBoardId(event.target.value)}><option value="">Kein Board</option>{boardsQuery.data?.filter((board) => board.status === "AVAILABLE").map((board) => <option key={board.id} value={board.id}>{board.name}</option>)}</select>
+            <Button disabled={!resolvedPlayerOneId || !resolvedPlayerTwoId || resolvedPlayerOneId === resolvedPlayerTwoId || createMatch.isPending} type="submit">Match starten</Button>
             {createMatch.isError ? <p className="text-sm text-rose-300 sm:col-span-2" role="alert">{mutationMessage(createMatch.error)}</p> : null}
           </form>
         </div>
@@ -76,7 +76,7 @@ export function MatchWorkspace({ organization, players }: { readonly organizatio
       {matchesQuery.data?.length ? (
         <div className="flex gap-2 overflow-x-auto pb-1">{matchesQuery.data.map((match) => <button className={cn("min-h-11 shrink-0 rounded-lg border px-3 text-sm", match.id === selectedMatch?.id ? "border-emerald-400 text-white" : "border-slate-700 text-slate-400")} key={match.id} onClick={() => setSelectedMatchId(match.id)} type="button">{match.participants[0].displayName} – {match.participants[1].displayName}</button>)}</div>
       ) : null}
-      {selectedMatch === null ? <p className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">Create two active players and start the first match.</p> : <Scoreboard canScore={canScore} match={selectedMatch} organizationId={organization.id} />}
+      {selectedMatch === null ? <p className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">Erstelle zwei aktive Spieler und starte das erste Match.</p> : <Scoreboard canScore={canScore} match={selectedMatch} organizationId={organization.id} />}
     </div>
   );
 }
@@ -99,23 +99,23 @@ function Scoreboard({ organizationId, match, canScore }: { readonly organization
   });
   const error = submit.error ?? undo.error;
   return (
-    <section aria-label="Match scoreboard" className="overflow-hidden rounded-2xl border border-emerald-400/30 bg-slate-950 shadow-2xl shadow-emerald-950/20">
-      <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 text-xs font-semibold tracking-wider text-slate-400 uppercase"><span>Leg {match.currentLegNumber} · Best of {match.bestOfLegs}</span><span>{match.boardName ?? "Unassigned"} · v{match.version}</span></div>
+    <section aria-label="Match-Scoreboard" className="overflow-hidden rounded-2xl border border-emerald-400/30 bg-slate-950 shadow-2xl shadow-emerald-950/20">
+      <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 text-xs font-semibold tracking-wider text-slate-400 uppercase"><span>Leg {match.currentLegNumber} · Best of {match.bestOfLegs}</span><span>{match.boardName ?? "Nicht zugewiesen"} · v{match.version}</span></div>
       <div className="grid grid-cols-2 divide-x divide-slate-800">
-        {match.participants.map((participant) => <div className={cn("p-4 text-center sm:p-7", participant.isActive && match.status === "IN_PROGRESS" ? "bg-emerald-400/10" : "")} key={participant.playerId}><p className="truncate text-sm font-semibold text-slate-300">{participant.displayName}</p><p aria-label={`${participant.displayName} remaining score`} className="mt-2 text-5xl font-black tabular-nums text-white sm:text-7xl">{participant.remaining}</p><p className="mt-2 text-sm text-slate-400">{participant.legsWon} / {match.legsToWin} legs</p></div>)}
+        {match.participants.map((participant) => <div className={cn("p-4 text-center sm:p-7", participant.isActive && match.status === "IN_PROGRESS" ? "bg-emerald-400/10" : "")} key={participant.playerId}><p className="truncate text-sm font-semibold text-slate-300">{participant.displayName}</p><p aria-label={`${participant.displayName}, Restscore`} className="mt-2 text-5xl font-black tabular-nums text-white sm:text-7xl">{participant.remaining}</p><p className="mt-2 text-sm text-slate-400">{participant.legsWon} / {match.legsToWin} Legs</p></div>)}
       </div>
-      {match.status === "COMPLETED" ? <div className="border-t border-emerald-400/30 bg-emerald-400/10 p-5 text-center"><p className="text-sm uppercase tracking-widest text-emerald-300">Match complete</p><p className="mt-1 text-2xl font-bold text-white">{match.participants.find((player) => player.playerId === match.winnerPlayerId)?.displayName} wins</p></div> : canScore ? (
+      {match.status === "COMPLETED" ? <div className="border-t border-emerald-400/30 bg-emerald-400/10 p-5 text-center"><p className="text-sm uppercase tracking-widest text-emerald-300">Match beendet</p><p className="mt-1 text-2xl font-bold text-white">{match.participants.find((player) => player.playerId === match.winnerPlayerId)?.displayName} gewinnt</p></div> : canScore ? (
         <form className="grid gap-3 border-t border-slate-800 p-4 sm:grid-cols-[1fr_0.7fr_0.8fr_auto]" onSubmit={(event) => { event.preventDefault(); submit.mutate(); }}>
-          <input aria-label="Visit score" autoFocus className={inputClassName} inputMode="numeric" min="0" max="180" placeholder="Score" required type="number" value={points} onChange={(event) => setPoints(event.target.value)} />
-          <select aria-label="Darts thrown" className={inputClassName} value={dartsThrown} onChange={(event) => setDartsThrown(Number(event.target.value) as 1 | 2 | 3)}><option value={3}>3 darts</option><option value={2}>2 darts</option><option value={1}>1 dart</option></select>
-          <input aria-label="Checkout double" className={inputClassName} inputMode="numeric" max="25" min="1" placeholder="Double (optional)" type="number" value={checkoutDouble} onChange={(event) => setCheckoutDouble(event.target.value)} />
-          <Button disabled={submit.isPending} type="submit">Record</Button>
+          <input aria-label="Aufnahmescore" autoFocus className={inputClassName} inputMode="numeric" min="0" max="180" placeholder="Score" required type="number" value={points} onChange={(event) => setPoints(event.target.value)} />
+          <select aria-label="Geworfene Darts" className={inputClassName} value={dartsThrown} onChange={(event) => setDartsThrown(Number(event.target.value) as 1 | 2 | 3)}><option value={3}>3 Darts</option><option value={2}>2 Darts</option><option value={1}>1 Dart</option></select>
+          <input aria-label="Checkout-Double" className={inputClassName} inputMode="numeric" max="25" min="1" placeholder="Double (optional)" type="number" value={checkoutDouble} onChange={(event) => setCheckoutDouble(event.target.value)} />
+          <Button disabled={submit.isPending} type="submit">Erfassen</Button>
         </form>
       ) : null}
       <div className="border-t border-slate-800 p-4">
-        <div className="flex items-center justify-between"><h4 className="text-sm font-semibold text-slate-200">Recent visits</h4>{canScore && match.visits.some((visit) => !visit.reverted) ? <Button disabled={undo.isPending} onClick={() => undo.mutate()} variant="outline">Undo last visit</Button> : null}</div>
+        <div className="flex items-center justify-between"><h4 className="text-sm font-semibold text-slate-200">Letzte Aufnahmen</h4>{canScore && match.visits.some((visit) => !visit.reverted) ? <Button disabled={undo.isPending} onClick={() => undo.mutate()} variant="outline">Letzte Aufnahme zurücknehmen</Button> : null}</div>
         {error ? <p className="mt-3 text-sm text-rose-300" role="alert">{mutationMessage(error)}</p> : null}
-        <div className="mt-3 space-y-2">{match.visits.slice(0, 8).map((visit) => <div className={cn("flex min-h-11 items-center justify-between rounded-lg bg-slate-900 px-3 text-sm", visit.reverted && "opacity-40 line-through")} key={visit.id}><span className="text-slate-300">{visit.playerDisplayName} · {visit.dartsThrown} darts</span><span className="font-bold text-white">{visit.outcome === "BUST" ? `BUST (${visit.points})` : `${visit.appliedPoints} → ${visit.scoreAfter}`}</span></div>)}</div>
+        <div className="mt-3 space-y-2">{match.visits.slice(0, 8).map((visit) => <div className={cn("flex min-h-11 items-center justify-between rounded-lg bg-slate-900 px-3 text-sm", visit.reverted && "opacity-40 line-through")} key={visit.id}><span className="text-slate-300">{visit.playerDisplayName} · {visit.dartsThrown} Darts</span><span className="font-bold text-white">{visit.outcome === "BUST" ? `BUST (${visit.points})` : `${visit.appliedPoints} → ${visit.scoreAfter}`}</span></div>)}</div>
       </div>
     </section>
   );

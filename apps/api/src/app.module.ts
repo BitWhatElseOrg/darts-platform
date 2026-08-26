@@ -9,6 +9,7 @@ import { MatchesModule } from "./matches/matches.module.js";
 import { OrganizationsModule } from "./organizations/organizations.module.js";
 import { PlayersModule } from "./players/players.module.js";
 import { RedisModule } from "./redis/redis.module.js";
+import { RealtimeModule } from "./realtime/realtime.module.js";
 import { TournamentsModule } from "./tournaments/tournaments.module.js";
 
 @Module({
@@ -16,6 +17,7 @@ import { TournamentsModule } from "./tournaments/tournaments.module.js";
     EnvironmentModule,
     DatabaseModule,
     RedisModule,
+    RealtimeModule,
     AuthModule,
     BoardsModule,
     OrganizationsModule,

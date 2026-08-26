@@ -15,8 +15,8 @@ interface StatusRowProps {
 
 const statusLabels = {
   ok: "OK",
-  error: "Unavailable",
-  pending: "Checking…",
+  error: "Nicht verfügbar",
+  pending: "Wird geprüft …",
 } as const satisfies Record<DisplayStatus, string>;
 
 function StatusRow({ label, status }: StatusRowProps) {
@@ -77,33 +77,33 @@ export function HealthDashboard() {
       <div className="mb-5 flex flex-col gap-4 border-b border-slate-800 pb-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="mb-1 text-xs font-semibold tracking-[0.2em] text-emerald-300 uppercase">
-            Foundation
+            Systemstatus
           </p>
           <h2 id="environment-title" className="text-xl font-semibold text-white">
-            Development Environment
+            Entwicklungsumgebung
           </h2>
         </div>
         <Button
-          aria-label="Refresh service status"
+          aria-label="Dienststatus aktualisieren"
           disabled={healthQuery.isFetching}
           onClick={() => void healthQuery.refetch()}
           variant="outline"
         >
-          {healthQuery.isFetching ? "Refreshing…" : "Refresh"}
+          {healthQuery.isFetching ? "Wird aktualisiert …" : "Aktualisieren"}
         </Button>
       </div>
 
       <dl aria-live="polite">
         <StatusRow label="Web" status="ok" />
         <StatusRow label="API" status={apiStatus} />
-        <StatusRow label="Database" status={databaseStatus} />
+        <StatusRow label="Datenbank" status={databaseStatus} />
         <StatusRow label="Redis" status={redisStatus} />
       </dl>
 
       {healthQuery.isError ? (
         <p className="mt-5 rounded-lg border border-rose-400/30 bg-rose-400/10 p-3 text-sm text-rose-200">
-          The API health endpoint is not reachable. Check that the API and local
-          infrastructure are running.
+          Der API-Systemstatus ist nicht erreichbar. Prüfe, ob API und lokale
+          Infrastruktur laufen.
         </p>
       ) : null}
     </section>

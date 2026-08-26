@@ -136,6 +136,16 @@ export const tournamentResultSchema = z.object({
   completedAt: z.coerce.date(),
 });
 
+export const bracketMatchSchema = z.object({
+  matchId: z.uuid(),
+  stageLabel: z.string(),
+  round: z.number().int().positive(),
+  position: z.number().int().positive(),
+  status: z.enum(["WAITING", "READY", "IN_PROGRESS", "COMPLETED", "BYE", "CANCELLED"]),
+  participantNames: z.tuple([z.string(), z.string()]),
+  winnerDisplayName: z.string().nullable(),
+});
+
 export const tournamentDashboardSchema = z.object({
   tournament: z.object({
     id: z.uuid(),
@@ -155,6 +165,7 @@ export const tournamentDashboardSchema = z.object({
   queue: z.array(queueEntrySchema),
   conflicts: z.array(tournamentConflictSchema),
   groups: z.array(groupStandingSchema),
+  bracket: z.array(bracketMatchSchema),
   recentResults: z.array(tournamentResultSchema),
   generatedAt: z.coerce.date(),
 });

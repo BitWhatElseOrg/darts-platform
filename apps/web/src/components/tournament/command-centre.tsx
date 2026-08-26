@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ApiClientError, apiRequest } from "@/lib/api-client";
+import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
 import { BoardWedge } from "./board-wedge";
 import { DashboardHeader } from "./dashboard-header";
 import { DisruptionsPanel } from "./disruptions-panel";
@@ -67,6 +68,7 @@ export function CommandCentre({ canCorrect, organizationId, tournamentId }: Comm
   });
   const dashboard = dashboardQuery.data;
   const [connection, setConnection] = useState<"live" | "offline">("live");
+  const [realtimeConnection, setRealtimeConnection] = useState<RealtimeConnection>("verbindet");
   const [pending, setPending] = useState<readonly PendingCommand[]>([]);
   const [landedBoardId, setLandedBoardId] = useState<string | null>(null);
   const [conflict, setConflict] = useState<VersionConflict | null>(null);
@@ -84,6 +86,15 @@ export function CommandCentre({ canCorrect, organizationId, tournamentId }: Comm
       window.removeEventListener("offline", update);
     };
   }, []);
+
+  useEffect(
+    () => connectTournamentRealtime({
+      tournamentId,
+      onChange: () => void queryClient.invalidateQueries({ queryKey }),
+      onConnection: setRealtimeConnection,
+    }),
+    [queryClient, queryKey, tournamentId],
+  );
 
   const pendingMatchIds = useMemo(
     () => new Set(pending.map((command) => command.matchId)),
@@ -276,9 +287,10 @@ export function CommandCentre({ canCorrect, organizationId, tournamentId }: Comm
     <div className="sektorenring min-h-screen">
       <div className="mx-auto max-w-[1600px] px-5 py-6 xl:px-9">
         <nav className="mb-5">
-          <Link className="font-plate text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900" href={`/turniere?organisation=${organizationId}`}>
-            Alle Turniere
-          </Link>
+          <div className="flex flex-wrap gap-5">
+            <Link className="font-plate text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900" href={`/turniere?organisation=${organizationId}`}>Alle Turniere</Link>
+            <Link className="font-plate text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900" href={`/live/${tournamentId}`}>Öffentliche Live-Ansicht</Link>
+          </div>
         </nav>
 
         <DashboardHeader
@@ -357,7 +369,7 @@ export function CommandCentre({ canCorrect, organizationId, tournamentId }: Comm
 
         <div className="mt-9"><StandingsSheet groups={dashboard.groups} /></div>
         <Rule className="mt-10" />
-        <p className="pt-4 font-plate text-[0.75rem] text-sisal-500">Serverstand · automatische Aktualisierung alle 5 Sekunden</p>
+        <p className="pt-4 font-plate text-[0.75rem] text-sisal-500">Serverstand · Echtzeit {realtimeConnection}</p>
       </div>
       <p aria-live="polite" className="sr-only" role="status">{announcement}</p>
     </div>

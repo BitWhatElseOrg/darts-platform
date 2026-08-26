@@ -8,14 +8,14 @@ export default function HomePage() {
       <div className="flex w-full max-w-6xl flex-col items-center gap-10">
         <header className="text-center">
           <p className="mb-3 text-sm font-semibold tracking-[0.28em] text-emerald-300 uppercase">
-            Phase 1 · Playable Match MVP
+            Dartturniere ohne Nebentabellen
           </p>
           <h1 className="text-4xl font-bold tracking-tight text-white sm:text-6xl">
             Dart Ost - Plattform
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-slate-400 sm:text-lg">
-            Play complete 501 Double-Out matches with reliable scoring,
-            concurrency protection and a mobile-first scoreboard.
+            Spiele vollständige 501-Double-Out-Matches mit zuverlässiger
+            Erfassung, Konfliktschutz und einem mobilen Scoreboard.
           </p>
         </header>
 

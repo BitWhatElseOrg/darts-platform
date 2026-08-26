@@ -43,7 +43,7 @@ const inputClassName =
   "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
 
 function messageFrom(error: unknown): string {
-  return error instanceof Error ? error.message : "The request failed.";
+  return error instanceof Error ? error.message : "Die Anfrage ist fehlgeschlagen.";
 }
 
 interface TenantDashboardProps {
@@ -105,13 +105,13 @@ export function TenantDashboard({
           <p className="text-sm text-slate-400">{userEmail}</p>
         </div>
         <Button variant="outline" onClick={() => void onSignOut()}>
-          Sign out
+          Abmelden
         </Button>
       </section>
 
       {invitationsQuery.data?.length ? (
         <section className="rounded-2xl border border-amber-300/30 bg-amber-300/10 p-5">
-          <h2 className="font-semibold text-amber-100">Pending invitations</h2>
+          <h2 className="font-semibold text-amber-100">Offene Einladungen</h2>
           <div className="mt-3 space-y-3">
             {invitationsQuery.data.map((invitation) => (
               <div
@@ -119,13 +119,13 @@ export function TenantDashboard({
                 key={invitation.id}
               >
                 <p className="text-sm text-slate-200">
-                  {invitation.organizationName ?? "Organization"} · {invitation.role}
+                  {invitation.organizationName ?? "Organisation"} · {roleLabel(invitation.role)}
                 </p>
                 <Button
                   disabled={acceptInvitation.isPending}
                   onClick={() => acceptInvitation.mutate(invitation.id)}
                 >
-                  Accept
+                  Annehmen
                 </Button>
               </div>
             ))}
@@ -142,7 +142,7 @@ export function TenantDashboard({
 
         {activeOrganization === undefined ? (
           <section className="rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">
-            Create an organization to start managing players.
+            Erstelle eine Organisation, um Spieler zu verwalten.
           </section>
         ) : (
           <OrganizationWorkspace organization={activeOrganization} />
@@ -184,7 +184,7 @@ function OrganizationsPanel({
 
   return (
     <section className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
-      <h2 className="text-lg font-semibold text-white">Organizations</h2>
+      <h2 className="text-lg font-semibold text-white">Organisationen</h2>
       <div className="mt-4 space-y-2">
         {organizations.map((organization) => (
           <button
@@ -199,14 +199,14 @@ function OrganizationsPanel({
             type="button"
           >
             <span className="block font-semibold">{organization.name}</span>
-            <span className="text-xs text-slate-400">{organization.role}</span>
+            <span className="text-xs text-slate-400">{roleLabel(organization.role)}</span>
           </button>
         ))}
       </div>
 
       <form className="mt-6 space-y-3 border-t border-slate-800 pt-5" onSubmit={(event) => void submit(event)}>
-        <h3 className="text-sm font-semibold text-slate-200">Create organization</h3>
-        <input className={inputClassName} placeholder="Club name" {...form.register("name")} />
+        <h3 className="text-sm font-semibold text-slate-200">Organisation erstellen</h3>
+        <input className={inputClassName} placeholder="Vereinsname" {...form.register("name")} />
         <input className={inputClassName} placeholder="club-slug" {...form.register("slug")} />
         {createOrganization.isError ? (
           <p role="alert" className="text-sm text-rose-300">
@@ -214,7 +214,7 @@ function OrganizationsPanel({
           </p>
         ) : null}
         <Button className="w-full" disabled={createOrganization.isPending} type="submit">
-          Create
+          Erstellen
         </Button>
       </form>
     </section>
@@ -298,9 +298,9 @@ function OrganizationWorkspace({
           className="mt-5 grid gap-3 sm:grid-cols-[1fr_1fr_auto]"
           onSubmit={(event) => void playerForm.handleSubmit((data) => createPlayer.mutate(data))(event)}
         >
-          <input className={inputClassName} placeholder="Display name" {...playerForm.register("displayName")} />
-          <input className={inputClassName} placeholder="Nickname (optional)" {...playerForm.register("nickname")} />
-          <Button disabled={createPlayer.isPending} type="submit">Add player</Button>
+          <input className={inputClassName} placeholder="Anzeigename" {...playerForm.register("displayName")} />
+          <input className={inputClassName} placeholder="Spitzname (optional)" {...playerForm.register("nickname")} />
+          <Button disabled={createPlayer.isPending} type="submit">Spieler hinzufügen</Button>
         </form>
       ) : null}
 
@@ -309,7 +309,7 @@ function OrganizationWorkspace({
       ) : null}
 
       <div className="mt-6 space-y-3">
-        {playersQuery.isPending ? <p className="text-sm text-slate-400">Loading players…</p> : null}
+        {playersQuery.isPending ? <p className="text-sm text-slate-400">Spieler werden geladen …</p> : null}
         {playersQuery.data?.map((player) => (
           <PlayerRow
             canArchive={canArchivePlayers}
@@ -322,7 +322,7 @@ function OrganizationWorkspace({
         ))}
         {playersQuery.data?.length === 0 ? (
           <p className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">
-            No players yet.
+            Noch keine Spieler vorhanden.
           </p>
         ) : null}
       </div>
@@ -337,14 +337,14 @@ function OrganizationWorkspace({
           <input className={inputClassName} type="email" placeholder="member@example.com" {...invitationForm.register("email")} />
           <select className={inputClassName} {...invitationForm.register("role")}>
             <option value="ADMIN">Admin</option>
-            <option value="TOURNAMENT_DIRECTOR">Tournament Director</option>
+            <option value="TOURNAMENT_DIRECTOR">Turnierleitung</option>
             <option value="SCORER">Scorer</option>
-            <option value="MEMBER">Member</option>
-            <option value="VIEWER">Viewer</option>
+            <option value="MEMBER">Mitglied</option>
+            <option value="VIEWER">Zuschauer</option>
           </select>
-          <Button disabled={inviteMember.isPending} type="submit">Invite</Button>
+          <Button disabled={inviteMember.isPending} type="submit">Einladen</Button>
           {inviteMember.isSuccess ? (
-            <p className="text-sm text-emerald-300 sm:col-span-3">Invitation created.</p>
+            <p className="text-sm text-emerald-300 sm:col-span-3">Einladung erstellt.</p>
           ) : null}
           {inviteMember.isError ? (
             <p role="alert" className="text-sm text-rose-300 sm:col-span-3">{messageFrom(inviteMember.error)}</p>
@@ -390,7 +390,7 @@ function PlayerRow({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         {isEditing ? (
           <input
-            aria-label={`Display name for ${player.displayName}`}
+            aria-label={`Anzeigename für ${player.displayName}`}
             className={inputClassName}
             onChange={(event) => setDisplayName(event.target.value)}
             value={displayName}
@@ -399,7 +399,7 @@ function PlayerRow({
           <div>
             <p className="font-semibold text-white">{player.displayName}</p>
             <p className="text-xs text-slate-400">
-              {player.nickname ?? "No nickname"} · {player.status}
+              {player.nickname ?? "Kein Spitzname"} · {player.status === "ACTIVE" ? "Aktiv" : "Archiviert"}
             </p>
           </div>
         )}
@@ -410,7 +410,7 @@ function PlayerRow({
                 disabled={displayName.trim().length === 0 || updatePlayer.isPending}
                 onClick={() => updatePlayer.mutate()}
               >
-                Save
+                Speichern
               </Button>
               <Button
                 variant="outline"
@@ -419,18 +419,18 @@ function PlayerRow({
                   setIsEditing(false);
                 }}
               >
-                Cancel
+                Abbrechen
               </Button>
             </>
           ) : (
             <>
               {canEdit ? (
                 <Button variant="outline" onClick={() => setIsEditing(true)}>
-                  Edit
+                  Bearbeiten
                 </Button>
               ) : null}
               {canArchive && player.status === "ACTIVE" ? (
-                <Button variant="outline" onClick={onArchive}>Archive</Button>
+                <Button variant="outline" onClick={onArchive}>Archivieren</Button>
               ) : null}
             </>
           )}
@@ -443,4 +443,8 @@ function PlayerRow({
       ) : null}
     </div>
   );
+}
+
+function roleLabel(role: string): string {
+  return ({ OWNER: "Inhaber", ADMIN: "Administration", TOURNAMENT_DIRECTOR: "Turnierleitung", SCORER: "Scorer", MEMBER: "Mitglied", VIEWER: "Zuschauer" } as Readonly<Record<string, string>>)[role] ?? role;
 }
