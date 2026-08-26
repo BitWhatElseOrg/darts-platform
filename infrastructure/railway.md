@@ -2,7 +2,7 @@
 
 ## Zielarchitektur
 
-Ein Railway-Projekt enthält pro Environment vier Ressourcen:
+Die aktuelle Railway-IaC enthält pro Environment vier Ressourcen:
 
 ```text
 web -> api -> PostgreSQL
@@ -11,7 +11,9 @@ web -> api -> PostgreSQL
 
 Die gewünschte Infrastruktur liegt in [`.railway/railway.ts`](../.railway/railway.ts).
 API und Web werden aus demselben pnpm-Monorepo mit getrennten, reproduzierbaren
-Dockerfiles gebaut.
+Dockerfiles gebaut. Für den Statistik-Worker existiert `Dockerfile.worker`; er
+muss vor einem produktiven asynchronen Statistikbetrieb noch als fünfte
+Railway-Ressource in `.railway/railway.ts` ergänzt werden.
 
 ## Erstinstallation
 
@@ -72,13 +74,22 @@ curl --fail https://api.example.com/api/v1/health
 curl --fail https://app.example.com/
 ```
 
+Vor dem ersten UI-Smoke-Test muss eine gültige Einladung für den ersten
+Administrator bereitgestellt werden. Die öffentliche Registrierung besitzt
+absichtlich keinen Bootstrap-Bypass. Das Repository enthält derzeit noch keinen
+automatisierten Erstbenutzer-Befehl; vor der ersten Production-Inbetriebnahme
+muss deshalb ein kontrollierter, auditierbarer Bootstrap-Prozess ergänzt oder
+als Betriebsprozess freigegeben werden.
+
 Danach über die Weboberfläche:
 
-1. Benutzer registrieren und wieder anmelden.
-2. Organisation erstellen.
-3. Spieler anlegen, bearbeiten und archivieren.
-4. Einladung mit einem zweiten Benutzer annehmen.
-5. Einen tenant-fremden Zugriff prüfen; erwartet wird HTTP 403.
+1. Mit der exakt eingeladenen E-Mail-Adresse registrieren und wieder anmelden.
+2. Die offene Einladung annehmen.
+3. Organisation und zugewiesene Rolle prüfen.
+4. Spieler anlegen, bearbeiten und archivieren.
+5. Einen zweiten Benutzer einladen und dessen Einladung annehmen.
+6. Prüfen, dass ein Viewer keinen Link «Turnierleitung» erhält.
+7. Einen tenant-fremden Zugriff prüfen; erwartet wird HTTP 403.
 
 ## Logging und Diagnose
 

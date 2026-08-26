@@ -5,7 +5,7 @@
 
 ## Kontext
 
-Die Plattform benötigt klare Domänengrenzen und eine zuverlässige lokale Entwicklungsumgebung, ohne den Betriebs- und Transaktionsaufwand früher Microservices einzuführen. Phase 0 umfasst ausschließlich Web, API, gemeinsame Foundation-Pakete, PostgreSQL und Redis.
+Die Plattform benötigt klare Domänengrenzen und eine zuverlässige lokale Entwicklungsumgebung, ohne den Betriebs- und Transaktionsaufwand früher Microservices einzuführen. Phase 0 umfasst ausschliesslich Web, API, gemeinsame Foundation-Pakete, PostgreSQL und Redis.
 
 ## Entscheidung
 
@@ -13,7 +13,7 @@ Die Plattform benötigt klare Domänengrenzen und eine zuverlässige lokale Entw
 - Next.js und NestJS sind getrennte Anwendungen, werden lokal aber als ein Produkt betrieben.
 - Gemeinsame Typen, Schemas, UI, Konfiguration und Datenbankzugriffe liegen in expliziten Paketen.
 - PostgreSQL ist die Source of Truth. Redis dient in Phase 0 nur als geprüfte Infrastrukturabhängigkeit.
-- Das Datenbankschema enthält ausschließlich `users`, `organizations`, `memberships` und `players`.
+- Das Datenbankschema enthält ausschliesslich `users`, `organizations`, `memberships` und `players`.
 - Domain-Pakete importieren keine Frameworks oder Infrastrukturtreiber.
 
 ## Konsequenzen

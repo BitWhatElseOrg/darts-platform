@@ -4,6 +4,11 @@
 
 Die Roadmap führt vom technischen Fundament bis zum Vollausbau als Multi-Tenant Dart-Plattform.
 
+**Aktueller Stand (26. August 2026):** Phasen 0 bis 6 sind implementiert. Der
+nächste geplante Produktabschnitt ist Phase 7. Registrierung neuer Konten ist
+bereits heute einladungsgebunden; Turnierverwaltung wird nur Rollen mit der
+entsprechenden Permission angeboten.
+
 ---
 
 # Phase 0 – Foundation
@@ -24,6 +29,7 @@ Saubere technische Basis schaffen.
 - Drizzle
 - Redis
 - Better Auth
+- Registrierung nur auf gültige Einladung
 - Organizations
 - Memberships
 - Rollen / Permissions
@@ -48,6 +54,8 @@ Saubere technische Basis schaffen.
 - [x] reproduzierbare Production-Images und Railway IaC sind vorhanden
 - [x] DB-Migrationen laufen vor dem API-Start automatisiert
 - [x] Auth und Tenant-Isolation sind getestet
+- [x] nicht eingeladene Registrierungen werden serverseitig mit HTTP 403 abgewiesen
+- [x] Verwaltungszugänge werden rollenabhängig angezeigt und serverseitig autorisiert
 - [x] CI prüft Lint, Typen, Tests, Build, E2E und Deployment-Images
 
 Die accountseitige Erstinstallation, Domain-Zuweisung und Aktivierung der beiden
@@ -303,6 +311,10 @@ Realtime-Publikationsstatus und aktualisiert persistente Spieleraggregate.
 
 # Phase 7 – Multi-Tenant SaaS
 
+**Status:** Basis vorhanden – Organisationen, Mitgliedschaften, Rollen,
+Permissions und Einladungen sind umgesetzt; Settings, Limits, Branding,
+Custom Domains und Billing bleiben offen.
+
 ## Ziel
 
 Mehrere Vereine / Veranstalter professionell betreiben.
@@ -310,7 +322,7 @@ Mehrere Vereine / Veranstalter professionell betreiben.
 ## Scope
 
 - Organization Settings
-- Invitations
+- Invitations (Basis implementiert)
 - Usage Limits
 - Plans
 - Branding

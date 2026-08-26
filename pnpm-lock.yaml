@@ -147,6 +147,9 @@ importers:
       '@darts-platform/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@darts-platform/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@darts-platform/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
@@ -184,6 +187,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@darts-platform/database':
+        specifier: workspace:*
+        version: link:../../packages/database
       '@playwright/test':
         specifier: ^1.56.0
         version: 1.62.1
@@ -202,6 +208,9 @@ importers:
       '@types/react-dom':
         specifier: 'catalog:'
         version: 19.2.5(@types/react@19.2.18)
+      drizzle-orm:
+        specifier: 0.45.2
+        version: 0.45.2(kysely@0.29.5)(postgres@3.4.9)
       tailwindcss:
         specifier: 4.3.3
         version: 4.3.3

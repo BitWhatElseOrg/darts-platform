@@ -3,7 +3,7 @@ import type { ComponentProps, ElementType } from "react";
 
 import { cn } from "../lib/cn";
 
-const wedgeVariants = cva("relative", {
+const wedgeVariants = cva("relative rounded-2xl", {
   variants: {
     tone: {
       /* A black sector: the field a running match is painted on. */
@@ -11,7 +11,7 @@ const wedgeVariants = cva("relative", {
       /* An open sector: sisal showing through, rimmed in double-ring green. */
       free: "bg-sisal-100 text-wedge-900 border-2 border-ring-green",
       /* A taped-off sector. */
-      blocked: "bg-wedge-900 text-sisal-300 border-2 border-ring-red",
+      blocked: "bg-wedge-900 text-spider border-2 border-ring-red",
       /* A mounted plate on the sisal ground. */
       plate: "bg-sisal-100 text-wedge-900 border border-sisal-400",
       /* A plate carrying an unresolved conflict. */
@@ -19,7 +19,7 @@ const wedgeVariants = cva("relative", {
     },
     lift: {
       /* Mounted on the wall: a real offset and a real blur. */
-      true: "shadow-[0_1px_0_#cdbc93,0_10px_20px_-14px_rgba(21,19,15,0.55)]",
+      true: "shadow-2xl shadow-black/20",
       false: "",
     },
   },
@@ -30,8 +30,7 @@ export type WedgeProps = ComponentProps<"div"> &
   VariantProps<typeof wedgeVariants> & { readonly as?: ElementType };
 
 /**
- * A sector field. Square corners without exception: a board has no radii,
- * and the panel is a painted region rather than a card.
+ * A tournament panel using the same rounded surface language as the entry page.
  */
 export function Wedge({ as, className, lift, tone, ...props }: WedgeProps) {
   const Tag = (as ?? "div") as ElementType;

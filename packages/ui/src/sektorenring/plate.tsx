@@ -14,7 +14,7 @@ const plateVariants = cva(
         /* Free: the green of the double ring, filled. */
         free: "bg-ring-green text-chalk ring-1 ring-ring-green-deep",
         /* Blocked: taped off. The rim carries the alarm, the hatch repeats it. */
-        blocked: "bg-wedge-900 text-sisal-300 ring-2 ring-ring-red",
+        blocked: "bg-wedge-900 text-spider ring-2 ring-ring-red",
         /* Neutral index plate, e.g. a step in the setup sheet. */
         quiet: "bg-sisal-100 text-sisal-500 ring-1 ring-sisal-400",
       },

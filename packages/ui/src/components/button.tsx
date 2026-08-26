@@ -3,7 +3,7 @@ import type { ComponentProps } from "react";
 
 import { cn } from "../lib/cn";
 
-const buttonVariants = cva(
+export const buttonVariants = cva(
   "inline-flex min-h-11 items-center justify-center rounded-lg px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {

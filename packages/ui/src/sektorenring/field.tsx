@@ -5,7 +5,7 @@ import { MarkChevron, MarkCross } from "./marks";
 import { SheetLabel } from "./typography";
 
 const inputBase = [
-  "min-h-11 w-full border bg-sisal-50 px-3 font-plate text-[0.9375rem] text-wedge-900",
+  "min-h-11 w-full rounded-lg border bg-sisal-50 px-3 font-plate text-[0.9375rem] text-wedge-900",
   "placeholder:text-sisal-500",
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green",
   "disabled:cursor-not-allowed disabled:bg-sisal-100 disabled:text-sisal-500",

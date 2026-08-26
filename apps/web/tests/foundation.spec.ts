@@ -1,6 +1,56 @@
 import { expect, test } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 
+import {
+  createRegistrationInvitation,
+  type RegistrationInvitationSeed,
+} from "./registration-invitation";
+
+const registrationSeeds: RegistrationInvitationSeed[] = [];
+
+test.afterEach(async () => {
+  await Promise.all(registrationSeeds.splice(0).map((seed) => seed.cleanup()));
+});
+
+test("the sign-in page shows its brand logos", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("img", { name: "Dart Ost" })).toBeVisible();
+  const footer = page.locator("footer");
+  await expect(footer).toContainText("powered by");
+  await expect(footer.getByRole("img", { name: "Sutter Precision" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Turnierleitung" })).toHaveCount(0);
+});
+
+test("the tournament administration uses the entry page dark surface", async ({ page }) => {
+  await page.goto("/turniere");
+
+  const tournamentSurface = page.locator("main.sektorenring");
+  await expect(tournamentSurface).toBeVisible();
+  await expect(tournamentSurface).toHaveCSS("background-color", "rgb(2, 6, 23)");
+  await expect(tournamentSurface).toHaveCSS("color-scheme", "dark");
+});
+
+test("a viewer does not receive tournament administration access", async ({ page }) => {
+  const suffix = randomUUID();
+  const email = `e2e-viewer-${suffix}@example.test`;
+  registrationSeeds.push(await createRegistrationInvitation(email, "VIEWER"));
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Eingeladen? Konto erstellen" }).click();
+  await page.getByLabel("Name").fill("E2E Viewer");
+  await page.getByLabel("E-Mail").fill(email);
+  await page.getByLabel("Passwort").fill("E2ePassword123!");
+  await page.getByRole("button", { name: "Konto erstellen" }).click();
+
+  await expect(page.getByText(email)).toBeVisible();
+  await page.getByRole("button", { name: "Annehmen" }).click();
+  await expect(
+    page.getByRole("heading", { name: "E2E Invitation Organization" }),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Turnierleitung" })).toHaveCount(0);
+});
+
 test("a club can complete a match and start a generated tournament match", async ({
   page,
 }) => {
@@ -9,18 +59,23 @@ test("a club can complete a match and start a generated tournament match", async
   const organizationName = `E2E Club ${suffix.slice(0, 8)}`;
   const organizationSlug = `e2e-club-${suffix}`;
 
+  registrationSeeds.push(await createRegistrationInvitation(email));
+
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { level: 1, name: "Dart Ost - Plattform" }),
+    page.getByRole("heading", { level: 1, name: "Dart Ost - Turnier Plattform" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Noch kein Konto? Jetzt registrieren" }).click();
+  await page.getByRole("button", { name: "Eingeladen? Konto erstellen" }).click();
   await page.getByLabel("Name").fill("E2E Owner");
   await page.getByLabel("E-Mail").fill(email);
   await page.getByLabel("Passwort").fill("E2ePassword123!");
   await page.getByRole("button", { name: "Konto erstellen" }).click();
 
   await expect(page.getByText(email)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Offene Einladungen" })).toBeVisible();
+  await page.getByRole("button", { name: "Annehmen" }).click();
+  await expect(page.getByRole("link", { name: "Turnierleitung" })).toBeVisible();
   await page.getByPlaceholder("Vereinsname").fill(organizationName);
   await page.getByPlaceholder("club-slug").fill(organizationSlug);
   await page.getByRole("button", { name: "Erstellen", exact: true }).click();

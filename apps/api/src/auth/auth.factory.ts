@@ -1,9 +1,11 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
-import { betterAuth } from "better-auth";
+import { APIError, betterAuth } from "better-auth";
+import { and, eq, gt } from "drizzle-orm";
 
 import type { ApplicationEnvironment } from "@darts-platform/config";
 import {
   accounts,
+  organizationInvitations,
   sessions,
   users,
   verifications,
@@ -34,6 +36,34 @@ export function createAuth(
       enabled: true,
       minPasswordLength: 10,
       maxPasswordLength: 128,
+    },
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user) => {
+            const [invitation] = await database
+              .select({ id: organizationInvitations.id })
+              .from(organizationInvitations)
+              .where(
+                and(
+                  eq(
+                    organizationInvitations.email,
+                    user.email.trim().toLowerCase(),
+                  ),
+                  eq(organizationInvitations.status, "PENDING"),
+                  gt(organizationInvitations.expiresAt, new Date()),
+                ),
+              )
+              .limit(1);
+
+            if (invitation === undefined) {
+              throw new APIError("FORBIDDEN", {
+                message: "Registration requires a valid invitation.",
+              });
+            }
+          },
+        },
+      },
     },
     user: {
       fields: {

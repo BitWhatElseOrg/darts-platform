@@ -13,6 +13,9 @@ organization and player domains.
 ## Decision
 
 - Better Auth owns users, credential accounts, sessions and verification records.
+- Better Auth may create a user only when a pending, non-expired platform
+  invitation exists for the normalized email address. The user accepts that
+  invitation explicitly after registration before receiving membership access.
 - The Better Auth handler is mounted below `/api/v1/auth/*` in NestJS/Fastify.
 - Session cookies are HttpOnly and CORS is restricted to the configured web origin.
 - Organization membership and invitations remain platform-owned domain data.
@@ -31,6 +34,8 @@ organization and player domains.
 - Tenant isolation and authorization are enforced server-side and can be tested
   without relying on UI visibility.
 - Organization invitations are email-bound and expire after 48 hours. Email
-  delivery is intentionally deferred; pending invitations are visible after the
-  invited user signs in.
+  delivery is intentionally deferred; the invitation must be communicated over
+  an approved external channel and is visible after the invited user signs in.
+- Direct signup attempts without a valid invitation fail with HTTP 403. UI
+  visibility never replaces server-side authorization.
 - Redis is not used as the source of truth for sessions or permissions.

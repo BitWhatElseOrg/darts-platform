@@ -33,11 +33,11 @@ export function TournamentList({ requestedOrganizationId }: { readonly requested
         <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
           <div>
             <h1 className="font-numerals text-[2.75rem] leading-[0.9] font-bold tracking-[-0.02em] text-wedge-900">Turniere</h1>
-            <p className="mt-1.5 font-plate text-[0.875rem] text-sisal-500">Vereinsmeisterschaften, Cups und Serien dieser Organisation.</p>
+            <p className="mt-1.5 font-plate text-[0.875rem] text-sisal-500">Vereinsmeisterschaften, Cups und Serien von Dart Ost.</p>
           </div>
           {canCreate ? <div className="flex flex-wrap gap-3">
-            <Link className="inline-flex min-h-11 items-center border border-wedge-900 px-5 font-plate text-[0.875rem] font-semibold uppercase tracking-[0.1em] text-wedge-900" href={`/turniere/formate?organisation=${organization.id}`}>Formatwerkstatt</Link>
-            <Link className="inline-flex min-h-11 items-center gap-2 bg-wedge-900 px-5 font-plate text-[0.875rem] font-semibold uppercase tracking-[0.1em] text-chalk transition-colors hover:bg-wedge-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green" href={`/turniere/neu?organisation=${organization.id}`}><MarkFlight size={13} /> Turnier anlegen</Link>
+            <Link className="inline-flex min-h-11 items-center rounded-lg border border-wedge-900 px-5 font-plate text-[0.875rem] font-semibold uppercase tracking-[0.1em] text-wedge-900" href={`/turniere/formate?organisation=${organization.id}`}>Formatwerkstatt</Link>
+            <Link className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-wedge-900 px-5 font-plate text-[0.875rem] font-semibold uppercase tracking-[0.1em] text-chalk transition-colors hover:bg-wedge-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green" href={`/turniere/neu?organisation=${organization.id}`}><MarkFlight size={13} /> Turnier anlegen</Link>
           </div> : null}
         </div>
 
@@ -63,7 +63,7 @@ export function TournamentList({ requestedOrganizationId }: { readonly requested
             <p className="font-numerals text-[1.5rem] leading-tight font-bold text-wedge-900">Noch kein Turnier angelegt</p>
             <p className="mx-auto mt-2 max-w-md font-plate text-[0.875rem] leading-relaxed text-sisal-500">Ein Turnier braucht einen Namen, eine Teilnehmerliste und mindestens ein Board. Danach erzeugt die Turnier-Engine Gruppen, Setzung und Spielplan.</p>
             {canCreate ? (
-              <Link className="mt-6 inline-flex min-h-11 items-center gap-2 bg-ring-green px-5 font-plate text-[0.875rem] font-semibold uppercase tracking-[0.1em] text-chalk transition-colors hover:bg-ring-green-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green" href={`/turniere/neu?organisation=${organization.id}`}>
+              <Link className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-lg bg-ring-green px-5 font-plate text-[0.875rem] font-semibold uppercase tracking-[0.1em] text-chalk transition-colors hover:bg-ring-green-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green" href={`/turniere/neu?organisation=${organization.id}`}>
                 <MarkFlight size={13} /> Erstes Turnier anlegen
               </Link>
             ) : null}
@@ -82,7 +82,7 @@ export function TournamentList({ requestedOrganizationId }: { readonly requested
                     <div className="w-28">
                       <SheetLabel>Fortschritt</SheetLabel>
                       <p className="mt-1 font-numerals text-[1rem] font-bold tabular text-wedge-900">{tournament.playedMatches}/{tournament.totalMatches}</p>
-                      <div aria-hidden="true" className="mt-1 h-1 w-full border border-sisal-400 bg-sisal-50"><div className="h-full bg-wedge-900" style={{ width: `${share}%` }} /></div>
+                      <div aria-hidden="true" className="mt-1 h-1 w-full border border-sisal-400 bg-sisal-50"><div className="h-full bg-ring-green" style={{ width: `${share}%` }} /></div>
                     </div>
                     <div className="w-32">
                       <SheetLabel>Zustand</SheetLabel>
@@ -96,7 +96,7 @@ export function TournamentList({ requestedOrganizationId }: { readonly requested
         )}
 
         <Rule className="mt-10" />
-        <p className="pt-4 font-plate text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-sisal-500">Dart Ost - Plattform · Serverdaten</p>
+        <p className="pt-4 font-plate text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-sisal-500">Dart Ost · Turnier Plattform · Serverdaten</p>
       </div>
     </main>
   );

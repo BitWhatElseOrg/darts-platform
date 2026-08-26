@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import { hasOrganizationPermission } from "@darts-platform/domain";
 import {
   createInvitationSchema,
   createOrganizationSchema,
@@ -20,7 +21,7 @@ import {
   type OrganizationSummary,
   type PlayerResponse,
 } from "@darts-platform/schemas";
-import { Button, cn } from "@darts-platform/ui";
+import { Button, buttonVariants, cn } from "@darts-platform/ui";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { MatchWorkspace } from "./match-workspace";
@@ -82,6 +83,13 @@ export function TenantDashboard({
   const activeOrganization = organizationsQuery.data?.find(
     (organization) => organization.id === resolvedActiveOrganizationId,
   );
+  const tournamentOrganization =
+    activeOrganization !== undefined &&
+    hasOrganizationPermission(activeOrganization.role, "tournament:update")
+      ? activeOrganization
+      : organizationsQuery.data?.find((organization) =>
+          hasOrganizationPermission(organization.role, "tournament:update"),
+        );
 
   const acceptInvitation = useMutation({
     mutationFn: (invitationId: string) =>
@@ -105,9 +113,19 @@ export function TenantDashboard({
           <p className="text-sm font-semibold text-white">{userName}</p>
           <p className="text-sm text-slate-400">{userEmail}</p>
         </div>
-        <Button variant="outline" onClick={() => void onSignOut()}>
-          Abmelden
-        </Button>
+        <div className="flex flex-wrap gap-3">
+          {tournamentOrganization !== undefined ? (
+            <Link
+              className={buttonVariants({ variant: "outline" })}
+              href={`/turniere?organisation=${tournamentOrganization.id}`}
+            >
+              Turnierleitung
+            </Link>
+          ) : null}
+          <Button variant="outline" onClick={() => void onSignOut()}>
+            Abmelden
+          </Button>
+        </div>
       </section>
 
       {invitationsQuery.data?.length ? (

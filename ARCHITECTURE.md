@@ -10,6 +10,14 @@
 **Hosting-Ziel:** Railway  
 **Repository:** GitHub Monorepo
 
+**Implementierter Stand (26. August 2026):** Die Phasen 0 bis 6 sind produktseitig
+umgesetzt. Web und API decken Organisations- und Spieleradministration,
+X01-Scoring, Turnierplanung und -leitung, Realtime-/Live-Flächen,
+Offline-Sicherheit und Statistiken ab; der Worker aktualisiert
+Karriereaggregate. Registrierungen sind nur für gültig eingeladene
+E-Mail-Adressen möglich. Die folgenden Kapitel beschreiben weiterhin das
+Zielbild und kennzeichnen spätere Ausbaustufen als solche.
+
 ---
 
 ## 1. Zielbild
@@ -307,6 +315,16 @@ organization:manage_roles
 ```
 
 Jede Mutation muss serverseitig autorisiert werden.
+
+Die UI zeigt den Einstieg «Turnierleitung» nur, wenn die aktive oder eine andere
+zugängliche Organisation `tournament:update` gewährt. Diese Sichtbarkeit ist
+eine Bedienhilfe; API-Guard und Organisationszugriff bleiben die verbindliche
+Sicherheitsgrenze.
+
+Neue Konten dürfen nur angelegt werden, wenn für die normalisierte E-Mail-Adresse
+eine offene, noch nicht abgelaufene Organisationseinladung vorliegt. Nach der
+Registrierung nimmt der Benutzer die Einladung an und erhält erst dadurch die
+zugewiesene Organisationsrolle.
 
 ---
 
@@ -853,23 +871,17 @@ GenerateReport
 
 ## 27. Public Portal
 
-Öffentliche Routen:
+Aktuell implementierte öffentliche Routen:
 
 ```text
-/tournaments
-/tournaments/:slug
-/tournaments/:slug/live
-/tournaments/:slug/groups
-/tournaments/:slug/bracket
-/tournaments/:slug/matches
-/tournaments/:slug/statistics
-
-/players/:slug
-/leagues/:slug
-/rankings
+/live/:tournamentId
+/live/:tournamentId/board/:boardId
+/live/:tournamentId/tv
 ```
 
-Next.js liefert SEO-fähige öffentliche Seiten.
+Gruppenranglisten, K.-o.-Tableau, Boardzustände und QR-Codes verwenden eine
+schreibgeschützte öffentliche API-Projektion. Spielerprofile unter
+`/spieler/:id` sind organisationsgebunden und benötigen eine Sitzung.
 
 ---
 
@@ -878,7 +890,7 @@ Next.js liefert SEO-fähige öffentliche Seiten.
 Route:
 
 ```text
-/live/tournament/:id/tv
+/live/:tournamentId/tv
 ```
 
 Eigenschaften:
@@ -907,6 +919,7 @@ Mindestanforderungen:
 - Rate Limiting
 - RBAC / Permissions
 - Tenant Isolation
+- einladungsgebundene Registrierung
 - Audit Logging
 - Secret Management
 - Dependency Scanning

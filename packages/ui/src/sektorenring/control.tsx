@@ -5,7 +5,7 @@ import { cn } from "../lib/cn";
 
 const controlVariants = cva(
   [
-    "inline-flex min-h-11 items-center justify-center gap-2 px-5",
+    "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-5",
     "font-plate text-[0.875rem] font-semibold uppercase tracking-[0.1em]",
     "transition-colors duration-150",
     "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green",

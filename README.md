@@ -2,7 +2,11 @@
 
 Eine robuste, mandantenfähige Plattform zur Organisation und Durchführung von Dartturnieren, Ligen und Turnierserien – vom Teilnehmermanagement über Live-Scoring bis zur öffentlichen Ergebnisanzeige.
 
-> **Projektstatus:** Phase 1 abgeschlossen. Zwei Spieler können ein vollständiges 501-Double-Out-Match auf einem mobilen Scoreboard spielen – mit Bust, Checkout, Dart Count, Best of Legs, Undo, Idempotenz und Versionsschutz. Als Nächstes folgt das Tournament MVP.
+> **Projektstatus (26. August 2026):** Die Phasen 0 bis 6 sind umgesetzt. Die
+> Plattform deckt Einladung und Anmeldung, Organisationen, Spieler, Boards,
+> vollständiges X01-Scoring, Turnierplanung und -leitung, öffentliche
+> Live-Ansichten, Offline-Sicherheit sowie Spielerstatistiken ab. Als Nächstes
+> folgt der Multi-Tenant-SaaS-Ausbau aus Phase 7.
 
 ## Quick Start
 
@@ -43,7 +47,7 @@ Geplante Kernfunktionen:
 
 ## Architektur
 
-Das System startet als modularer Monolith in einem TypeScript-Monorepo. Fachlogik liegt in infrastrukturell unabhängigen Domain- und Engine-Paketen; Web, API, Realtime und Worker greifen ausschließlich über definierte Schnittstellen darauf zu.
+Das System startet als modularer Monolith in einem TypeScript-Monorepo. Fachlogik liegt in infrastrukturell unabhängigen Domain- und Engine-Paketen; Web, API, Realtime und Worker greifen ausschliesslich über definierte Schnittstellen darauf zu.
 
 ```text
 Browser / PWA ───────┐
@@ -67,7 +71,8 @@ Zentrale Architekturprinzipien:
 
 Der aktuelle Stand bietet zusätzlich zur Foundation:
 
-- Registrierung, Login, Logout und persistente HttpOnly-Sessions über Better Auth
+- Registrierung ausschliesslich mit gültiger Einladung, Login, Logout und
+  persistente HttpOnly-Sessions über Better Auth
 - Organisationserstellung mit transaktionaler OWNER-Mitgliedschaft
 - zeitlich begrenzte, an eine E-Mail-Adresse gebundene Einladungen
 - serverseitige Rollen und Permissions für jeden Tenant-Zugriff
@@ -83,8 +88,14 @@ Der aktuelle Stand bietet zusätzlich zur Foundation:
 - idempotente Score-/Undo-Commands und Optimistic Concurrency mit HTTP 409
 - transaktionale Audit- und Outbox-Einträge für jeden Score-Zustandswechsel
 - ein touchfreundliches Scoreboard für Smartphone und Tablet
+- vollständige Turnierverwaltung für Round Robin, Gruppen und K.-o. inklusive
+  Setzung, Board-Zuweisung und auditierter Ergebniskorrektur
+- öffentliche Live-, Board- und TV-Ansichten mit Socket.IO und HTTP-Fallback
+- installierbare PWA mit persistenter Offline-Queue und Board-Controller-Lock
+- Spielerprofile mit Matchverlauf, Average, Checkout-Quote, Head-to-Head und
+  Rankingverlauf
 
-Weitere Details stehen in der [Zielarchitektur](./ARCHITECTURE.md) und im [initialen Datenbankschema](./DATABASE_SCHEMA.md).
+Weitere Details stehen in der [Zielarchitektur](./ARCHITECTURE.md) und im [Datenbankschema](./DATABASE_SCHEMA.md).
 
 ## Ziel-Tech-Stack
 
@@ -107,10 +118,14 @@ Weitere Details stehen in der [Zielarchitektur](./ARCHITECTURE.md) und im [initi
 .
 ├── apps/
 │   ├── web/                 # Next.js Web-App und PWA
-│   └── api/                 # NestJS/Fastify API
+│   ├── api/                 # NestJS/Fastify API und Realtime Gateway
+│   └── worker/              # asynchrone Statistikverarbeitung
 ├── packages/
 │   ├── domain/              # Gemeinsame Domain-Bausteine
 │   ├── scoring-engine/       # Deterministische X01-Regeln und Command-Replay
+│   ├── tournament-engine/    # Turnierformate, Setzung und Matchgraphen
+│   ├── scheduling-engine/    # nachvollziehbare Matchbereitschaft
+│   ├── statistics/           # reproduzierbare Statistikberechnung
 │   ├── database/            # Drizzle-Schema, Migrationen und DB-Client
 │   ├── ui/                  # Gemeinsame UI-Komponenten
 │   ├── schemas/             # Geteilte Zod-Schemas
@@ -124,7 +139,7 @@ Weitere Details stehen in der [Zielarchitektur](./ARCHITECTURE.md) und im [initi
 └── ROADMAP.md
 ```
 
-Zyklische Abhängigkeiten sind nicht erlaubt. Controller bleiben dünn, zentrale Geschäftslogik gehört nicht in React-Komponenten, und Datenbankzugriff erfolgt ausschließlich über definierte Repositories beziehungsweise den Data Access Layer.
+Zyklische Abhängigkeiten sind nicht erlaubt. Controller bleiben dünn, zentrale Geschäftslogik gehört nicht in React-Komponenten, und Datenbankzugriff erfolgt ausschliesslich über definierte Repositories beziehungsweise den Data Access Layer.
 
 ## Roadmap
 
@@ -153,7 +168,7 @@ Alle Phasen und Exit-Kriterien sind in der [Roadmap](./ROADMAP.md) beschrieben.
 | `pnpm lint` | ESLint für das gesamte Monorepo ausführen |
 | `pnpm typecheck` | TypeScript-Prüfung aller Workspaces ausführen |
 | `pnpm test` | Unit- und Integrationstests ausführen |
-| `pnpm test:e2e` | vollständiges 501-Match im Browser ausführen |
+| `pnpm test:e2e` | Anmeldung, Rollen, Turnier- und Scoring-Abläufe im Browser prüfen |
 | `pnpm build` | alle produktiven Builds erstellen |
 
 Die produktiven Container können zusätzlich lokal gebaut werden:
@@ -216,10 +231,20 @@ Verbindliche Architektur- und Arbeitsregeln stehen in [AGENTS.md](./AGENTS.md).
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Zielarchitektur, Domänen, Datenflüsse und Betriebsmodell |
 | [DATABASE_SCHEMA.md](./DATABASE_SCHEMA.md) | Logisches PostgreSQL-Zielschema und Integritätsregeln |
 | [ROADMAP.md](./ROADMAP.md) | Implementierungsphasen, Scope und Exit-Kriterien |
+| [PRODUCT.md](./PRODUCT.md) | Produktnutzen, Nutzergruppen und aktueller Funktionsumfang |
+| [DESIGN.md](./DESIGN.md) | Marken-, Farb-, Typografie- und Komponentenregeln |
 | [AGENTS.md](./AGENTS.md) | Verbindliche Regeln für Entwicklung und Coding Agents |
+| [ADR 0001](./docs/adr/0001-foundation-architecture.md) | Foundation als modularer Monolith |
 | [ADR 0002](./docs/adr/0002-identity-tenancy.md) | Identität, Tenant-Kontext, Permissions und Audit |
 | [ADR 0003](./docs/adr/0003-phase-0-production-operations.md) | Railway, Migrationen, Healthchecks, Logging und CI-Gate |
 | [ADR 0004](./docs/adr/0004-phase-1-x01-match.md) | X01-Engine, Idempotenz, Versionsprüfung, Undo und Transaktionen |
+| [ADR 0005](./docs/adr/0005-phase-2-tournament-command-model.md) | Turnier-Engine, persistenter Matchgraph und Commands |
+| [ADR 0006](./docs/adr/0006-phase-3-realtime-public-live.md) | Realtime und öffentliche Live-Ansichten |
+| [ADR 0007](./docs/adr/0007-phase-4-advanced-formats.md) | Erweiterte Turnierformate und Stage-Komposition |
+| [ADR 0008](./docs/adr/0008-phase-5-offline-reliability.md) | Offline-Queue und Board-Controller-Lock |
+| [ADR 0009](./docs/adr/0009-phase-6-statistics.md) | Reproduzierbare Spielerstatistiken |
+| [ADR 0010](./docs/adr/0010-invite-only-registration.md) | Einladungsgebundene Registrierung und rollenbasierter Verwaltungszugang |
+| [Bedienungsanleitung](./docs/manual/index.html) | Deutsche Anleitung für Administration, Turnierleitung und Scoring |
 | [Railway-Runbook](./infrastructure/railway.md) | Deployment, Variablen, Smoke-Test, Diagnose und Rollback |
 
 ## Lizenz

@@ -33,11 +33,11 @@ export const metadata: Metadata = {
 export const viewport: Viewport = { themeColor: "#059669" };
 
 const DIRECTION_CONTRACT = `<!--
-THESIS: One surface holds all eight boards at once in the board's own graphic apparatus; it refuses the dark SaaS card grid this category ships.
-OWN-WORLD: Sisal ground, black wedge fields, steel spider hairlines, enamel numerals (Saira Condensed) over Archivo data type, red and green double-ring signals, square corners without exception.
+THESIS: Entry and tournament administration share one calm dark operating surface while all eight boards remain readable at once.
+OWN-WORLD: Slate ground, raised slate panels, emerald actions, visible focus, rounded controls and high-contrast status signals.
 STORY: The tournament director sees which board is free and which is about to free, and starts the next match in one action.
 FIRST VIEWPORT: Name and match progress on top; eight wedge panels two across, the active player's remaining score at 3.5rem; queue and disruptions in the right column; the group sheet typeset below.
-FORM: Sektorenring, candidate 3 of 7 grounded directions, seed key 616b8789.
+FORM: Unified Dart Ost dark interface, with the tournament information hierarchy preserved.
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
 -->`;
 

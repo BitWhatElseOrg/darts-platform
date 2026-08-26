@@ -21,7 +21,7 @@ const onInk: Record<StateTone, string> = {
   finish: "text-ring-green-lit",
   blocked: "text-ring-red-lit",
   conflict: "text-ring-red-lit",
-  waiting: "text-sisal-300",
+  waiting: "text-spider",
 };
 
 const onSisal: Record<StateTone, string> = {

@@ -79,7 +79,7 @@ export function DashboardHeader({ connection, dashboard, pendingCount }: Dashboa
           aria-hidden="true"
           className="h-1.5 w-full max-w-md border border-sisal-400 bg-sisal-50 sm:w-64"
         >
-          <div className="h-full bg-wedge-900" style={{ width: `${share}%` }} />
+          <div className="h-full bg-ring-green" style={{ width: `${share}%` }} />
         </div>
         <p className="font-plate text-[0.875rem] text-sisal-500">
           <span className="font-numerals text-[1rem] font-bold tabular text-wedge-900">

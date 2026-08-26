@@ -466,8 +466,8 @@ export function SetupSheet({ organizationId, players, boards }: {
                       <label
                         className={
                           checked
-                            ? "flex min-h-11 cursor-pointer items-center gap-2.5 border-2 border-ring-green bg-sisal-100 px-3 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring-green"
-                            : "flex min-h-11 cursor-pointer items-center gap-2.5 border border-sisal-400 px-3 hover:bg-sisal-100 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring-green"
+                            ? "flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg border-2 border-ring-green bg-sisal-100 px-3 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring-green"
+                            : "flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg border border-sisal-400 px-3 hover:bg-sisal-100 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring-green"
                         }
                       >
                         <input

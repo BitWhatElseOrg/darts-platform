@@ -48,7 +48,11 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
           });
 
     if (result.error !== null) {
-      setServerError(mode === "sign-in" ? "E-Mail oder Passwort ist nicht korrekt." : "Das Konto konnte nicht erstellt werden. Prüfe deine Angaben.");
+      setServerError(
+        mode === "sign-in"
+          ? "E-Mail oder Passwort ist nicht korrekt."
+          : "Das Konto konnte nicht erstellt werden. Verwende die E-Mail-Adresse deiner gültigen Einladung.",
+      );
       return;
     }
 
@@ -65,6 +69,11 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
         <h2 className="text-2xl font-semibold text-white">
           {mode === "sign-in" ? "Anmelden" : "Konto erstellen"}
         </h2>
+        {mode === "register" ? (
+          <p className="mt-2 text-sm leading-6 text-slate-400">
+            Die Registrierung ist nur mit einer gültigen Einladung möglich.
+          </p>
+        ) : null}
       </div>
 
       <form className="space-y-4" onSubmit={(event) => void submit(event)}>
@@ -123,7 +132,7 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
         type="button"
       >
         {mode === "sign-in"
-          ? "Noch kein Konto? Jetzt registrieren"
+          ? "Eingeladen? Konto erstellen"
           : "Bereits registriert? Anmelden"}
       </button>
     </section>

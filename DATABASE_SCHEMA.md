@@ -1,6 +1,6 @@
 # DATABASE_SCHEMA.md
 
-# Dart Tournament Platform – Initiales Datenbankschema
+# Dart Tournament Platform – Datenbankschema
 
 **Datenbank:** PostgreSQL  
 **ORM:** Drizzle ORM  
@@ -8,16 +8,21 @@
 **Multi-Tenancy:** `organization_id`  
 **Zeitstempel:** UTC
 
-Dieses Dokument beschreibt die logische Zielstruktur. Die tatsächlichen Drizzle-Schemas werden schrittweise gemäß ROADMAP umgesetzt.
+Dieses Dokument beschreibt die logische Zielstruktur und markiert den bis
+Phase 6 implementierten Ausschnitt. Verbindliche technische Quelle sind
+`packages/database/src/schema.ts` und die versionierten Migrationen unter
+`packages/database/drizzle`.
 
-## Implementierter Phase-2-Ausschnitt
+## Implementierter Stand Phase 0–6
 
-Die Migrationen `0003_nosy_frightful_four.sql`, `0004_living_triton.sql` und
-`0005_handy_jocasta.sql`
-führen den aktuell implementierten Tournament-MVP ein. Der MVP verwendet die
-folgenden normalisierten Tabellen, bevor die weiter unten beschriebene
-Competition-Abstraktion ergänzt wird:
+Die Migrationen `0000` bis `0009` enthalten heute Identity und Tenancy,
+Scoring, den Tournament-MVP, erweiterte Matchregeln, Offline-/Controller-Daten
+und Statistikaggregate. Dazu gehören insbesondere:
 
+- `organization_invitations`: E-Mail-gebundene, befristete Voraussetzung für
+  Kontoerstellung und spätere Organisationsmitgliedschaft
+- `boards`, `matches`, `match_participants`, `legs`, `visits` und
+  `score_commands`: versioniertes, idempotentes X01-Scoring
 - `tournaments`: Format, Spielregeln, Status und optimistische Version
 - `tournament_participants` und `tournament_boards`: Setzung und Board-Reihenfolge
 - `tournament_stages`, `tournament_groups` und
@@ -27,6 +32,8 @@ Competition-Abstraktion ergänzt wird:
 - `tournament_commands`: Idempotenzprotokoll für Zuweisung, Board-Freigabe und
   Result Correction
 - `matches.double_out`: Spielregel des erzeugten Scoring-Aggregats
+- `outbox_events`: getrennte Publikationszeitpunkte für Realtime und Statistik
+- persistente Spieleraggregate und Rankingverlauf für Phase 6
 
 Unique-, Check- und Foreign-Key-Constraints sichern unter anderem doppelte
 Teilnehmer/Boards, Setzungen, Statuswerte, aktive Board-Belegung und
@@ -98,6 +105,46 @@ Index:
 organization_id
 user_id
 ```
+
+---
+
+## organization_invitations
+
+```text
+id uuid PK
+organization_id uuid FK organizations NOT NULL
+email varchar NOT NULL
+role varchar NOT NULL
+status varchar NOT NULL DEFAULT 'PENDING'
+invited_by_user_id uuid FK users NOT NULL
+expires_at timestamptz NOT NULL
+created_at timestamptz NOT NULL
+updated_at timestamptz NOT NULL
+```
+
+Zulässige Rollen:
+
+```text
+ADMIN
+TOURNAMENT_DIRECTOR
+SCORER
+MEMBER
+VIEWER
+```
+
+Zulässige Statuswerte:
+
+```text
+PENDING
+ACCEPTED
+CANCELLED
+EXPIRED
+```
+
+Ein Konto kann nur erstellt werden, wenn für seine normalisierte E-Mail-Adresse
+ein Datensatz mit `status = PENDING` und `expires_at > now()` existiert. Die
+eigentliche Mitgliedschaft entsteht erst beim expliziten Annehmen der Einladung.
+Ein Index auf `(email, status)` unterstützt diese Prüfung.
 
 ---
 
@@ -857,7 +904,7 @@ board_id
 - DB-Zugang nur Backend/Worker.
 - PostgreSQL nicht unnötig öffentlich exponieren.
 - Redis nicht öffentlich exponieren.
-- Migrationen ausschließlich kontrolliert.
+- Migrationen ausschliesslich kontrolliert.
 - Backups aktivieren.
 - Restore regelmäßig testen.
 - Production und Staging trennen.
@@ -874,6 +921,7 @@ board_id
 users
 organizations
 memberships
+organization_invitations
 players
 ```
 
@@ -904,11 +952,17 @@ rankings
 ranking_entries
 ```
 
-## Phase 3+
+## Phasen 3–6
 
 ```text
 outbox_events
-player_statistics
+player_statistic_aggregates
+board_controller_leases
+```
+
+## Phase 7+
+
+```text
 integrations
 webhooks
 notifications

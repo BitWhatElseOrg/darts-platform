@@ -95,26 +95,71 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
-/*
-  The world is scoped: the Phase-0/1 dashboard keeps its scaffold look until
-  its own surface is redesigned, so nothing outside the tournament routes moves.
-*/
+/* Tournament routes share the entry page's dark slate and emerald surface. */
 .sektorenring {
-  color-scheme: light;
+  color-scheme: dark;
+  --color-sisal-50: #020617;
+  --color-sisal-100: #0f172a;
+  --color-sisal-200: #020617;
+  --color-sisal-300: #334155;
+  --color-sisal-400: #475569;
+  --color-sisal-500: #94a3b8;
+  --color-wedge-900: #f8fafc;
+  --color-wedge-800: #334155;
+  --color-wedge-700: #334155;
+  --color-ring-red: #fb7185;
+  --color-ring-red-deep: #fda4af;
+  --color-ring-red-lit: #fda4af;
+  --color-ring-green: #34d399;
+  --color-ring-green-deep: #6ee7b7;
+  --color-ring-green-lit: #6ee7b7;
+  --color-spider: #cbd5e1;
+  --color-spider-dim: #94a3b8;
+  --color-chalk: #f8fafc;
+  --font-numerals: Arial, Helvetica, sans-serif;
+  --font-plate: Arial, Helvetica, sans-serif;
   font-family: var(--font-plate);
   color: var(--color-wedge-900);
   background-color: var(--color-sisal-200);
-  /* Sisal fibre: direction, not noise. */
-  background-image: repeating-linear-gradient(
-    58deg,
-    color-mix(in oklab, var(--color-sisal-500) 7%, transparent) 0 1px,
-    transparent 1px 4px
-  );
+  background-image: radial-gradient(circle at top, rgb(16 185 129 / 0.12), transparent 36rem);
 }
 
 .sektorenring ::selection {
   background: var(--color-ring-green);
-  color: var(--color-chalk);
+  color: #020617;
+}
+
+/* These tokens serve both text and filled controls in the legacy primitives. */
+.sektorenring .bg-wedge-900 {
+  background-color: #1e293b;
+}
+
+.sektorenring .border-wedge-900 {
+  border-color: #475569;
+}
+
+.sektorenring .bg-ring-green {
+  background-color: #047857;
+}
+
+.sektorenring .bg-ring-red {
+  background-color: #be123c;
+}
+
+.sektorenring .hover\:bg-wedge-800:hover {
+  background-color: #334155;
+}
+
+.sektorenring .hover\:bg-ring-green-deep:hover {
+  background-color: #065f46;
+}
+
+.sektorenring .hover\:bg-ring-red-deep:hover {
+  background-color: #9f1239;
+}
+
+.sektorenring :is(.bg-sisal-50, .bg-sisal-100):is(.border, .border-2) {
+  border-radius: 1rem;
 }
 
 /* Numerals carry data: never let them go proportional. */

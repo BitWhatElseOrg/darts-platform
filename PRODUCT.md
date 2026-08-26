@@ -14,7 +14,10 @@ Zwei gleichrangige Primärnutzer. Kein Modus ist Beiwerk des anderen.
 
 **Scorer am Board** – Spieler oder Schreiber, stehend am Board, Smartphone oder Tablet in einer Hand, zwischen zwei Aufnahmen. Aufgabe: Score erfassen, Bust und Checkout erkennen, Fehleingabe zurücknehmen. Wenige Interaktionen pro Aufnahme, verlässlich auch bei kurzen Netzaussetzern.
 
-Weitere Beteiligte sind bekannt, aber nicht primär: Zuschauer und TV/Beamer-Ansicht (geplant, Phase 3), Organisations-Administration (OWNER, ADMIN implementiert). Rollen im System heute: `OWNER`, `ADMIN`, `TOURNAMENT_DIRECTOR`, `SCORER`.
+Weitere Beteiligte sind bekannt, aber nicht primär: Zuschauer sowie die
+implementierte TV-/Beamer-Ansicht und die Organisations-Administration. Rollen
+im System heute: `OWNER`, `ADMIN`, `TOURNAMENT_DIRECTOR`, `SCORER`, `MEMBER` und
+`VIEWER`.
 
 ## Product Purpose
 
@@ -38,7 +41,8 @@ Nicht als Positionierung bestätigt, aber als technische Eigenschaft vorhanden: 
 
 - Turnierbetrieb vor Ort, mehrere Boards gleichzeitig in Betrieb, Matches laufen parallel.
 - Zwei Gerätearten gleichzeitig im Einsatz: Leitungsgerät (Laptop/Tablet) und Boardgeräte (Smartphone/Tablet), teils Privatgeräte der Spieler.
-- Ausgabe zusätzlich auf TV oder Beamer sowie öffentliche Turnierseite mit QR-Code je Board (geplant, Phase 3).
+- Ausgabe zusätzlich auf TV oder Beamer sowie öffentliche Turnierseite mit
+  QR-Code je Board (implementiert).
 - Netzverbindung ist nicht garantiert: kurze WLAN-Ausfälle sind erwarteter Normalfall und dürfen keinen Score-Verlust verursachen (Phase 5, Exit Criteria).
 - Mehrere Organisationen (Vereine, Veranstalter) betreiben getrennte Turniere auf derselben Installation.
 - Der Ablauf ist zeitkritisch: ein blockiertes Board hält das Turnier auf, deshalb müssen Board-Zuweisung und Score-Eingabe ohne Nachdenken funktionieren.
@@ -49,7 +53,8 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 
 **Heute nutzbar (Phase 0–6, Stand 26.08.2026)**
 
-- Registrierung, Login, Logout, persistente HttpOnly-Sessions (Better Auth)
+- Registrierung ausschliesslich für gültig eingeladene E-Mail-Adressen, Login,
+  Logout und persistente HttpOnly-Sessions (Better Auth)
 - Organisation erstellen, Mitgliedschaften, zeitlich begrenzte E-Mail-gebundene Einladungen
 - serverseitige Rollen und Permissions je Tenant
 - Spielerverwaltung inklusive revisionssicherer Archivierung
@@ -93,24 +98,35 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 ## Brand Commitments
 
 - **Produktsprache: Deutsch, Schweizer Rechtschreibung, kein Eszett.** Bestätigt. Die aktuelle englische UI-Copy in [apps/web](apps/web) ist Altlast aus der Aufbauphase und wird bei künftiger Arbeit an der jeweiligen Fläche ersetzt. Dart-Fachbegriffe bleiben englisch (siehe Terminologie).
-- **Produktname: Dart Ost - Plattform.** Dieser Name wird in UI-Titeln und sichtbaren Produktflächen verwendet.
-- Keine Logo-, Wortmarken- oder Farbfestlegung existiert. Kein Asset-Verzeichnis (`apps/web/public` ist nicht vorhanden).
-- Keine Tonalität dokumentiert. Die heutige UI-Copy ist knapp und technisch, war aber nie als Stimme festgelegt.
+- **Produktname: Dart Ost - Turnier Plattform.** Dieser Name wird in UI-Titeln
+  und sichtbaren Produktflächen verwendet.
+- Das Dart-Ost-Logo und die Sutter-Precision-Wortmarken liegen zentral unter
+  [`apps/web/src/assets`](apps/web/src/assets). Das invertierte
+  Sutter-Precision-Logo erscheint mit «powered by» im Footer der Anmeldeseite.
+- Einstieg, Organisationsverwaltung und Turnierverwaltung verwenden eine
+  gemeinsame dunkle Slate-/Weiss-/Emerald-Oberfläche. Die ursprüngliche
+  Sektorenring-Sprache bleibt als Komponenten- und Informationsmodell erhalten;
+  die aktuelle Zuordnung steht in [DESIGN.md](DESIGN.md).
+- Die UI-Copy ist knapp, handlungsorientiert und verwendet Schweizer
+  Rechtschreibung.
 
 ## Evidence on Hand
 
 **Vorhanden und belastbar**
 
 - Lauffähiges 501-Double-Out-Match, deterministisch getestete Scoring-Engine ([packages/scoring-engine](packages/scoring-engine)), E2E-Test über den vollen Matchablauf ([apps/web/tests/foundation.spec.ts](apps/web/tests/foundation.spec.ts))
-- Architekturentscheide: [docs/adr/0001-foundation-architecture.md](docs/adr/0001-foundation-architecture.md) bis [0004-phase-1-x01-match.md](docs/adr/0004-phase-1-x01-match.md)
+- Architekturentscheide: [docs/adr/0001-foundation-architecture.md](docs/adr/0001-foundation-architecture.md) bis [0010-invite-only-registration.md](docs/adr/0010-invite-only-registration.md)
 - [ARCHITECTURE.md](ARCHITECTURE.md), [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md), [ROADMAP.md](ROADMAP.md) mit Phasen und Exit Criteria
 - CI/CD und reproduzierbare Production-Images, Railway IaC ([infrastructure/](infrastructure/))
-- bestehende UI-Fläche: eine Dashboard-Seite mit Auth-, Tenant-, Health- und Match-Bereich; gemeinsame UI bislang nur `Button` ([packages/ui/src/components/button.tsx](packages/ui/src/components/button.tsx))
+- bestehende UI-Flächen für Authentifizierung, Organisation, Match, Turnier,
+  öffentliche Live-Anzeige und Spielerprofil; gemeinsame Controls und
+  Sektorenring-Primitives liegen in [`packages/ui`](packages/ui)
 
 **Nicht vorhanden – nicht erfinden**
 
 - keine Kunden, Vereine, Pilotturniere, Testimonials, Nutzerzahlen, Pressestimmen
-- keine Screenshots, Fotos, Sponsorlogos, Illustrationen, Icon-Set
+- keine freigegebenen Produkt-Screenshots oder Veranstaltungsfotos
+  oder Kundenlogos; vorhandene Markenassets nicht als Kundennachweis darstellen
 - keine Preise, keine Verfügbarkeitszusagen, keine Zertifizierungen
 - keine echten Spieler- oder Turnierdaten; in Beispielen und Tests ausschliesslich fiktive Namen und Werte
 - kein Autodarts-/Scolia-Adapter im Code (Phase 8) – Integrationen nicht als bestehend darstellen

@@ -1,5 +1,5 @@
 ---
-name: Dart Ost - Plattform
+name: Dart Ost - Turnier Plattform
 description: The board's own graphic apparatus, used as an operating surface for a live tournament.
 colors:
   sisal-50: "#f6f0de"
@@ -176,7 +176,21 @@ components:
     size: "2.75rem"
 ---
 
-# Design System: Dart Ost - Plattform
+# Design System: Dart Ost - Turnier Plattform
+
+> **Aktuelle Oberflächenrichtung (26.08.2026):** Einstieg, Organisationsbereich
+> und Turnierverwaltung verwenden gemeinsam die dunkle Slate-, Weiss- und
+> Emerald-Palette mit gerundeten Controls und angehobenen Flächen. Die
+> historische Sektorenring-Studie bleibt als Kontext für Informationshierarchie
+> und Statussemantik erhalten; ihre helle Sisal-Palette und die Regeln für
+> kantige Controls werden durch die Zuordnungen in
+> `apps/web/src/app/globals.css` übersteuert.
+
+**Markenassets:** Das Dart-Ost-Logo steht oberhalb des Produkttitels. Im Footer
+der Anmeldeseite folgt auf «powered by» die invertierte
+Sutter-Precision-Wortmarke. UI-Code importiert beide Assets ausschliesslich über
+`apps/web/src/assets/index.ts`; neue Logos und Bilder werden in den Unterordnern
+`logos` beziehungsweise `images` abgelegt.
 
 ## Overview
 
@@ -186,7 +200,11 @@ A bristle board is already a precision information graphic: sisal wedges alterna
 
 The register is dense and matte. A tournament director reads this surface across a noisy hall under mixed light, so the ground is warm and light (sisal) with black fields carrying the live data — the inverse of the dark dashboard this category ships, and chosen from that scene rather than from taste. Density is high and deliberate: eight boards, a queue, a disruption list and eight group tables coexist without a single collapsible. Nothing dims, nothing hides behind a badge.
 
-The world currently governs the tournament routes (`/turniere`, `/turniere/neu`, `/turniere/[id]`) and the `Sektorenring` primitive set in `packages/ui`. The Phase-0/1 scaffold on `/` still carries the previous dark slate look; it is scoped out by the `.sektorenring` class and will be replaced when that surface is redesigned. Treat the scaffold as an anti-reference, not as a second system.
+Die Sektorenring-Primitives in `packages/ui` strukturieren weiterhin die
+Turnierrouten (`/turniere`, `/turniere/neu`, `/turniere/[id]`). Ihre Farben,
+Flächen und Controls werden innerhalb von `.sektorenring` auf die dunkle
+Slate-/Emerald-Richtung des Einstiegs gemappt. Damit existiert nur noch eine
+sichtbare Produktoberfläche, nicht zwei konkurrierende Themes.
 
 **Key Characteristics:**
 - Warm sisal ground, black wedge fields, no rounded rectangles anywhere

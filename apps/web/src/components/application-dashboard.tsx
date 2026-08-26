@@ -1,6 +1,7 @@
 "use client";
 
 import { AuthPanel } from "@/components/auth-panel";
+import { AuthFooter } from "@/components/auth-footer";
 import { HealthDashboard } from "@/components/health-dashboard";
 import { TenantDashboard } from "@/components/tenant-dashboard";
 import { authClient } from "@/lib/auth-client";
@@ -18,9 +19,12 @@ export function ApplicationDashboard() {
 
   if (session.data === null) {
     return (
-      <div className="grid w-full gap-6 lg:grid-cols-2">
-        <AuthPanel onAuthenticated={session.refetch} />
-        <HealthDashboard />
+      <div className="w-full">
+        <div className="grid gap-6 lg:grid-cols-2">
+          <AuthPanel onAuthenticated={session.refetch} />
+          <HealthDashboard />
+        </div>
+        <AuthFooter />
       </div>
     );
   }
