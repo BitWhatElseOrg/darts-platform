@@ -138,6 +138,7 @@ function Scoreboard({ organizationId, match, canScore }: { readonly organization
   }, [replay]);
 
   const submit = useMutation({
+    networkMode: "always",
     mutationFn: async () => {
       const commandId = crypto.randomUUID();
       const path = `/organizations/${organizationId}/matches/${match.id}/visits`;
@@ -158,7 +159,12 @@ function Scoreboard({ organizationId, match, canScore }: { readonly organization
         throw error;
       }
     },
-    onSuccess: async () => { setPoints(""); setCheckoutDouble(""); setCheckoutAttempts(0); await refresh(); },
+    onSuccess: async (serverState) => {
+      setPoints("");
+      setCheckoutDouble("");
+      setCheckoutAttempts(0);
+      if (serverState !== null) await refresh();
+    },
     onError: async (error) => { if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") await refresh(); },
   });
   const undo = useMutation({

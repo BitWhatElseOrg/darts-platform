@@ -46,6 +46,9 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByLabel("Best of Legs").selectOption("1");
   await page.getByLabel("Board", { exact: true }).selectOption({ label: "E2E Board" });
   await page.getByRole("button", { name: "Match starten" }).click();
+  await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
+  await expect(page.getByText("Dieses Gerät steuert das Board · Verbindung aktiv")).toBeVisible();
+  await expect(page.getByLabel("Aufnahmescore")).toBeEnabled();
 
   const record = async (score: number, expectedRest: number, checkoutDouble?: number) => {
     await page.getByLabel("Aufnahmescore").fill(String(score));
@@ -58,10 +61,12 @@ test("a club can complete a match and start a generated tournament match", async
   };
 
   await page.context().setOffline(true);
+  await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(false);
   await page.getByLabel("Aufnahmescore").fill("180");
   await page.getByRole("button", { name: "Erfassen" }).click();
   await expect(page.getByText(/Aufnahme wartet dauerhaft gespeichert/u)).toBeVisible();
   await page.context().setOffline(false);
+  await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(true);
   await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("321");
   await page.getByRole("button", { name: "Letzte Aufnahme zurücknehmen" }).click();
   await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("501");
