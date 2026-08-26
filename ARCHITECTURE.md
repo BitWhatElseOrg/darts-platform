@@ -1,0 +1,1124 @@
+# ARCHITECTURE.md
+
+# Dart Tournament Platform – Zielarchitektur
+
+**Status:** Zielarchitektur Vollausbau  
+**Architekturstil:** Modularer Monolith mit klaren Domänengrenzen  
+**Primärplattform:** Responsive Web-App + PWA  
+**Zielgeräte:** Desktop, Tablet, Smartphone, TV/Beamer  
+**Sprache:** TypeScript  
+**Hosting-Ziel:** Railway  
+**Repository:** GitHub Monorepo
+
+---
+
+## 1. Zielbild
+
+Die Plattform soll Dartturniere, Ligen und Turnierserien vollständig verwalten und durchführen können.
+
+Ziele des Vollausbaus:
+
+- Organisationen / Vereine
+- Benutzer, Rollen und Berechtigungen
+- Spieler und Teams
+- Turniere und Turnierserien
+- Ligen und Saisons
+- Round Robin
+- Gruppenphasen
+- Single Elimination
+- Double Elimination
+- Schweizer System
+- kombinierbare Turnierphasen
+- 301 / 501 / weitere X01-Varianten
+- Double In / Double Out / Master Out
+- Best-of-Legs / Sets
+- Boardverwaltung
+- automatische Boardzuweisung
+- manuelle Score-Erfassung
+- Live-Scoring
+- QR-Code pro Board
+- TV-/Beamer-Modus
+- öffentliche Turnierseiten
+- Statistiken und Rankings
+- PWA und Offline-Puffer
+- Autodarts-Integration
+- Scolia-Integration
+- Benachrichtigungen
+- öffentliche API
+- Webhooks
+- Multi-Tenant-SaaS
+- Audit-Logging
+- Sponsoren / Branding
+
+---
+
+## 2. Architekturprinzip
+
+### 2.1 Modularer Monolith zuerst
+
+Zum Projektstart werden keine Microservices eingesetzt.
+
+Die Backend-Anwendung wird als modularer Monolith entwickelt:
+
+```text
+Backend
+├── identity
+├── organizations
+├── players
+├── competitions
+├── tournaments
+├── matches
+├── scoring
+├── boards
+├── scheduling
+├── rankings
+├── statistics
+├── realtime
+├── notifications
+├── integrations
+└── audit
+```
+
+Vorteile:
+
+- einfache lokale Entwicklung
+- wenig Infrastruktur
+- einfache Transaktionen
+- einfacher Betrieb
+- schnelleres Debugging
+- trotzdem klare Domänengrenzen
+
+Einzelne Komponenten können später aus dem Monolithen ausgelagert werden, falls Last oder organisatorische Gründe dies erfordern.
+
+Geeignete spätere Kandidaten:
+
+- Realtime Gateway
+- Statistics Worker
+- Notification Worker
+- Integration Worker
+- Import/Export Worker
+
+---
+
+## 3. Systemübersicht
+
+```mermaid
+flowchart TB
+    USER[Benutzer]
+    BOARD[Board Tablet / Smartphone]
+    TV[TV / Beamer]
+    AUTO[Autodarts / Scolia]
+
+    WEB[Next.js Web / PWA]
+    API[NestJS API]
+    RT[Realtime Gateway]
+    WORKER[Background Worker]
+
+    PG[(PostgreSQL)]
+    REDIS[(Redis)]
+    S3[(Object Storage)]
+
+    USER --> WEB
+    BOARD --> WEB
+    TV --> WEB
+
+    WEB --> API
+    WEB <--> RT
+
+    AUTO --> API
+
+    API --> PG
+    API --> REDIS
+    API --> S3
+
+    RT --> REDIS
+    WORKER --> PG
+    WORKER --> REDIS
+```
+
+---
+
+## 4. Tech Stack
+
+| Bereich | Technologie |
+|---|---|
+| Sprache | TypeScript |
+| Package Manager | pnpm |
+| Monorepo | Turborepo |
+| Frontend | Next.js + React |
+| Styling | Tailwind CSS |
+| UI | shadcn/ui |
+| Forms | React Hook Form |
+| Server State | TanStack Query |
+| Validierung | Zod |
+| Backend | NestJS |
+| HTTP Adapter | Fastify |
+| REST API | `/api/v1` |
+| Realtime | Socket.IO / WebSocket |
+| Datenbank | PostgreSQL |
+| ORM | Drizzle ORM |
+| Cache / PubSub | Redis |
+| Queue | BullMQ |
+| Auth | Better Auth |
+| File Storage | S3-kompatibler Object Storage |
+| Unit Tests | Vitest |
+| Integration Tests | Testcontainers |
+| E2E | Playwright |
+| Observability | OpenTelemetry |
+| Error Tracking | Sentry |
+| Container | Docker |
+| CI/CD | GitHub Actions |
+| Hosting | Railway |
+
+---
+
+## 5. Monorepo-Struktur
+
+```text
+dart-tournament-platform/
+├── apps/
+│   ├── web/
+│   ├── api/
+│   ├── realtime/
+│   └── worker/
+│
+├── packages/
+│   ├── domain/
+│   ├── database/
+│   ├── auth/
+│   ├── scoring-engine/
+│   ├── tournament-engine/
+│   ├── scheduling-engine/
+│   ├── ranking-engine/
+│   ├── statistics/
+│   ├── integrations/
+│   ├── ui/
+│   ├── schemas/
+│   └── config/
+│
+├── docs/
+│   ├── architecture/
+│   ├── adr/
+│   ├── api/
+│   └── domain/
+│
+├── infrastructure/
+│   ├── docker/
+│   └── railway/
+│
+├── .github/
+│   └── workflows/
+│
+├── AGENTS.md
+├── ARCHITECTURE.md
+├── ROADMAP.md
+└── DATABASE_SCHEMA.md
+```
+
+---
+
+## 6. Multi-Tenancy
+
+Die Plattform wird ab Phase 0 mandantenfähig gebaut.
+
+Zentrale Entität:
+
+```text
+Organization
+```
+
+Nahezu alle geschäftlichen Tabellen enthalten:
+
+```text
+organization_id
+```
+
+Beispiele:
+
+- players
+- tournaments
+- boards
+- competitions
+- integrations
+- rankings
+- audit_events
+
+Tenant-Isolation ist serverseitig zwingend.
+
+Nicht zulässig:
+
+```sql
+SELECT * FROM tournaments WHERE id = $1;
+```
+
+Ziel:
+
+```sql
+SELECT *
+FROM tournaments
+WHERE id = $1
+  AND organization_id = $2;
+```
+
+---
+
+## 7. Rollen und Berechtigungen
+
+### Systemrolle
+
+- `SUPER_ADMIN`
+
+### Organisationsrollen
+
+- `OWNER`
+- `ADMIN`
+- `TOURNAMENT_DIRECTOR`
+- `SCORER`
+- `MEMBER`
+- `VIEWER`
+
+### Turnierspezifische Rollen
+
+- `TOURNAMENT_ADMIN`
+- `BOARD_SCORER`
+- `REFEREE`
+
+Berechtigungen werden als Permissions modelliert:
+
+```text
+tournament:create
+tournament:update
+tournament:start
+tournament:finish
+
+player:create
+player:update
+
+match:start
+match:score
+match:undo
+match:finish
+
+board:assign
+board:control
+
+organization:manage_members
+organization:manage_roles
+```
+
+Jede Mutation muss serverseitig autorisiert werden.
+
+---
+
+## 8. Hauptdomänen
+
+```text
+Identity
+Organization
+Player
+Competition
+Tournament
+Tournament Stage
+Match
+Scoring
+Board
+Scheduling
+Ranking
+Statistics
+Realtime
+Integration
+Notification
+Audit
+```
+
+---
+
+## 9. Competition-Modell
+
+```text
+Competition
+├── Tournament
+├── League
+├── Tournament Series
+└── Season
+```
+
+Das Modell erlaubt später Liga und Turnierserie, ohne den Turnierkern neu zu bauen.
+
+---
+
+## 10. Tournament-Modell
+
+Ein Turnier besteht aus mehreren Stages.
+
+```text
+Tournament
+├── Participants
+├── Stages
+│   ├── Group
+│   ├── Round Robin
+│   ├── Swiss
+│   ├── Single Elimination
+│   └── Double Elimination
+├── Matches
+├── Boards
+└── Ranking
+```
+
+Beispiel:
+
+```text
+Stage 1: 8 Gruppen à 4 Spieler
+Stage 2: Last 16
+Stage 3: Quarter Finals
+Stage 4: Semi Finals
+Stage 5: Final
+```
+
+---
+
+## 11. Tournament Engine
+
+Die Tournament Engine ist reine Domain-Logik.
+
+Sie kennt:
+
+- keine UI
+- keine HTTP-Controller
+- keine Datenbank
+- kein Redis
+- keine Railway-Infrastruktur
+
+Module:
+
+```text
+TournamentEngine
+├── RoundRobinGenerator
+├── GroupGenerator
+├── SingleEliminationGenerator
+├── DoubleEliminationGenerator
+├── SwissGenerator
+├── SeedingEngine
+├── QualificationEngine
+└── AdvancementEngine
+```
+
+Beispiel:
+
+```ts
+const plan = tournamentEngine.generate({
+  format: "GROUPS_TO_KO",
+  participants: 32,
+  groupStage: {
+    groups: 8,
+    qualifiersPerGroup: 2
+  },
+  knockout: {
+    seedStrategy: "GROUP_POSITION"
+  }
+});
+```
+
+---
+
+## 12. Scoring Engine
+
+Die Scoring Engine bildet die Dartregeln ab.
+
+```text
+ScoringEngine
+├── X01
+│   ├── 301
+│   ├── 501
+│   ├── 701
+│   └── 1001
+└── spätere Spielarten
+```
+
+Konfiguration:
+
+```text
+Straight In
+Double In
+Straight Out
+Double Out
+Master Out
+Best of Legs
+Best of Sets
+```
+
+Sie validiert:
+
+- Score
+- Bust
+- Restscore
+- Checkout
+- Dartanzahl
+- Leg-Ende
+- Set-Ende
+- Match-Ende
+- Undo / Revert
+
+---
+
+## 13. Match-Domäne
+
+```text
+Match
+├── MatchParticipants
+├── Sets
+│   └── Legs
+│       └── Visits
+│           └── optional Darts
+└── Result
+```
+
+Ein Visit enthält mindestens:
+
+```text
+id
+organization_id
+match_id
+leg_id
+player_id
+sequence
+score
+dart_count
+remaining_before
+remaining_after
+bust
+checkout
+created_at
+created_by
+```
+
+Optional:
+
+```text
+dart_1
+dart_2
+dart_3
+```
+
+---
+
+## 14. Domain Events
+
+Wichtige Änderungen werden als Domain Events behandelt:
+
+```text
+MATCH_STARTED
+LEG_STARTED
+VISIT_RECORDED
+VISIT_BUST
+VISIT_REVERTED
+LEG_WON
+SET_WON
+MATCH_WON
+MATCH_FINISHED
+BOARD_ASSIGNED
+RANKING_UPDATED
+```
+
+Historische Scoring-Daten werden möglichst nicht destruktiv gelöscht.
+
+Undo:
+
+```text
+VISIT_RECORDED
+↓
+VISIT_REVERTED
+```
+
+---
+
+## 15. Concurrency
+
+Jedes aktive Leg besitzt eine Version.
+
+Beispiel:
+
+```text
+version = 17
+```
+
+Command:
+
+```json
+{
+  "score": 140,
+  "expectedVersion": 17,
+  "commandId": "uuid"
+}
+```
+
+Nach erfolgreichem Commit:
+
+```text
+version = 18
+```
+
+Ein weiterer Command mit Version 17 wird abgewiesen.
+
+Zusätzlich müssen Score-Commands idempotent sein.
+
+---
+
+## 16. Board Control
+
+Ein Board besitzt:
+
+```text
+Board
+├── activeMatch
+├── controller
+├── heartbeat
+└── controllerExpiresAt
+```
+
+Redis-Key:
+
+```text
+board:{boardId}:controller
+```
+
+Der Controller-Lock besitzt einen Timeout.
+
+Ein zweites Gerät kann das Board erst übernehmen, wenn der Lock freigegeben wurde oder abgelaufen ist.
+
+---
+
+## 17. Realtime
+
+Realtime wird für folgende Oberflächen benötigt:
+
+- Scoring
+- Turnierleitung
+- Live-Seite
+- TV-Modus
+- Match-Ansicht
+- Boardstatus
+
+Channels:
+
+```text
+organization:{id}
+tournament:{id}
+match:{id}
+board:{id}
+```
+
+Datenfluss:
+
+```text
+Score Command
+↓
+API
+↓
+PostgreSQL Commit
+↓
+Domain Event / Outbox
+↓
+Redis Pub/Sub
+↓
+Realtime Gateway
+↓
+Clients
+```
+
+Grundregel:
+
+> Persistieren vor Broadcast.
+
+---
+
+## 18. REST API
+
+Mutationen laufen grundsätzlich über HTTP.
+
+Beispiele:
+
+```text
+POST /api/v1/tournaments
+POST /api/v1/tournaments/:id/start
+POST /api/v1/matches/:id/start
+POST /api/v1/matches/:id/visits
+POST /api/v1/matches/:id/undo
+POST /api/v1/boards/:id/assign
+```
+
+Realtime verteilt Zustandsänderungen an Clients.
+
+---
+
+## 19. Score Provider
+
+Manuelle und automatische Score-Erfassung verwenden dieselbe Abstraktion.
+
+```text
+Match Engine
+    │
+Score Provider
+ ┌──┴─────────────┐
+ │                │
+Manual         External
+              ├── Autodarts
+              └── Scolia
+```
+
+Beispielinterface:
+
+```ts
+export interface ScoreProvider {
+  startMatch(matchId: string): Promise<void>;
+  stopMatch(matchId: string): Promise<void>;
+  subscribe(handler: (visit: ExternalVisit) => void): () => void;
+}
+```
+
+Externe Anbieter dürfen nie direkt Turnier- oder Matchtabellen verändern.
+
+---
+
+## 20. Scheduling Engine
+
+Ziel:
+
+> Nicht einfach „nächstes Match auf nächstes freies Board“.
+
+Bewertung berücksichtigt:
+
+- freie Boards
+- Matchstatus
+- Spieler verfügbar?
+- Spieler spielt gerade?
+- Ruhezeit seit letztem Match
+- Turnierphase
+- Matchpriorität
+- manuell gesperrte Boards
+- abhängige Matches
+
+Spielerstatus:
+
+```text
+AVAILABLE
+CALLED
+PLAYING
+RESTING
+ABSENT
+ELIMINATED
+```
+
+---
+
+## 21. Board-QR-Code
+
+Jedes physische Board erhält einen permanenten QR-Code:
+
+```text
+https://app.example.com/b/{publicBoardCode}
+```
+
+Der QR-Code enthält keine Match-ID.
+
+Das aktive Match wird serverseitig zum Board aufgelöst.
+
+---
+
+## 22. PWA und Offline
+
+Die Score-Oberfläche wird als PWA gebaut.
+
+Ziele:
+
+- installierbar
+- Fullscreen
+- touch-optimiert
+- lokale Assets
+- schneller Start
+- kurze Netzwerkunterbrüche tolerieren
+
+Offline-Queue:
+
+```text
+PendingCommands
+├── command 101
+├── command 102
+└── command 103
+```
+
+Beim Reconnect:
+
+```text
+Client
+↓
+Sync
+↓
+Version Check
+↓
+Server Commit
+```
+
+Vollständig serverloses Turniermanagement ist nicht Ziel des ersten Offline-Modus.
+
+---
+
+## 23. Ranking Engine
+
+Ranking-Regeln sind konfigurierbar.
+
+Beispiel Gruppenranking:
+
+```text
+1. Match Points
+2. Leg Difference
+3. Legs Won
+4. Head-to-Head
+5. Average
+```
+
+Ranking-Logik darf nicht im Frontend liegen.
+
+---
+
+## 24. Statistics
+
+Mögliche Statistiken:
+
+- Matches
+- Wins / Losses
+- Average
+- First 9 Average
+- Checkout %
+- Checkout Attempts
+- Highest Checkout
+- Highest Score
+- 100+
+- 120+
+- 140+
+- 160+
+- 180
+- Best Leg
+- Darts per Leg
+- Head-to-Head
+- Formkurve
+- Career Stats
+
+Später werden Aggregationen asynchron über Worker erzeugt.
+
+---
+
+## 25. Transactional Outbox
+
+Kritische Events werden über Outbox zuverlässig weitergegeben.
+
+```text
+BEGIN
+
+INSERT visit
+UPDATE leg
+INSERT outbox_event
+
+COMMIT
+```
+
+Worker verteilt anschließend:
+
+```text
+Realtime
+Statistics
+Notifications
+Webhooks
+```
+
+---
+
+## 26. Background Jobs
+
+BullMQ + Redis.
+
+Jobs:
+
+```text
+GenerateStatistics
+RebuildRanking
+SendNotification
+ProcessWebhook
+ProcessImport
+GenerateExport
+GenerateReport
+```
+
+---
+
+## 27. Public Portal
+
+Öffentliche Routen:
+
+```text
+/tournaments
+/tournaments/:slug
+/tournaments/:slug/live
+/tournaments/:slug/groups
+/tournaments/:slug/bracket
+/tournaments/:slug/matches
+/tournaments/:slug/statistics
+
+/players/:slug
+/leagues/:slug
+/rankings
+```
+
+Next.js liefert SEO-fähige öffentliche Seiten.
+
+---
+
+## 28. TV-Modus
+
+Route:
+
+```text
+/live/tournament/:id/tv
+```
+
+Eigenschaften:
+
+- Fullscreen
+- große Typografie
+- keine Navigation
+- Live Boards
+- nächste Matches
+- Resultate
+- Sponsoren
+- automatische Rotation
+
+---
+
+## 29. Security
+
+Mindestanforderungen:
+
+- HTTPS only
+- Secure Cookies
+- CSRF-Schutz
+- Content Security Policy
+- Security Headers
+- serverseitige Validierung
+- Rate Limiting
+- RBAC / Permissions
+- Tenant Isolation
+- Audit Logging
+- Secret Management
+- Dependency Scanning
+- regelmäßige Backups
+- Restore-Tests
+- keine Secrets im Repository
+
+---
+
+## 30. Audit Logging
+
+Kritische Aktionen:
+
+```text
+MATCH_RESULT_CHANGED
+VISIT_REVERTED
+PLAYER_REMOVED
+TOURNAMENT_RESET
+MATCH_MANUALLY_FINISHED
+BOARD_CONTROL_TAKEN_OVER
+USER_ROLE_CHANGED
+INTEGRATION_CHANGED
+```
+
+Audit-Daten:
+
+```text
+organization
+actor
+action
+entityType
+entityId
+timestamp
+oldValue
+newValue
+ip
+userAgent
+correlationId
+```
+
+---
+
+## 31. Observability
+
+Von Beginn an:
+
+- strukturierte Logs
+- Correlation IDs
+- Health Endpoints
+- Metrics
+- Error Tracking
+- später Distributed Tracing
+
+Tech:
+
+```text
+OpenTelemetry
+Sentry
+Grafana optional
+```
+
+---
+
+## 32. Testing
+
+### Unit
+
+Hohe Testabdeckung für:
+
+- Scoring Engine
+- Tournament Engine
+- Ranking Engine
+- Scheduling Engine
+
+### Integration
+
+- API
+- PostgreSQL
+- Redis
+- Auth
+
+### End-to-End
+
+Playwright-Szenario:
+
+```text
+Turnier erstellen
+↓
+Spieler hinzufügen
+↓
+Gruppen generieren
+↓
+Match starten
+↓
+Scores erfassen
+↓
+Match abschließen
+↓
+Ranking prüfen
+↓
+KO-Runde generieren
+```
+
+---
+
+## 33. Deployment auf Railway
+
+Empfohlene Produktionsstruktur:
+
+```text
+Railway Workspace
+│
+├── Projekt: Vereinswebseite
+│   └── website
+│
+└── Projekt: Darts Platform
+    ├── web
+    ├── api
+    ├── realtime
+    ├── worker
+    ├── postgres
+    ├── redis
+    └── object-storage
+```
+
+Alternative:
+
+Alle Services einer fachlich zusammengehörenden App in **einem Railway Project**, damit privates Networking genutzt werden kann.
+
+Öffentlich erreichbar:
+
+```text
+app.example.ch  -> web
+api.example.ch  -> api (nur falls extern benötigt)
+```
+
+Nur intern:
+
+```text
+PostgreSQL
+Redis
+Worker
+interne API-Verbindungen
+```
+
+Railway Private Networking wird für Service-to-Service-Kommunikation verwendet.
+
+---
+
+## 34. Zielarchitektur Vollausbau
+
+```text
+                         Internet
+                            │
+                        CDN / WAF
+                            │
+                ┌───────────┴───────────┐
+                │                       │
+              Web                    Public API
+                │                       │
+                └───────────┬───────────┘
+                            │
+                            API
+                            │
+             ┌──────────────┼──────────────┐
+             │              │              │
+         Tournament       Scoring       Scheduler
+             │              │              │
+             └──────────────┼──────────────┘
+                            │
+                       PostgreSQL
+                            │
+                          Outbox
+                            │
+                          Queue
+                            │
+         ┌──────────────────┼──────────────────┐
+         │                  │                  │
+     Statistics        Notifications      Integrations
+                                             │
+                                   ┌─────────┴─────────┐
+                                   │                   │
+                               Autodarts             Scolia
+
+Realtime Gateway
+       │
+      Redis
+       │
+Web / PWA / TV / Public Live
+```
+
+---
+
+## 35. Architekturregeln
+
+1. Business-Logik niemals im React UI.
+2. Tournament Engine kennt keine Datenbank.
+3. Scoring Engine kennt keine Benutzeroberfläche.
+4. PostgreSQL ist Source of Truth.
+5. Redis ist niemals einzige Quelle kritischer Daten.
+6. Alle geschäftlichen Daten sind tenant-isoliert.
+7. Jede Mutation wird serverseitig autorisiert.
+8. Score-Commands sind idempotent.
+9. Aktive Matches verwenden Optimistic Concurrency.
+10. Integrationen verwenden Adapter.
+11. Drittanbieter ändern keine Domain-Daten direkt.
+12. Realtime erst nach erfolgreicher Persistierung.
+13. Historische Scores möglichst nicht destruktiv ändern.
+14. Kritische Aktionen werden auditiert.
+15. Kern-Engines benötigen hohe Unit-Test-Abdeckung.
+16. Kein Microservice ohne nachgewiesenen Bedarf.
+17. Keine Secrets im Repository.
+18. Keine direkte Datenbankverbindung aus dem Frontend.
+19. API-Verträge werden versioniert.
+20. Neue Architekturentscheidungen werden als ADR dokumentiert.
