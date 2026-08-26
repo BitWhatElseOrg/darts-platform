@@ -232,6 +232,8 @@ Turniere unterstützen Best of Sets zusätzlich zu Best of Legs.
 
 # Phase 5 – PWA & Reliability
 
+**Status:** Implementiert – 26. August 2026
+
 ## Ziel
 
 Robuster Betrieb im Turnieralltag.
@@ -253,6 +255,14 @@ Robuster Betrieb im Turnieralltag.
 ## Exit Criteria
 
 Kurze WLAN-Ausfälle führen zu keinem Score-Verlust.
+
+Die installierbare PWA hält statische Assets und eine datenschutzneutrale
+Offline-Seite bereit. Nicht übertragene Score-Commands werden mit ihrer
+`commandId` dauerhaft in IndexedDB gespeichert, nach Reconnect idempotent
+wiederholt und bei HTTP 409 sichtbar zur manuellen Synchronisierung angehalten.
+Ein geräteübergreifender Board-Controller-Lock mit Heartbeat verhindert
+gleichzeitige Eingaben und kann nach Ablauf oder bewusstem Takeover übernommen
+werden. Match Resume lädt stets den autoritativen Serverstand.
 
 ---
 

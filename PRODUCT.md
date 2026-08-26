@@ -47,7 +47,7 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 
 ## Capabilities and Constraints
 
-**Heute nutzbar (Phase 0–4, Stand 26.08.2026)**
+**Heute nutzbar (Phase 0–5, Stand 26.08.2026)**
 
 - Registrierung, Login, Logout, persistente HttpOnly-Sessions (Better Auth)
 - Organisation erstellen, Mitgliedschaften, zeitlich begrenzte E-Mail-gebundene Einladungen
@@ -63,8 +63,10 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
   Gruppenranglisten, K.-o.-Tableau und QR-Code je Board
 - Formatwerkstatt für Schweizer System, Double Elimination, Teams, Paare,
   kombinierbare Stages, erweiterte Setzung, Byes und Best of Sets
+- installierbare PWA mit Offline-Assets, persistenter Score-Queue, Reconnect,
+  Konfliktanzeige, Board-Controller-Lock, Heartbeat und Match Resume
 
-**Geplant, Reihenfolge festgelegt** (siehe [ROADMAP.md](ROADMAP.md)): PWA mit sichtbarer Offline-Queue (5) → Statistik und Spielerprofile (6) → Multi-Tenant-SaaS-Ausbau (7) → Autoscoring-Adapter (8) → Liga (9) → Turnierserie (10) → Benachrichtigungen (11) → Public API (12).
+**Geplant, Reihenfolge festgelegt** (siehe [ROADMAP.md](ROADMAP.md)): Statistik und Spielerprofile (6) → Multi-Tenant-SaaS-Ausbau (7) → Autoscoring-Adapter (8) → Liga (9) → Turnierserie (10) → Benachrichtigungen (11) → Public API (12).
 
 **Harte Constraints, die jede Fläche einhält** (verbindlich in [AGENTS.md](AGENTS.md))
 

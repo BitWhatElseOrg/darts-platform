@@ -22,6 +22,8 @@ const archivo = Archivo({
 });
 
 export const metadata: Metadata = {
+  manifest: "/manifest.webmanifest",
+  themeColor: "#059669",
   title: {
     default: "Dart Ost - Plattform",
     template: "%s | Dart Ost - Plattform",
