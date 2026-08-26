@@ -1,0 +1,40 @@
+FROM node:24-bookworm-slim AS build
+
+ARG NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1
+
+ENV NODE_ENV=production
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+
+WORKDIR /app
+
+RUN corepack enable
+
+COPY . .
+
+RUN pnpm install --frozen-lockfile
+RUN pnpm build:web
+
+FROM node:24-bookworm-slim AS runtime
+
+ARG NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1
+
+ENV NODE_ENV=production
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+
+WORKDIR /app
+
+RUN corepack enable
+
+COPY --from=build --chown=node:node /app /app
+
+USER node
+
+EXPOSE 3000
+
+CMD ["pnpm", "start:web:deploy"]

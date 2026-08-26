@@ -1,0 +1,37 @@
+{
+  "name": "@darts-platform/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@darts-platform/config": "workspace:*",
+    "@darts-platform/database": "workspace:*",
+    "@darts-platform/domain": "workspace:*",
+    "@darts-platform/schemas": "workspace:*",
+    "@better-auth/drizzle-adapter": "1.7.1",
+    "@nestjs/common": "^11.1.0",
+    "@nestjs/core": "^11.1.0",
+    "@nestjs/platform-fastify": "^11.1.0",
+    "better-auth": "1.7.1",
+    "drizzle-orm": "0.45.2",
+    "fastify": "^5.6.0",
+    "redis": "^5.8.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^11.1.0",
+    "@types/node": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

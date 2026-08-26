@@ -2,7 +2,28 @@
 
 Eine robuste, mandantenfähige Plattform zur Organisation und Durchführung von Dartturnieren, Ligen und Turnierserien – vom Teilnehmermanagement über Live-Scoring bis zur öffentlichen Ergebnisanzeige.
 
-> **Projektstatus:** Architektur- und Planungsphase. Die Zielarchitektur, das initiale Datenmodell und die Implementierungs-Roadmap sind definiert; das Anwendungs-Monorepo wird in Phase 0 aufgebaut.
+> **Projektstatus:** Phase 0 abgeschlossen. Identity, Tenancy, Audit, reproduzierbare Railway-Deployments, automatisierte Migrationen, strukturiertes Logging und das vollständige CI-Gate sind eingerichtet. Als Nächstes folgt Phase 1 mit dem Playable Match MVP.
+
+## Quick Start
+
+Voraussetzungen: Node.js 24, pnpm, Docker Engine und Docker Compose unter WSL2.
+
+```bash
+pnpm install
+cp .env.example .env
+pnpm infra:up
+pnpm db:migrate
+pnpm dev
+```
+
+Danach sind erreichbar:
+
+- Web: [http://localhost:3000](http://localhost:3000)
+- API Health: [http://localhost:3001/api/v1/health](http://localhost:3001/api/v1/health)
+
+Vor einem Deployment muss `BETTER_AUTH_SECRET` in `.env` beziehungsweise in den
+Deployment-Variablen durch einen zufälligen Wert mit mindestens 32 Zeichen ersetzt
+werden, beispielsweise aus `openssl rand -base64 32`.
 
 ## Zielbild
 
@@ -44,9 +65,22 @@ Zentrale Architekturprinzipien:
 - **Optimistic Concurrency:** Aktive Matches und Legs werden über eine Version vor konkurrierenden Änderungen geschützt.
 - **Realtime nach Commit:** WebSocket-Events werden erst nach erfolgreicher Persistierung veröffentlicht.
 
+Die aktuelle Foundation bietet:
+
+- Registrierung, Login, Logout und persistente HttpOnly-Sessions über Better Auth
+- Organisationserstellung mit transaktionaler OWNER-Mitgliedschaft
+- zeitlich begrenzte, an eine E-Mail-Adresse gebundene Einladungen
+- serverseitige Rollen und Permissions für jeden Tenant-Zugriff
+- Spieler anlegen, lesen, bearbeiten und revisionssicher archivieren
+- Audit-Einträge innerhalb derselben Transaktion wie die jeweilige Mutation
+- reproduzierbare Production-Images für Web und API
+- Railway Infrastructure as Code für Web, API, PostgreSQL und Redis
+- automatische Migrationen vor dem API-Start und dependency-sensitive Healthchecks
+- strukturierte JSON-Logs mit stabilen Correlation-IDs
+
 Weitere Details stehen in der [Zielarchitektur](./ARCHITECTURE.md) und im [initialen Datenbankschema](./DATABASE_SCHEMA.md).
 
-## Tech Stack
+## Ziel-Tech-Stack
 
 | Bereich | Technologien |
 | --- | --- |
@@ -61,27 +95,23 @@ Weitere Details stehen in der [Zielarchitektur](./ARCHITECTURE.md) und im [initi
 | Betrieb | Docker, GitHub Actions, Railway |
 | Observability | OpenTelemetry, Sentry |
 
-## Geplante Monorepo-Struktur
+## Monorepo-Struktur
 
 ```text
 .
 ├── apps/
 │   ├── web/                 # Next.js Web-App und PWA
-│   ├── api/                 # NestJS/Fastify API
-│   ├── realtime/            # WebSocket Gateway
-│   └── worker/              # Hintergrundjobs
+│   └── api/                 # NestJS/Fastify API
 ├── packages/
 │   ├── domain/              # Gemeinsame Domain-Bausteine
-│   ├── database/            # Drizzle-Schemas und Repositories
-│   ├── scoring-engine/      # Deterministische Dartregeln
-│   ├── tournament-engine/   # Formate, Seeding und Advancement
-│   ├── scheduling-engine/   # Match- und Boardplanung
-│   ├── ranking-engine/      # Ranglistenberechnung
-│   ├── statistics/          # Statistiken und Aggregate
-│   ├── integrations/        # Ports und externe Adapter
+│   ├── database/            # Drizzle-Schema, Migrationen und DB-Client
 │   ├── ui/                  # Gemeinsame UI-Komponenten
 │   ├── schemas/             # Geteilte Zod-Schemas
-│   └── config/              # Gemeinsame Tool-Konfiguration
+│   └── config/              # Geteilte Environment-Validierung
+├── .railway/                # Railway Infrastructure as Code
+├── infrastructure/          # Deployment- und Betriebs-Runbooks
+├── Dockerfile.api           # Production-Image der API
+├── Dockerfile.web           # Production-Image des Web-Frontends
 ├── ARCHITECTURE.md
 ├── DATABASE_SCHEMA.md
 └── ROADMAP.md
@@ -103,23 +133,44 @@ Alle Phasen und Exit-Kriterien sind in der [Roadmap](./ROADMAP.md) beschrieben.
 
 ## Lokale Entwicklung
 
-Das ausführbare Monorepo wird in **Phase 0** initialisiert. Danach gilt folgender Standard-Workflow:
+`pnpm dev` startet Web und API parallel über Turborepo. PostgreSQL und Redis laufen lokal in Docker; die Node.js-Anwendungen selbst nicht.
 
-### Voraussetzungen
+| Befehl | Zweck |
+| --- | --- |
+| `pnpm dev` | Web und API im Watch-Modus starten |
+| `pnpm infra:up` | PostgreSQL und Redis starten |
+| `pnpm infra:down` | lokale Infrastruktur stoppen |
+| `pnpm infra:logs` | Infrastruktur-Logs verfolgen |
+| `pnpm db:generate` | Drizzle-Migration aus Schemaänderungen erzeugen |
+| `pnpm db:migrate` | versionierte Migrationen anwenden |
+| `pnpm lint` | ESLint für das gesamte Monorepo ausführen |
+| `pnpm typecheck` | TypeScript-Prüfung aller Workspaces ausführen |
+| `pnpm test` | Unit- und Integrationstests ausführen |
+| `pnpm test:e2e` | Browser-Smoke-Test für die Foundation ausführen |
+| `pnpm build` | alle produktiven Builds erstellen |
 
-- Node.js (aktive LTS-Version)
-- pnpm
-- Docker mit Docker Compose
-
-### Geplanter Start
+Die produktiven Container können zusätzlich lokal gebaut werden:
 
 ```bash
-pnpm install
-docker compose up -d
-pnpm dev
+docker build -f Dockerfile.api -t darts-platform-api .
+docker build -f Dockerfile.web \
+  --build-arg NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1 \
+  -t darts-platform-web .
 ```
 
-Konkrete Umgebungsvariablen, Ports und Datenbankbefehle werden mit dem Phase-0-Scaffold ergänzt. Secrets dürfen niemals ins Repository eingecheckt werden.
+Railway-Einrichtung, Variablen, Smoke-Tests und Rollback beschreibt das
+[Deployment-Runbook](./infrastructure/railway.md).
+
+Die Auth-, Tenant-Isolations-, PostgreSQL- und Redis-Integrationstests benötigen die laufende Compose-Infrastruktur. Sie werden zusammen mit den Unit- und API-Tests über `pnpm test` ausgeführt. Die CI stellt dafür eigene Service-Container bereit.
+
+Für den UI-Smoke-Test muss Chromium einmalig mit seinen Systembibliotheken installiert werden:
+
+```bash
+pnpm --filter @darts-platform/web exec playwright install --with-deps chromium
+pnpm test:e2e
+```
+
+Falls Port `5432` lokal bereits belegt ist, kann `POSTGRES_PORT` in der ignorierten `.env` angepasst werden; `DATABASE_URL` muss denselben Hostport verwenden.
 
 ## Qualitätsanforderungen
 
@@ -159,6 +210,9 @@ Verbindliche Architektur- und Arbeitsregeln stehen in [AGENTS.md](./AGENTS.md).
 | [DATABASE_SCHEMA.md](./DATABASE_SCHEMA.md) | Logisches PostgreSQL-Zielschema und Integritätsregeln |
 | [ROADMAP.md](./ROADMAP.md) | Implementierungsphasen, Scope und Exit-Kriterien |
 | [AGENTS.md](./AGENTS.md) | Verbindliche Regeln für Entwicklung und Coding Agents |
+| [ADR 0002](./docs/adr/0002-identity-tenancy.md) | Identität, Tenant-Kontext, Permissions und Audit |
+| [ADR 0003](./docs/adr/0003-phase-0-production-operations.md) | Railway, Migrationen, Healthchecks, Logging und CI-Gate |
+| [Railway-Runbook](./infrastructure/railway.md) | Deployment, Variablen, Smoke-Test, Diagnose und Rollback |
 
 ## Lizenz
 

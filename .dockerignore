@@ -1,0 +1,17 @@
+.env
+.git
+.next
+.pnpm-store
+.turbo
+coverage
+dist
+node_modules
+playwright-report
+test-results
+**/.next
+**/.turbo
+**/coverage
+**/dist
+**/node_modules
+**/playwright-report
+**/test-results

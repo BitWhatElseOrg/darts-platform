@@ -8,6 +8,8 @@ Die Roadmap führt vom technischen Fundament bis zum Vollausbau als Multi-Tenant
 
 # Phase 0 – Foundation
 
+**Status:** Implementiert – 26. August 2026
+
 ## Ziel
 
 Saubere technische Basis schaffen.
@@ -43,10 +45,14 @@ Saubere technische Basis schaffen.
 
 ## Exit Criteria
 
-- Production Deployment funktioniert
-- DB-Migrationen automatisiert
-- Auth und Tenant-Isolation getestet
-- CI ist verpflichtend grün
+- [x] reproduzierbare Production-Images und Railway IaC sind vorhanden
+- [x] DB-Migrationen laufen vor dem API-Start automatisiert
+- [x] Auth und Tenant-Isolation sind getestet
+- [x] CI prüft Lint, Typen, Tests, Build, E2E und Deployment-Images
+
+Die accountseitige Erstinstallation, Domain-Zuweisung und Aktivierung der beiden
+required GitHub-Checks ist im [Railway-Runbook](./infrastructure/railway.md)
+dokumentiert.
 
 ---
 
