@@ -302,6 +302,8 @@ export const matches = pgTable(
     startingScore: integer("starting_score").default(501).notNull(),
     doubleOut: boolean("double_out").default(true).notNull(),
     bestOfLegs: integer("best_of_legs").notNull(),
+    legsToWinSet: integer("legs_to_win_set").default(2).notNull(),
+    setsToWin: integer("sets_to_win").default(1).notNull(),
     version: integer("version").default(0).notNull(),
     startingPlayerId: uuid("starting_player_id")
       .notNull()
@@ -318,6 +320,8 @@ export const matches = pgTable(
     check("matches_status_check", sql`${table.status} in ('IN_PROGRESS', 'COMPLETED')`),
     check("matches_starting_score_check", sql`${table.startingScore} >= 2`),
     check("matches_best_of_legs_check", sql`${table.bestOfLegs} > 0 and mod(${table.bestOfLegs}, 2) = 1`),
+    check("matches_legs_to_win_set_check", sql`${table.legsToWinSet} > 0`),
+    check("matches_sets_to_win_check", sql`${table.setsToWin} > 0`),
     check("matches_version_check", sql`${table.version} >= 0`),
   ],
 );
@@ -475,6 +479,8 @@ export const tournaments = pgTable(
     startingScore: integer("starting_score").default(501).notNull(),
     doubleOut: boolean("double_out").default(true).notNull(),
     bestOfLegs: integer("best_of_legs").default(3).notNull(),
+    legsToWinSet: integer("legs_to_win_set").default(2).notNull(),
+    setsToWin: integer("sets_to_win").default(1).notNull(),
     groupCount: integer("group_count").notNull(),
     qualifyPerGroup: integer("qualify_per_group").notNull(),
     knockoutSize: integer("knockout_size").notNull(),
@@ -500,6 +506,8 @@ export const tournaments = pgTable(
       "tournaments_best_of_legs_check",
       sql`${table.bestOfLegs} > 0 and mod(${table.bestOfLegs}, 2) = 1`,
     ),
+    check("tournaments_legs_to_win_set_check", sql`${table.legsToWinSet} > 0`),
+    check("tournaments_sets_to_win_check", sql`${table.setsToWin} > 0`),
     check("tournaments_group_count_check", sql`${table.groupCount} between 1 and 32`),
     check(
       "tournaments_qualify_per_group_check",

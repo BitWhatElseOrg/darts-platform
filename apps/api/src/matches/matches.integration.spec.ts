@@ -44,7 +44,7 @@ afterAll(async () => {
 
 describe("persistent X01 match", () => {
   it("is idempotent, rejects stale versions, supports undo and completes 501", async () => {
-    let state = await service.create({ organizationId, data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId, bestOfLegs: 1 }, auth, audit });
+    let state = await service.create({ organizationId, data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId, bestOfLegs: 1, bestOfSets: 1 }, auth, audit });
     const firstCommandId = randomUUID();
     state = await service.submitVisit({ organizationId, matchId: state.id, data: { commandId: firstCommandId, expectedVersion: 0, playerId: playerOneId, points: 180, dartsThrown: 3 }, auth, audit });
     expect(state.version).toBe(1);

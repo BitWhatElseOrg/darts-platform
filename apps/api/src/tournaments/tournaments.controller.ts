@@ -3,11 +3,14 @@ import type { FastifyRequest } from "fastify";
 
 import {
   assignMatchSchema,
+  advancedFormatPreviewInputSchema,
   correctTournamentResultSchema,
   createTournamentSchema,
   releaseBoardSchema,
   tournamentStructurePreviewInputSchema,
   type AssignMatchInput,
+  type AdvancedFormatPreview,
+  type AdvancedFormatPreviewInput,
   type CorrectTournamentResultInput,
   type CreateTournamentInput,
   type ReleaseBoardInput,
@@ -46,6 +49,16 @@ export class TournamentsController {
       body,
     );
     return this.service.preview({ organizationId, data, auth });
+  }
+
+  @Post("advanced-format-preview")
+  public advancedPreview(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Body() body: unknown,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<AdvancedFormatPreview> {
+    const data: AdvancedFormatPreviewInput = parseBody(advancedFormatPreviewInputSchema, body);
+    return this.service.advancedPreview({ organizationId, data, auth });
   }
 
   @Post()

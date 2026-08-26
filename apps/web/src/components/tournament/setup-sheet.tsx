@@ -43,6 +43,7 @@ interface SetupFormValues {
   startingScore: string;
   doubleOut: boolean;
   bestOfLegs: string;
+  bestOfSets: string;
   participantIds: string[];
   groupCount: string;
   qualifyPerGroup: string;
@@ -61,6 +62,7 @@ const MESSAGES: Record<string, string> = {
   knockoutSize: "Das K.-o.-Tableau muss alle Qualifizierten aufnehmen können.",
   boardIds: "Wähle mindestens ein Board, auf dem gespielt wird.",
   bestOfLegs: "Best of Legs muss eine ungerade Zahl sein.",
+  bestOfSets: "Best of Sets muss eine ungerade Zahl sein.",
 };
 
 export function SetupSheet({ organizationId, players, boards }: {
@@ -82,6 +84,7 @@ export function SetupSheet({ organizationId, players, boards }: {
       startingScore: "501",
       doubleOut: true,
       bestOfLegs: "3",
+      bestOfSets: "1",
       participantIds: players.slice(0, 32).map((player) => player.id),
       groupCount: String(defaultGroupCount),
       qualifyPerGroup: "2",
@@ -152,6 +155,7 @@ export function SetupSheet({ organizationId, players, boards }: {
       startingScore: Number(formValues.startingScore),
       doubleOut: formValues.doubleOut,
       bestOfLegs: Number(formValues.bestOfLegs),
+      bestOfSets: Number(formValues.bestOfSets),
       participantIds: [...formValues.participantIds],
       groupCount: Number(formValues.groupCount),
       qualifyPerGroup: Number(formValues.qualifyPerGroup),
@@ -269,6 +273,22 @@ export function SetupSheet({ organizationId, players, boards }: {
                     aria-describedby={contractErrors.bestOfLegs ? "bestOfLegs-error" : undefined}
                     id="bestOfLegs"
                     {...register("bestOfLegs")}
+                  >
+                    <option value="1">Best of 1</option>
+                    <option value="3">Best of 3</option>
+                    <option value="5">Best of 5</option>
+                    <option value="7">Best of 7</option>
+                  </SelectInput>
+                </Field>
+                <Field
+                  error={contractErrors.bestOfSets ?? null}
+                  htmlFor="bestOfSets"
+                  label="Best of Sets"
+                >
+                  <SelectInput
+                    aria-describedby={contractErrors.bestOfSets ? "bestOfSets-error" : undefined}
+                    id="bestOfSets"
+                    {...register("bestOfSets")}
                   >
                     <option value="1">Best of 1</option>
                     <option value="3">Best of 3</option>

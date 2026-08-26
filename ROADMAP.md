@@ -199,6 +199,8 @@ fällt die Oberfläche sichtbar auf periodische Synchronisierung zurück.
 
 # Phase 4 – Advanced Tournament Engine
 
+**Status:** Implementiert – 26. August 2026
+
 ## Ziel
 
 Komplexere Turnierformate.
@@ -219,6 +221,12 @@ Komplexere Turnierformate.
 ## Exit Criteria
 
 Turnierleitung kann mehrstufige Formate konfigurieren.
+
+Die Formatwerkstatt validiert frei kombinierte Stages serverseitig und zeigt
+Teilnehmerfluss, Qualifikation, Matchanzahl und Byes. Die infrastrukturfrei
+getestete Engine deckt Double Elimination, Schweizer Paarungen ohne vermeidbare
+Wiederholungen, regionale Setzung, Einzel, Paare und Teams ab. X01-Matches und
+Turniere unterstützen Best of Sets zusätzlich zu Best of Legs.
 
 ---
 

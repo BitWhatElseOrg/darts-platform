@@ -6,6 +6,7 @@ export const createMatchSchema = z.object({
   playerOneId: z.uuid(), playerTwoId: z.uuid(), startingPlayerId: z.uuid(),
   boardId: z.uuid().nullable().optional(),
   bestOfLegs: z.number().int().min(1).max(21).refine((value) => value % 2 === 1, "Best of legs must be odd."),
+  bestOfSets: z.number().int().min(1).max(21).refine((value) => value % 2 === 1, "Best of sets must be odd.").default(1),
 }).refine((value) => value.playerOneId !== value.playerTwoId, { message: "A match requires two different players.", path: ["playerTwoId"] })
   .refine((value) => [value.playerOneId, value.playerTwoId].includes(value.startingPlayerId), { message: "Starting player must participate in the match.", path: ["startingPlayerId"] });
 export const submitVisitSchema = z.object({
@@ -16,7 +17,7 @@ export const submitVisitSchema = z.object({
 export const undoVisitSchema = z.object({ commandId: z.uuid(), expectedVersion: z.number().int().nonnegative() });
 export const matchParticipantStateSchema = z.object({
   playerId: z.uuid(), displayName: z.string(), remaining: z.number().int().nonnegative(),
-  legsWon: z.number().int().nonnegative(), isActive: z.boolean(),
+  legsWon: z.number().int().nonnegative(), legsWonInSet: z.number().int().nonnegative(), setsWon: z.number().int().nonnegative(), isActive: z.boolean(),
 });
 export const matchVisitSchema = z.object({
   id: z.uuid(), commandId: z.uuid(), playerId: z.uuid(), playerDisplayName: z.string(),
@@ -30,6 +31,7 @@ export const matchStateSchema = z.object({
   id: z.uuid(), organizationId: z.uuid(), boardId: z.uuid().nullable(), boardName: z.string().nullable(),
   status: matchStatusSchema, version: z.number().int().nonnegative(), startingScore: z.number().int().positive(),
   bestOfLegs: z.number().int().positive(), legsToWin: z.number().int().positive(),
+  bestOfSets: z.number().int().positive(), setsToWin: z.number().int().positive(), currentSetNumber: z.number().int().positive(),
   currentLegNumber: z.number().int().positive(), currentLegVersion: z.number().int().nonnegative(),
   currentPlayerId: z.uuid().nullable(), winnerPlayerId: z.uuid().nullable(),
   participants: z.tuple([matchParticipantStateSchema, matchParticipantStateSchema]),

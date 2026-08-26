@@ -18,3 +18,16 @@ export {
   type TournamentPlanInput,
   type TournamentStructurePreview,
 } from "./tournament.js";
+export {
+  allocateAdvancedSeeds,
+  generateDoubleElimination,
+  pairSwissRound,
+  validateCompetitors,
+  validateStageComposition,
+  type AdvancedCompetitor,
+  type EliminationMatch,
+  type EliminationSource,
+  type StageDefinition,
+  type SwissPairing,
+  type SwissStanding,
+} from "./advanced.js";

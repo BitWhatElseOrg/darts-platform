@@ -42,7 +42,7 @@ export function MatchWorkspace({ organization, players }: { readonly organizatio
     onSuccess: async (board) => { setBoardName(""); setBoardId(board.id); await queryClient.invalidateQueries({ queryKey: ["boards", organization.id] }); },
   });
   const createMatch = useMutation({
-    mutationFn: () => apiRequest({ path: `/organizations/${organization.id}/matches`, method: "POST", body: { playerOneId: resolvedPlayerOneId, playerTwoId: resolvedPlayerTwoId, startingPlayerId: resolvedStartingPlayerId, bestOfLegs, boardId: boardId || null }, schema: matchStateSchema }),
+    mutationFn: () => apiRequest({ path: `/organizations/${organization.id}/matches`, method: "POST", body: { playerOneId: resolvedPlayerOneId, playerTwoId: resolvedPlayerTwoId, startingPlayerId: resolvedStartingPlayerId, bestOfLegs, bestOfSets: 1, boardId: boardId || null }, schema: matchStateSchema }),
     onSuccess: async (match) => {
       setSelectedMatchId(match.id);
       await Promise.all([queryClient.invalidateQueries({ queryKey: ["matches", organization.id] }), queryClient.invalidateQueries({ queryKey: ["boards", organization.id] })]);
@@ -100,9 +100,9 @@ function Scoreboard({ organizationId, match, canScore }: { readonly organization
   const error = submit.error ?? undo.error;
   return (
     <section aria-label="Match-Scoreboard" className="overflow-hidden rounded-2xl border border-emerald-400/30 bg-slate-950 shadow-2xl shadow-emerald-950/20">
-      <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 text-xs font-semibold tracking-wider text-slate-400 uppercase"><span>Leg {match.currentLegNumber} · Best of {match.bestOfLegs}</span><span>{match.boardName ?? "Nicht zugewiesen"} · v{match.version}</span></div>
+      <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 text-xs font-semibold tracking-wider text-slate-400 uppercase"><span>Set {match.currentSetNumber} · Leg {match.currentLegNumber} · Best of {match.bestOfLegs}</span><span>{match.boardName ?? "Nicht zugewiesen"} · v{match.version}</span></div>
       <div className="grid grid-cols-2 divide-x divide-slate-800">
-        {match.participants.map((participant) => <div className={cn("p-4 text-center sm:p-7", participant.isActive && match.status === "IN_PROGRESS" ? "bg-emerald-400/10" : "")} key={participant.playerId}><p className="truncate text-sm font-semibold text-slate-300">{participant.displayName}</p><p aria-label={`${participant.displayName}, Restscore`} className="mt-2 text-5xl font-black tabular-nums text-white sm:text-7xl">{participant.remaining}</p><p className="mt-2 text-sm text-slate-400">{participant.legsWon} / {match.legsToWin} Legs</p></div>)}
+        {match.participants.map((participant) => <div className={cn("p-4 text-center sm:p-7", participant.isActive && match.status === "IN_PROGRESS" ? "bg-emerald-400/10" : "")} key={participant.playerId}><p className="truncate text-sm font-semibold text-slate-300">{participant.displayName}</p><p aria-label={`${participant.displayName}, Restscore`} className="mt-2 text-5xl font-black tabular-nums text-white sm:text-7xl">{participant.remaining}</p><p className="mt-2 text-sm text-slate-400">{participant.legsWonInSet} / {match.legsToWin} Legs · {participant.setsWon} / {match.setsToWin} Sets</p></div>)}
       </div>
       {match.status === "COMPLETED" ? <div className="border-t border-emerald-400/30 bg-emerald-400/10 p-5 text-center"><p className="text-sm uppercase tracking-widest text-emerald-300">Match beendet</p><p className="mt-1 text-2xl font-bold text-white">{match.participants.find((player) => player.playerId === match.winnerPlayerId)?.displayName} gewinnt</p></div> : canScore ? (
         <form className="grid gap-3 border-t border-slate-800 p-4 sm:grid-cols-[1fr_0.7fr_0.8fr_auto]" onSubmit={(event) => { event.preventDefault(); submit.mutate(); }}>

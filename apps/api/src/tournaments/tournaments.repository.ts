@@ -325,6 +325,8 @@ export class TournamentsRepository {
           startingScore: input.data.startingScore,
           doubleOut: input.data.doubleOut,
           bestOfLegs: input.data.bestOfLegs,
+          legsToWinSet: Math.floor(input.data.bestOfLegs / 2) + 1,
+          setsToWin: Math.floor(input.data.bestOfSets / 2) + 1,
           groupCount: input.data.groupCount,
           qualifyPerGroup: input.data.qualifyPerGroup,
           knockoutSize: input.data.knockoutSize,
@@ -607,6 +609,8 @@ export class TournamentsRepository {
           startingScore: tournament.startingScore,
           doubleOut: tournament.doubleOut,
           bestOfLegs: tournament.bestOfLegs,
+          legsToWinSet: tournament.legsToWinSet,
+          setsToWin: tournament.setsToWin,
           startingPlayerId: scheduled.participantOneId,
           currentPlayerId: scheduled.participantOneId,
         })

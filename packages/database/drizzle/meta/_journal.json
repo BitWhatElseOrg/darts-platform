@@ -43,6 +43,13 @@
       "when": 1787755753520,
       "tag": "0005_handy_jocasta",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787760062963,
+      "tag": "0006_shallow_salo",
+      "breakpoints": true
     }
   ]
 }

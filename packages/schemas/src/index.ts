@@ -5,6 +5,15 @@ export {
   type ServiceHealthStatus,
 } from "./health";
 export { apiErrorSchema, type ApiErrorResponse } from "./api-error";
+export {
+  advancedFormatPreviewInputSchema,
+  advancedFormatPreviewSchema,
+  advancedStageSchema,
+  advancedStageTypeSchema,
+  competitorKindSchema,
+  type AdvancedFormatPreview,
+  type AdvancedFormatPreviewInput,
+} from "./advanced-tournament";
 export { boardListSchema, boardSchema, boardStatusSchema, createBoardSchema, type BoardResponse, type CreateBoardInput } from "./board";
 export {
   createMatchSchema, matchListSchema, matchStateSchema, matchStatusSchema, matchVisitSchema,

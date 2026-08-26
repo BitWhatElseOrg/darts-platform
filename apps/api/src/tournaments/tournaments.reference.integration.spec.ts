@@ -92,6 +92,7 @@ describe("32/8/2/16 reference tournament", () => {
         startingScore: 301,
         doubleOut: false,
         bestOfLegs: 1,
+        bestOfSets: 1,
         participantIds: playerIds,
         groupCount: 8,
         qualifyPerGroup: 2,

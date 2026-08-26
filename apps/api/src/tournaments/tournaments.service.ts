@@ -9,15 +9,20 @@ import {
 import { evaluateMatchReadiness } from "@darts-platform/scheduling-engine";
 import {
   calculateGroupStandings,
+  generateDoubleElimination,
   previewTournamentStructure,
   TournamentValidationError,
+  validateStageComposition,
 } from "@darts-platform/tournament-engine";
 import {
   tournamentDashboardSchema,
+  advancedFormatPreviewSchema,
   tournamentListSchema,
   tournamentStructurePreviewSchema,
   tournamentSummarySchema,
   type AssignMatchInput,
+  type AdvancedFormatPreview,
+  type AdvancedFormatPreviewInput,
   type CorrectTournamentResultInput,
   type CreateTournamentInput,
   type GroupStanding,
@@ -73,6 +78,47 @@ export class TournamentsService {
   }): Promise<TournamentStructurePreview> {
     await this.require(input, "tournament:read");
     return tournamentStructurePreviewSchema.parse(previewTournamentStructure(input.data));
+  }
+
+  public async advancedPreview(input: {
+    readonly organizationId: string;
+    readonly data: AdvancedFormatPreviewInput;
+    readonly auth: AuthContext;
+  }): Promise<AdvancedFormatPreview> {
+    await this.require(input, "tournament:read");
+    const stages = input.data.stages.map((stage) => stage.type === "SWISS"
+      ? { key: stage.key, type: stage.type, rounds: stage.rounds ?? 1, advance: stage.advance ?? input.data.participantCount }
+      : stage.type === "PLACEMENT"
+        ? { key: stage.key, type: stage.type, places: [3, 4] as const }
+        : { key: stage.key, type: stage.type, advance: stage.advance ?? 1 });
+    validateStageComposition(stages);
+    let entrants = input.data.participantCount;
+    const warnings: string[] = [];
+    const projected = stages.map((stage) => {
+      let matchCount: number;
+      if (stage.type === "ROUND_ROBIN") matchCount = entrants * (entrants - 1) / 2;
+      else if (stage.type === "SWISS") matchCount = Math.ceil(entrants / 2) * stage.rounds;
+      else if (stage.type === "DOUBLE_ELIMINATION") {
+        const size = 2 ** Math.ceil(Math.log2(entrants));
+        if (![4, 8, 16, 32, 64].includes(size)) throw new TournamentValidationError("INVALID_DOUBLE_ELIMINATION_SIZE", "Double Elimination braucht 4 bis 64 Tableauplätze.");
+        matchCount = generateDoubleElimination(size as 4 | 8 | 16 | 32 | 64).length;
+        if (size !== entrants) warnings.push(`${stage.key}: ${size - entrants} Byes werden eingeplant.`);
+      } else if (stage.type === "SINGLE_ELIMINATION") matchCount = Math.max(entrants - 1, 0);
+      else matchCount = 1;
+      const advancingCount = stage.type === "PLACEMENT" ? 2 : Math.min(stage.advance, entrants);
+      const row = { key: stage.key, type: stage.type, entrantCount: entrants, advancingCount, matchCount };
+      entrants = advancingCount;
+      return row;
+    });
+    return advancedFormatPreviewSchema.parse({
+      participantCount: input.data.participantCount,
+      competitorKind: input.data.competitorKind,
+      bestOfLegs: input.data.bestOfLegs,
+      bestOfSets: input.data.bestOfSets,
+      totalMatches: projected.reduce((sum, stage) => sum + stage.matchCount, 0),
+      stages: projected,
+      warnings,
+    });
   }
 
   public async create(input: {
@@ -252,6 +298,7 @@ export class TournamentsService {
             stageLabel: scheduled.stageLabel,
             legNumber: scoring.currentLegNumber,
             bestOfLegs: scoring.bestOfLegs,
+            bestOfSets: scoring.bestOfSets,
             startedAt: scoring.createdAt,
             overrunning: false,
             participants: scoring.participants.map((participant) => ({
@@ -259,6 +306,7 @@ export class TournamentsService {
               displayName: participant.displayName,
               remaining: participant.remaining,
               legsWon: participant.legsWon,
+              setsWon: participant.setsWon,
               isActive: participant.isActive,
               onFinish: false,
               checkoutRoute: null,
@@ -268,6 +316,7 @@ export class TournamentsService {
                 displayName: string;
                 remaining: number;
                 legsWon: number;
+                setsWon: number;
                 isActive: boolean;
                 onFinish: boolean;
                 checkoutRoute: null;
@@ -277,6 +326,7 @@ export class TournamentsService {
                 displayName: string;
                 remaining: number;
                 legsWon: number;
+                setsWon: number;
                 isActive: boolean;
                 onFinish: boolean;
                 checkoutRoute: null;

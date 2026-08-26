@@ -53,6 +53,7 @@ export const slotParticipantSchema = z.object({
   displayName: z.string(),
   remaining: z.number().int().nonnegative(),
   legsWon: z.number().int().nonnegative(),
+  setsWon: z.number().int().nonnegative(),
   isActive: z.boolean(),
   /** Server-derived: the remaining score can be finished with the darts in hand. */
   onFinish: z.boolean(),
@@ -66,6 +67,7 @@ export const boardSlotMatchSchema = z.object({
   stageLabel: z.string(),
   legNumber: z.number().int().positive(),
   bestOfLegs: z.number().int().positive(),
+  bestOfSets: z.number().int().positive(),
   startedAt: z.coerce.date(),
   /** Server-derived: running longer than this stage's expected duration. */
   overrunning: z.boolean(),
@@ -210,6 +212,13 @@ export const createTournamentSchema = z
       .min(1)
       .max(21)
       .refine((value) => value % 2 === 1, "Best of legs must be odd."),
+    bestOfSets: z
+      .number()
+      .int()
+      .min(1)
+      .max(21)
+      .refine((value) => value % 2 === 1, "Best of sets must be odd.")
+      .default(1),
     participantIds: z.array(z.uuid()).min(4).max(256),
     groupCount: z.number().int().min(1).max(32),
     qualifyPerGroup: z.number().int().min(1).max(8),

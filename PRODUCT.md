@@ -47,7 +47,7 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 
 ## Capabilities and Constraints
 
-**Heute nutzbar (Phase 0–3, Stand 26.08.2026)**
+**Heute nutzbar (Phase 0–4, Stand 26.08.2026)**
 
 - Registrierung, Login, Logout, persistente HttpOnly-Sessions (Better Auth)
 - Organisation erstellen, Mitgliedschaften, zeitlich begrenzte E-Mail-gebundene Einladungen
@@ -61,8 +61,10 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
   Ranking, Board-Zuweisung, Dashboard und auditierte Result Correction
 - öffentliche Live-, TV- und Board-Ansichten mit Socket.IO-Echtzeit,
   Gruppenranglisten, K.-o.-Tableau und QR-Code je Board
+- Formatwerkstatt für Schweizer System, Double Elimination, Teams, Paare,
+  kombinierbare Stages, erweiterte Setzung, Byes und Best of Sets
 
-**Geplant, Reihenfolge festgelegt** (siehe [ROADMAP.md](ROADMAP.md)): erweiterte Formate, Sets, Teams (4) → PWA mit sichtbarer Offline-Queue (5) → Statistik und Spielerprofile (6) → Multi-Tenant-SaaS-Ausbau (7) → Autoscoring-Adapter (8) → Liga (9) → Turnierserie (10) → Benachrichtigungen (11) → Public API (12).
+**Geplant, Reihenfolge festgelegt** (siehe [ROADMAP.md](ROADMAP.md)): PWA mit sichtbarer Offline-Queue (5) → Statistik und Spielerprofile (6) → Multi-Tenant-SaaS-Ausbau (7) → Autoscoring-Adapter (8) → Liga (9) → Turnierserie (10) → Benachrichtigungen (11) → Public API (12).
 
 **Harte Constraints, die jede Fläche einhält** (verbindlich in [AGENTS.md](AGENTS.md))
 

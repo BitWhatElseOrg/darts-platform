@@ -87,12 +87,13 @@ export class MatchesRepository {
     const participantState = (row: typeof first) => {
       const projected = byId.get(row.participant.playerId);
       if (projected === undefined) throw new Error("Scoring player invariant violated.");
-      return { playerId: row.participant.playerId, displayName: row.displayName, remaining: projected.remaining, legsWon: projected.totalLegsWon, isActive: projection.activePlayerId === row.participant.playerId };
+      return { playerId: row.participant.playerId, displayName: row.displayName, remaining: projected.remaining, legsWon: projected.totalLegsWon, legsWonInSet: projected.legsWonInSet, setsWon: projected.setsWon, isActive: projection.activePlayerId === row.participant.playerId };
     };
     return {
       id: matchRow.match.id, organizationId, boardId: matchRow.match.boardId, boardName: matchRow.boardName,
       status: projection.status, version: matchRow.match.version, startingScore: matchRow.match.startingScore,
       bestOfLegs: matchRow.match.bestOfLegs, legsToWin: Math.floor(matchRow.match.bestOfLegs / 2) + 1,
+      bestOfSets: matchRow.match.setsToWin * 2 - 1, setsToWin: matchRow.match.setsToWin, currentSetNumber: projection.setNumber,
       currentLegNumber: projection.legNumber, currentLegVersion: legRow.version,
       currentPlayerId: projection.activePlayerId, winnerPlayerId: projection.winnerPlayerId,
       participants: [participantState(first), participantState(second)],
@@ -119,6 +120,7 @@ export class MatchesRepository {
       }
       const [created] = await transaction.insert(matches).values({
         organizationId: input.organizationId, boardId: input.data.boardId ?? null, bestOfLegs: input.data.bestOfLegs,
+        legsToWinSet: Math.floor(input.data.bestOfLegs / 2) + 1, setsToWin: Math.floor(input.data.bestOfSets / 2) + 1,
         startingPlayerId: input.data.startingPlayerId, currentPlayerId: input.data.startingPlayerId,
       }).returning();
       if (created === undefined) throw new Error("Match insert did not return a row.");
@@ -699,7 +701,7 @@ export class MatchesRepository {
     if (first === undefined || second === undefined) throw new Error("Match participant invariant violated.");
     const base = createX01Match({
       playerIds: [first.playerId, second.playerId], startingPlayerIndex: match.startingPlayerId === first.playerId ? 0 : 1,
-      rules: { startingScore: match.startingScore, doubleOut: match.doubleOut, legsToWinSet: Math.floor(match.bestOfLegs / 2) + 1, setsToWin: 1 },
+      rules: { startingScore: match.startingScore, doubleOut: match.doubleOut, legsToWinSet: match.legsToWinSet, setsToWin: match.setsToWin },
     });
     return { ...base, commands: payloads.map(parseStoredCommand) };
   }

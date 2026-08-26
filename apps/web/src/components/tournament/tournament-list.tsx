@@ -35,11 +35,10 @@ export function TournamentList({ requestedOrganizationId }: { readonly requested
             <h1 className="font-numerals text-[2.75rem] leading-[0.9] font-bold tracking-[-0.02em] text-wedge-900">Turniere</h1>
             <p className="mt-1.5 font-plate text-[0.875rem] text-sisal-500">Vereinsmeisterschaften, Cups und Serien dieser Organisation.</p>
           </div>
-          {canCreate ? (
-            <Link className="inline-flex min-h-11 items-center gap-2 bg-wedge-900 px-5 font-plate text-[0.875rem] font-semibold uppercase tracking-[0.1em] text-chalk transition-colors hover:bg-wedge-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green" href={`/turniere/neu?organisation=${organization.id}`}>
-              <MarkFlight size={13} /> Turnier anlegen
-            </Link>
-          ) : null}
+          {canCreate ? <div className="flex flex-wrap gap-3">
+            <Link className="inline-flex min-h-11 items-center border border-wedge-900 px-5 font-plate text-[0.875rem] font-semibold uppercase tracking-[0.1em] text-wedge-900" href={`/turniere/formate?organisation=${organization.id}`}>Formatwerkstatt</Link>
+            <Link className="inline-flex min-h-11 items-center gap-2 bg-wedge-900 px-5 font-plate text-[0.875rem] font-semibold uppercase tracking-[0.1em] text-chalk transition-colors hover:bg-wedge-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green" href={`/turniere/neu?organisation=${organization.id}`}><MarkFlight size={13} /> Turnier anlegen</Link>
+          </div> : null}
         </div>
 
         <Rule className="mt-6" />

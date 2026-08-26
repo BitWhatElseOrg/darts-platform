@@ -90,6 +90,7 @@ describe("persistent tournament MVP", () => {
         startingScore: 301,
         doubleOut: true,
         bestOfLegs: 1,
+        bestOfSets: 1,
         participantIds: playerIds,
         groupCount: 2,
         qualifyPerGroup: 1,
