@@ -1,52 +1,38 @@
 "use client";
 
+import { boardControllerLeaseSchema } from "@darts-platform/schemas";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { apiRequest } from "./api-client";
 
-const HEARTBEAT_MS = 2_000;
-const EXPIRES_MS = 7_000;
-
-interface LockRecord { readonly controllerId: string; readonly expiresAt: number }
+const HEARTBEAT_MS = 3_000;
 export type BoardLockState = "EIGEN" | "FREMD" | "WIRD_ÜBERNOMMEN";
 
-export function useBoardControllerLock(matchId: string): { readonly state: BoardLockState; readonly takeOver: () => void } {
-  const controllerId = useRef(crypto.randomUUID());
-  const storageKey = `dart-ost:board-lock:${matchId}`;
+export function useBoardControllerLock(organizationId: string, matchId: string, enabled: boolean): { readonly controllerId: string; readonly state: BoardLockState; readonly takeOver: () => void } {
+  const [controllerId] = useState(() => crypto.randomUUID());
+  const stateRef = useRef<BoardLockState>("WIRD_ÜBERNOMMEN");
   const [state, setState] = useState<BoardLockState>("WIRD_ÜBERNOMMEN");
+  const updateState = useCallback((next: BoardLockState) => { stateRef.current = next; setState(next); }, []);
 
-  const read = useCallback((): LockRecord | null => {
-    const value = localStorage.getItem(storageKey);
-    if (value === null) return null;
+  const claim = useCallback(async (force = false) => {
     try {
-      const candidate = JSON.parse(value) as Partial<LockRecord>;
-      return typeof candidate.controllerId === "string" && typeof candidate.expiresAt === "number"
-        ? { controllerId: candidate.controllerId, expiresAt: candidate.expiresAt }
-        : null;
-    } catch { return null; }
-  }, [storageKey]);
-
-  const claim = useCallback((force = false) => {
-    const current = read();
-    if (!force && current !== null && current.controllerId !== controllerId.current && current.expiresAt > Date.now()) {
-      setState("FREMD");
-      return;
+      const lease = await apiRequest({
+        path: `/organizations/${organizationId}/matches/${matchId}/controller-lease`,
+        method: "POST",
+        body: { controllerId, force },
+        schema: boardControllerLeaseSchema,
+      });
+      updateState(lease.owned ? "EIGEN" : "FREMD");
+    } catch {
+      if (stateRef.current !== "EIGEN") updateState("WIRD_ÜBERNOMMEN");
     }
-    localStorage.setItem(storageKey, JSON.stringify({ controllerId: controllerId.current, expiresAt: Date.now() + EXPIRES_MS } satisfies LockRecord));
-    setState("EIGEN");
-  }, [read, storageKey]);
+  }, [controllerId, matchId, organizationId, updateState]);
 
   useEffect(() => {
-    const ownedControllerId = controllerId.current;
-    claim();
-    const heartbeat = window.setInterval(() => claim(), HEARTBEAT_MS);
-    const onStorage = (event: StorageEvent) => { if (event.key === storageKey) claim(); };
-    window.addEventListener("storage", onStorage);
-    return () => {
-      window.clearInterval(heartbeat);
-      window.removeEventListener("storage", onStorage);
-      const current = read();
-      if (current?.controllerId === ownedControllerId) localStorage.removeItem(storageKey);
-    };
-  }, [claim, read, storageKey]);
+    if (!enabled) return undefined;
+    const initialClaim = window.setTimeout(() => void claim(), 0);
+    const heartbeat = window.setInterval(() => void claim(), HEARTBEAT_MS);
+    return () => { window.clearTimeout(initialClaim); window.clearInterval(heartbeat); };
+  }, [claim, enabled]);
 
-  return { state, takeOver: () => claim(true) };
+  return { controllerId, state, takeOver: () => void claim(true) };
 }

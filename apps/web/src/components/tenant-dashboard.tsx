@@ -3,6 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -21,7 +22,7 @@ import {
 } from "@darts-platform/schemas";
 import { Button, cn } from "@darts-platform/ui";
 
-import { apiRequest } from "@/lib/api-client";
+import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { MatchWorkspace } from "./match-workspace";
 
 const organizationFormSchema = createOrganizationSchema.pick({
@@ -43,7 +44,7 @@ const inputClassName =
   "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
 
 function messageFrom(error: unknown): string {
-  return error instanceof Error ? error.message : "Die Anfrage ist fehlgeschlagen.";
+  return userFacingErrorMessage(error);
 }
 
 interface TenantDashboardProps {
@@ -424,6 +425,7 @@ function PlayerRow({
             </>
           ) : (
             <>
+              <Link className="inline-flex min-h-10 items-center rounded-lg border border-slate-700 px-4 text-sm font-medium text-slate-100" href={`/spieler/${player.id}?organisation=${organizationId}`}>Profil</Link>
               {canEdit ? (
                 <Button variant="outline" onClick={() => setIsEditing(true)}>
                   Bearbeiten

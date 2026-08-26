@@ -1,0 +1,2 @@
+ALTER TABLE "visits" ADD COLUMN "checkout_attempts" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "visits" ADD CONSTRAINT "visits_checkout_attempts_check" CHECK ("visits"."checkout_attempts" between 0 and "visits"."darts_thrown");

@@ -11,6 +11,7 @@ import { PlayersModule } from "./players/players.module.js";
 import { RedisModule } from "./redis/redis.module.js";
 import { RealtimeModule } from "./realtime/realtime.module.js";
 import { TournamentsModule } from "./tournaments/tournaments.module.js";
+import { StatisticsModule } from "./statistics/statistics.module.js";
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { TournamentsModule } from "./tournaments/tournaments.module.js";
     HealthModule,
     MatchesModule,
     TournamentsModule,
+    StatisticsModule,
   ],
 })
 export class AppModule {}

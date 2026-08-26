@@ -86,4 +86,11 @@ describe("X01 scoring", () => {
     expect(isAttainableScore(180, 1)).toBe(false);
     expect(() => executeX01Command(createX01Match({ playerIds: ["a", "b"] }), visit("1", "a", 181))).toThrow(ScoringValidationError);
   });
+
+  it("records checkout attempts and rejects more attempts than darts", () => {
+    const match = createX01Match({ playerIds: ["a", "b"] });
+    const result = executeX01Command(match, { ...visit("attempts", "a", 60), checkoutAttempts: 2 });
+    expect(result.state.visits[0]?.checkoutAttempts).toBe(2);
+    expect(() => executeX01Command(match, { ...visit("too-many", "a", 60, 2), checkoutAttempts: 3 })).toThrow(ScoringValidationError);
+  });
 });

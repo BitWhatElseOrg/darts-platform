@@ -47,7 +47,7 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 
 ## Capabilities and Constraints
 
-**Heute nutzbar (Phase 0–5, Stand 26.08.2026)**
+**Heute nutzbar (Phase 0–6, Stand 26.08.2026)**
 
 - Registrierung, Login, Logout, persistente HttpOnly-Sessions (Better Auth)
 - Organisation erstellen, Mitgliedschaften, zeitlich begrenzte E-Mail-gebundene Einladungen
@@ -65,8 +65,11 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
   kombinierbare Stages, erweiterte Setzung, Byes und Best of Sets
 - installierbare PWA mit Offline-Assets, persistenter Score-Queue, Reconnect,
   Konfliktanzeige, Board-Controller-Lock, Heartbeat und Match Resume
+- Spielerprofile mit Match History, Average, First 9, Checkout-Quote, 180ern,
+  High Finish, Best Leg, Darts pro Leg, Head-to-Head und Rankingverlauf sowie
+  asynchron aktualisierten Karriereaggregaten
 
-**Geplant, Reihenfolge festgelegt** (siehe [ROADMAP.md](ROADMAP.md)): Statistik und Spielerprofile (6) → Multi-Tenant-SaaS-Ausbau (7) → Autoscoring-Adapter (8) → Liga (9) → Turnierserie (10) → Benachrichtigungen (11) → Public API (12).
+**Geplant, Reihenfolge festgelegt** (siehe [ROADMAP.md](ROADMAP.md)): Multi-Tenant-SaaS-Ausbau (7) → Autoscoring-Adapter (8) → Liga (9) → Turnierserie (10) → Benachrichtigungen (11) → Public API (12).
 
 **Harte Constraints, die jede Fläche einhält** (verbindlich in [AGENTS.md](AGENTS.md))
 

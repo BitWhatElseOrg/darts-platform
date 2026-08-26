@@ -48,7 +48,7 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
           });
 
     if (result.error !== null) {
-      setServerError(result.error.message ?? "Anmeldung fehlgeschlagen.");
+      setServerError(mode === "sign-in" ? "E-Mail oder Passwort ist nicht korrekt." : "Das Konto konnte nicht erstellt werden. Prüfe deine Angaben.");
       return;
     }
 

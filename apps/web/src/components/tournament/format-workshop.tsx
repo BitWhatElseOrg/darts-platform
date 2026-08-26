@@ -6,7 +6,7 @@ import { Control, Field, Rule, SelectInput, SheetLabel, TextInput, Wedge } from 
 import Link from "next/link";
 import { useState } from "react";
 
-import { apiRequest } from "@/lib/api-client";
+import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { useTournamentOrganization } from "./use-tournament-organization";
 
 type StageType = AdvancedFormatPreviewInput["stages"][number]["type"];
@@ -14,8 +14,8 @@ interface WorkshopStage { readonly id: string; readonly type: StageType; readonl
 
 const stageLabels: Readonly<Record<StageType, string>> = {
   ROUND_ROBIN: "Jeder gegen jeden",
-  SINGLE_ELIMINATION: "Single Elimination",
-  DOUBLE_ELIMINATION: "Double Elimination",
+  SINGLE_ELIMINATION: "Einfach-K.-o.",
+  DOUBLE_ELIMINATION: "Doppel-K.-o.",
   SWISS: "Schweizer System",
   PLACEMENT: "Platzierungsspiel",
 };
@@ -56,7 +56,7 @@ export function FormatWorkshop({ requestedOrganizationId }: { readonly requested
       </section>
 
       <section className="mt-9">
-        <div className="flex items-center justify-between"><SheetLabel as="h2">Stages in Reihenfolge</SheetLabel><Control onClick={() => setStages((current) => [...current, { id: crypto.randomUUID(), type: "SINGLE_ELIMINATION", rounds: 1, advance: 1 }])} variant="wire">Stage hinzufügen</Control></div>
+        <div className="flex items-center justify-between"><SheetLabel as="h2">Turnierphasen in Reihenfolge</SheetLabel><Control onClick={() => setStages((current) => [...current, { id: crypto.randomUUID(), type: "SINGLE_ELIMINATION", rounds: 1, advance: 1 }])} variant="wire">Turnierphase hinzufügen</Control></div>
         <Rule className="mt-2" />
         <ol className="mt-4 space-y-3">{stages.map((stage, index) => <li className="grid gap-3 border border-sisal-400 bg-sisal-100 p-4 sm:grid-cols-[3rem_1fr_9rem_9rem_auto]" key={stage.id}>
           <strong className="font-numerals text-2xl">{index + 1}</strong>
@@ -68,7 +68,7 @@ export function FormatWorkshop({ requestedOrganizationId }: { readonly requested
       </section>
 
       <Control className="mt-6" disabled={preview.isPending} onClick={() => preview.mutate()} variant="primary">Format prüfen</Control>
-      {preview.error ? <Wedge className="mt-5 p-4" tone="alarm"><p className="font-plate text-sm">{preview.error.message}</p></Wedge> : null}
+      {preview.error ? <Wedge className="mt-5 p-4" tone="alarm"><p className="font-plate text-sm">{userFacingErrorMessage(preview.error)}</p></Wedge> : null}
       {preview.data ? <section className="mt-7 border border-sisal-400 bg-sisal-50 p-5">
         <SheetLabel as="h2">Geprüfter Ablauf · {preview.data.totalMatches} Matches</SheetLabel>
         <ol className="mt-4 space-y-2">{preview.data.stages.map((stage) => <li className="grid grid-cols-[1fr_auto] border-b border-sisal-300 py-3 font-plate text-sm" key={stage.key}><span>{stageLabels[stage.type]} · {stage.entrantCount} starten, {stage.advancingCount} kommen weiter</span><strong>{stage.matchCount} Matches</strong></li>)}</ol>

@@ -49,7 +49,10 @@ test("a club can complete a match and start a generated tournament match", async
 
   const record = async (score: number, expectedRest: number, checkoutDouble?: number) => {
     await page.getByLabel("Aufnahmescore").fill(String(score));
-    if (checkoutDouble !== undefined) await page.getByLabel("Checkout-Double").fill(String(checkoutDouble));
+    if (checkoutDouble !== undefined) {
+      await page.getByLabel("Checkout-Double").fill(String(checkoutDouble));
+      await page.getByLabel("Doppelversuche").fill("1");
+    }
     await page.getByRole("button", { name: "Erfassen" }).click();
     await expect(page.getByLabel(`E2E Player One, Restscore`)).toHaveText(String(expectedRest));
   };
@@ -105,6 +108,7 @@ test("a club can complete a match and start a generated tournament match", async
     await visitScore.fill(String(score));
     if (checkoutDouble !== undefined) {
       await page.getByLabel("Checkout-Double").fill(String(checkoutDouble));
+      await page.getByLabel("Doppelversuche").fill("1");
     }
     await page.getByRole("button", { name: "Erfassen" }).click();
     if (checkoutDouble === undefined) {

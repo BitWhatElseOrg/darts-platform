@@ -18,6 +18,7 @@ export const organizationPermissions = [
   "tournament:read",
   "tournament:create",
   "tournament:update",
+  "statistics:read",
   "board:assign",
 ] as const;
 
@@ -43,6 +44,7 @@ const rolePermissions = {
     "tournament:read",
     "tournament:create",
     "tournament:update",
+    "statistics:read",
     "board:assign",
   ]),
   SCORER: new Set<OrganizationPermission>([
@@ -53,6 +55,7 @@ const rolePermissions = {
     "match:score",
     "match:undo",
     "tournament:read",
+    "statistics:read",
   ]),
   MEMBER: new Set<OrganizationPermission>([
     "organization:read",
@@ -60,6 +63,7 @@ const rolePermissions = {
     "board:read",
     "match:read",
     "tournament:read",
+    "statistics:read",
   ]),
   VIEWER: new Set<OrganizationPermission>([
     "organization:read",
@@ -67,6 +71,7 @@ const rolePermissions = {
     "board:read",
     "match:read",
     "tournament:read",
+    "statistics:read",
   ]),
 } as const satisfies Record<OrganizationRole, ReadonlySet<OrganizationPermission>>;
 

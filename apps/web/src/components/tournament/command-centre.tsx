@@ -10,7 +10,7 @@ import { Control, MarkCross, Rule, SheetLabel, Wedge } from "@darts-platform/ui"
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { ApiClientError, apiRequest } from "@/lib/api-client";
+import { ApiClientError, apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
 import { BoardWedge } from "./board-wedge";
 import { DashboardHeader } from "./dashboard-header";
@@ -150,7 +150,7 @@ export function CommandCentre({ canCorrect, organizationId, tournamentId }: Comm
           );
           setAnnouncement("Verbindung unterbrochen. Der Befehl bleibt in der Warteschlange.");
         }
-        setCommandError(error instanceof Error ? error.message : "Zuweisung fehlgeschlagen.");
+        setCommandError(userFacingErrorMessage(error, "Zuweisung fehlgeschlagen."));
         return false;
       }
     },
@@ -213,7 +213,7 @@ export function CommandCentre({ canCorrect, organizationId, tournamentId }: Comm
       } catch (error) {
         const versionConflict = conflictState(error, expectedVersion);
         if (versionConflict !== null) setConflict(versionConflict);
-        setCommandError(error instanceof Error ? error.message : "Freigabe fehlgeschlagen.");
+        setCommandError(userFacingErrorMessage(error, "Freigabe fehlgeschlagen."));
       } finally {
         setCommandBusy(false);
       }
@@ -252,7 +252,7 @@ export function CommandCentre({ canCorrect, organizationId, tournamentId }: Comm
     } catch (error) {
       const versionConflict = conflictState(error, expectedVersion);
       if (versionConflict !== null) setConflict(versionConflict);
-      setCommandError(error instanceof Error ? error.message : "Ergebnis konnte nicht korrigiert werden.");
+      setCommandError(userFacingErrorMessage(error, "Ergebnis konnte nicht korrigiert werden."));
     } finally {
       setCommandBusy(false);
     }

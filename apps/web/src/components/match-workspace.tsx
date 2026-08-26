@@ -7,12 +7,12 @@ import {
   type MatchStateResponse, type OrganizationSummary, type PlayerResponse,
 } from "@darts-platform/schemas";
 import { Button, cn } from "@darts-platform/ui";
-import { ApiClientError, apiRequest } from "@/lib/api-client";
+import { ApiClientError, apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { listOfflineCommands, markOfflineCommandConflict, removeOfflineCommand, saveOfflineCommand, type OfflineCommand } from "@/lib/offline-command-queue";
 import { useBoardControllerLock } from "@/lib/use-board-controller-lock";
 
 const inputClassName = "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
-const mutationMessage = (error: unknown) => error instanceof Error ? error.message : "Die Anfrage ist fehlgeschlagen.";
+const mutationMessage = (error: unknown) => userFacingErrorMessage(error);
 
 export function MatchWorkspace({ organization, players }: { readonly organization: OrganizationSummary; readonly players: readonly PlayerResponse[] }) {
   const queryClient = useQueryClient();
@@ -85,10 +85,11 @@ export function MatchWorkspace({ organization, players }: { readonly organizatio
 
 function Scoreboard({ organizationId, match, canScore }: { readonly organizationId: string; readonly match: MatchStateResponse; readonly canScore: boolean }) {
   const queryClient = useQueryClient();
-  const lock = useBoardControllerLock(match.id);
+  const lock = useBoardControllerLock(organizationId, match.id, canScore && match.status === "IN_PROGRESS");
   const [points, setPoints] = useState("");
   const [dartsThrown, setDartsThrown] = useState<1 | 2 | 3>(3);
   const [checkoutDouble, setCheckoutDouble] = useState("");
+  const [checkoutAttempts, setCheckoutAttempts] = useState(0);
   const [queued, setQueued] = useState<readonly OfflineCommand[]>([]);
   const [replaying, setReplaying] = useState(false);
   const replayingRef = useRef(false);
@@ -112,8 +113,11 @@ function Scoreboard({ organizationId, match, canScore }: { readonly organization
         await apiRequest({ path: command.path, method: "POST", body: command.body, schema: matchStateSchema });
         await removeOfflineCommand(command.commandId);
       } catch (error) {
-        if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") {
-          await markOfflineCommandConflict(command, "Der Serverzustand hat sich geändert. Synchronisiere, bevor du weiterzählst.");
+        if (error instanceof ApiClientError && ["MATCH_VERSION_CONFLICT", "BOARD_CONTROLLER_CONFLICT"].includes(error.code)) {
+          const message = error.code === "BOARD_CONTROLLER_CONFLICT"
+            ? "Ein anderes Gerät steuert dieses Board. Übernimm zuerst die Steuerung."
+            : "Der Serverzustand hat sich geändert. Synchronisiere, bevor du weiterzählst.";
+          await markOfflineCommandConflict(command, message);
         }
         break;
       }
@@ -137,7 +141,7 @@ function Scoreboard({ organizationId, match, canScore }: { readonly organization
     mutationFn: async () => {
       const commandId = crypto.randomUUID();
       const path = `/organizations/${organizationId}/matches/${match.id}/visits`;
-      const body = { commandId, expectedVersion: match.version, playerId: match.currentPlayerId, points: Number(points), dartsThrown, checkoutDouble: checkoutDouble ? Number(checkoutDouble) : null };
+      const body = { commandId, expectedVersion: match.version, playerId: match.currentPlayerId, points: Number(points), dartsThrown, checkoutDouble: checkoutDouble ? Number(checkoutDouble) : null, checkoutAttempts, controllerId: lock.controllerId };
       if (!navigator.onLine) {
         await saveOfflineCommand({ commandId, scope, path, body, label: `${points} Punkte`, createdAt: new Date().toISOString(), status: "PENDING", error: null });
         await refreshQueue();
@@ -154,30 +158,31 @@ function Scoreboard({ organizationId, match, canScore }: { readonly organization
         throw error;
       }
     },
-    onSuccess: async () => { setPoints(""); setCheckoutDouble(""); await refresh(); },
+    onSuccess: async () => { setPoints(""); setCheckoutDouble(""); setCheckoutAttempts(0); await refresh(); },
     onError: async (error) => { if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") await refresh(); },
   });
   const undo = useMutation({
-    mutationFn: () => apiRequest({ path: `/organizations/${organizationId}/matches/${match.id}/undo`, method: "POST", body: { commandId: crypto.randomUUID(), expectedVersion: match.version }, schema: matchStateSchema }),
+    mutationFn: () => apiRequest({ path: `/organizations/${organizationId}/matches/${match.id}/undo`, method: "POST", body: { commandId: crypto.randomUUID(), expectedVersion: match.version, controllerId: lock.controllerId }, schema: matchStateSchema }),
     onSuccess: refresh,
     onError: async (error) => { if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") await refresh(); },
   });
   const error = submit.error ?? undo.error;
   const hasPending = queued.length > 0;
-  const mayControl = canScore && lock.state === "EIGEN" && !hasPending;
+  const mayControl = canScore && match.status === "IN_PROGRESS" && lock.state === "EIGEN" && !hasPending;
   return (
     <section aria-label="Match-Scoreboard" className="overflow-hidden rounded-2xl border border-emerald-400/30 bg-slate-950 shadow-2xl shadow-emerald-950/20">
       <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 text-xs font-semibold tracking-wider text-slate-400 uppercase"><span>Set {match.currentSetNumber} · Leg {match.currentLegNumber} · Best of {match.bestOfLegs}</span><span>{match.boardName ?? "Nicht zugewiesen"} · v{match.version}</span></div>
       <div className="grid grid-cols-2 divide-x divide-slate-800">
         {match.participants.map((participant) => <div className={cn("p-4 text-center sm:p-7", participant.isActive && match.status === "IN_PROGRESS" ? "bg-emerald-400/10" : "")} key={participant.playerId}><p className="truncate text-sm font-semibold text-slate-300">{participant.displayName}</p><p aria-label={`${participant.displayName}, Restscore`} className="mt-2 text-5xl font-black tabular-nums text-white sm:text-7xl">{participant.remaining}</p><p className="mt-2 text-sm text-slate-400">{participant.legsWonInSet} / {match.legsToWin} Legs · {participant.setsWon} / {match.setsToWin} Sets</p></div>)}
       </div>
-      {canScore ? <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-900 px-4 py-3 text-sm"><span>{lock.state === "EIGEN" ? "Dieses Gerät steuert das Board · Heartbeat aktiv" : lock.state === "FREMD" ? "Ein anderes Gerät steuert dieses Board" : "Board-Steuerung wird übernommen …"}</span>{lock.state === "FREMD" ? <Button onClick={lock.takeOver} variant="outline">Steuerung übernehmen</Button> : null}</div> : null}
+      {canScore && match.status === "IN_PROGRESS" ? <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-900 px-4 py-3 text-sm"><span>{lock.state === "EIGEN" ? "Dieses Gerät steuert das Board · Verbindung aktiv" : lock.state === "FREMD" ? "Ein anderes Gerät steuert dieses Board" : "Board-Steuerung wird übernommen …"}</span>{lock.state === "FREMD" ? <Button onClick={lock.takeOver} variant="outline">Steuerung übernehmen</Button> : null}</div> : null}
       {hasPending ? <div className="border-t border-amber-400/40 bg-amber-300/10 p-4" role="status"><p className="font-semibold text-amber-100">{queued.length} Aufnahme wartet dauerhaft gespeichert auf die Übertragung.</p>{queued.map((command) => <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-sm text-amber-100" key={command.commandId}><span>{command.label} · {command.status === "CONFLICT" ? command.error : online ? "Wiederholung läuft" : "Offline"}</span>{command.status === "CONFLICT" ? <Button onClick={() => void removeOfflineCommand(command.commandId).then(refreshQueue).then(refresh)} variant="outline">Verwerfen und synchronisieren</Button> : <Button disabled={!online || replaying} onClick={() => void replay()} variant="outline">Jetzt übertragen</Button>}</div>)}</div> : null}
       {match.status === "COMPLETED" ? <div className="border-t border-emerald-400/30 bg-emerald-400/10 p-5 text-center"><p className="text-sm uppercase tracking-widest text-emerald-300">Match beendet</p><p className="mt-1 text-2xl font-bold text-white">{match.participants.find((player) => player.playerId === match.winnerPlayerId)?.displayName} gewinnt</p></div> : canScore ? (
-        <form className="grid gap-3 border-t border-slate-800 p-4 sm:grid-cols-[1fr_0.7fr_0.8fr_auto]" onSubmit={(event) => { event.preventDefault(); submit.mutate(); }}>
+        <form className="grid gap-3 border-t border-slate-800 p-4 sm:grid-cols-[1fr_0.7fr_0.8fr_0.8fr_auto]" onSubmit={(event) => { event.preventDefault(); submit.mutate(); }}>
           <input aria-label="Aufnahmescore" autoFocus className={inputClassName} disabled={!mayControl} inputMode="numeric" min="0" max="180" placeholder="Score" required type="number" value={points} onChange={(event) => setPoints(event.target.value)} />
           <select aria-label="Geworfene Darts" className={inputClassName} value={dartsThrown} onChange={(event) => setDartsThrown(Number(event.target.value) as 1 | 2 | 3)}><option value={3}>3 Darts</option><option value={2}>2 Darts</option><option value={1}>1 Dart</option></select>
           <input aria-label="Checkout-Double" className={inputClassName} inputMode="numeric" max="25" min="1" placeholder="Double (optional)" type="number" value={checkoutDouble} onChange={(event) => setCheckoutDouble(event.target.value)} />
+          <input aria-label="Doppelversuche" className={inputClassName} inputMode="numeric" max={dartsThrown} min="0" placeholder="Doppelversuche" type="number" value={checkoutAttempts} onChange={(event) => setCheckoutAttempts(Number(event.target.value))} />
           <Button disabled={submit.isPending || !mayControl} type="submit">Erfassen</Button>
         </form>
       ) : null}

@@ -1,10 +1,10 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { ScoringValidationError } from "@darts-platform/scoring-engine";
-import { matchListSchema, matchStateSchema, type CreateMatchInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput } from "@darts-platform/schemas";
+import { boardControllerLeaseSchema, matchListSchema, matchStateSchema, type BoardControllerLeaseResponse, type CreateMatchInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
-import { MatchesRepository } from "./matches.repository.js";
+import { MatchesRepository, type MutationResult } from "./matches.repository.js";
 
 export class MatchVersionConflictException extends ConflictException {
   public constructor(currentState: MatchStateResponse) {
@@ -53,7 +53,14 @@ export class MatchesService {
     return this.mutate(input, () => this.repository.undo(input));
   }
 
-  private async mutate(input: { readonly organizationId: string; readonly matchId: string }, mutation: () => Promise<"ok" | "not-found" | "version-conflict">): Promise<MatchStateResponse> {
+  public async acquireControllerLease(input: { readonly organizationId: string; readonly matchId: string; readonly controllerId: string; readonly force: boolean; readonly auth: AuthContext; readonly audit: AuditContext }): Promise<BoardControllerLeaseResponse> {
+    await this.require(input, "match:score");
+    const lease = await this.repository.acquireControllerLease(input);
+    if (lease === null) throw new NotFoundException("Match not found.");
+    return boardControllerLeaseSchema.parse(lease);
+  }
+
+  private async mutate(input: { readonly organizationId: string; readonly matchId: string }, mutation: () => Promise<MutationResult>): Promise<MatchStateResponse> {
     try {
       const result = await mutation();
       if (result === "not-found") throw new NotFoundException("Match not found.");
@@ -61,6 +68,7 @@ export class MatchesService {
       if (state === null) throw new NotFoundException("Match not found.");
       const parsed = matchStateSchema.parse(state);
       if (result === "version-conflict") throw new MatchVersionConflictException(parsed);
+      if (result === "controller-conflict") throw new ConflictException({ code: "BOARD_CONTROLLER_CONFLICT", message: "Ein anderes Gerät steuert dieses Board.", details: { currentState: parsed } });
       return parsed;
     } catch (error) {
       this.rethrowDomainError(error);

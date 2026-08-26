@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { boardListSchema, playerListSchema } from "@darts-platform/schemas";
 
-import { apiRequest } from "@/lib/api-client";
+import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { SetupSheet } from "./setup-sheet";
 import { useTournamentOrganization } from "./use-tournament-organization";
 
@@ -22,7 +22,7 @@ export function TournamentSetupRoute({ requestedOrganizationId }: { readonly req
 
   if (organizationsQuery.isPending || playersQuery.isPending || boardsQuery.isPending) return <Notice message="Turnierdaten werden geladen …" />;
   const error = organizationsQuery.error ?? playersQuery.error ?? boardsQuery.error;
-  if (error) return <Notice message={error.message} />;
+  if (error) return <Notice message={userFacingErrorMessage(error)} />;
   if (organization === null) return <Notice message="Lege zuerst eine Organisation an." />;
   if (!["OWNER", "ADMIN", "TOURNAMENT_DIRECTOR"].includes(organization.role)) {
     return <Notice message="Dir fehlt die Berechtigung, Turniere anzulegen." />;

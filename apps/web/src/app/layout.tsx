@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Archivo, Saira_Condensed } from "next/font/google";
 import type { ReactNode } from "react";
 
@@ -23,13 +23,14 @@ const archivo = Archivo({
 
 export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
-  themeColor: "#059669",
   title: {
     default: "Dart Ost - Plattform",
     template: "%s | Dart Ost - Plattform",
   },
   description: "Sichere Plattform für Dartturniere, Matches und Vereinsorganisation.",
 };
+
+export const viewport: Viewport = { themeColor: "#059669" };
 
 const DIRECTION_CONTRACT = `<!--
 THESIS: One surface holds all eight boards at once in the board's own graphic apparatus; it refuses the dark SaaS card grid this category ships.

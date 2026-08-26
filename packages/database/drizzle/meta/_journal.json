@@ -50,6 +50,27 @@
       "when": 1787760062963,
       "tag": "0006_shallow_salo",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787760806674,
+      "tag": "0007_ambiguous_blonde_phantom",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787760961933,
+      "tag": "0008_clumsy_shriek",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787761305031,
+      "tag": "0009_lethal_harry_osborn",
+      "breakpoints": true
     }
   ]
 }

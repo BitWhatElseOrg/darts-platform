@@ -29,7 +29,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 
-import { apiRequest } from "@/lib/api-client";
+import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 
 /**
  * React Hook Form owns the form state (AGENTS.md §18). The values stay in the
@@ -254,7 +254,7 @@ export function SetupSheet({ organizationId, players, boards }: {
                   <SelectInput id="format" {...register("format")}>
                     <option value="GROUPS_THEN_KNOCKOUT">Gruppen, dann K.-o.</option>
                     <option value="ROUND_ROBIN">Jeder gegen jeden</option>
-                    <option value="SINGLE_ELIMINATION">Single Elimination</option>
+                    <option value="SINGLE_ELIMINATION">Einfach-K.-o.</option>
                   </SelectInput>
                 </Field>
                 <Field htmlFor="startingScore" label="Startscore">
@@ -560,13 +560,13 @@ export function SetupSheet({ organizationId, players, boards }: {
             {previewQuery.error ? (
               <Wedge className="p-4" tone="plate">
                 <SheetLabel as="h3">Vorschau nicht verfügbar</SheetLabel>
-                <p className="mt-1.5 font-plate text-[0.75rem] text-sisal-500">{previewQuery.error.message}</p>
+                <p className="mt-1.5 font-plate text-[0.75rem] text-sisal-500">{userFacingErrorMessage(previewQuery.error)}</p>
               </Wedge>
             ) : null}
             {createMutation.error ? (
               <Wedge className="p-4" tone="alarm">
                 <SheetLabel as="h3" tone="alarm">Turnier konnte nicht angelegt werden</SheetLabel>
-                <p className="mt-1.5 font-plate text-[0.75rem] text-wedge-900">{createMutation.error.message}</p>
+                <p className="mt-1.5 font-plate text-[0.75rem] text-wedge-900">{userFacingErrorMessage(createMutation.error)}</p>
               </Wedge>
             ) : null}
           </div>

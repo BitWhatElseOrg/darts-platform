@@ -16,6 +16,7 @@
     "@darts-platform/database": "workspace:*",
     "@darts-platform/domain": "workspace:*",
     "@darts-platform/scheduling-engine": "workspace:*",
+    "@darts-platform/statistics": "workspace:*",
     "@darts-platform/schemas": "workspace:*",
     "@darts-platform/scoring-engine": "workspace:*",
     "@darts-platform/tournament-engine": "workspace:*",

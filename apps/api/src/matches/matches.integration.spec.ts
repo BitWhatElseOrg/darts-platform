@@ -45,8 +45,17 @@ afterAll(async () => {
 describe("persistent X01 match", () => {
   it("is idempotent, rejects stale versions, supports undo and completes 501", async () => {
     let state = await service.create({ organizationId, data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId, bestOfLegs: 1, bestOfSets: 1 }, auth, audit });
+    const firstControllerId = randomUUID();
+    const controllerId = randomUUID();
+    expect((await service.acquireControllerLease({ organizationId, matchId: state.id, controllerId: firstControllerId, force: false, auth, audit })).owned).toBe(true);
+    expect((await service.acquireControllerLease({ organizationId, matchId: state.id, controllerId, force: false, auth, audit })).owned).toBe(false);
+    expect((await service.acquireControllerLease({ organizationId, matchId: state.id, controllerId, force: true, auth, audit })).owned).toBe(true);
+    await expect(service.submitVisit({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: 0, playerId: playerOneId, points: 180, dartsThrown: 3, controllerId: firstControllerId }, auth, audit })).rejects.toMatchObject({
+      status: 409,
+      response: { code: "BOARD_CONTROLLER_CONFLICT", details: { currentState: { version: 0 } } },
+    });
     const firstCommandId = randomUUID();
-    state = await service.submitVisit({ organizationId, matchId: state.id, data: { commandId: firstCommandId, expectedVersion: 0, playerId: playerOneId, points: 180, dartsThrown: 3 }, auth, audit });
+    state = await service.submitVisit({ organizationId, matchId: state.id, data: { commandId: firstCommandId, expectedVersion: 0, playerId: playerOneId, points: 180, dartsThrown: 3, controllerId }, auth, audit });
     expect(state.version).toBe(1);
     const duplicate = await service.submitVisit({ organizationId, matchId: state.id, data: { commandId: firstCommandId, expectedVersion: 0, playerId: playerOneId, points: 180, dartsThrown: 3 }, auth, audit });
     expect(duplicate.version).toBe(1);
@@ -56,12 +65,12 @@ describe("persistent X01 match", () => {
       status: 409,
       response: { code: "MATCH_VERSION_CONFLICT", details: { currentState: { version: 1 } } },
     });
-    state = await service.undo({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: 1 }, auth, audit });
+    state = await service.undo({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: 1, controllerId }, auth, audit });
     expect(state.participants[0].remaining).toBe(501);
     expect(state.currentPlayerId).toBe(playerOneId);
 
     const score = async (playerId: string, points: number, checkoutDouble?: number) => {
-      state = await service.submitVisit({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: state.version, playerId, points, dartsThrown: 3, ...(checkoutDouble === undefined ? {} : { checkoutDouble }) }, auth, audit });
+      state = await service.submitVisit({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: state.version, playerId, points, dartsThrown: 3, controllerId, ...(checkoutDouble === undefined ? {} : { checkoutDouble }) }, auth, audit });
     };
     await score(playerOneId, 180);
     await score(playerTwoId, 60);

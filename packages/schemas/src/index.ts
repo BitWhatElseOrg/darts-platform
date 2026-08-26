@@ -5,6 +5,7 @@ export {
   type ServiceHealthStatus,
 } from "./health";
 export { apiErrorSchema, type ApiErrorResponse } from "./api-error";
+export { careerStatisticsSchema, playerStatisticsProfileSchema, type PlayerStatisticsProfile } from "./statistics";
 export {
   advancedFormatPreviewInputSchema,
   advancedFormatPreviewSchema,
@@ -16,9 +17,9 @@ export {
 } from "./advanced-tournament";
 export { boardListSchema, boardSchema, boardStatusSchema, createBoardSchema, type BoardResponse, type CreateBoardInput } from "./board";
 export {
-  createMatchSchema, matchListSchema, matchStateSchema, matchStatusSchema, matchVisitSchema,
+  boardControllerLeaseRequestSchema, boardControllerLeaseSchema, createMatchSchema, matchListSchema, matchStateSchema, matchStatusSchema, matchVisitSchema,
   submitVisitSchema, undoVisitSchema, visitOutcomeSchema,
-  type CreateMatchInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput,
+  type BoardControllerLeaseRequest, type BoardControllerLeaseResponse, type CreateMatchInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput,
 } from "./match";
 export {
   createInvitationSchema,

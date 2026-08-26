@@ -21,6 +21,7 @@ export interface SubmitVisitCommand {
   readonly points: number;
   readonly dartsThrown: 1 | 2 | 3;
   readonly checkoutDouble?: number;
+  readonly checkoutAttempts?: number;
 }
 
 export interface UndoVisitCommand {
@@ -55,6 +56,7 @@ export interface AppliedVisit {
   readonly scoreBefore: number;
   readonly scoreAfter: number;
   readonly checkoutDouble: number | null;
+  readonly checkoutAttempts: number;
   readonly outcome: VisitOutcome;
 }
 
@@ -164,6 +166,9 @@ function validateVisit(command: SubmitVisitCommand): void {
   if (command.checkoutDouble !== undefined && checkoutValue(command.checkoutDouble) === null) {
     throw new ScoringValidationError("INVALID_CHECKOUT_DOUBLE", "Checkout double must be D1-D20 or bull (25).");
   }
+  if (command.checkoutAttempts !== undefined && (!Number.isInteger(command.checkoutAttempts) || command.checkoutAttempts < 0 || command.checkoutAttempts > command.dartsThrown)) {
+    throw new ScoringValidationError("INVALID_CHECKOUT_ATTEMPTS", "Checkout attempts must be between zero and the number of darts thrown.");
+  }
 }
 
 function initialPlayer(id: string, startingScore: number): X01PlayerState {
@@ -271,6 +276,7 @@ export function projectX01Match(match: X01Match): X01MatchState {
       scoreBefore,
       scoreAfter,
       checkoutDouble: command.checkoutDouble ?? null,
+      checkoutAttempts: command.checkoutAttempts ?? (command.checkoutDouble === undefined ? 0 : 1),
       outcome,
     });
 

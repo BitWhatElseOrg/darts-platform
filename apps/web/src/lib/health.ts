@@ -11,7 +11,7 @@ export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse>
   });
 
   if (!response.ok) {
-    throw new Error(`Health endpoint returned HTTP ${response.status}.`);
+    throw new Error(`Der Systemstatus hat mit HTTP ${response.status} geantwortet.`);
   }
 
   const payload: unknown = await response.json();

@@ -2,7 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  auditEvents, boards, legs, matches, matchParticipants, outboxEvents, players, scoreCommands,
+  auditEvents, boardControllerLeases, boards, legs, matches, matchParticipants, outboxEvents, players, scoreCommands,
   tournamentCommands, tournamentGroupParticipants, tournamentGroups, tournamentMatches,
   tournaments, tournamentStages,
   visits,
@@ -14,9 +14,9 @@ import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { DatabaseService } from "../database/database.service.js";
 
-type MutationResult = "ok" | "not-found" | "version-conflict";
+export type MutationResult = "ok" | "not-found" | "version-conflict" | "controller-conflict";
 export type TournamentCorrectionResult =
-  | MutationResult
+  | Exclude<MutationResult, "controller-conflict">
   | "result-not-correctable"
   | "downstream-started"
   | "board-unavailable";
@@ -24,7 +24,7 @@ type ActorInput = { readonly organizationId: string; readonly matchId: string; r
 
 const storedSubmitSchema = z.object({
   type: z.literal("SUBMIT_VISIT"), commandId: z.uuid(), playerId: z.uuid(), points: z.number().int(),
-  dartsThrown: z.union([z.literal(1), z.literal(2), z.literal(3)]), checkoutDouble: z.number().int().optional(),
+  dartsThrown: z.union([z.literal(1), z.literal(2), z.literal(3)]), checkoutDouble: z.number().int().optional(), checkoutAttempts: z.number().int().min(0).max(3).default(0),
 });
 const storedUndoSchema = z.object({ type: z.literal("UNDO_LAST_VISIT"), commandId: z.uuid(), targetCommandId: z.uuid() });
 const storedCommandSchema = z.discriminatedUnion("type", [storedSubmitSchema, storedUndoSchema]);
@@ -38,7 +38,7 @@ function parseStoredCommand(payload: unknown): X01Command {
   const parsed = storedCommandSchema.parse(payload);
   if (parsed.type === "UNDO_LAST_VISIT") return parsed;
   const base = { type: parsed.type, commandId: parsed.commandId, playerId: parsed.playerId, points: parsed.points, dartsThrown: parsed.dartsThrown } as const;
-  return parsed.checkoutDouble === undefined ? base : { ...base, checkoutDouble: parsed.checkoutDouble };
+  return { ...base, checkoutAttempts: parsed.checkoutAttempts, ...(parsed.checkoutDouble === undefined ? {} : { checkoutDouble: parsed.checkoutDouble }) };
 }
 
 @Injectable()
@@ -102,6 +102,7 @@ export class MatchesRepository {
         legNumber,
         points: visit.points, appliedPoints: visit.appliedPoints, dartsThrown: visit.dartsThrown,
         scoreBefore: visit.scoreBefore, scoreAfter: visit.scoreAfter, checkoutDouble: visit.checkoutDouble,
+        checkoutAttempts: visit.checkoutAttempts,
         outcome: visit.outcome as "SCORED" | "BUST" | "LEG_WON" | "SET_WON" | "MATCH_WON",
         reverted: visit.revertedAt !== null, createdAt: visit.createdAt,
       })),
@@ -136,6 +137,25 @@ export class MatchesRepository {
     });
   }
 
+  public acquireControllerLease(input: ActorInput & { readonly controllerId: string; readonly force: boolean }): Promise<{ readonly controllerId: string; readonly owned: boolean; readonly expiresAt: Date } | null> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [match] = await transaction.select({ id: matches.id, status: matches.status }).from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
+      if (match === undefined) return null;
+      const [current] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 10_000);
+      const mayOwn = match.status === "IN_PROGRESS" && (input.force || current === undefined || current.controllerId === input.controllerId || current.expiresAt <= now);
+      if (!mayOwn && current !== undefined) return { controllerId: current.controllerId, owned: false, expiresAt: current.expiresAt };
+      if (!mayOwn) return { controllerId: input.controllerId, owned: false, expiresAt: now };
+      await transaction.insert(boardControllerLeases).values({ matchId: input.matchId, organizationId: input.organizationId, controllerId: input.controllerId, userId: input.auth.user.id, expiresAt })
+        .onConflictDoUpdate({ target: boardControllerLeases.matchId, set: { controllerId: input.controllerId, userId: input.auth.user.id, expiresAt, updatedAt: now } });
+      if (current === undefined || current.controllerId !== input.controllerId) {
+        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: current === undefined ? "BOARD_CONTROLLER_ACQUIRED" : "BOARD_CONTROLLER_TAKEN_OVER", entityType: "Match", entityId: input.matchId, oldValue: current ?? null, newValue: { controllerId: input.controllerId, expiresAt }, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
+      }
+      return { controllerId: input.controllerId, owned: true, expiresAt };
+    });
+  }
+
   public submitVisit(input: ActorInput & { readonly data: SubmitVisitInput }): Promise<MutationResult> {
     return this.databaseService.database.transaction(async (transaction): Promise<MutationResult> => {
       const [duplicate] = await transaction.select({ organizationId: scoreCommands.organizationId, matchId: scoreCommands.matchId }).from(scoreCommands)
@@ -147,6 +167,8 @@ export class MatchesRepository {
       const [match] = await transaction.select().from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
       if (match === undefined) return "not-found";
       if (match.version !== input.data.expectedVersion) return "version-conflict";
+      const [lease] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
+      if (lease !== undefined && lease.expiresAt > new Date() && lease.controllerId !== input.data.controllerId) return "controller-conflict";
       if (match.status === "COMPLETED") {
         const [publishedTournamentResult] = await transaction
           .select({ id: tournamentMatches.id })
@@ -169,7 +191,7 @@ export class MatchesRepository {
       const participantRows = await transaction.select().from(matchParticipants).where(and(eq(matchParticipants.organizationId, input.organizationId), eq(matchParticipants.matchId, input.matchId))).orderBy(asc(matchParticipants.seat));
       const commandRows = await transaction.select({ payload: scoreCommands.payload }).from(scoreCommands).where(and(eq(scoreCommands.organizationId, input.organizationId), eq(scoreCommands.matchId, input.matchId))).orderBy(asc(scoreCommands.resultingVersion));
       const aggregate = this.aggregate(match, participantRows, commandRows.map((row) => row.payload));
-      const command: X01Command = { type: "SUBMIT_VISIT", commandId: input.data.commandId, playerId: input.data.playerId, points: input.data.points, dartsThrown: input.data.dartsThrown, ...(input.data.checkoutDouble === undefined || input.data.checkoutDouble === null ? {} : { checkoutDouble: input.data.checkoutDouble }) };
+      const command: X01Command = { type: "SUBMIT_VISIT", commandId: input.data.commandId, playerId: input.data.playerId, points: input.data.points, dartsThrown: input.data.dartsThrown, checkoutAttempts: input.data.checkoutAttempts ?? 0, ...(input.data.checkoutDouble === undefined || input.data.checkoutDouble === null ? {} : { checkoutDouble: input.data.checkoutDouble }) };
       const result = executeX01Command(aggregate, command);
       const applied = result.state.visits.at(-1);
       if (applied === undefined) throw new Error("Visit projection did not return an applied visit.");
@@ -181,6 +203,7 @@ export class MatchesRepository {
         commandId: input.data.commandId, sequence: nextVersion, points: applied.points, appliedPoints: applied.appliedPoints,
         dartsThrown: applied.dartsThrown, scoreBefore: applied.scoreBefore, scoreAfter: applied.scoreAfter,
         checkoutDouble: applied.checkoutDouble, outcome: applied.outcome,
+        checkoutAttempts: applied.checkoutAttempts,
       }).returning();
       if (createdVisit === undefined) throw new Error("Visit insert did not return a row.");
       const wonLeg = applied.outcome.endsWith("WON");
@@ -583,6 +606,8 @@ export class MatchesRepository {
       const [match] = await transaction.select().from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
       if (match === undefined) return "not-found";
       if (match.version !== input.data.expectedVersion) return "version-conflict";
+      const [lease] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
+      if (lease !== undefined && lease.expiresAt > new Date() && lease.controllerId !== input.data.controllerId) return "controller-conflict";
       if (match.status === "COMPLETED") {
         const [publishedTournamentResult] = await transaction
           .select({ id: tournamentMatches.id })

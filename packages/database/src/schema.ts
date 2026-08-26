@@ -326,6 +326,19 @@ export const matches = pgTable(
   ],
 );
 
+export const boardControllerLeases = pgTable(
+  "board_controller_leases",
+  {
+    matchId: uuid("match_id").primaryKey().references(() => matches.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+    controllerId: uuid("controller_id").notNull(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    ...timestamps,
+  },
+  (table) => [index("board_controller_leases_organization_expiry_idx").on(table.organizationId, table.expiresAt)],
+);
+
 export const matchParticipants = pgTable(
   "match_participants",
   {
@@ -404,6 +417,7 @@ export const visits = pgTable(
     scoreBefore: integer("score_before").notNull(),
     scoreAfter: integer("score_after").notNull(),
     checkoutDouble: integer("checkout_double"),
+    checkoutAttempts: integer("checkout_attempts").default(0).notNull(),
     outcome: varchar("outcome", { length: 30 }).notNull(),
     revertedAt: timestamp("reverted_at", { withTimezone: true }),
     revertedByCommandId: uuid("reverted_by_command_id"),
@@ -419,6 +433,7 @@ export const visits = pgTable(
     check("visits_darts_check", sql`${table.dartsThrown} between 1 and 3`),
     check("visits_scores_check", sql`${table.scoreBefore} >= 0 and ${table.scoreAfter} >= 0`),
     check("visits_checkout_double_check", sql`${table.checkoutDouble} is null or ${table.checkoutDouble} between 1 and 20 or ${table.checkoutDouble} = 25`),
+    check("visits_checkout_attempts_check", sql`${table.checkoutAttempts} between 0 and ${table.dartsThrown}`),
     check("visits_outcome_check", sql`${table.outcome} in ('SCORED', 'BUST', 'LEG_WON', 'SET_WON', 'MATCH_WON')`),
   ],
 );
@@ -458,11 +473,28 @@ export const outboxEvents = pgTable(
     payload: jsonb("payload").notNull(),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
     publishedAt: timestamp("published_at", { withTimezone: true }),
+    statisticsProcessedAt: timestamp("statistics_processed_at", { withTimezone: true }),
   },
   (table) => [
     index("outbox_events_unpublished_idx").on(table.publishedAt, table.occurredAt),
     index("outbox_events_organization_aggregate_idx").on(table.organizationId, table.aggregateId),
   ],
+);
+
+export const playerStatisticAggregates = pgTable(
+  "player_statistic_aggregates",
+  {
+    playerId: uuid("player_id")
+      .primaryKey()
+      .references(() => players.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    payload: jsonb("payload").notNull(),
+    sourceUpdatedAt: timestamp("source_updated_at", { withTimezone: true }).notNull(),
+    ...timestamps,
+  },
+  (table) => [index("player_statistic_aggregates_organization_idx").on(table.organizationId)],
 );
 
 export const tournaments = pgTable(
@@ -789,12 +821,14 @@ export type NewOrganizationInvitation = typeof organizationInvitations.$inferIns
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type NewAuditEvent = typeof auditEvents.$inferInsert;
 export type Board = typeof boards.$inferSelect;
+export type BoardControllerLease = typeof boardControllerLeases.$inferSelect;
 export type Match = typeof matches.$inferSelect;
 export type MatchParticipant = typeof matchParticipants.$inferSelect;
 export type Leg = typeof legs.$inferSelect;
 export type Visit = typeof visits.$inferSelect;
 export type ScoreCommand = typeof scoreCommands.$inferSelect;
 export type OutboxEvent = typeof outboxEvents.$inferSelect;
+export type PlayerStatisticAggregate = typeof playerStatisticAggregates.$inferSelect;
 export type Tournament = typeof tournaments.$inferSelect;
 export type TournamentParticipant = typeof tournamentParticipants.$inferSelect;
 export type TournamentBoard = typeof tournamentBoards.$inferSelect;

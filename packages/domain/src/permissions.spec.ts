@@ -32,6 +32,7 @@ describe("organization permissions", () => {
     expect(hasOrganizationPermission("VIEWER", "match:read")).toBe(true);
     expect(hasOrganizationPermission("VIEWER", "match:score")).toBe(false);
     expect(hasOrganizationPermission("VIEWER", "tournament:read")).toBe(true);
+    expect(hasOrganizationPermission("VIEWER", "statistics:read")).toBe(true);
     expect(hasOrganizationPermission("VIEWER", "tournament:update")).toBe(false);
   });
 

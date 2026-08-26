@@ -23,6 +23,27 @@ export class ApiClientError extends Error {
   }
 }
 
+function localizedMessage(code: string): string {
+  const messages: Readonly<Record<string, string>> = {
+    MATCH_VERSION_CONFLICT: "Der Matchzustand hat sich geändert. Synchronisiere mit dem Serverstand.",
+    TOURNAMENT_VERSION_CONFLICT: "Der Turnierzustand hat sich geändert. Synchronisiere mit dem Serverstand.",
+    BOARD_NOT_AVAILABLE: "Das gewählte Board ist nicht verfügbar.",
+    BOARD_CONTROLLER_CONFLICT: "Ein anderes Gerät steuert dieses Board.",
+    NOT_ACTIVE_PLAYER: "Die Aufnahme gehört nicht zum aktiven Spieler.",
+    INVALID_VISIT_SCORE: "Dieser Score ist mit der gewählten Dartanzahl nicht möglich.",
+    NOTHING_TO_UNDO: "Es gibt keine aktive Aufnahme zum Zurücknehmen.",
+    UNAUTHORIZED: "Bitte melde dich an.",
+    FORBIDDEN: "Dir fehlt die Berechtigung für diese Aktion.",
+  };
+  const translated = messages[code];
+  if (translated !== undefined) return translated;
+  return "Die Anfrage konnte nicht ausgeführt werden. Prüfe die Eingaben und versuche es erneut.";
+}
+
+export function userFacingErrorMessage(error: unknown, fallback = "Die Anfrage ist fehlgeschlagen."): string {
+  return error instanceof ApiClientError ? error.message : fallback;
+}
+
 export async function apiRequest<T>(input: {
   readonly path: string;
   readonly schema: z.ZodType<T>;
@@ -50,13 +71,13 @@ export async function apiRequest<T>(input: {
     const error = apiErrorSchema.safeParse(payload);
     if (error.success) {
       throw new ApiClientError(
-        error.data.error.message,
+        localizedMessage(error.data.error.code),
         error.data.error.code,
         error.data.error.correlationId,
         error.data.error.details,
       );
     }
-    throw new ApiClientError(`API request returned HTTP ${response.status}.`);
+    throw new ApiClientError(`Die API hat mit HTTP ${response.status} geantwortet.`);
   }
 
   return input.schema.parse(payload);

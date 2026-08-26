@@ -13,8 +13,12 @@ export const submitVisitSchema = z.object({
   commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), playerId: z.uuid(),
   points: z.number().int().min(0).max(180), dartsThrown: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   checkoutDouble: z.number().int().min(1).max(25).nullable().optional(),
-});
-export const undoVisitSchema = z.object({ commandId: z.uuid(), expectedVersion: z.number().int().nonnegative() });
+  checkoutAttempts: z.number().int().min(0).max(3).optional(),
+  controllerId: z.uuid().optional(),
+}).refine((value) => (value.checkoutAttempts ?? 0) <= value.dartsThrown, { message: "Checkout attempts cannot exceed darts thrown.", path: ["checkoutAttempts"] });
+export const undoVisitSchema = z.object({ commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), controllerId: z.uuid().optional() });
+export const boardControllerLeaseRequestSchema = z.object({ controllerId: z.uuid(), force: z.boolean().default(false) });
+export const boardControllerLeaseSchema = z.object({ controllerId: z.uuid(), owned: z.boolean(), expiresAt: z.coerce.date() });
 export const matchParticipantStateSchema = z.object({
   playerId: z.uuid(), displayName: z.string(), remaining: z.number().int().nonnegative(),
   legsWon: z.number().int().nonnegative(), legsWonInSet: z.number().int().nonnegative(), setsWon: z.number().int().nonnegative(), isActive: z.boolean(),
@@ -25,6 +29,7 @@ export const matchVisitSchema = z.object({
   appliedPoints: z.number().int().nonnegative(), dartsThrown: z.number().int().min(1).max(3),
   scoreBefore: z.number().int().nonnegative(), scoreAfter: z.number().int().nonnegative(),
   checkoutDouble: z.number().int().nullable(), outcome: visitOutcomeSchema, reverted: z.boolean(),
+  checkoutAttempts: z.number().int().min(0).max(3),
   createdAt: z.coerce.date(),
 });
 export const matchStateSchema = z.object({
@@ -42,3 +47,5 @@ export type CreateMatchInput = z.infer<typeof createMatchSchema>;
 export type SubmitVisitInput = z.infer<typeof submitVisitSchema>;
 export type UndoVisitInput = z.infer<typeof undoVisitSchema>;
 export type MatchStateResponse = z.infer<typeof matchStateSchema>;
+export type BoardControllerLeaseRequest = z.infer<typeof boardControllerLeaseRequestSchema>;
+export type BoardControllerLeaseResponse = z.infer<typeof boardControllerLeaseSchema>;

@@ -268,6 +268,8 @@ werden. Match Resume lädt stets den autoritativen Serverstand.
 
 # Phase 6 – Statistics & Player Platform
 
+**Status:** Implementiert – 26. August 2026
+
 ## Ziel
 
 Langfristige Spieler- und Matchdaten.
@@ -288,6 +290,14 @@ Langfristige Spieler- und Matchdaten.
 - Career Statistics
 - Statistics Worker
 - Aggregates
+
+Die reine Statistik-Domain aggregiert abgeschlossene Match-, Leg- und
+Visit-Daten deterministisch. Tenant-sichere Spielerprofile zeigen Match
+History, Average, First 9, Checkout-Quote auf Basis explizit erfasster
+Doppelversuche, 180er, High Finish, Best Leg, Darts pro Leg, Head-to-Head,
+Rankingverlauf und Karrierewerte. Der separate Worker verarbeitet
+`MATCH_COMPLETED` aus der transaktionalen Outbox unabhängig vom
+Realtime-Publikationsstatus und aktualisiert persistente Spieleraggregate.
 
 ---
 
