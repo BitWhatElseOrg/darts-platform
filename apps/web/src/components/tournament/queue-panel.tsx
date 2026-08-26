@@ -19,7 +19,7 @@ export function QueuePanel({ onAssign, openBoardName, queue }: QueuePanelProps) 
         <SheetLabel as="h2" id="queue-heading">
           Warteschlange
         </SheetLabel>
-        <span className="font-numerals text-[0.875rem] font-bold tabular text-sisal-500">
+        <span className="font-numerals text-[1rem] font-bold tabular text-sisal-500">
           {queue.length}
         </span>
       </div>
@@ -35,7 +35,7 @@ export function QueuePanel({ onAssign, openBoardName, queue }: QueuePanelProps) 
             return (
               <li className="border-b border-sisal-300 py-2.5" key={entry.matchId}>
                 <div className="flex items-baseline gap-2.5">
-                  <span className="w-4 shrink-0 font-numerals text-[0.875rem] font-bold tabular text-sisal-400">
+                  <span className="w-4 shrink-0 font-numerals text-[1rem] font-bold tabular text-sisal-500">
                     {entry.position}
                   </span>
                   <span className="flex-1 font-plate text-[0.75rem] font-semibold uppercase tracking-[0.12em] text-sisal-500">
@@ -48,7 +48,7 @@ export function QueuePanel({ onAssign, openBoardName, queue }: QueuePanelProps) 
                 </div>
                 <p className="mt-0.5 pl-6.5 font-plate text-[0.875rem] font-semibold text-wedge-900">
                   {entry.participants[0].displayName}
-                  <span className="px-1.5 font-normal text-sisal-400">–</span>
+                  <span className="px-1.5 font-normal text-sisal-500">–</span>
                   {entry.participants[1].displayName}
                 </p>
                 {entry.blockedReason ? (

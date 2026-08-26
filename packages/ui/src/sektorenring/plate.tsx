@@ -19,7 +19,7 @@ const plateVariants = cva(
         quiet: "bg-sisal-100 text-sisal-500 ring-1 ring-sisal-400",
       },
       size: {
-        sm: "size-7 text-[0.9375rem]",
+        sm: "size-7 text-[1rem]",
         md: "size-11 text-[1.5rem]",
         lg: "size-14 text-[2rem]",
       },
@@ -76,7 +76,11 @@ export function RingSteps({ className, steps, ...props }: RingStepsProps) {
   return (
     <ol className={cn("flex flex-wrap items-center gap-x-3 gap-y-2", className)} {...props}>
       {steps.map((step, index) => (
-        <li className="flex items-center gap-3" key={step.label}>
+        <li
+          aria-current={step.state === "current" ? "step" : undefined}
+          className="flex items-center gap-3"
+          key={step.label}
+        >
           {index > 0 ? <span aria-hidden="true" className="h-px w-6 bg-sisal-400" /> : null}
           <span className="flex items-center gap-2">
             {step.state === "done" ? (
@@ -100,6 +104,13 @@ export function RingSteps({ className, steps, ...props }: RingStepsProps) {
               )}
             >
               {step.label}
+              <span className="sr-only">
+                {step.state === "done"
+                  ? " (abgeschlossen)"
+                  : step.state === "current"
+                    ? " (aktueller Schritt)"
+                    : " (ausstehend)"}
+              </span>
             </span>
           </span>
         </li>

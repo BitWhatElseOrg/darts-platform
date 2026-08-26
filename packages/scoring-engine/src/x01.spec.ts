@@ -7,6 +7,21 @@ function visit(commandId: string, playerId: string, points: number, dartsThrown:
 }
 
 describe("X01 scoring", () => {
+  it("supports straight-out checkout when configured", () => {
+    const match = createX01Match({
+      playerIds: ["one", "two"],
+      rules: { startingScore: 10, doubleOut: false, legsToWinSet: 1, setsToWin: 1 },
+    });
+    const result = executeX01Command(match, {
+      type: "SUBMIT_VISIT",
+      commandId: "straight-out",
+      playerId: "one",
+      points: 10,
+      dartsThrown: 1,
+    });
+    expect(result.state.status).toBe("COMPLETED");
+    expect(result.state.winnerPlayerId).toBe("one");
+  });
   it("scores a normal 501 visit and changes the active player", () => {
     const result = executeX01Command(createX01Match({ playerIds: ["a", "b"] }), visit("1", "a", 100));
     expect(result.state.players[0].remaining).toBe(401);

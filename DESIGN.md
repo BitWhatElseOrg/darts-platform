@@ -1,5 +1,5 @@
 ---
-name: Dart Tournament Platform
+name: Dart Ost - Plattform
 description: The board's own graphic apparatus, used as an operating surface for a live tournament.
 colors:
   sisal-50: "#f6f0de"
@@ -7,7 +7,7 @@ colors:
   sisal-200: "#e1d3ae"
   sisal-300: "#cdbc93"
   sisal-400: "#a08e69"
-  sisal-500: "#6f6144"
+  sisal-500: "#655638"
   wedge-900: "#15130f"
   wedge-800: "#221f19"
   wedge-700: "#35301f"
@@ -176,7 +176,7 @@ components:
     size: "2.75rem"
 ---
 
-# Design System: Dart Tournament Platform
+# Design System: Dart Ost - Plattform
 
 ## Overview
 
@@ -210,7 +210,7 @@ Neutrals plus the board's two signals. The palette is restrained on purpose: an 
 - **Ring Red Lit** (`#e2646a`): red against a black wedge, contrast-corrected the same way as its green counterpart.
 
 ### Neutral
-- **Sisal** (`#e1d3ae` base; `#f6f0de` / `#ede3c6` raised, `#cdbc93` seams, `#a08e69` hairlines and captions, `#6f6144` caption text): the fibre ground of the board and the paper of this system. The page ground carries a 58° repeating fibre gradient at 7% — direction, not noise.
+- **Sisal** (`#e1d3ae` base; `#f6f0de` / `#ede3c6` raised, `#cdbc93` seams, `#a08e69` hairlines, `#655638` caption text): the fibre ground of the board and the paper of this system. The caption tone stays above 4.5:1 on the base ground. The page ground carries a 58° repeating fibre gradient at 7% — direction, not noise.
 - **Wedge Black** (`#15130f` field, `#221f19` hover, `#35301f` field border): warm near-black, never blue-black. It is a painted sector, not a dark theme.
 - **Spider Steel** (`#c9ccc8`, dim `#6d716c`): the wire. Every divider inside a black field is this colour at 15–45% opacity.
 - **Chalk** (`#f9f5e9`): enamel white. All text and numerals on a black field.

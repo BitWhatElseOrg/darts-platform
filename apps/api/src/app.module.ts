@@ -9,6 +9,7 @@ import { MatchesModule } from "./matches/matches.module.js";
 import { OrganizationsModule } from "./organizations/organizations.module.js";
 import { PlayersModule } from "./players/players.module.js";
 import { RedisModule } from "./redis/redis.module.js";
+import { TournamentsModule } from "./tournaments/tournaments.module.js";
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { RedisModule } from "./redis/redis.module.js";
     PlayersModule,
     HealthModule,
     MatchesModule,
+    TournamentsModule,
   ],
 })
 export class AppModule {}

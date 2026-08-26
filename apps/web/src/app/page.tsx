@@ -11,7 +11,7 @@ export default function HomePage() {
             Phase 1 · Playable Match MVP
           </p>
           <h1 className="text-4xl font-bold tracking-tight text-white sm:text-6xl">
-            Darts Platform
+            Dart Ost - Plattform
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-slate-400 sm:text-lg">
             Play complete 501 Double-Out matches with reliable scoring,

@@ -28,9 +28,6 @@ export function DashboardHeader({ connection, dashboard, pendingCount }: Dashboa
             <h1 className="font-numerals text-[2.75rem] leading-[0.9] font-bold tracking-[-0.02em] text-wedge-900">
               {tournament.name}
             </h1>
-            <span className="border border-sisal-400 px-1.5 py-0.5 font-plate text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-sisal-500">
-              Demo-Daten
-            </span>
           </div>
           <p className="mt-1.5 font-plate text-[0.875rem] text-sisal-500">
             {tournament.stageLabel} · {calendarDate(tournament.startsAt)} ·{" "}
@@ -85,11 +82,11 @@ export function DashboardHeader({ connection, dashboard, pendingCount }: Dashboa
           <div className="h-full bg-wedge-900" style={{ width: `${share}%` }} />
         </div>
         <p className="font-plate text-[0.875rem] text-sisal-500">
-          <span className="font-numerals text-[0.9375rem] font-bold tabular text-wedge-900">
+          <span className="font-numerals text-[1rem] font-bold tabular text-wedge-900">
             {tournament.playedMatches}
           </span>{" "}
           von{" "}
-          <span className="font-numerals text-[0.9375rem] font-bold tabular text-wedge-900">
+          <span className="font-numerals text-[1rem] font-bold tabular text-wedge-900">
             {tournament.totalMatches}
           </span>{" "}
           Matches gespielt

@@ -127,6 +127,15 @@ export const groupStandingSchema = z.object({
   rows: z.array(groupStandingRowSchema),
 });
 
+export const tournamentResultSchema = z.object({
+  matchId: z.uuid(),
+  stageLabel: z.string(),
+  participantNames: z.tuple([z.string(), z.string()]),
+  winnerPlayerId: z.uuid(),
+  winnerDisplayName: z.string(),
+  completedAt: z.coerce.date(),
+});
+
 export const tournamentDashboardSchema = z.object({
   tournament: z.object({
     id: z.uuid(),
@@ -146,6 +155,7 @@ export const tournamentDashboardSchema = z.object({
   queue: z.array(queueEntrySchema),
   conflicts: z.array(tournamentConflictSchema),
   groups: z.array(groupStandingSchema),
+  recentResults: z.array(tournamentResultSchema),
   generatedAt: z.coerce.date(),
 });
 
@@ -159,6 +169,21 @@ export const tournamentStructurePreviewSchema = z.object({
   byes: z.number().int().nonnegative(),
   totalMatches: z.number().int().nonnegative(),
   warnings: z.array(z.string()),
+});
+
+export const tournamentStructurePreviewInputSchema = z.object({
+  format: tournamentFormatSchema.default("GROUPS_THEN_KNOCKOUT"),
+  participantCount: z.number().int().min(2).max(256),
+  groupCount: z.number().int().min(1).max(32),
+  qualifyPerGroup: z.number().int().min(1).max(8),
+  knockoutSize: z.union([
+    z.literal(2),
+    z.literal(4),
+    z.literal(8),
+    z.literal(16),
+    z.literal(32),
+    z.literal(64),
+  ]),
 });
 
 export const createTournamentSchema = z
@@ -192,14 +217,68 @@ export const createTournamentSchema = z
     message: "A participant may only be entered once.",
     path: ["participantIds"],
   })
-  .refine((value) => value.participantIds.length >= value.groupCount * 2, {
-    message: "Every group needs at least two participants.",
-    path: ["groupCount"],
+  .refine((value) => new Set(value.boardIds).size === value.boardIds.length, {
+    message: "A board may only be selected once.",
+    path: ["boardIds"],
   })
-  .refine((value) => value.groupCount * value.qualifyPerGroup >= 2, {
-    message: "At least two participants must qualify.",
-    path: ["qualifyPerGroup"],
-  });
+  .refine(
+    (value) =>
+      value.format !== "GROUPS_THEN_KNOCKOUT" ||
+      value.participantIds.length >= value.groupCount * 2,
+    {
+      message: "Every group needs at least two participants.",
+      path: ["groupCount"],
+    },
+  )
+  .refine(
+    (value) =>
+      value.format !== "GROUPS_THEN_KNOCKOUT" ||
+      value.qualifyPerGroup <= Math.floor(value.participantIds.length / value.groupCount),
+    {
+      message: "A group cannot qualify more participants than it contains.",
+      path: ["qualifyPerGroup"],
+    },
+  )
+  .refine(
+    (value) =>
+      value.format !== "GROUPS_THEN_KNOCKOUT" ||
+      value.groupCount * value.qualifyPerGroup >= 2,
+    {
+      message: "At least two participants must qualify.",
+      path: ["qualifyPerGroup"],
+    },
+  )
+  .refine(
+    (value) =>
+      value.format !== "GROUPS_THEN_KNOCKOUT" ||
+      value.groupCount * value.qualifyPerGroup === value.knockoutSize,
+    {
+      message: "The knockout bracket size must equal the number of qualifiers.",
+      path: ["knockoutSize"],
+    },
+  )
+  .refine(
+    (value) =>
+      value.format !== "SINGLE_ELIMINATION" ||
+      value.participantIds.length <= value.knockoutSize,
+    {
+      message: "The knockout bracket must fit every participant.",
+      path: ["knockoutSize"],
+    },
+  )
+  .refine(
+    (value) => {
+      const entrants =
+        value.format === "GROUPS_THEN_KNOCKOUT"
+          ? value.groupCount * value.qualifyPerGroup
+          : value.participantIds.length;
+      return value.format === "ROUND_ROBIN" || entrants >= value.knockoutSize / 2;
+    },
+    {
+      message: "The knockout bracket would contain an empty first-round match.",
+      path: ["knockoutSize"],
+    },
+  );
 
 /** Board assignment is a mutation: idempotent by commandId, guarded by version. */
 export const assignMatchSchema = z.object({
@@ -213,6 +292,13 @@ export const releaseBoardSchema = z.object({
   commandId: z.uuid(),
   expectedVersion: z.number().int().nonnegative(),
   boardId: z.uuid(),
+});
+
+export const correctTournamentResultSchema = z.object({
+  commandId: z.uuid(),
+  expectedVersion: z.number().int().nonnegative(),
+  matchId: z.uuid(),
+  reason: z.string().trim().min(3).max(500),
 });
 
 export type TournamentStatus = z.infer<typeof tournamentStatusSchema>;
@@ -229,8 +315,13 @@ export type QueueEntry = z.infer<typeof queueEntrySchema>;
 export type TournamentConflict = z.infer<typeof tournamentConflictSchema>;
 export type GroupStanding = z.infer<typeof groupStandingSchema>;
 export type GroupStandingRow = z.infer<typeof groupStandingRowSchema>;
+export type TournamentResult = z.infer<typeof tournamentResultSchema>;
 export type TournamentDashboard = z.infer<typeof tournamentDashboardSchema>;
 export type TournamentStructurePreview = z.infer<typeof tournamentStructurePreviewSchema>;
+export type TournamentStructurePreviewInput = z.infer<
+  typeof tournamentStructurePreviewInputSchema
+>;
 export type CreateTournamentInput = z.infer<typeof createTournamentSchema>;
 export type AssignMatchInput = z.infer<typeof assignMatchSchema>;
 export type ReleaseBoardInput = z.infer<typeof releaseBoardSchema>;
+export type CorrectTournamentResultInput = z.infer<typeof correctTournamentResultSchema>;

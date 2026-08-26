@@ -22,8 +22,11 @@ const archivo = Archivo({
 });
 
 export const metadata: Metadata = {
-  title: "Darts Platform",
-  description: "Secure multi-tenant administration for the Dart Tournament Platform.",
+  title: {
+    default: "Dart Ost - Plattform",
+    template: "%s | Dart Ost - Plattform",
+  },
+  description: "Sichere Plattform für Dartturniere, Matches und Vereinsorganisation.",
 };
 
 const DIRECTION_CONTRACT = `<!--

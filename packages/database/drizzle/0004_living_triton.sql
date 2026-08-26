@@ -1,0 +1,1 @@
+ALTER TABLE "matches" ADD COLUMN "double_out" boolean DEFAULT true NOT NULL;

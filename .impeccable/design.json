@@ -8,7 +8,7 @@
         "role": "neutral",
         "displayName": "Sisal",
         "canonical": "#e1d3ae",
-        "tonalRamp": ["#6f6144", "#a08e69", "#cdbc93", "#e1d3ae", "#ede3c6", "#f6f0de"]
+        "tonalRamp": ["#655638", "#a08e69", "#cdbc93", "#e1d3ae", "#ede3c6", "#f6f0de"]
       },
       "wedge-900": {
         "role": "neutral",
@@ -134,7 +134,7 @@
       "refersTo": "input-text",
       "description": "A ruled entry on the setup sheet: caption above, well below.",
       "html": "<label class=\"ds-field\"><span class=\"ds-field-caption\">Name</span><input class=\"ds-field-input\" type=\"text\" placeholder=\"Vereinsmeisterschaft 2026\"></label>",
-      "css": ".ds-field { display: flex; flex-direction: column; gap: 0.375rem; max-width: 22rem; } .ds-field-caption { font-family: Archivo, system-ui, sans-serif; font-size: 0.625rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.16em; color: #6f6144; } .ds-field-input { min-height: 2.75rem; padding: 0 0.75rem; background: #f6f0de; color: #15130f; border: 1px solid #a08e69; border-radius: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.9375rem; } .ds-field-input::placeholder { color: #a08e69; } .ds-field-input:focus { border-color: #1e7443; outline: 2px solid #1e7443; outline-offset: 2px; }"
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 0.375rem; max-width: 22rem; } .ds-field-caption { font-family: Archivo, system-ui, sans-serif; font-size: 0.625rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.16em; color: #655638; } .ds-field-input { min-height: 2.75rem; padding: 0 0.75rem; background: #f6f0de; color: #15130f; border: 1px solid #a08e69; border-radius: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.9375rem; } .ds-field-input::placeholder { color: #a08e69; } .ds-field-input:focus { border-color: #1e7443; outline: 2px solid #1e7443; outline-offset: 2px; }"
     },
     {
       "name": "Number-Ring Plate",

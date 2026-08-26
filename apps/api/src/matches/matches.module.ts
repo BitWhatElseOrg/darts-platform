@@ -5,5 +5,10 @@ import { MatchesController } from "./matches.controller.js";
 import { MatchesRepository } from "./matches.repository.js";
 import { MatchesService } from "./matches.service.js";
 
-@Module({ imports: [DatabaseModule, OrganizationsModule], controllers: [MatchesController], providers: [MatchesRepository, MatchesService] })
+@Module({
+  imports: [DatabaseModule, OrganizationsModule],
+  controllers: [MatchesController],
+  providers: [MatchesRepository, MatchesService],
+  exports: [MatchesRepository],
+})
 export class MatchesModule {}

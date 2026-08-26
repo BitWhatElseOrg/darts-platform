@@ -23,7 +23,7 @@ export function DisruptionsPanel({ conflicts }: DisruptionsPanelProps) {
         <SheetLabel as="h2" id="disruptions-heading" tone={blocking.length > 0 ? "alarm" : "ink"}>
           Störungen
         </SheetLabel>
-        <span className="font-numerals text-[0.875rem] font-bold tabular text-sisal-500">
+        <span className="font-numerals text-[1rem] font-bold tabular text-sisal-500">
           {conflicts.length}
         </span>
       </div>
@@ -41,7 +41,7 @@ export function DisruptionsPanel({ conflicts }: DisruptionsPanelProps) {
                   label={conflict.severity === "BLOCKING" ? "blockiert" : "Hinweis"}
                   tone={conflict.severity === "BLOCKING" ? "conflict" : "waiting"}
                 />
-                <span className="font-numerals text-[0.75rem] font-bold tabular text-sisal-400">
+                <span className="font-numerals text-[1rem] font-bold tabular text-sisal-500">
                   {clockTime(conflict.detectedAt)}
                 </span>
               </div>

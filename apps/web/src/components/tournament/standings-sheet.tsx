@@ -23,7 +23,7 @@ export function StandingsSheet({ groups }: StandingsSheetProps) {
     <section aria-labelledby="standings-heading">
       <div className="flex items-baseline justify-between gap-3 pb-2">
         <SheetLabel as="h2" id="standings-heading">
-          Gruppenstand · zwei qualifizieren
+          Gruppenstand
         </SheetLabel>
         <span className="font-plate text-[0.75rem] text-sisal-500">
           {groups.length} Gruppen
@@ -39,14 +39,15 @@ export function StandingsSheet({ groups }: StandingsSheetProps) {
                 <h3 className="font-numerals text-[1.125rem] font-bold tracking-[-0.01em] text-wedge-900">
                   Gruppe {group.groupLabel}
                 </h3>
-                <span className="flex items-center gap-1.5 font-numerals text-[0.75rem] font-bold tabular text-sisal-500">
+                <span className="flex items-center gap-1.5 font-numerals text-[1rem] font-bold tabular text-sisal-500">
                   {complete ? <MarkCheck className="text-ring-green" size={11} /> : null}
                   {group.playedMatches}/{group.totalMatches}
                 </span>
               </div>
               <Table>
                 <caption className="sr-only">
-                  Tabelle der Gruppe {group.groupLabel}. Die ersten zwei Plätze qualifizieren sich.
+                  Tabelle der Gruppe {group.groupLabel}. Die ersten {group.qualifyCount} Plätze
+                  qualifizieren sich.
                 </caption>
                 <thead>
                   <tr>

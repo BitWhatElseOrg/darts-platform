@@ -9,6 +9,8 @@ const webFiles = ["apps/web/**/*.{js,jsx,ts,tsx}"];
 export default tseslint.config(
   {
     ignores: [
+      "**/.claude/**",
+      "**/.agents/**",
       "**/.next/**",
       "**/coverage/**",
       "**/dist/**",

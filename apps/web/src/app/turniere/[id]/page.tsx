@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 
-import { CommandCentre } from "@/components/tournament/command-centre";
-import { DEFAULT_SCENARIO, isScenarioId, loadDashboard } from "@/lib/tournament-demo";
+import { TournamentDashboardRoute } from "@/components/tournament/tournament-dashboard-route";
 
 export const metadata: Metadata = {
   title: "Turnierleitung",
@@ -9,13 +8,12 @@ export const metadata: Metadata = {
 };
 
 interface PageProps {
+  readonly params: Promise<{ readonly id: string }>;
   readonly searchParams: Promise<Record<string, string | readonly string[] | undefined>>;
 }
 
-export default async function TournamentDashboardPage({ searchParams }: PageProps) {
-  const query = await searchParams;
-  const requested = typeof query.zustand === "string" ? query.zustand : undefined;
-  const scenario = isScenarioId(requested) ? requested : DEFAULT_SCENARIO;
-
-  return <CommandCentre initialDashboard={loadDashboard(scenario)} scenario={scenario} />;
+export default async function TournamentDashboardPage({ params, searchParams }: PageProps) {
+  const [{ id }, query] = await Promise.all([params, searchParams]);
+  const organizationId = typeof query.organisation === "string" ? query.organisation : undefined;
+  return <TournamentDashboardRoute requestedOrganizationId={organizationId} tournamentId={id} />;
 }

@@ -300,6 +300,7 @@ export const matches = pgTable(
     boardId: uuid("board_id").references(() => boards.id, { onDelete: "set null" }),
     status: varchar("status", { length: 30 }).default("IN_PROGRESS").notNull(),
     startingScore: integer("starting_score").default(501).notNull(),
+    doubleOut: boolean("double_out").default(true).notNull(),
     bestOfLegs: integer("best_of_legs").notNull(),
     version: integer("version").default(0).notNull(),
     startingPlayerId: uuid("starting_player_id")
@@ -460,6 +461,307 @@ export const outboxEvents = pgTable(
   ],
 );
 
+export const tournaments = pgTable(
+  "tournaments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 120 }).notNull(),
+    status: varchar("status", { length: 30 }).default("READY").notNull(),
+    format: varchar("format", { length: 40 }).notNull(),
+    version: integer("version").default(0).notNull(),
+    startingScore: integer("starting_score").default(501).notNull(),
+    doubleOut: boolean("double_out").default(true).notNull(),
+    bestOfLegs: integer("best_of_legs").default(3).notNull(),
+    groupCount: integer("group_count").notNull(),
+    qualifyPerGroup: integer("qualify_per_group").notNull(),
+    knockoutSize: integer("knockout_size").notNull(),
+    seeding: varchar("seeding", { length: 20 }).notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    index("tournaments_organization_status_idx").on(table.organizationId, table.status),
+    index("tournaments_organization_starts_at_idx").on(table.organizationId, table.startsAt),
+    check("tournaments_name_not_empty", sql`length(trim(${table.name})) > 0`),
+    check(
+      "tournaments_status_check",
+      sql`${table.status} in ('READY', 'GROUP_STAGE', 'KNOCKOUT', 'COMPLETED')`,
+    ),
+    check(
+      "tournaments_format_check",
+      sql`${table.format} in ('GROUPS_THEN_KNOCKOUT', 'ROUND_ROBIN', 'SINGLE_ELIMINATION')`,
+    ),
+    check("tournaments_version_check", sql`${table.version} >= 0`),
+    check("tournaments_starting_score_check", sql`${table.startingScore} in (301, 501, 701)`),
+    check(
+      "tournaments_best_of_legs_check",
+      sql`${table.bestOfLegs} > 0 and mod(${table.bestOfLegs}, 2) = 1`,
+    ),
+    check("tournaments_group_count_check", sql`${table.groupCount} between 1 and 32`),
+    check(
+      "tournaments_qualify_per_group_check",
+      sql`${table.qualifyPerGroup} between 1 and 8`,
+    ),
+    check(
+      "tournaments_knockout_size_check",
+      sql`${table.knockoutSize} in (2, 4, 8, 16, 32, 64)`,
+    ),
+    check("tournaments_seeding_check", sql`${table.seeding} in ('SEEDED', 'RANDOM')`),
+  ],
+);
+
+export const tournamentParticipants = pgTable(
+  "tournament_participants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    tournamentId: uuid("tournament_id")
+      .notNull()
+      .references(() => tournaments.id, { onDelete: "cascade" }),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "restrict" }),
+    seed: integer("seed").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("tournament_participants_tournament_player_unique").on(
+      table.tournamentId,
+      table.playerId,
+    ),
+    uniqueIndex("tournament_participants_tournament_seed_unique").on(
+      table.tournamentId,
+      table.seed,
+    ),
+    index("tournament_participants_organization_idx").on(table.organizationId),
+    check("tournament_participants_seed_check", sql`${table.seed} > 0`),
+  ],
+);
+
+export const tournamentBoards = pgTable(
+  "tournament_boards",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    tournamentId: uuid("tournament_id")
+      .notNull()
+      .references(() => tournaments.id, { onDelete: "cascade" }),
+    boardId: uuid("board_id")
+      .notNull()
+      .references(() => boards.id, { onDelete: "restrict" }),
+    ringNumber: integer("ring_number").notNull(),
+  },
+  (table) => [
+    uniqueIndex("tournament_boards_tournament_board_unique").on(
+      table.tournamentId,
+      table.boardId,
+    ),
+    uniqueIndex("tournament_boards_tournament_ring_unique").on(
+      table.tournamentId,
+      table.ringNumber,
+    ),
+    index("tournament_boards_organization_idx").on(table.organizationId),
+    check("tournament_boards_ring_check", sql`${table.ringNumber} > 0`),
+  ],
+);
+
+export const tournamentStages = pgTable(
+  "tournament_stages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    tournamentId: uuid("tournament_id")
+      .notNull()
+      .references(() => tournaments.id, { onDelete: "cascade" }),
+    key: varchar("key", { length: 80 }).notNull(),
+    sequence: integer("sequence").notNull(),
+    name: varchar("name", { length: 120 }).notNull(),
+    type: varchar("type", { length: 40 }).notNull(),
+    status: varchar("status", { length: 30 }).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("tournament_stages_tournament_key_unique").on(table.tournamentId, table.key),
+    uniqueIndex("tournament_stages_tournament_sequence_unique").on(
+      table.tournamentId,
+      table.sequence,
+    ),
+    index("tournament_stages_organization_idx").on(table.organizationId),
+    check("tournament_stages_sequence_check", sql`${table.sequence} > 0`),
+    check(
+      "tournament_stages_type_check",
+      sql`${table.type} in ('GROUP', 'ROUND_ROBIN', 'SINGLE_ELIMINATION')`,
+    ),
+    check(
+      "tournament_stages_status_check",
+      sql`${table.status} in ('OPEN', 'WAITING', 'COMPLETED')`,
+    ),
+  ],
+);
+
+export const tournamentGroups = pgTable(
+  "tournament_groups",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    tournamentId: uuid("tournament_id")
+      .notNull()
+      .references(() => tournaments.id, { onDelete: "cascade" }),
+    stageId: uuid("stage_id")
+      .notNull()
+      .references(() => tournamentStages.id, { onDelete: "cascade" }),
+    key: varchar("key", { length: 80 }).notNull(),
+    label: varchar("label", { length: 20 }).notNull(),
+    sequence: integer("sequence").notNull(),
+    qualifyCount: integer("qualify_count").notNull(),
+  },
+  (table) => [
+    uniqueIndex("tournament_groups_tournament_key_unique").on(table.tournamentId, table.key),
+    uniqueIndex("tournament_groups_stage_sequence_unique").on(table.stageId, table.sequence),
+    index("tournament_groups_organization_idx").on(table.organizationId),
+    check("tournament_groups_sequence_check", sql`${table.sequence} > 0`),
+    check("tournament_groups_qualify_count_check", sql`${table.qualifyCount} > 0`),
+  ],
+);
+
+export const tournamentGroupParticipants = pgTable(
+  "tournament_group_participants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    tournamentId: uuid("tournament_id")
+      .notNull()
+      .references(() => tournaments.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => tournamentGroups.id, { onDelete: "cascade" }),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "restrict" }),
+    seed: integer("seed").notNull(),
+  },
+  (table) => [
+    uniqueIndex("tournament_group_participants_group_player_unique").on(
+      table.groupId,
+      table.playerId,
+    ),
+    uniqueIndex("tournament_group_participants_tournament_player_unique").on(
+      table.tournamentId,
+      table.playerId,
+    ),
+    index("tournament_group_participants_organization_idx").on(table.organizationId),
+    check("tournament_group_participants_seed_check", sql`${table.seed} > 0`),
+  ],
+);
+
+export const tournamentMatches = pgTable(
+  "tournament_matches",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    tournamentId: uuid("tournament_id")
+      .notNull()
+      .references(() => tournaments.id, { onDelete: "cascade" }),
+    stageId: uuid("stage_id")
+      .notNull()
+      .references(() => tournamentStages.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id").references(() => tournamentGroups.id, { onDelete: "cascade" }),
+    key: varchar("key", { length: 120 }).notNull(),
+    stageLabel: varchar("stage_label", { length: 120 }).notNull(),
+    round: integer("round").notNull(),
+    position: integer("position").notNull(),
+    status: varchar("status", { length: 30 }).notNull(),
+    participantOneId: uuid("participant_one_id").references(() => players.id, {
+      onDelete: "restrict",
+    }),
+    participantTwoId: uuid("participant_two_id").references(() => players.id, {
+      onDelete: "restrict",
+    }),
+    participantOneRef: jsonb("participant_one_ref"),
+    participantTwoRef: jsonb("participant_two_ref"),
+    sourceOneMatchId: uuid("source_one_match_id"),
+    sourceTwoMatchId: uuid("source_two_match_id"),
+    boardId: uuid("board_id").references(() => boards.id, { onDelete: "set null" }),
+    scoringMatchId: uuid("scoring_match_id").references(() => matches.id, {
+      onDelete: "set null",
+    }),
+    winnerPlayerId: uuid("winner_player_id").references(() => players.id, {
+      onDelete: "restrict",
+    }),
+    version: integer("version").default(0).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("tournament_matches_tournament_key_unique").on(table.tournamentId, table.key),
+    uniqueIndex("tournament_matches_scoring_match_unique").on(table.scoringMatchId),
+    uniqueIndex("tournament_matches_active_board_unique")
+      .on(table.boardId)
+      .where(sql`${table.status} = 'IN_PROGRESS'`),
+    index("tournament_matches_organization_tournament_status_idx").on(
+      table.organizationId,
+      table.tournamentId,
+      table.status,
+    ),
+    index("tournament_matches_source_one_idx").on(table.sourceOneMatchId),
+    index("tournament_matches_source_two_idx").on(table.sourceTwoMatchId),
+    check("tournament_matches_round_check", sql`${table.round} > 0`),
+    check("tournament_matches_position_check", sql`${table.position} > 0`),
+    check("tournament_matches_version_check", sql`${table.version} >= 0`),
+    check(
+      "tournament_matches_status_check",
+      sql`${table.status} in ('WAITING', 'READY', 'IN_PROGRESS', 'COMPLETED', 'BYE', 'CANCELLED')`,
+    ),
+    check(
+      "tournament_matches_participants_different",
+      sql`${table.participantOneId} is null or ${table.participantTwoId} is null or ${table.participantOneId} <> ${table.participantTwoId}`,
+    ),
+  ],
+);
+
+export const tournamentCommands = pgTable(
+  "tournament_commands",
+  {
+    commandId: uuid("command_id").primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    tournamentId: uuid("tournament_id")
+      .notNull()
+      .references(() => tournaments.id, { onDelete: "cascade" }),
+    type: varchar("type", { length: 30 }).notNull(),
+    payload: jsonb("payload").notNull(),
+    resultingVersion: integer("resulting_version").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("tournament_commands_organization_tournament_idx").on(
+      table.organizationId,
+      table.tournamentId,
+    ),
+    check(
+      "tournament_commands_type_check",
+      sql`${table.type} in ('ASSIGN_MATCH', 'RELEASE_BOARD', 'RESULT_CORRECTION')`,
+    ),
+    check("tournament_commands_version_check", sql`${table.resultingVersion} >= 0`),
+  ],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Organization = typeof organizations.$inferSelect;
@@ -485,3 +787,11 @@ export type Leg = typeof legs.$inferSelect;
 export type Visit = typeof visits.$inferSelect;
 export type ScoreCommand = typeof scoreCommands.$inferSelect;
 export type OutboxEvent = typeof outboxEvents.$inferSelect;
+export type Tournament = typeof tournaments.$inferSelect;
+export type TournamentParticipant = typeof tournamentParticipants.$inferSelect;
+export type TournamentBoard = typeof tournamentBoards.$inferSelect;
+export type TournamentStage = typeof tournamentStages.$inferSelect;
+export type TournamentGroup = typeof tournamentGroups.$inferSelect;
+export type TournamentGroupParticipant = typeof tournamentGroupParticipants.$inferSelect;
+export type TournamentMatch = typeof tournamentMatches.$inferSelect;
+export type TournamentCommand = typeof tournamentCommands.$inferSelect;

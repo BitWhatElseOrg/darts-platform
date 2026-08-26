@@ -9,7 +9,7 @@ const dartValues = [
 
 export interface X01Rules {
   readonly startingScore: number;
-  readonly doubleOut: true;
+  readonly doubleOut: boolean;
   readonly legsToWinSet: number;
   readonly setsToWin: number;
 }
@@ -226,8 +226,16 @@ export function projectX01Match(match: X01Match): X01MatchState {
     const scoreBefore = player.remaining;
     const tentative = scoreBefore - command.points;
     const doubleValue = command.checkoutDouble === undefined ? null : checkoutValue(command.checkoutDouble);
-    const validCheckout = tentative === 0 && doubleValue !== null && command.points >= doubleValue && attainableTotals(command.dartsThrown - 1).has(command.points - doubleValue);
-    const bust = tentative < 0 || tentative === 1 || (tentative === 0 && !validCheckout);
+    const validDoubleCheckout =
+      doubleValue !== null &&
+      command.points >= doubleValue &&
+      attainableTotals(command.dartsThrown - 1).has(command.points - doubleValue);
+    const validCheckout =
+      tentative === 0 && (!match.rules.doubleOut || validDoubleCheckout);
+    const bust =
+      tentative < 0 ||
+      (match.rules.doubleOut && tentative === 1) ||
+      (tentative === 0 && !validCheckout);
     let outcome: VisitOutcome = bust ? "BUST" : "SCORED";
     let scoreAfter = bust ? scoreBefore : tentative;
 

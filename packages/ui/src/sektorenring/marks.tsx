@@ -62,7 +62,7 @@ export function MarkHatch(props: MarkProps & { readonly size?: number }) {
 export function MarkCross(props: MarkProps & { readonly size?: number }) {
   return (
     <Mark {...props}>
-      <path d="M3.5 3.5 12.5 12.5M12.5 3.5 3.5 12.5" stroke="currentColor" strokeWidth="1.75" />
+      <path d="M3.5 3.5 12.5 12.5M12.5 3.5 3.5 12.5" stroke="currentColor" strokeWidth="1.5" />
     </Mark>
   );
 }
@@ -81,7 +81,7 @@ export function MarkClock(props: MarkProps & { readonly size?: number }) {
 export function MarkFlight(props: MarkProps & { readonly size?: number }) {
   return (
     <Mark {...props}>
-      <path d="M1.5 8h9" stroke="currentColor" strokeWidth="1.75" />
+      <path d="M1.5 8h9" stroke="currentColor" strokeWidth="1.5" />
       <path d="M9 3.5 14.5 8 9 12.5Z" fill="currentColor" />
     </Mark>
   );
@@ -96,7 +96,7 @@ export function MarkCheck(props: MarkProps & { readonly size?: number }) {
         fill="none"
         stroke="currentColor"
         strokeLinecap="square"
-        strokeWidth="2"
+        strokeWidth="1.5"
       />
     </Mark>
   );
@@ -106,7 +106,7 @@ export function MarkCheck(props: MarkProps & { readonly size?: number }) {
 export function MarkChevron(props: MarkProps & { readonly size?: number }) {
   return (
     <Mark {...props}>
-      <path d="M3.5 6 8 10.5 12.5 6" fill="none" stroke="currentColor" strokeWidth="1.75" />
+      <path d="M3.5 6 8 10.5 12.5 6" fill="none" stroke="currentColor" strokeWidth="1.5" />
     </Mark>
   );
 }

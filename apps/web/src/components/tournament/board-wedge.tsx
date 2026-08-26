@@ -94,8 +94,8 @@ export function BoardWedge({
             <span
               className={
                 slot.match.overrunning
-                  ? "font-numerals text-[0.875rem] font-bold tabular text-ring-red-lit"
-                  : "font-numerals text-[0.875rem] font-bold tabular text-spider/75"
+                  ? "font-numerals text-[1rem] font-bold tabular text-ring-red-lit"
+                  : "font-numerals text-[1rem] font-bold tabular text-spider/75"
               }
             >
               {runtimeLabel(minutesBetween(slot.match.startedAt, now))}
@@ -131,7 +131,7 @@ export function BoardWedge({
                 {participant.onFinish && participant.checkoutRoute ? (
                   <p className="mt-1 flex items-center gap-1.5">
                     <StateTag label="Finish" on="ink" tone="finish" />
-                    <span className="font-numerals text-[0.875rem] font-bold tabular text-ring-green-lit">
+                    <span className="font-numerals text-[1rem] font-bold tabular text-ring-green-lit">
                       {participant.checkoutRoute}
                     </span>
                   </p>
@@ -164,7 +164,7 @@ export function BoardWedge({
             <SheetLabel>Nächstes Match</SheetLabel>
             <p className="mt-1 font-plate text-[0.9375rem] font-semibold text-wedge-900">
               {nextUp.participants[0].displayName}
-              <span className="px-1.5 text-sisal-400">–</span>
+              <span className="px-1.5 text-sisal-500">–</span>
               {nextUp.participants[1].displayName}
             </p>
             <p className="font-plate text-[0.75rem] text-sisal-500">{nextUp.stageLabel}</p>
@@ -184,7 +184,7 @@ export function BoardWedge({
           <p className="font-plate text-[0.875rem] text-sisal-500">
             Kein Match ist startbereit.
           </p>
-          <p className="font-plate text-[0.75rem] text-sisal-400">
+          <p className="font-plate text-[0.75rem] text-sisal-500">
             Die Warteschlange wartet auf Ergebnisse oder eine offene Phase.
           </p>
         </div>

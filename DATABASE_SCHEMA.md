@@ -10,6 +10,29 @@
 
 Dieses Dokument beschreibt die logische Zielstruktur. Die tatsächlichen Drizzle-Schemas werden schrittweise gemäß ROADMAP umgesetzt.
 
+## Implementierter Phase-2-Ausschnitt
+
+Die Migrationen `0003_nosy_frightful_four.sql`, `0004_living_triton.sql` und
+`0005_handy_jocasta.sql`
+führen den aktuell implementierten Tournament-MVP ein. Der MVP verwendet die
+folgenden normalisierten Tabellen, bevor die weiter unten beschriebene
+Competition-Abstraktion ergänzt wird:
+
+- `tournaments`: Format, Spielregeln, Status und optimistische Version
+- `tournament_participants` und `tournament_boards`: Setzung und Board-Reihenfolge
+- `tournament_stages`, `tournament_groups` und
+  `tournament_group_participants`: persistierte Struktur und Qualifikation
+- `tournament_matches`: Matchgraph, Teilnehmer-/Siegerreferenzen, Board- und
+  Scoring-Match-Verknüpfung
+- `tournament_commands`: Idempotenzprotokoll für Zuweisung, Board-Freigabe und
+  Result Correction
+- `matches.double_out`: Spielregel des erzeugten Scoring-Aggregats
+
+Unique-, Check- und Foreign-Key-Constraints sichern unter anderem doppelte
+Teilnehmer/Boards, Setzungen, Statuswerte, aktive Board-Belegung und
+Match-Abhängigkeiten. Alle Repository-Zugriffe führen `organization_id`
+explizit mit.
+
 ---
 
 # 1. Grundregeln

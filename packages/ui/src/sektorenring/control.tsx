@@ -28,7 +28,7 @@ const controlVariants = cva(
       },
       density: {
         default: "min-h-11",
-        tight: "min-h-9 px-3 text-[0.75rem] tracking-[0.12em]",
+        tight: "min-h-11 px-3 text-[0.75rem] tracking-[0.12em]",
       },
     },
     defaultVariants: { variant: "plate", density: "default" },
@@ -63,7 +63,7 @@ export function Control({
       {shortcut ? (
         <kbd
           className={cn(
-            "ml-1 grid min-w-5 place-items-center border px-1 py-px font-numerals text-[0.75rem] font-bold tabular",
+            "ml-1 grid min-w-5 place-items-center border px-1 py-px font-numerals text-[1rem] font-bold tabular",
             variant === "wire"
               ? "border-sisal-400 text-sisal-500"
               : "border-chalk/40 text-chalk/85",

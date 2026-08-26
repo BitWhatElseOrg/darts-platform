@@ -16,6 +16,8 @@
     "@darts-platform/domain": "workspace:*",
     "@darts-platform/schemas": "workspace:*",
     "@darts-platform/scoring-engine": "workspace:*",
+    "@darts-platform/scheduling-engine": "workspace:*",
+    "@darts-platform/tournament-engine": "workspace:*",
     "@better-auth/drizzle-adapter": "1.7.1",
     "@nestjs/common": "^11.1.0",
     "@nestjs/core": "^11.1.0",

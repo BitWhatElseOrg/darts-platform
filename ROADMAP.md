@@ -104,6 +104,8 @@ Ein vollständiges X01-Match spielen.
 
 # Phase 2 – Tournament MVP
 
+**Status:** Implementiert – 26. August 2026
+
 ## Ziel
 
 Ein reales Vereinsturnier komplett durchführen.
@@ -139,6 +141,21 @@ Top 2 qualifizieren
 ## Exit Criteria
 
 Das Referenzturnier kann vollständig ohne manuelle Tabellen durchgeführt werden.
+
+Aktueller Stand:
+
+- [x] Infrastrukturfreie Engine für Round Robin, Gruppen, Setzung, K.-o. und Byes
+- [x] Persistenter tenant-sicherer Turniergraph mit Constraints und Migrationen
+- [x] Autorisierte, idempotente und versionsgesicherte Board-Zuweisung
+- [x] Scoring-Ergebnis aktualisiert Gruppe beziehungsweise K.-o.-Abhängigkeit transaktional
+- [x] Turnierliste, Setup, Engine-Vorschau und Kommandozentrale verwenden echte API-Daten
+- [x] Unit- und API-Integrationstests für Erzeugung, Isolation, Zuweisung und Ergebnis-Synchronisierung
+- [x] Result Correction inklusive Audit-Workflow und sicherem Reopen des Scoring-Matches
+- [x] Vollständiger automatisierter Durchlauf des 32/8/2/16-Referenzturniers mit 63 Matches
+
+Das Exit Criterion wird durch einen persistenten Integrationstest des gesamten
+Referenzturniers und einen Browserablauf von Erstellung, Board-Zuweisung,
+Scoring und Result Correction abgedeckt.
 
 ---
 

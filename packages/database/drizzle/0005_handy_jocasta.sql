@@ -1,0 +1,2 @@
+ALTER TABLE "tournament_commands" DROP CONSTRAINT "tournament_commands_type_check";--> statement-breakpoint
+ALTER TABLE "tournament_commands" ADD CONSTRAINT "tournament_commands_type_check" CHECK ("tournament_commands"."type" in ('ASSIGN_MATCH', 'RELEASE_BOARD', 'RESULT_CORRECTION'));

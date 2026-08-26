@@ -57,8 +57,10 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 - vollständiges 501-Double-Out-Match: Legs, Bust, Checkout, Dart Count, Best of Legs, Undo
 - touchfreundliches Scoreboard für Smartphone und Tablet
 - Audit- und Outbox-Einträge in derselben Transaktion wie die Mutation
+- vollständiger Tournament MVP: Round Robin, Gruppen, Setzung, K.-o., Byes,
+  Ranking, Board-Zuweisung, Dashboard und auditierte Result Correction
 
-**Geplant, Reihenfolge festgelegt** (siehe [ROADMAP.md](ROADMAP.md)): Tournament MVP (Phase 2) → Realtime und Public Live (3) → erweiterte Formate, Sets, Teams (4) → PWA mit sichtbarer Offline-Queue (5) → Statistik und Spielerprofile (6) → Multi-Tenant-SaaS-Ausbau (7) → Autoscoring-Adapter (8) → Liga (9) → Turnierserie (10) → Benachrichtigungen (11) → Public API (12).
+**Geplant, Reihenfolge festgelegt** (siehe [ROADMAP.md](ROADMAP.md)): Realtime und Public Live (Phase 3) → erweiterte Formate, Sets, Teams (4) → PWA mit sichtbarer Offline-Queue (5) → Statistik und Spielerprofile (6) → Multi-Tenant-SaaS-Ausbau (7) → Autoscoring-Adapter (8) → Liga (9) → Turnierserie (10) → Benachrichtigungen (11) → Public API (12).
 
 **Harte Constraints, die jede Fläche einhält** (verbindlich in [AGENTS.md](AGENTS.md))
 
@@ -82,7 +84,7 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 ## Brand Commitments
 
 - **Produktsprache: Deutsch, Schweizer Rechtschreibung, kein Eszett.** Bestätigt. Die aktuelle englische UI-Copy in [apps/web](apps/web) ist Altlast aus der Aufbauphase und wird bei künftiger Arbeit an der jeweiligen Fläche ersetzt. Dart-Fachbegriffe bleiben englisch (siehe Terminologie).
-- **Name unbestätigt.** In den Dokumenten steht „Dart Tournament Platform“, im UI-Titel „Darts Platform“. Beides ist Arbeitstitel, kein freigegebener Produktname. Nicht als Marke behandeln, bis entschieden.
+- **Produktname: Dart Ost - Plattform.** Dieser Name wird in UI-Titeln und sichtbaren Produktflächen verwendet.
 - Keine Logo-, Wortmarken- oder Farbfestlegung existiert. Kein Asset-Verzeichnis (`apps/web/public` ist nicht vorhanden).
 - Keine Tonalität dokumentiert. Die heutige UI-Copy ist knapp und technisch, war aber nie als Stimme festgelegt.
 

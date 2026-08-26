@@ -15,15 +15,21 @@ import {
 } from "@darts-platform/ui";
 import {
   createTournamentSchema,
+  tournamentStructurePreviewSchema,
+  tournamentSummarySchema,
+  type BoardResponse,
   type CreateTournamentInput,
+  type PlayerResponse,
   type SeedingMode,
   type TournamentFormat,
 } from "@darts-platform/schemas";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { useForm, useWatch } from "react-hook-form";
 
-import { DEMO_BOARDS, DEMO_PLAYERS, loadStructurePreview } from "@/lib/tournament-demo";
+import { apiRequest } from "@/lib/api-client";
 
 /**
  * React Hook Form owns the form state (AGENTS.md §18). The values stay in the
@@ -52,15 +58,23 @@ const MESSAGES: Record<string, string> = {
   participantIds: "Ein Turnier braucht mindestens vier Teilnehmer.",
   groupCount: "Jede Gruppe braucht mindestens zwei Teilnehmer. Reduziere die Gruppenzahl.",
   qualifyPerGroup: "Mindestens zwei Teilnehmer müssen sich qualifizieren.",
+  knockoutSize: "Das K.-o.-Tableau muss alle Qualifizierten aufnehmen können.",
   boardIds: "Wähle mindestens ein Board, auf dem gespielt wird.",
   bestOfLegs: "Best of Legs muss eine ungerade Zahl sein.",
 };
 
-export function SetupSheet() {
-  const [submitted, setSubmitted] = useState<CreateTournamentInput | null>(null);
+export function SetupSheet({ organizationId, players, boards }: {
+  readonly organizationId: string;
+  readonly players: readonly PlayerResponse[];
+  readonly boards: readonly BoardResponse[];
+}) {
+  const router = useRouter();
   const [contractErrors, setContractErrors] = useState<Record<string, string>>({});
+  const defaultParticipantCount = Math.min(players.length, 32);
+  const defaultGroupCount = defaultParticipantCount >= 16 ? 8 : defaultParticipantCount >= 8 ? 4 : 2;
+  const defaultKnockoutSize = defaultGroupCount * 2;
 
-  const { formState, handleSubmit, register, setValue, watch } = useForm<SetupFormValues>({
+  const { control, formState, handleSubmit, register, setValue } = useForm<SetupFormValues>({
     defaultValues: {
       name: "",
       startsAt: "2026-09-12",
@@ -68,37 +82,63 @@ export function SetupSheet() {
       startingScore: "501",
       doubleOut: true,
       bestOfLegs: "3",
-      participantIds: DEMO_PLAYERS.slice(0, 32).map((player) => player.id),
-      groupCount: "8",
+      participantIds: players.slice(0, 32).map((player) => player.id),
+      groupCount: String(defaultGroupCount),
       qualifyPerGroup: "2",
-      knockoutSize: "16",
+      knockoutSize: String(defaultKnockoutSize),
       seeding: "SEEDED",
-      boardIds: DEMO_BOARDS.map((board) => board.id),
+      boardIds: boards.map((board) => board.id),
     },
   });
 
-  const values = watch();
+  const values = useWatch({ control });
   const participantCount = values.participantIds?.length ?? 0;
   const boardCount = values.boardIds?.length ?? 0;
 
-  /**
-   * DEMO ONLY. The real preview is computed by the tournament engine and
-   * returned by `POST .../tournaments/structure-preview`; this surface only
-   * renders it.
-   */
-  const preview = useMemo(
-    () =>
-      loadStructurePreview({
-        participantCount: Math.max(participantCount, 1),
+  const previewQuery = useQuery({
+    queryKey: [
+      "tournament-preview",
+      organizationId,
+      values.format,
+      participantCount,
+      values.groupCount,
+      values.qualifyPerGroup,
+      values.knockoutSize,
+    ],
+    queryFn: ({ signal }) => apiRequest({
+      path: `/organizations/${organizationId}/tournaments/structure-preview`,
+      method: "POST",
+      body: {
+        format: values.format,
+        participantCount,
         groupCount: Math.max(Number(values.groupCount) || 1, 1),
         qualifyPerGroup: Math.max(Number(values.qualifyPerGroup) || 1, 1),
         knockoutSize: Number(values.knockoutSize) || 2,
-      }),
-    [participantCount, values.groupCount, values.knockoutSize, values.qualifyPerGroup],
-  );
+      },
+      schema: tournamentStructurePreviewSchema,
+      signal,
+    }),
+    enabled: participantCount >= 2,
+  });
+  const preview = previewQuery.data ?? {
+    groups: [], groupMatchCount: 0, knockoutSize: 0, knockoutMatchCount: 0,
+    byes: 0, totalMatches: 0, warnings: participantCount < 2 ? ["Mindestens zwei Teilnehmer auswählen."] : [],
+  };
+
+  const createMutation = useMutation({
+    mutationFn: (data: CreateTournamentInput) => apiRequest({
+      path: `/organizations/${organizationId}/tournaments`,
+      method: "POST",
+      body: data,
+      schema: tournamentSummarySchema,
+    }),
+    onSuccess: (tournament) => {
+      router.push(`/turniere/${tournament.id}?organisation=${organizationId}`);
+    },
+  });
 
   const steps = [
-    { label: "Turnier", state: values.name.trim().length > 0 ? "done" : "current" },
+    { label: "Turnier", state: (values.name?.trim().length ?? 0) > 0 ? "done" : "current" },
     { label: "Teilnehmer", state: participantCount >= 4 ? "done" : "upcoming" },
     { label: "Struktur", state: preview.warnings.length === 0 ? "done" : "current" },
     { label: "Boards", state: boardCount > 0 ? "done" : "upcoming" },
@@ -128,11 +168,10 @@ export function SetupSheet() {
         next[key] = MESSAGES[key] ?? issue.message;
       });
       setContractErrors(next);
-      setSubmitted(null);
       return;
     }
     setContractErrors({});
-    setSubmitted(parsed.data);
+    createMutation.mutate(parsed.data);
   }
 
   function nextSelection(selected: readonly string[] | undefined, id: string): string[] {
@@ -157,7 +196,7 @@ export function SetupSheet() {
         <nav className="mb-5">
           <Link
             className="font-plate text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900"
-            href="/turniere"
+            href={`/turniere?organisation=${organizationId}`}
           >
             Alle Turniere
           </Link>
@@ -167,9 +206,8 @@ export function SetupSheet() {
           Turnier anlegen
         </h1>
         <p className="mt-1.5 max-w-2xl font-plate text-[0.875rem] leading-relaxed text-sisal-500">
-          Vier Angaben, dann erzeugt die Turnier-Engine Gruppen, Setzung und Spielplan. Bis zum
-          Start ist alles änderbar; danach ist die Struktur gesperrt und Änderungen werden
-          auditiert.
+          Vier Angaben, dann erzeugt die Turnier-Engine Gruppen, Setzung und Spielplan. Mit dem
+          Start wird die Struktur verbindlich eröffnet; alle Befehle werden auditiert.
         </p>
         <div className="mt-5">
           <RingSteps steps={steps} />
@@ -196,8 +234,17 @@ export function SetupSheet() {
                     {...register("name")}
                   />
                 </Field>
-                <Field htmlFor="startsAt" label="Startdatum">
-                  <TextInput id="startsAt" type="date" {...register("startsAt")} />
+                <Field
+                  error={contractErrors.startsAt ?? null}
+                  htmlFor="startsAt"
+                  label="Startdatum"
+                >
+                  <TextInput
+                    aria-describedby={contractErrors.startsAt ? "startsAt-error" : undefined}
+                    id="startsAt"
+                    type="date"
+                    {...register("startsAt")}
+                  />
                 </Field>
                 <Field htmlFor="format" label="Format">
                   <SelectInput id="format" {...register("format")}>
@@ -218,7 +265,11 @@ export function SetupSheet() {
                   htmlFor="bestOfLegs"
                   label="Best of Legs"
                 >
-                  <SelectInput id="bestOfLegs" {...register("bestOfLegs")}>
+                  <SelectInput
+                    aria-describedby={contractErrors.bestOfLegs ? "bestOfLegs-error" : undefined}
+                    id="bestOfLegs"
+                    {...register("bestOfLegs")}
+                  >
                     <option value="1">Best of 1</option>
                     <option value="3">Best of 3</option>
                     <option value="5">Best of 5</option>
@@ -250,31 +301,38 @@ export function SetupSheet() {
                     onClick={() =>
                       setValue(
                         "participantIds",
-                        participantCount === DEMO_PLAYERS.length
+                        participantCount === players.length
                           ? []
-                          : DEMO_PLAYERS.map((player) => player.id),
+                          : players.map((player) => player.id),
                         { shouldDirty: true },
                       )
                     }
                     variant="wire"
                   >
-                    {participantCount === DEMO_PLAYERS.length ? "Keinen" : "Alle"}
+                    {participantCount === players.length ? "Keinen" : "Alle"}
                   </Control>
                 </div>
               </div>
               <Rule className="mt-2" />
               {contractErrors.participantIds ? (
-                <p className="mt-2 font-plate text-[0.75rem] text-ring-red-deep">
+                <p
+                  className="mt-2 font-plate text-[0.75rem] text-ring-red-deep"
+                  id="participantIds-error"
+                  role="alert"
+                >
                   {contractErrors.participantIds}
                 </p>
               ) : null}
               <ul className="mt-3 grid gap-x-6 sm:grid-cols-2 xl:grid-cols-3">
-                {DEMO_PLAYERS.map((player) => {
+                {players.map((player) => {
                   const checked = (values.participantIds ?? []).includes(player.id);
                   return (
                     <li className="border-b border-sisal-300" key={player.id}>
-                      <label className="flex min-h-10 cursor-pointer items-center gap-2.5 py-1.5 font-plate text-[0.875rem] text-wedge-900">
+                      <label className="flex min-h-11 cursor-pointer items-center gap-2.5 py-1.5 font-plate text-[0.875rem] text-wedge-900">
                         <input
+                          aria-describedby={
+                            contractErrors.participantIds ? "participantIds-error" : undefined
+                          }
                           checked={checked}
                           className="size-4 shrink-0 accent-ring-green"
                           onChange={() => toggleParticipant(player.id)}
@@ -299,7 +357,12 @@ export function SetupSheet() {
                   htmlFor="groupCount"
                   label="Gruppen"
                 >
-                  <SelectInput id="groupCount" {...register("groupCount")}>
+                  <SelectInput
+                    aria-describedby={contractErrors.groupCount ? "groupCount-error" : undefined}
+                    disabled={values.format !== "GROUPS_THEN_KNOCKOUT"}
+                    id="groupCount"
+                    {...register("groupCount")}
+                  >
                     {[2, 4, 6, 8, 10, 12, 16].map((count) => (
                       <option key={count} value={count}>
                         {count}
@@ -312,7 +375,14 @@ export function SetupSheet() {
                   htmlFor="qualifyPerGroup"
                   label="Qualifikanten je Gruppe"
                 >
-                  <SelectInput id="qualifyPerGroup" {...register("qualifyPerGroup")}>
+                  <SelectInput
+                    aria-describedby={
+                      contractErrors.qualifyPerGroup ? "qualifyPerGroup-error" : undefined
+                    }
+                    disabled={values.format !== "GROUPS_THEN_KNOCKOUT"}
+                    id="qualifyPerGroup"
+                    {...register("qualifyPerGroup")}
+                  >
                     {[1, 2, 3, 4].map((count) => (
                       <option key={count} value={count}>
                         {count}
@@ -320,8 +390,19 @@ export function SetupSheet() {
                     ))}
                   </SelectInput>
                 </Field>
-                <Field htmlFor="knockoutSize" label="K.-o.-Tableau">
-                  <SelectInput id="knockoutSize" {...register("knockoutSize")}>
+                <Field
+                  error={contractErrors.knockoutSize ?? null}
+                  htmlFor="knockoutSize"
+                  label="K.-o.-Tableau"
+                >
+                  <SelectInput
+                    aria-describedby={
+                      contractErrors.knockoutSize ? "knockoutSize-error" : undefined
+                    }
+                    disabled={values.format === "ROUND_ROBIN"}
+                    id="knockoutSize"
+                    {...register("knockoutSize")}
+                  >
                     {[2, 4, 8, 16, 32, 64].map((size) => (
                       <option key={size} value={size}>
                         {size}er
@@ -330,7 +411,7 @@ export function SetupSheet() {
                   </SelectInput>
                 </Field>
                 <Field htmlFor="seeding" label="Setzung">
-                  <SelectInput id="seeding" {...register("seeding")}>
+                  <SelectInput disabled={values.format === "ROUND_ROBIN"} id="seeding" {...register("seeding")}>
                     <option value="SEEDED">Nach Setzliste</option>
                     <option value="RANDOM">Zufällig</option>
                   </SelectInput>
@@ -349,23 +430,28 @@ export function SetupSheet() {
               </div>
               <Rule className="mt-2" />
               {contractErrors.boardIds ? (
-                <p className="mt-2 font-plate text-[0.75rem] text-ring-red-deep">
+                <p
+                  className="mt-2 font-plate text-[0.75rem] text-ring-red-deep"
+                  id="boardIds-error"
+                  role="alert"
+                >
                   {contractErrors.boardIds}
                 </p>
               ) : null}
               <ul className="mt-4 flex flex-wrap gap-3">
-                {DEMO_BOARDS.map((board) => {
+                {boards.map((board, index) => {
                   const checked = (values.boardIds ?? []).includes(board.id);
                   return (
                     <li key={board.id}>
                       <label
                         className={
                           checked
-                            ? "flex min-h-11 cursor-pointer items-center gap-2.5 border-2 border-ring-green bg-sisal-100 px-3"
-                            : "flex min-h-11 cursor-pointer items-center gap-2.5 border border-sisal-400 px-3 hover:bg-sisal-100"
+                            ? "flex min-h-11 cursor-pointer items-center gap-2.5 border-2 border-ring-green bg-sisal-100 px-3 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring-green"
+                            : "flex min-h-11 cursor-pointer items-center gap-2.5 border border-sisal-400 px-3 hover:bg-sisal-100 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ring-green"
                         }
                       >
                         <input
+                          aria-describedby={contractErrors.boardIds ? "boardIds-error" : undefined}
                           checked={checked}
                           className="sr-only"
                           onChange={() => toggleBoard(board.id)}
@@ -374,7 +460,7 @@ export function SetupSheet() {
                         <BoardPlate
                           size="sm"
                           state={checked ? "free" : "quiet"}
-                          value={board.ringNumber}
+                          value={index + 1}
                         />
                         <span className="font-plate text-[0.875rem] font-medium text-wedge-900">
                           {board.name}
@@ -439,7 +525,7 @@ export function SetupSheet() {
             </Wedge>
 
             <Control
-              disabled={formState.isSubmitting}
+              disabled={formState.isSubmitting || createMutation.isPending}
               icon={<MarkFlight size={13} />}
               type="submit"
               variant="go"
@@ -447,29 +533,20 @@ export function SetupSheet() {
               Turnier starten
             </Control>
             <p className="font-plate text-[0.75rem] leading-relaxed text-sisal-500">
-              Der Start sperrt die Struktur. Teilnehmer und Boards bleiben änderbar, jede Änderung
-              wird auditiert.
+              Der Start erzeugt den persistenten Spielplan. Eine nachträgliche Strukturänderung
+              ist im aktuellen MVP bewusst nicht verfügbar.
             </p>
 
-            {submitted ? (
+            {previewQuery.error ? (
               <Wedge className="p-4" tone="plate">
-                <SheetLabel as="h3">Diese Anfrage würde gesendet</SheetLabel>
-                <p className="mt-1.5 font-plate text-[0.75rem] text-sisal-500">
-                  POST /api/v1/organizations/:organizationId/tournaments — die Phase-2-Endpunkte
-                  existieren noch nicht.
-                </p>
-                <pre className="mt-3 max-h-72 overflow-auto border border-sisal-300 bg-sisal-50 p-3 font-numerals text-[0.75rem] leading-relaxed text-wedge-900">
-                  {JSON.stringify(
-                    {
-                      ...submitted,
-                      startsAt: submitted.startsAt.toISOString(),
-                      participantIds: `${submitted.participantIds.length} IDs`,
-                      boardIds: `${submitted.boardIds.length} IDs`,
-                    },
-                    null,
-                    2,
-                  )}
-                </pre>
+                <SheetLabel as="h3">Vorschau nicht verfügbar</SheetLabel>
+                <p className="mt-1.5 font-plate text-[0.75rem] text-sisal-500">{previewQuery.error.message}</p>
+              </Wedge>
+            ) : null}
+            {createMutation.error ? (
+              <Wedge className="p-4" tone="alarm">
+                <SheetLabel as="h3" tone="alarm">Turnier konnte nicht angelegt werden</SheetLabel>
+                <p className="mt-1.5 font-plate text-[0.75rem] text-wedge-900">{createMutation.error.message}</p>
               </Wedge>
             ) : null}
           </div>
