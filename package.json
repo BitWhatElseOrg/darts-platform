@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "dotenv -e .env -- turbo run dev",
-    "build": "NODE_ENV=production dotenv -e .env -- turbo run build",
+    "build": "dotenv -e .env -v NODE_ENV=production -- turbo run build",
     "build:api": "turbo run build --filter=@darts-platform/api...",
     "build:web": "turbo run build --filter=@darts-platform/web...",
     "build:worker": "turbo run build --filter=@darts-platform/worker...",
