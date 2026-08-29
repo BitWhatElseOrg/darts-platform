@@ -33,7 +33,7 @@ getrennten, reproduzierbaren Dockerfiles gebaut (`Dockerfile.web`,
 | `BETTER_AUTH_SECRET` | Ausgabe von `openssl rand -base64 32` | Signatur-/Session-Secret, niemals committen |
 | `BETTER_AUTH_URL` | `https://api.dartbase.ch` | öffentliche Basis-URL der API |
 | `WEB_ORIGIN` | `https://app.dartbase.ch` | exakt erlaubter CORS-Origin |
-| `NEXT_PUBLIC_API_URL` | `https://api.dartbase.ch/api/v1` | API-URL im Browser-Bundle, wird als Docker-Build-Arg für `Dockerfile.web` benötigt |
+| `NEXT_PUBLIC_API_URL` | `https://api.dartbase.ch/api/v1` | API-URL im Browser-Bundle. Railway stellt sie beim Build von `Dockerfile.web` automatisch bereit; fehlt sie am `web`-Service, greift dort stillschweigend der Vorgabewert `http://localhost:3001/api/v1` |
 
 5. Konfiguration prüfen und anwenden:
 
@@ -85,10 +85,15 @@ Railway-Logs des jeweiligen Service prüfen (siehe «Logging und Diagnose»).
 
 ### Build-Arg-Prüfung: NEXT_PUBLIC_API_URL
 
-Railway reicht Service-Variablen nicht automatisch als Docker-Build-Arg an den
-Build-Schritt weiter. `Dockerfile.web` deklariert `ARG NEXT_PUBLIC_API_URL` in
-der Build-Stage; ob der Wert tatsächlich im ausgelieferten Bundle steckt, zeigt
-erst das gebaute Artefakt — nicht der grüne Healthcheck:
+Railway stellt Service-Variablen sowohl beim Build als auch zur Laufzeit
+bereit; Voraussetzung ist allein, dass das Dockerfile sie im jeweiligen Stage
+mit `ARG` deklariert. `Dockerfile.web` tut das bereits für
+`NEXT_PUBLIC_API_URL`. Die eigentliche Falle liegt im Vorgabewert dieser
+Deklaration: `ARG NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1`. Fehlt die
+Variable am `web`-Service, greift beim Build stillschweigend dieser
+Vorgabewert — der Build läuft grün durch, der Healthcheck wird grün, und
+niemand merkt es, bis im Browser jede API-Anfrage scheitert. Deshalb wird am
+gebauten Artefakt geprüft, nicht am Build-Log:
 
 ```bash
 curl -s https://app.dartbase.ch/ | grep -o "https://api.dartbase.ch" | head -1
@@ -96,13 +101,15 @@ curl -s https://app.dartbase.ch/ | grep -c "localhost:3001"
 ```
 
 Der erste Befehl muss `https://api.dartbase.ch` liefern, der zweite muss `0`
-ergeben. Liefert der zweite Befehl mehr als `0`, ist `NEXT_PUBLIC_API_URL` beim
-Railway-Build nicht als Build-Arg angekommen: Die Seite lädt weiterhin und der
-Healthcheck bleibt grün, aber im Browser scheitert jede API-Anfrage, weil das
-ausgelieferte Bundle gegen `localhost:3001` statt gegen `https://api.dartbase.ch`
-spricht. Abhilfe: in den Service-Variablen von `web` in Railway prüfen, dass
-`NEXT_PUBLIC_API_URL` auch für den Build-Schritt sichtbar ist, und den Service
-über Railway neu **deployen** (ein reiner Neustart baut das Image nicht neu).
+ergeben. Liefert der zweite Befehl mehr als `0`, steckt im Bundle der
+Vorgabewert statt der echten API-URL, und im Browser scheitert jede
+API-Anfrage. Abhilfe: am `web`-Service in Railway kontrollieren, ob
+`NEXT_PUBLIC_API_URL` überhaupt gesetzt ist. `.railway/railway.ts`
+referenziert sie über `context.shared.NEXT_PUBLIC_API_URL` — es lohnt sich
+also der Blick, ob die Shared Variable im Environment `production` existiert
+und exakt so heisst (ein Tippfehler dort fällt vorher nirgends auf, weil der
+Typ offen ist). Danach den Service über Railway neu **deployen** (ein reiner
+Neustart baut das Image nicht neu).
 
 ### Erstbenutzer (Bootstrap)
 
@@ -195,11 +202,13 @@ neu. Danach den Healthcheck erneut prüfen:
 curl --fail https://api.dartbase.ch/api/v1/health
 ```
 
-Das Restore-Fenster beträgt rund vier Wochen. Ein Restore erzeugt einen
-**neuen** PostgreSQL-Service mit dem wiederhergestellten Stand; die
-produktive Datenbank läuft davon unberührt weiter. Wer den wiederhergestellten
-Stand tatsächlich übernehmen will, muss `DATABASE_URL` in `api` und `worker`
-bewusst auf den neuen Service umstellen — das passiert nicht automatisch.
+Das Restore-Fenster beträgt rund vier Wochen (die letzten vier vollständigen
+Backups werden aufbewahrt). Ein Restore erzeugt einen **neuen** PostgreSQL-
+Service nach dem Muster `<quelle>-restored-JJJJMMTT-HHMM`, mit dem
+wiederhergestellten Stand; die produktive Datenbank bedient währenddessen
+unverändert weiter Anfragen. Wer den wiederhergestellten Stand tatsächlich
+übernehmen will, muss `DATABASE_URL` in `api` und `worker` bewusst auf den
+neuen Service umstellen — das passiert nicht automatisch.
 
 Ein Restore sollte einmal geprobt werden, bevor man sich im Ernstfall darauf
 verlässt.

@@ -25,14 +25,16 @@ selbsterklärenden Entscheidungen fest.
   lösen das ohne Codeänderung. Verworfen: `SameSite=None`, weil Safari
   Third-Party-Cookies blockiert und im Dartraum iPhones zu erwarten sind.
 - **Eine API-Replik.** `scripts/start-api.mjs` migriert vor jedem Start.
-  Mehrere Repliken würden gleichzeitig migrieren. Skalierung setzt deshalb
-  einen eigenständigen Migrationsjob voraus, der die Migration aus dem
-  Start-Pfad herauslöst (vgl. ADR 0003).
+  Mehrere Repliken würden gleichzeitig migrieren. Verworfen: mehrere Repliken
+  schon zum Produktionsstart, weil Skalierung erst einen eigenständigen
+  Migrationsjob voraussetzt, der die Migration aus dem Start-Pfad herauslöst
+  (vgl. ADR 0003).
 - **Bootstrap als expliziter Befehl statt Startlogik.** Der Erstzugang
   entsteht durch einen einmalig ausgeführten CLI-Befehl mit Audit-Eintrag
-  (`bootstrap-organization.js`), nicht durch Logik im Startpfad der API.
-  Startlogik bliebe dauerhaft im Produktionspfad und wäre eine stehende
-  Umgehung der Einladungspflicht aus ADR 0010.
+  (`bootstrap-organization.js`). Verworfen: eine automatische
+  Bootstrap-Prüfung im Startpfad der API, weil sie dauerhaft im
+  Produktionspfad bliebe und eine stehende Umgehung der Einladungspflicht aus
+  ADR 0010 wäre.
 - **`invited_by_user_id` nullable.** `NULL` modelliert eine vom System
   erzeugte Einladung. Verworfen: ein Pseudo-Benutzer als Einlader, weil er
   dauerhaft und ohne fachlichen Zweck in `users` stünde.
