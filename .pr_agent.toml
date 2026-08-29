@@ -1,0 +1,16 @@
+[config]
+restricted_mode = true
+
+[pr_reviewer]
+require_tests_review = true
+require_security_review = true
+persistent_comment = true
+num_max_findings = 8
+extra_instructions = """
+Review every change against AGENTS.md. Prioritize correctness, data integrity,
+tenant isolation, server-side authorization, command idempotency, optimistic
+concurrency, transactional outbox behavior, and scoring/tournament correctness.
+Treat missing tests for changed behavior as a blocking concern. Do not suggest
+bypassing domain or engine boundaries, database constraints, or versioned
+migrations. Report only actionable findings grounded in the changed code.
+"""

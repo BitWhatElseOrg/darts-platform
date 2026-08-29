@@ -16,3 +16,8 @@ Das produktive Railway-Zielbild wird als Infrastructure as Code in
 [`../.railway/railway.ts`](../.railway/railway.ts) verwaltet. Einrichtung,
 Variablen, Smoke-Tests, Logging und Rollback sind im
 [Railway-Runbook](./railway.md) dokumentiert.
+
+Für isolierte Development- und Pull-Request-Preview-Datenbanken wird Neon
+verwendet. Branch-Lebenszyklus, Migrationen und Datenregeln beschreibt das
+[Neon-Preview-Runbook](./neon-preview.md). Production und Staging bleiben auf
+Railway PostgreSQL.

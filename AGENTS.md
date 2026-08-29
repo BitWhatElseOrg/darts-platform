@@ -53,6 +53,8 @@ Testcontainers
 Docker
 GitHub Actions
 Railway
+Neon (nur Development/Preview)
+PR-Agent
 ```
 
 Neue Frameworks oder größere Dependencies nur hinzufügen, wenn ein klarer technischer Nutzen besteht.
@@ -451,6 +453,45 @@ Fehlschläge nicht ignorieren.
 - Migrationen werden reviewt
 - keine manuellen Production-Schema-Änderungen
 - nach Deployment keine bestehende Migration umschreiben
+- Neon wird ausschließlich für Development- und kurzlebige Preview-Branches
+  verwendet; Production und Staging nutzen Railway PostgreSQL.
+- Preview-Datenbanken enthalten keine unmaskierten Production-Daten.
+
+---
+
+## Workflow für neue Features
+
+FEATURE
+   ↓
+Superpowers / Plan
+   ↓
+Implement
+   ↓
+Unit Tests
+   ↓
+Browser Test
+   ↓
+Impeccable UI Audit
+   ↓
+Codex Security
+   ↓
+Self Review
+   ↓
+Full Test Suite
+   ↓
+GitHub Pull Request
+   ↓
+PR-Agent
+   ↓
+Fix Findings
+   ↓
+Full Test Suite
+   ↓
+Merge
+   ↓
+Render / Railway
+   ↓
+Sentry
 
 ---
 

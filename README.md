@@ -105,7 +105,7 @@ Weitere Details stehen in der [Zielarchitektur](./ARCHITECTURE.md) und im [Daten
 | Frontend | Next.js, React, Tailwind CSS, shadcn/ui |
 | Daten & Formulare | TanStack Query, React Hook Form, Zod |
 | Backend | NestJS, Fastify, REST unter `/api/v1` |
-| Persistenz | PostgreSQL, Drizzle ORM |
+| Persistenz | PostgreSQL, Drizzle ORM; Railway in Production/Staging, Neon nur für Development/Preview |
 | Realtime & Jobs | WebSocket/Socket.IO, Redis, BullMQ |
 | Authentifizierung | Better Auth |
 | Tests | Vitest, Playwright, Testcontainers |
@@ -213,6 +213,19 @@ pnpm test:e2e
 
 Besonders kritisch sind Scoring-Korrektheit, Turnierintegrität, Tenant-Isolation und Autorisierung. Änderungen an diesen Bereichen benötigen passende Unit-, Integrations- oder E2E-Tests.
 
+## Pull-Request-Review mit PR-Agent
+
+Der Workflow [`.github/workflows/pr-agent.yml`](./.github/workflows/pr-agent.yml)
+startet für interne Pull Requests automatisch ein Review. Er läuft im
+eingeschränkten Modus mit Schreibrechten nur für Issues und Pull Requests; das
+verwendete PR-Agent-Image ist auf einen unveränderlichen Digest gepinnt.
+
+Vor der ersten Ausführung muss im GitHub-Repository das Actions-Secret
+`OPENAI_KEY` hinterlegt werden. Automatische Reviews aus Forks sind deaktiviert.
+Mitglieder, Owner und Collaborators können auf einem Pull Request zusätzlich
+PR-Agent-Kommandos wie `/review`, `/describe` oder `/improve` kommentieren. Die
+projektspezifischen Review-Regeln stehen in [`.pr_agent.toml`](./.pr_agent.toml).
+
 ## Mitwirken
 
 1. Ein Issue oder eine klar abgegrenzte Aufgabe wählen.
@@ -244,8 +257,10 @@ Verbindliche Architektur- und Arbeitsregeln stehen in [AGENTS.md](./AGENTS.md).
 | [ADR 0008](./docs/adr/0008-phase-5-offline-reliability.md) | Offline-Queue und Board-Controller-Lock |
 | [ADR 0009](./docs/adr/0009-phase-6-statistics.md) | Reproduzierbare Spielerstatistiken |
 | [ADR 0010](./docs/adr/0010-invite-only-registration.md) | Einladungsgebundene Registrierung und rollenbasierter Verwaltungszugang |
+| [ADR 0011](./docs/adr/0011-preview-database-strategy.md) | Neon für Development/Preview und Railway PostgreSQL für Production/Staging |
 | [Bedienungsanleitung](./docs/manual/index.html) | Deutsche Anleitung für Administration, Turnierleitung und Scoring |
 | [Railway-Runbook](./infrastructure/railway.md) | Deployment, Variablen, Smoke-Test, Diagnose und Rollback |
+| [Neon-Preview-Runbook](./infrastructure/neon-preview.md) | Isolierte Development- und Preview-Datenbanken mit Neon |
 
 ## Lizenz
 

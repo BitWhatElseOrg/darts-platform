@@ -1027,6 +1027,12 @@ KO-Runde generieren
 
 ## 33. Deployment auf Railway
 
+Railway PostgreSQL bleibt die verbindliche Datenbank für Production und
+Staging. Neon wird ausschließlich für isolierte Development- und kurzlebige
+Preview-Branches eingesetzt. Production-Zugangsdaten und unmaskierte
+Production-Daten werden nicht nach Neon übertragen. Die verbindlichen Regeln
+stehen in [ADR 0011](./docs/adr/0011-preview-database-strategy.md).
+
 Empfohlene Produktionsstruktur:
 
 ```text

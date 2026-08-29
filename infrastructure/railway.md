@@ -9,6 +9,11 @@ web -> api -> PostgreSQL
            -> Redis
 ```
 
+Railway PostgreSQL ist die verbindliche persistente Datenbank für `staging` und
+`production`. Neon ist dort ausdrücklich nicht vorgesehen; es wird nur für
+Development- und kurzlebige Preview-Branches gemäß
+[Neon-Preview-Runbook](./neon-preview.md) verwendet.
+
 Die gewünschte Infrastruktur liegt in [`.railway/railway.ts`](../.railway/railway.ts).
 API und Web werden aus demselben pnpm-Monorepo mit getrennten, reproduzierbaren
 Dockerfiles gebaut. Für den Statistik-Worker existiert `Dockerfile.worker`; er
