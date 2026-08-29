@@ -104,14 +104,24 @@ test("a club can complete a match and start a generated tournament match", async
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
   await expect(page.getByText("Dieses Gerät steuert das Board · Verbindung aktiv")).toBeVisible();
   await expect(page.getByLabel("Aufnahmescore")).toBeEnabled();
+  await expect(page.getByLabel("Geworfene Darts")).toHaveCount(0);
+  await expect(page.getByLabel("Checkout-Double")).toHaveCount(0);
+  await expect(page.getByLabel("Doppelversuche")).toHaveCount(0);
 
-  const record = async (score: number, expectedRest: number, checkoutDouble?: number) => {
+  const record = async (
+    score: number,
+    expectedRest: number,
+    checkout?: { readonly field: number; readonly darts: 1 | 2 | 3 },
+  ) => {
     await page.getByLabel("Aufnahmescore").fill(String(score));
-    if (checkoutDouble !== undefined) {
-      await page.getByLabel("Checkout-Double").fill(String(checkoutDouble));
-      await page.getByLabel("Doppelversuche").fill("1");
-    }
     await page.getByRole("button", { name: "Erfassen" }).click();
+    if (checkout !== undefined) {
+      const dialog = page.getByRole("dialog", { name: "Checkout erfassen" });
+      await expect(dialog).toBeVisible();
+      await dialog.getByLabel("Checkout-Feld").selectOption(String(checkout.field));
+      await dialog.getByLabel("Benötigte Darts").selectOption(String(checkout.darts));
+      await dialog.getByRole("button", { name: "Checkout speichern" }).click();
+    }
     await expect(page.getByLabel(`E2E Player One, Restscore`)).toHaveText(String(expectedRest));
   };
 
@@ -126,6 +136,7 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByRole("button", { name: "Letzte Aufnahme zurücknehmen" }).click();
   await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("501");
   await record(180, 321);
+  await expect(page.getByText("E2E Player One · 3 Darts").first()).toBeVisible();
   await page.getByLabel("Aufnahmescore").fill("60");
   await page.getByRole("button", { name: "Erfassen" }).click();
   await expect(page.getByLabel("E2E Player Two, Restscore")).toHaveText("441");
@@ -133,7 +144,22 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByLabel("Aufnahmescore").fill("60");
   await page.getByRole("button", { name: "Erfassen" }).click();
   await expect(page.getByLabel("E2E Player Two, Restscore")).toHaveText("381");
-  await record(141, 0, 12);
+  await record(91, 50);
+  await page.getByLabel("Aufnahmescore").fill("60");
+  await page.getByRole("button", { name: "Erfassen" }).click();
+  await expect(page.getByLabel("E2E Player Two, Restscore")).toHaveText("321");
+  await page.getByLabel("Aufnahmescore").fill("50");
+  await page.getByRole("button", { name: "Erfassen" }).click();
+  const checkoutDialog = page.getByRole("dialog", { name: "Checkout erfassen" });
+  await expect(checkoutDialog).toBeVisible();
+  await checkoutDialog.getByRole("button", { name: "Abbrechen" }).click();
+  await expect(checkoutDialog).toHaveCount(0);
+  await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("50");
+  await page.getByRole("button", { name: "Erfassen" }).click();
+  await checkoutDialog.getByLabel("Checkout-Feld").selectOption("25");
+  await checkoutDialog.getByLabel("Benötigte Darts").selectOption("1");
+  await checkoutDialog.getByRole("button", { name: "Checkout speichern" }).click();
+  await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("0");
   await expect(page.getByText("Match beendet")).toBeVisible();
   await expect(page.getByText("E2E Player One gewinnt")).toBeVisible();
 
@@ -166,14 +192,14 @@ test("a club can complete a match and start a generated tournament match", async
   const scoreTournamentVisit = async (score: number, checkoutDouble?: number) => {
     const visitScore = page.getByLabel("Aufnahmescore");
     await visitScore.fill(String(score));
-    if (checkoutDouble !== undefined) {
-      await page.getByLabel("Checkout-Double").fill(String(checkoutDouble));
-      await page.getByLabel("Doppelversuche").fill("1");
-    }
     await page.getByRole("button", { name: "Erfassen" }).click();
     if (checkoutDouble === undefined) {
       await expect(visitScore).toHaveValue("");
     } else {
+      const dialog = page.getByRole("dialog", { name: "Checkout erfassen" });
+      await dialog.getByLabel("Checkout-Feld").selectOption(String(checkoutDouble));
+      await dialog.getByLabel("Benötigte Darts").selectOption("3");
+      await dialog.getByRole("button", { name: "Checkout speichern" }).click();
       await expect(page.getByText("Match beendet")).toBeVisible();
     }
   };
