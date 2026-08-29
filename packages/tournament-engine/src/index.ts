@@ -6,6 +6,7 @@ export {
   generateKnockoutBracket,
   generateRoundRobin,
   previewTournamentStructure,
+  resolveTournamentWithdrawals,
   type EngineGroup,
   type EngineParticipant,
   type GroupAllocationInput,
@@ -17,6 +18,8 @@ export {
   type TournamentPlan,
   type TournamentPlanInput,
   type TournamentStructurePreview,
+  type WithdrawalMatchDecision,
+  type WithdrawalMatchSnapshot,
 } from "./tournament.js";
 export {
   allocateAdvancedSeeds,
