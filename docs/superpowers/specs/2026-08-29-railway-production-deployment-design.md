@@ -152,9 +152,11 @@ als expliziter Befehl statt als Startlogik umgesetzt ist.
 
 ## Tests
 
-- Der Bootstrap-Befehl erhält einen Integrationstest gegen Testcontainers:
-  erfolgreicher Erstlauf, Verweigerung bei bestehender Organisation,
-  Audit-Eintrag vorhanden, E-Mail normalisiert.
+- Der Bootstrap-Befehl erhält einen Integrationstest gegen die per
+  `DATABASE_URL` konfigurierte Datenbank, wie die bestehenden Tests in
+  `apps/api`: erfolgreiches Anlegen samt Einladung und Audit-Eintrag,
+  Verweigerung bei bestehender Organisation, Normalisierung der E-Mail und
+  Standardwerte aus dem Schema.
 - Der bestehende Integrationstest in `auth.integration.spec.ts` wird um einen
   Fall erweitert: Registrierung gegen eine Einladung mit
   `invited_by_user_id = NULL` gelingt.
