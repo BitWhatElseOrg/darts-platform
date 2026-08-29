@@ -71,7 +71,7 @@ export function StandingsSheet({ groups }: StandingsSheetProps) {
                         </span>
                       </Td>
                       <Td className="max-w-0 truncate pr-2 font-medium">
-                        {row.displayName}
+                        {row.displayName}{row.withdrawn ? " · Ausgefallen" : ""}
                         {row.qualified ? <span className="sr-only"> (qualifiziert)</span> : null}
                       </Td>
                       <Td className="text-right">{row.won}</Td>

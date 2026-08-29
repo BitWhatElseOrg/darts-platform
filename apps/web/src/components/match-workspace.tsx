@@ -3,12 +3,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  boardListSchema, boardSchema, matchListSchema, matchStateSchema,
+  abortMatchResponseSchema, boardListSchema, boardSchema, matchListSchema, matchStateSchema,
   type MatchStateResponse, type OrganizationSummary, type PlayerResponse,
 } from "@darts-platform/schemas";
 import { Button, cn } from "@darts-platform/ui";
 import { ApiClientError, apiRequest, userFacingErrorMessage } from "@/lib/api-client";
-import { listOfflineCommands, markOfflineCommandConflict, removeOfflineCommand, saveOfflineCommand, type OfflineCommand } from "@/lib/offline-command-queue";
+import { listOfflineCommands, markOfflineCommandConflict, removeOfflineCommand, removeOfflineCommandsForScope, saveOfflineCommand, type OfflineCommand } from "@/lib/offline-command-queue";
 import { useBoardControllerLock } from "@/lib/use-board-controller-lock";
 
 const inputClassName = "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
@@ -38,6 +38,7 @@ export function MatchWorkspace({ organization, players }: { readonly organizatio
   const selectedMatch = matchesQuery.data?.find((match) => match.id === selectedMatchId) ?? matchesQuery.data?.[0] ?? null;
   const canCreate = ["OWNER", "ADMIN", "TOURNAMENT_DIRECTOR"].includes(organization.role);
   const canScore = ["OWNER", "ADMIN", "TOURNAMENT_DIRECTOR", "SCORER"].includes(organization.role);
+  const canAbort = ["OWNER", "ADMIN", "TOURNAMENT_DIRECTOR"].includes(organization.role);
 
   const createBoard = useMutation({
     mutationFn: () => apiRequest({ path: `/organizations/${organization.id}/boards`, method: "POST", body: { name: boardName }, schema: boardSchema }),
@@ -78,18 +79,19 @@ export function MatchWorkspace({ organization, players }: { readonly organizatio
       {matchesQuery.data?.length ? (
         <div className="flex gap-2 overflow-x-auto pb-1">{matchesQuery.data.map((match) => <button className={cn("min-h-11 shrink-0 rounded-lg border px-3 text-sm", match.id === selectedMatch?.id ? "border-emerald-400 text-white" : "border-slate-700 text-slate-400")} key={match.id} onClick={() => setSelectedMatchId(match.id)} type="button">{match.participants[0].displayName} – {match.participants[1].displayName}</button>)}</div>
       ) : null}
-      {selectedMatch === null ? <p className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">Erstelle zwei aktive Spieler und starte das erste Match.</p> : <Scoreboard canScore={canScore} match={selectedMatch} organizationId={organization.id} />}
+      {selectedMatch === null ? <p className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">Erstelle zwei aktive Spieler und starte das erste Match.</p> : <Scoreboard canAbort={canAbort} canScore={canScore} match={selectedMatch} organizationId={organization.id} />}
     </div>
   );
 }
 
-function Scoreboard({ organizationId, match, canScore }: { readonly organizationId: string; readonly match: MatchStateResponse; readonly canScore: boolean }) {
+function Scoreboard({ organizationId, match, canAbort, canScore }: { readonly organizationId: string; readonly match: MatchStateResponse; readonly canAbort: boolean; readonly canScore: boolean }) {
   const queryClient = useQueryClient();
   const lock = useBoardControllerLock(organizationId, match.id, canScore && match.status === "IN_PROGRESS");
   const [points, setPoints] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutDouble, setCheckoutDouble] = useState("");
   const [checkoutDarts, setCheckoutDarts] = useState<1 | 2 | 3>(3);
+  const [abortOpen, setAbortOpen] = useState(false);
   const [queued, setQueued] = useState<readonly OfflineCommand[]>([]);
   const [replaying, setReplaying] = useState(false);
   const replayingRef = useRef(false);
@@ -182,7 +184,23 @@ function Scoreboard({ organizationId, match, canScore }: { readonly organization
     onSuccess: refresh,
     onError: async (error) => { if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") await refresh(); },
   });
-  const error = submit.error ?? undo.error;
+  const abort = useMutation({
+    mutationFn: (reason: string) => apiRequest({
+      path: `/organizations/${organizationId}/matches/${match.id}/abort`,
+      method: "POST",
+      body: { commandId: crypto.randomUUID(), expectedVersion: match.version, controllerId: lock.controllerId, reason },
+      schema: abortMatchResponseSchema,
+    }),
+    onSuccess: async () => {
+      await removeOfflineCommandsForScope(scope);
+      setAbortOpen(false);
+      await refresh();
+    },
+    onError: async (abortError) => {
+      if (abortError instanceof ApiClientError && abortError.code === "MATCH_VERSION_CONFLICT") await refresh();
+    },
+  });
+  const error = submit.error ?? undo.error ?? abort.error;
   const hasPending = queued.length > 0;
   const mayControl = canScore && match.status === "IN_PROGRESS" && lock.state === "EIGEN" && !hasPending;
   const activeParticipant = match.participants.find((participant) => participant.playerId === match.currentPlayerId);
@@ -223,12 +241,56 @@ function Scoreboard({ organizationId, match, canScore }: { readonly organization
         pending={submit.isPending}
         points={Number(points)}
       />
+      <AbortMatchDialog error={abort.isError ? mutationMessage(abort.error) : null} onCancel={() => { abort.reset(); setAbortOpen(false); }} onSubmit={(reason) => abort.mutate(reason)} open={abortOpen} pending={abort.isPending} />
       <div className="border-t border-slate-800 p-4">
-        <div className="flex items-center justify-between"><h4 className="text-sm font-semibold text-slate-200">Letzte Aufnahmen</h4>{mayControl && match.visits.some((visit) => !visit.reverted) ? <Button disabled={undo.isPending || !online} onClick={() => undo.mutate()} variant="outline">Letzte Aufnahme zurücknehmen</Button> : null}</div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><h4 className="text-sm font-semibold text-slate-200">Letzte Aufnahmen</h4><div className="flex flex-wrap gap-2">{mayControl && match.visits.some((visit) => !visit.reverted) ? <Button disabled={undo.isPending || !online} onClick={() => undo.mutate()} variant="outline">Letzte Aufnahme zurücknehmen</Button> : null}{canAbort && match.status === "IN_PROGRESS" ? <Button className="border border-rose-500/60 bg-rose-600 text-white hover:bg-rose-500" disabled={!online || lock.state !== "EIGEN" || abort.isPending} onClick={() => { abort.reset(); setAbortOpen(true); }}>Match abbrechen</Button> : null}</div></div>
         {error && !checkoutOpen ? <p className="mt-3 text-sm text-rose-300" role="alert">{mutationMessage(error)}</p> : null}
         <div className="mt-3 space-y-2">{match.visits.slice(0, 8).map((visit) => <div className={cn("flex min-h-11 items-center justify-between rounded-lg bg-slate-900 px-3 text-sm", visit.reverted && "opacity-40 line-through")} key={visit.id}><span className="text-slate-300">{visit.playerDisplayName} · {visit.dartsThrown} Darts</span><span className="font-bold text-white">{visit.outcome === "BUST" ? `BUST (${visit.points})` : `${visit.appliedPoints} → ${visit.scoreAfter}`}</span></div>)}</div>
       </div>
     </section>
+  );
+}
+
+function AbortMatchDialog({ error, onCancel, onSubmit, open, pending }: {
+  readonly error: string | null;
+  readonly onCancel: () => void;
+  readonly onSubmit: (reason: string) => void;
+  readonly open: boolean;
+  readonly pending: boolean;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [reason, setReason] = useState("");
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog === null) return;
+    if (open && !dialog.open) {
+      setReason("");
+      dialog.showModal();
+    }
+    if (!open && dialog.open) dialog.close();
+    return () => { if (dialog.open) dialog.close(); };
+  }, [open]);
+
+  if (!open) return null;
+  return (
+    <dialog aria-describedby="abort-match-description" aria-labelledby="abort-match-title" className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-rose-500/50 bg-slate-950 p-0 text-white shadow-2xl backdrop:bg-slate-950/80" onCancel={(event) => { event.preventDefault(); onCancel(); }} ref={dialogRef}>
+      <form className="space-y-5 p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); onSubmit(reason.trim()); }}>
+        <div>
+          <h4 className="text-xl font-semibold" id="abort-match-title">Match abbrechen</h4>
+          <p className="mt-2 text-sm leading-6 text-slate-300" id="abort-match-description">Alle Aufnahmen, Legs und noch nicht übertragenen Eingaben dieses Matches werden unwiderruflich verworfen. Das Board wird freigegeben; eine Turnierpaarung wechselt zurück auf READY.</p>
+        </div>
+        <label className="block space-y-2 text-sm font-semibold text-slate-200">
+          <span>Abbruchgrund</span>
+          <textarea autoFocus className="min-h-24 w-full rounded-lg border border-slate-700 bg-slate-950 p-3 text-base text-white outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-400/30" maxLength={500} onChange={(event) => setReason(event.target.value)} placeholder="z. B. falsche Board-Zuweisung" required value={reason} />
+        </label>
+        {error ? <p className="text-sm text-rose-300" role="alert">{error}</p> : null}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Button disabled={pending} onClick={onCancel} type="button" variant="outline">Zurück zum Match</Button>
+          <Button className="bg-rose-600 text-white hover:bg-rose-500" disabled={pending || reason.trim().length < 3} type="submit">Match endgültig abbrechen</Button>
+        </div>
+      </form>
+    </dialog>
   );
 }
 

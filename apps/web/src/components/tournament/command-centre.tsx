@@ -16,6 +16,7 @@ import { BoardWedge } from "./board-wedge";
 import { DashboardHeader } from "./dashboard-header";
 import { DisruptionsPanel } from "./disruptions-panel";
 import { QueuePanel } from "./queue-panel";
+import { ParticipantDisruptionPanel } from "./participant-disruption-panel";
 import { ResultsPanel } from "./results-panel";
 import { StandingsSheet } from "./standings-sheet";
 
@@ -37,6 +38,7 @@ interface CommandCentreProps {
   readonly organizationId: string;
   readonly tournamentId: string;
   readonly canCorrect: boolean;
+  readonly canWithdraw: boolean;
 }
 
 function conflictState(error: unknown, expected: number): VersionConflict | null {
@@ -50,7 +52,7 @@ function conflictState(error: unknown, expected: number): VersionConflict | null
     : null;
 }
 
-export function CommandCentre({ canCorrect, organizationId, tournamentId }: CommandCentreProps) {
+export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournamentId }: CommandCentreProps) {
   const queryClient = useQueryClient();
   const queryKey = useMemo(
     () => ["tournament-dashboard", organizationId, tournamentId] as const,
@@ -258,6 +260,29 @@ export function CommandCentre({ canCorrect, organizationId, tournamentId }: Comm
     }
   }, [commandBusy, connection, dashboard, organizationId, queryClient, queryKey, tournamentId]);
 
+  const withdrawParticipant = useCallback(async (playerId: string, reason: string) => {
+    if (dashboard === undefined || commandBusy || connection === "offline") return;
+    const expectedVersion = dashboard.tournament.version;
+    setCommandBusy(true);
+    try {
+      const next = await apiRequest({
+        path: `/organizations/${organizationId}/tournaments/${tournamentId}/withdrawals`,
+        method: "POST",
+        body: { commandId: crypto.randomUUID(), expectedVersion, playerId, reason },
+        schema: tournamentDashboardSchema,
+      });
+      queryClient.setQueryData(queryKey, next);
+      setCommandError(null);
+      setAnnouncement("Spielerausfall verarbeitet; offene Matches wurden aktualisiert.");
+    } catch (error) {
+      const versionConflict = conflictState(error, expectedVersion);
+      if (versionConflict !== null) setConflict(versionConflict);
+      setCommandError(userFacingErrorMessage(error, "Spielerausfall konnte nicht verarbeitet werden."));
+    } finally {
+      setCommandBusy(false);
+    }
+  }, [commandBusy, connection, dashboard, organizationId, queryClient, queryKey, tournamentId]);
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -362,6 +387,7 @@ export function CommandCentre({ canCorrect, organizationId, tournamentId }: Comm
 
           <div className="flex flex-col gap-7">
             <QueuePanel onAssign={(matchId) => void assign({ matchId })} openBoardName={openBoards[0]?.boardName ?? null} queue={dashboard.queue} />
+            <ParticipantDisruptionPanel canWithdraw={canWithdraw} disabled={commandBusy || connection === "offline"} onWithdraw={(playerId, reason) => void withdrawParticipant(playerId, reason)} participants={dashboard.participants} />
             <ResultsPanel busy={commandBusy} canCorrect={canCorrect} onCorrect={(matchId, reason) => void correctResult(matchId, reason)} results={dashboard.recentResults} />
             <DisruptionsPanel conflicts={dashboard.conflicts} />
           </div>

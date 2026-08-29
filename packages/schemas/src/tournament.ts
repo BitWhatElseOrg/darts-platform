@@ -120,6 +120,7 @@ export const groupStandingRowSchema = z.object({
   legsAgainst: z.number().int().nonnegative(),
   legDifference: z.number().int(),
   points: z.number().int().nonnegative(),
+  withdrawn: z.boolean(),
   qualified: z.boolean(),
 });
 
@@ -134,6 +135,7 @@ export const groupStandingSchema = z.object({
 export const tournamentResultSchema = z.object({
   matchId: z.uuid(),
   stageLabel: z.string(),
+  resultType: tournamentMatchResultTypeSchema,
   participantNames: z.tuple([z.string(), z.string()]),
   winnerPlayerId: z.uuid(),
   winnerDisplayName: z.string(),
@@ -146,6 +148,7 @@ export const bracketMatchSchema = z.object({
   round: z.number().int().positive(),
   position: z.number().int().positive(),
   status: z.enum(["WAITING", "READY", "IN_PROGRESS", "COMPLETED", "BYE", "CANCELLED"]),
+  resultType: tournamentMatchResultTypeSchema.nullable(),
   participantNames: z.tuple([z.string(), z.string()]),
   winnerDisplayName: z.string().nullable(),
 });
@@ -165,6 +168,14 @@ export const tournamentDashboardSchema = z.object({
     totalMatches: z.number().int().nonnegative(),
     startsAt: z.coerce.date(),
   }),
+  participants: z.array(z.object({
+    playerId: z.uuid(),
+    displayName: z.string(),
+    seed: z.number().int().positive(),
+    status: tournamentParticipantStatusSchema,
+    withdrawnAt: z.coerce.date().nullable(),
+    withdrawalReason: z.string().nullable(),
+  })),
   boards: z.array(boardSlotSchema),
   queue: z.array(queueEntrySchema),
   conflicts: z.array(tournamentConflictSchema),

@@ -80,7 +80,7 @@ export function LiveTournament({ tournamentId, mode, boardId }: LiveTournamentPr
             </section>
             {dashboard.bracket.length > 0 ? <section>
               <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">K.-o.-Tableau</h2>
-              <div className="grid gap-3 sm:grid-cols-2">{dashboard.bracket.map((match) => <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-sm" key={match.matchId}><p className="text-xs text-slate-500">{match.stageLabel}</p><p className={match.winnerDisplayName === match.participantNames[0] ? "mt-2 font-bold text-emerald-300" : "mt-2"}>{match.participantNames[0]}</p><p className={match.winnerDisplayName === match.participantNames[1] ? "font-bold text-emerald-300" : ""}>{match.participantNames[1]}</p></div>)}</div>
+              <div className="grid gap-3 sm:grid-cols-2">{dashboard.bracket.map((match) => <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-sm" key={match.matchId}><p className="text-xs text-slate-500">{match.stageLabel}{match.resultType === "WALKOVER" ? " · Walkover" : ""}</p><p className={match.winnerDisplayName === match.participantNames[0] ? "mt-2 font-bold text-emerald-300" : "mt-2"}>{match.participantNames[0]}</p><p className={match.winnerDisplayName === match.participantNames[1] ? "font-bold text-emerald-300" : ""}>{match.participantNames[1]}</p></div>)}</div>
             </section> : null}
           </div>
         ) : null}

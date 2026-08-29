@@ -108,6 +108,20 @@ test("a club can complete a match and start a generated tournament match", async
   await expect(page.getByLabel("Checkout-Double")).toHaveCount(0);
   await expect(page.getByLabel("Doppelversuche")).toHaveCount(0);
 
+  await page.getByLabel("Aufnahmescore").fill("100");
+  await page.getByRole("button", { name: "Erfassen" }).click();
+  await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("401");
+  await page.getByRole("button", { name: "Match abbrechen" }).click();
+  const abortDialog = page.getByRole("dialog", { name: "Match abbrechen" });
+  await abortDialog.getByLabel("Abbruchgrund").fill("Board versehentlich falsch zugewiesen");
+  await abortDialog.getByRole("button", { name: "Match endgültig abbrechen" }).click();
+  await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toHaveCount(0);
+  await expect(page.getByText(/E2E Board: frei/u)).toBeVisible();
+  await page.getByLabel("Board", { exact: true }).selectOption({ label: "E2E Board" });
+  await page.getByRole("button", { name: "Match starten" }).click();
+  await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
+  await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("501");
+
   const record = async (
     score: number,
     expectedRest: number,
@@ -216,4 +230,12 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByRole("button", { name: "Match wieder öffnen" }).click();
   await expect(page.getByText("Noch kein Ergebnis erfasst.")).toBeVisible();
   await expect(page.getByText("141").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Spielerausfall erfassen" }).click();
+  const withdrawalDialog = page.getByRole("dialog", { name: "Spielerausfall erfassen" });
+  await withdrawalDialog.getByLabel("Spieler").selectOption({ label: "E2E Player One" });
+  await withdrawalDialog.getByLabel("Ausfallgrund").fill("Akute Verletzung");
+  await withdrawalDialog.getByRole("button", { name: "Ausfall bestätigen" }).click();
+  await expect(page.getByText("E2E Player One · Ausgefallen")).toBeVisible();
+  await expect(page.getByText(/gewinnt kampflos/u).first()).toBeVisible();
 });

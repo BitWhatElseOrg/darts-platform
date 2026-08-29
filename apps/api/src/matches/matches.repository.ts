@@ -3,7 +3,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } f
 import { z } from "zod";
 import {
   auditEvents, boardControllerLeases, boards, legs, matches, matchParticipants, outboxEvents, players, scoreCommands,
-  tournamentCommands, tournamentGroupParticipants, tournamentGroups, tournamentMatches,
+  tournamentCommands, tournamentGroupParticipants, tournamentGroups, tournamentMatches, tournamentParticipants,
   tournaments, tournamentStages,
   visits,
 } from "@darts-platform/database";
@@ -494,6 +494,7 @@ export class MatchesRepository {
         .set({
           status: "IN_PROGRESS",
           winnerPlayerId: null,
+          resultType: null,
           completedAt: null,
           version: scheduled.version + 1,
           updatedAt: new Date(),
@@ -1014,13 +1015,24 @@ export class MatchesRepository {
     const results = [];
     for (const match of completed) {
       if (
-        match.scoringMatchId === null ||
         match.participantOneId === null ||
         match.participantTwoId === null ||
         match.winnerPlayerId === null
       ) {
         throw new Error("Completed tournament match invariant violated.");
       }
+      if (match.resultType === "WALKOVER") {
+        results.push({
+          type: "WALKOVER" as const,
+          playerOneId: match.participantOneId,
+          playerTwoId: match.participantTwoId,
+          playerOneLegs: 0 as const,
+          playerTwoLegs: 0 as const,
+          winnerPlayerId: match.winnerPlayerId,
+        });
+        continue;
+      }
+      if (match.scoringMatchId === null) throw new Error("Completed tournament match invariant violated.");
       const participantRows = await transaction
         .select()
         .from(matchParticipants)
@@ -1048,10 +1060,20 @@ export class MatchesRepository {
         winnerPlayerId: match.winnerPlayerId,
       });
     }
+    const withdrawnParticipants = await transaction
+      .select({ playerId: tournamentParticipants.playerId })
+      .from(tournamentParticipants)
+      .where(and(
+        eq(tournamentParticipants.organizationId, organizationId),
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        eq(tournamentParticipants.status, "WITHDRAWN"),
+      ));
     const standings = calculateGroupStandings({
       participants: members.map((member) => ({ playerId: member.playerId, seed: member.seed })),
       results,
+      withdrawnPlayerIds: withdrawnParticipants.map((participant) => participant.playerId),
     });
+    const eligibleStandings = standings.filter((standing) => !standing.withdrawn);
     const knockoutMatches = await transaction
       .select()
       .from(tournamentMatches)
@@ -1064,7 +1086,7 @@ export class MatchesRepository {
         ),
       )
       .for("update");
-    for (const standing of standings.slice(0, group.qualifyCount)) {
+    for (const [eligibleIndex, standing] of eligibleStandings.slice(0, group.qualifyCount).entries()) {
       for (const knockoutMatch of knockoutMatches) {
         const firstReference = groupRankReferenceSchema.safeParse(
           knockoutMatch.participantOneRef,
@@ -1075,13 +1097,13 @@ export class MatchesRepository {
         const participantOneId =
           firstReference.success &&
           firstReference.data.groupKey === group.key &&
-          firstReference.data.rank === standing.position
+          firstReference.data.rank === eligibleIndex + 1
             ? standing.playerId
             : knockoutMatch.participantOneId;
         const participantTwoId =
           secondReference.success &&
           secondReference.data.groupKey === group.key &&
-          secondReference.data.rank === standing.position
+          secondReference.data.rank === eligibleIndex + 1
             ? standing.playerId
             : knockoutMatch.participantTwoId;
         if (

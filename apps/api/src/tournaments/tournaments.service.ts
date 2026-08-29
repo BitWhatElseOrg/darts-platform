@@ -13,6 +13,7 @@ import {
   previewTournamentStructure,
   TournamentValidationError,
   validateStageComposition,
+  type GroupMatchResult,
 } from "@darts-platform/tournament-engine";
 import {
   tournamentDashboardSchema,
@@ -32,6 +33,7 @@ import {
   type TournamentStructurePreview,
   type TournamentStructurePreviewInput,
   type TournamentSummary,
+  type WithdrawTournamentParticipantInput,
 } from "@darts-platform/schemas";
 
 import type { AuthContext } from "../auth/auth.types.js";
@@ -193,6 +195,17 @@ export class TournamentsService {
     return this.mutate(input, () => this.matchesRepository.correctTournamentResult(input));
   }
 
+  public async withdrawParticipant(input: {
+    readonly organizationId: string;
+    readonly tournamentId: string;
+    readonly data: WithdrawTournamentParticipantInput;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<TournamentDashboard> {
+    await this.require(input, "tournament:update");
+    return this.mutate(input, () => this.repository.withdrawParticipant(input));
+  }
+
   private async mutate(
     input: {
       readonly organizationId: string;
@@ -226,6 +239,12 @@ export class TournamentsService {
           message: "Mindestens ein Teilnehmer spielt bereits.",
           details: { currentState: current },
         });
+      }
+      if (result === "tournament-completed") {
+        throw new ConflictException({ code: "TOURNAMENT_ALREADY_COMPLETED", message: "Aus einem abgeschlossenen Turnier kann kein Spieler zurückgezogen werden.", details: { currentState: current } });
+      }
+      if (result === "participant-already-withdrawn") {
+        throw new ConflictException({ code: "TOURNAMENT_PARTICIPANT_ALREADY_WITHDRAWN", message: "Der Spieler wurde bereits aus diesem Turnier zurückgezogen.", details: { currentState: current } });
       }
       if (result === "result-not-correctable") {
         throw new ConflictException({
@@ -267,6 +286,9 @@ export class TournamentsService {
     const names = new Map(
       data.participants.map((participant) => [participant.playerId, participant.displayName]),
     );
+    const withdrawnPlayerIds = data.participants
+      .filter((participant) => participant.status === "WITHDRAWN")
+      .map((participant) => participant.playerId);
     const activeMatches = data.matches.filter((match) => match.status === "IN_PROGRESS");
     const activePlayers = new Set(
       activeMatches.flatMap((match) =>
@@ -396,16 +418,28 @@ export class TournamentsService {
         .filter((participant) => participant.groupId === group.id)
         .map((participant) => ({ playerId: participant.playerId, seed: participant.seed }));
       const groupMatches = data.matches.filter((match) => match.groupId === group.id);
-      const results = groupMatches.flatMap((match) => {
+      const results: GroupMatchResult[] = [];
+      for (const match of groupMatches) {
         if (
           match.status !== "COMPLETED" ||
-          match.scoringMatchId === null ||
           match.participantOneId === null ||
           match.participantTwoId === null ||
           match.winnerPlayerId === null
         ) {
-          return [];
+          continue;
         }
+        if (match.resultType === "WALKOVER") {
+          results.push({
+            type: "WALKOVER" as const,
+            playerOneId: match.participantOneId,
+            playerTwoId: match.participantTwoId,
+            playerOneLegs: 0 as const,
+            playerTwoLegs: 0 as const,
+            winnerPlayerId: match.winnerPlayerId,
+          });
+          continue;
+        }
+        if (match.scoringMatchId === null) continue;
         const scoring = scoringById.get(match.scoringMatchId);
         const first = scoring?.participants.find(
           (participant) => participant.playerId === match.participantOneId,
@@ -413,20 +447,21 @@ export class TournamentsService {
         const second = scoring?.participants.find(
           (participant) => participant.playerId === match.participantTwoId,
         );
-        return first === undefined || second === undefined
-          ? []
-          : [
-              {
-                playerOneId: first.playerId,
-                playerTwoId: second.playerId,
-                playerOneLegs: first.legsWon,
-                playerTwoLegs: second.legsWon,
-                winnerPlayerId: match.winnerPlayerId,
-              },
-            ];
-      });
-      const ranking = calculateGroupStandings({ participants: members, results });
+        if (first === undefined || second === undefined) continue;
+        results.push({
+          type: "PLAYED",
+          playerOneId: first.playerId,
+          playerTwoId: second.playerId,
+          playerOneLegs: first.legsWon,
+          playerTwoLegs: second.legsWon,
+          winnerPlayerId: match.winnerPlayerId,
+        });
+      }
+      const ranking = calculateGroupStandings({ participants: members, results, withdrawnPlayerIds });
       const complete = results.length === groupMatches.length;
+      const qualifiedPlayerIds = new Set(
+        ranking.filter((row) => !row.withdrawn).slice(0, group.qualifyCount).map((row) => row.playerId),
+      );
       return {
         groupLabel: group.label,
         qualifyCount: group.qualifyCount,
@@ -435,7 +470,7 @@ export class TournamentsService {
         rows: ranking.map((row) => ({
           ...row,
           displayName: names.get(row.playerId) ?? "Unbekannter Teilnehmer",
-          qualified: complete && row.position <= group.qualifyCount,
+          qualified: complete && qualifiedPlayerIds.has(row.playerId),
         })),
       };
     });
@@ -479,6 +514,14 @@ export class TournamentsService {
         totalMatches: data.matches.length,
         startsAt: data.tournament.startsAt,
       },
+      participants: data.participants.map((participant) => ({
+        playerId: participant.playerId,
+        displayName: participant.displayName,
+        seed: participant.seed,
+        status: participant.status,
+        withdrawnAt: participant.withdrawnAt,
+        withdrawalReason: participant.withdrawalReason,
+      })),
       boards,
       queue,
       conflicts,
@@ -492,6 +535,7 @@ export class TournamentsService {
           round: match.round,
           position: match.position,
           status: match.status,
+          resultType: match.resultType,
           participantNames: [
             match.participantOneId === null
               ? "Noch offen"
@@ -520,6 +564,7 @@ export class TournamentsService {
         .map((match) => ({
           matchId: match.id,
           stageLabel: match.stageLabel,
+          resultType: match.resultType ?? "PLAYED",
           participantNames: [
             names.get(match.participantOneId ?? "") ?? "Unbekannter Teilnehmer",
             names.get(match.participantTwoId ?? "") ?? "Unbekannter Teilnehmer",
