@@ -93,17 +93,39 @@ Deklaration: `ARG NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1`. Fehlt die
 Variable am `web`-Service, greift beim Build stillschweigend dieser
 Vorgabewert — der Build läuft grün durch, der Healthcheck wird grün, und
 niemand merkt es, bis im Browser jede API-Anfrage scheitert. Deshalb wird am
-gebauten Artefakt geprüft, nicht am Build-Log:
+gebauten Artefakt geprüft, nicht am Build-Log — und zwar an den tatsächlich
+ausgelieferten JavaScript-Chunks, nicht an der HTML-Antwort von `/`.
+`NEXT_PUBLIC_API_URL` steht nicht im HTML von `/`, sondern ausschliesslich in
+den von dort verlinkten Chunk-Dateien unter `/_next/static/chunks/`. Eine
+Prüfung, die nur `curl .../ | grep ...` auf das HTML anwendet, versagt in
+beiden Richtungen: Bei einem korrekten Build meldet sie fälschlich einen
+Fehler, weil die URL erwartungsgemäss gar nicht im HTML steht; bei einem
+kaputten Build mit dem Vorgabewert im Bundle meldet sie fälschlich «in
+Ordnung» — genau der Fall, für den dieser Schritt existiert, bleibt
+unentdeckt. Stattdessen die von `/` verlinkten Chunks selbst laden und dort
+suchen:
 
 ```bash
-curl -s https://app.dartbase.ch/ | grep -o "https://api.dartbase.ch" | head -1
-curl -s https://app.dartbase.ch/ | grep -c "localhost:3001"
+curl -s https://app.dartbase.ch/ | grep -o '/_next/static/chunks/[^"]*\.js' | sort -u \
+  | while read -r c; do curl -s "https://app.dartbase.ch$c"; done | grep -c "localhost:3001"
 ```
 
-Der erste Befehl muss `https://api.dartbase.ch` liefern, der zweite muss `0`
-ergeben. Liefert der zweite Befehl mehr als `0`, steckt im Bundle der
-Vorgabewert statt der echten API-URL, und im Browser scheitert jede
-API-Anfrage. Abhilfe: am `web`-Service in Railway kontrollieren, ob
+**Erwartet: `0`.** Liefert dieser Befehl mehr als `0`, steckt im Bundle der
+Vorgabewert statt der echten API-URL, und im Browser scheitert **jede**
+API-Anfrage — sofort abbrechen, nicht als bekanntes Problem weiterlaufen
+lassen.
+
+```bash
+curl -s https://app.dartbase.ch/ | grep -o '/_next/static/chunks/[^"]*\.js' | sort -u \
+  | while read -r c; do curl -s "https://app.dartbase.ch$c"; done | grep -c "api.dartbase.ch"
+```
+
+**Erwartet: mindestens `1`.** Liefert dieser Befehl `0`, ist die echte
+API-URL nirgends im Bundle nachweisbar — auch dann sofort abbrechen: die
+Abwesenheit von `localhost:3001` allein beweist nicht, dass die richtige URL
+verbaut wurde.
+
+Schlägt eine der beiden Erwartungen fehl: am `web`-Service in Railway kontrollieren, ob
 `NEXT_PUBLIC_API_URL` überhaupt gesetzt ist. `.railway/railway.ts`
 referenziert sie über `context.shared.NEXT_PUBLIC_API_URL` — es lohnt sich
 also der Blick, ob die Shared Variable im Environment `production` existiert
@@ -125,10 +147,13 @@ Postgres-Advisory-Sperre.
    railway ssh --service api
    ```
 
-2. Im Container den Bootstrap-Befehl ausführen:
+2. Im Container den Bootstrap-Befehl mit absolutem Pfad ausführen (`railway
+   ssh` landet im `WORKDIR /app` von `Dockerfile.api`, aber ein relativer
+   Pfad ist trotzdem verzichtbares Risiko, falls die Sitzung je in einem
+   anderen Verzeichnis startet):
 
    ```bash
-   node apps/api/dist/cli/bootstrap-organization.js \
+   node /app/apps/api/dist/cli/bootstrap-organization.js \
      --name "Dart Ost" \
      --slug "dart-ost" \
      --email "<admin-adresse>"
@@ -136,6 +161,34 @@ Postgres-Advisory-Sperre.
 
    Optionale Flags mit Vorgabewert: `--timezone` (`Europe/Zurich`), `--locale`
    (`de-CH`), `--expires-in-days` (`7`).
+
+   > **Sofort danach registrieren.** Die vom Bootstrap erzeugte Einladung
+   > läuft nach `--expires-in-days` (Vorgabewert 7 Tage) ab. Eine neue
+   > Einladung kann nur ein bereits angemeldeter Benutzer erzeugen, und der
+   > Bootstrap-Befehl verweigert jeden weiteren Lauf, sobald irgendeine
+   > Organisation existiert (Schritt 4 unten) — läuft die Einladung vorher
+   > ab, kommt niemand mehr hinein, und der Bootstrap kann das nicht mehr
+   > reparieren. Deshalb unmittelbar nach dem Bootstrap unter
+   > `https://app.dartbase.ch` registrieren. Ist absehbar, dass zwischen
+   > Bootstrap und Registrierung mehr als ein paar Tage liegen (z. B.
+   > Rollout-Planung, Ferienabwesenheit der eingeladenen Person), von Anfang
+   > an `--expires-in-days 30` verwenden.
+   >
+   > **Notfallmassnahme, falls die Einladung trotzdem abgelaufen ist:** Es
+   > gibt keinen anderen Weg zurück als direkten Datenbankzugriff. Über
+   > `railway connect postgres` verbinden und die abgelaufene Einladung
+   > gezielt verlängern:
+   >
+   > ```sql
+   > update organization_invitations
+   > set expires_at = now() + interval '7 days'
+   > where status = 'PENDING';
+   > ```
+   >
+   > Dies ist ein manueller Eingriff ausserhalb der versionierten Migrationen
+   > (Abschnitt 21 von AGENTS.md) und nur für diesen Ausnahmefall gedacht —
+   > nicht für den laufenden Betrieb. Danach sofort mit der eingeladenen
+   > E-Mail-Adresse registrieren.
 
 3. Erfolg zeigt sich an Exit-Code `0` und einer Ausgabe der Form:
 
