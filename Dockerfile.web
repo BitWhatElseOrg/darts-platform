@@ -35,6 +35,9 @@ COPY --from=build --chown=node:node /app /app
 
 USER node
 
-EXPOSE 3000
+# WEB_PORT wird von .railway/railway.ts auf 8080 gesetzt (next start --port
+# ignoriert PORT, siehe Kommentar dort). EXPOSE ist rein dokumentativ und
+# erzwingt keinen Bind-Port, hält ihn hier aber konsistent zur Konfiguration.
+EXPOSE 8080
 
 CMD ["pnpm", "start:web:deploy"]

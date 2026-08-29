@@ -27,6 +27,10 @@ COPY --from=build --chown=node:node /app /app
 
 USER node
 
-EXPOSE 3001
+# PORT wird von .railway/railway.ts auf 8080 gesetzt, damit die als String
+# deklarierte Domain (fest auf Zielport 8080 im SDK) zum tatsächlichen
+# Listen-Port passt. EXPOSE ist rein dokumentativ und erzwingt keinen
+# Bind-Port, hält ihn hier aber konsistent zur Konfiguration.
+EXPOSE 8080
 
 CMD ["node", "scripts/start-api.mjs"]
