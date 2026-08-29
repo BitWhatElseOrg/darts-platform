@@ -214,9 +214,9 @@ export const organizationInvitations = pgTable(
     email: varchar("email", { length: 320 }).notNull(),
     role: varchar("role", { length: 50 }).notNull(),
     status: varchar("status", { length: 30 }).default("PENDING").notNull(),
-    invitedByUserId: uuid("invited_by_user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "restrict" }),
+    invitedByUserId: uuid("invited_by_user_id").references(() => users.id, {
+      onDelete: "restrict",
+    }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     ...timestamps,
   },

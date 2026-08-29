@@ -17,6 +17,7 @@ const connection = createDatabaseConnection(environment.DATABASE_URL);
 const auth = createAuth(connection.database, environment);
 const email = `auth-test-${randomUUID()}@example.test`;
 const uninvitedEmail = `auth-uninvited-${randomUUID()}@example.test`;
+const systemInvitedEmail = `auth-system-${randomUUID()}@example.test`;
 const inviterId = randomUUID();
 const organizationId = randomUUID();
 
@@ -40,6 +41,13 @@ beforeAll(async () => {
     invitedByUserId: inviterId,
     expiresAt: new Date(Date.now() + 60 * 60 * 1_000),
   });
+  await connection.database.insert(organizationInvitations).values({
+    organizationId,
+    email: systemInvitedEmail,
+    role: "ADMIN",
+    invitedByUserId: null,
+    expiresAt: new Date(Date.now() + 60 * 60 * 1_000),
+  });
 });
 
 afterAll(async () => {
@@ -48,7 +56,7 @@ afterAll(async () => {
     .where(eq(organizations.id, organizationId));
   await connection.database
     .delete(users)
-    .where(inArray(users.email, [email, uninvitedEmail]));
+    .where(inArray(users.email, [email, uninvitedEmail, systemInvitedEmail]));
   await connection.database.delete(users).where(eq(users.id, inviterId));
   await connection.close();
 });
@@ -110,5 +118,21 @@ describe("Better Auth integration", () => {
     expect(session).toMatchObject({
       user: { email, name: "Auth Integration" },
     });
+  });
+
+  it("accepts registration against a system invitation without an inviter", async () => {
+    const response = await auth.handler(
+      new Request(`${environment.BETTER_AUTH_URL}/api/v1/auth/sign-up/email`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: systemInvitedEmail,
+          password: "bootstrap-password-123",
+          name: "System Invited Admin",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
   });
 });
