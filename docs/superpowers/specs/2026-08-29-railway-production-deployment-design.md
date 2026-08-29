@@ -126,12 +126,20 @@ dasselbe», sondern verweigert den zweiten Aufruf. Das verhindert, dass ein
 versehentlicher Zweitaufruf gegen eine laufende Produktion eine zweite
 Organisation erzeugt.
 
+Der Slug wird gegen `createOrganizationSchema` validiert
+(`/^[a-z0-9]+(?:-[a-z0-9]+)*$/u`), damit der Befehl keine Organisation erzeugen
+kann, die über die reguläre API nicht anlegbar wäre.
+
 Ausgeführt wird er einmalig über `railway ssh --service api` und dort:
 
 ```bash
 node apps/api/dist/cli/bootstrap-organization.js \
-  --name "..." --slug "..." --email "..."
+  --name "Dart Ost" --slug "dart-ost" --email "<admin-adresse>"
 ```
+
+Die Admin-Adresse wird bewusst nicht in diesem Dokument festgehalten und erst
+beim Ausführen eingegeben, damit keine private E-Mail-Adresse in den
+Git-Verlauf gelangt.
 
 Damit läuft er im Container über das private Netz; die Datenbank muss nicht
 öffentlich exponiert werden.
