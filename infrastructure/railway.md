@@ -176,19 +176,30 @@ Postgres-Advisory-Sperre.
    >
    > **Notfallmassnahme, falls die Einladung trotzdem abgelaufen ist:** Es
    > gibt keinen anderen Weg zurück als direkten Datenbankzugriff. Über
-   > `railway connect postgres` verbinden und die abgelaufene Einladung
-   > gezielt verlängern:
+   > `railway connect postgres` verbinden und gezielt die eine betroffene
+   > Einladung verlängern — nicht alle offenen Einladungen, da
+   > einladungspflichtige Registrierung das einzige Zugangstor ist und ein
+   > zu breites `update` sonst stillschweigend jede fremde offene Einladung
+   > mitverlängert:
    >
    > ```sql
    > update organization_invitations
-   > set expires_at = now() + interval '7 days'
-   > where status = 'PENDING';
+   >    set expires_at = now() + interval '7 days',
+   >        updated_at = now()
+   >  where status = 'PENDING'
+   >    and email = '<admin-adresse>';
    > ```
    >
    > Dies ist ein manueller Eingriff ausserhalb der versionierten Migrationen
    > (Abschnitt 21 von AGENTS.md) und nur für diesen Ausnahmefall gedacht —
-   > nicht für den laufenden Betrieb. Danach sofort mit der eingeladenen
-   > E-Mail-Adresse registrieren.
+   > nicht für den laufenden Betrieb. `updated_at` muss im selben Statement
+   > mitgesetzt werden: `packages/database/src/schema.ts` hinterlegt dafür
+   > nur `defaultNow()`, kein DB-seitiges `onUpdate`, ein manuelles `update`
+   > liesse sonst einen veralteten Zeitstempel stehen. Dieser Eingriff geht
+   > bewusst an der Anwendung vorbei und erzeugt deshalb keinen
+   > `audit_events`-Eintrag — wer ihn ausführt, sollte das anderweitig
+   > festhalten (z. B. Incident-Notiz oder Deployment-Log). Danach sofort mit
+   > der eingeladenen E-Mail-Adresse registrieren.
 
 3. Erfolg zeigt sich an Exit-Code `0` und einer Ausgabe der Form:
 
