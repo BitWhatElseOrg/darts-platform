@@ -54,6 +54,7 @@ async function main(): Promise<number> {
     const result = await createBootstrapOrganization(
       connection.database,
       parsed.data,
+      { enforceExclusivity: true },
     );
 
     process.stdout.write(
@@ -81,7 +82,13 @@ async function main(): Promise<number> {
     );
     return 1;
   } finally {
-    await connection.close();
+    try {
+      await connection.close();
+    } catch (closeError) {
+      process.stderr.write(
+        `Warnung: Datenbankverbindung konnte nicht sauber geschlossen werden: ${closeError instanceof Error ? closeError.message : String(closeError)}\n`,
+      );
+    }
   }
 }
 

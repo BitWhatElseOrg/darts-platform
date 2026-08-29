@@ -11,6 +11,15 @@ import type { BootstrapOrganizationInput } from "@darts-platform/schemas";
 
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
 
+/**
+ * Arbitrary, fixed advisory lock key scoped to the bootstrap flow. Any two
+ * transactions that take this lock are fully serialized against each other
+ * for as long as either holds it, regardless of how many rows are already
+ * in `organizations`. Cast to bigint explicitly so postgres does not infer
+ * an int4 parameter type for the literal.
+ */
+const BOOTSTRAP_ADVISORY_LOCK_KEY = 8_179_302_441;
+
 export class OrganizationAlreadyExistsError extends Error {
   public readonly count: number;
 
@@ -47,11 +56,48 @@ export async function assertNoExistingOrganization(
   }
 }
 
+export interface CreateBootstrapOrganizationOptions {
+  /**
+   * When true, the check for "no organization exists yet" is repeated
+   * inside the same transaction as the insert, guarded by a Postgres
+   * advisory lock. This closes the check-then-act race that exists when
+   * `assertNoExistingOrganization` and this function are called as two
+   * separate, unsynchronized statements: two concurrent bootstrap runs can
+   * both pass the earlier check before either has committed. With this
+   * option, only one concurrent transaction can hold the lock at a time,
+   * and the loser observes the winner's committed row and throws
+   * `OrganizationAlreadyExistsError` instead of inserting a second
+   * organization. Defaults to false so existing callers (and tests that
+   * run against a shared database already containing organizations from
+   * other suites) keep their current behaviour.
+   */
+  readonly enforceExclusivity?: boolean;
+}
+
 export async function createBootstrapOrganization(
   database: Database,
   input: BootstrapOrganizationInput,
+  options: CreateBootstrapOrganizationOptions = {},
 ): Promise<BootstrapOrganizationResult> {
+  const enforceExclusivity = options.enforceExclusivity ?? false;
+
   return database.transaction(async (transaction) => {
+    if (enforceExclusivity) {
+      await transaction.execute(
+        sql`select pg_advisory_xact_lock(${BOOTSTRAP_ADVISORY_LOCK_KEY}::bigint)`,
+      );
+
+      const [existing] = await transaction
+        .select({ count: sql<number>`count(*)::int` })
+        .from(organizations);
+
+      const existingCount = existing?.count ?? 0;
+
+      if (existingCount > 0) {
+        throw new OrganizationAlreadyExistsError(existingCount);
+      }
+    }
+
     const [organization] = await transaction
       .insert(organizations)
       .values({

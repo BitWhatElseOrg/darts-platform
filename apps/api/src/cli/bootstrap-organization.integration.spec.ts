@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
@@ -100,6 +100,71 @@ describe("createBootstrapOrganization", () => {
 
     expect(organization?.timezone).toBe("Europe/Zurich");
     expect(organization?.locale).toBe("de-CH");
+  });
+});
+
+describe("createBootstrapOrganization with enforceExclusivity", () => {
+  it("rejects concurrently racing attempts once an organization exists, inserting none of them", async () => {
+    const sentinel = await createBootstrapOrganization(connection.database, {
+      name: "Sentinel Organization",
+      slug: `bootstrap-sentinel-${randomUUID()}`,
+      email: `bootstrap-${randomUUID()}@example.test`,
+      timezone: "Europe/Zurich",
+      locale: "de-CH",
+      expiresInDays: 7,
+    });
+    createdOrganizationIds.push(sentinel.organizationId);
+
+    const raceSlugA = `bootstrap-race-a-${randomUUID()}`;
+    const raceSlugB = `bootstrap-race-b-${randomUUID()}`;
+
+    const [resultA, resultB] = await Promise.allSettled([
+      createBootstrapOrganization(
+        connection.database,
+        {
+          name: "Race Attempt A",
+          slug: raceSlugA,
+          email: `bootstrap-${randomUUID()}@example.test`,
+          timezone: "Europe/Zurich",
+          locale: "de-CH",
+          expiresInDays: 7,
+        },
+        { enforceExclusivity: true },
+      ),
+      createBootstrapOrganization(
+        connection.database,
+        {
+          name: "Race Attempt B",
+          slug: raceSlugB,
+          email: `bootstrap-${randomUUID()}@example.test`,
+          timezone: "Europe/Zurich",
+          locale: "de-CH",
+          expiresInDays: 7,
+        },
+        { enforceExclusivity: true },
+      ),
+    ]);
+
+    expect(resultA.status).toBe("rejected");
+    expect(resultB.status).toBe("rejected");
+    if (resultA.status === "rejected") {
+      expect(resultA.reason).toBeInstanceOf(OrganizationAlreadyExistsError);
+    }
+    if (resultB.status === "rejected") {
+      expect(resultB.reason).toBeInstanceOf(OrganizationAlreadyExistsError);
+    }
+
+    const raceRows = await connection.database
+      .select()
+      .from(organizations)
+      .where(
+        or(
+          eq(organizations.slug, raceSlugA),
+          eq(organizations.slug, raceSlugB),
+        ),
+      );
+
+    expect(raceRows).toHaveLength(0);
   });
 });
 
