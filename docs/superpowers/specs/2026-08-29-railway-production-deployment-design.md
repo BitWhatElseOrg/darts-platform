@@ -76,15 +76,24 @@ nicht installiert. Es kommt als devDependency in die Wurzel.
 
 - fünfter Service `worker` mit `RAILWAY_DOCKERFILE_PATH=/Dockerfile.worker`,
   `DATABASE_URL` aus dem Postgres-Service, ohne Healthcheck und ohne Ingress
-- `domains: ["app.dartbase.ch"]` am Web-Service
-- `domains: ["api.dartbase.ch"]` am API-Service
+- `domains: [{ domain: "app.dartbase.ch", port: 8080 }]` am Web-Service
+- `domains: [{ domain: "api.dartbase.ch", port: 8080 }]` am API-Service
 - `worker` gehört in die Gruppe `Applications`
 
-Die Domains werden ohne feste Portangabe deklariert. `apps/api/src/main.ts`
-bindet an `PORT ?? API_PORT`, und Railway setzt `PORT` selbst. Ein
-festgeschriebenes `port: 3001` würde am tatsächlichen Listen-Port vorbeirouten.
-`EXPOSE 3001` im Dockerfile bleibt als Dokumentation des lokalen Standardfalls
-erhalten.
+Die Ports werden an beiden Domains **explizit** deklariert, statt sich auf
+einen Vorgabewert zu verlassen. Grund: Das Railway-SDK (`railway@3.11.0`)
+bildet eine als blossen String angegebene Domain (`domains:
+["api.dartbase.ch"]`) intern trotzdem fest auf Zielport 8080 ab — eine
+portlose Variante existiert im SDK nicht (`normalizeNetworking` in
+`node_modules/railway/dist/iac/index.js`). Ausserdem hat `next start --port
+...` (`apps/web/package.json`) Vorrang vor der von Railway injizierten
+Umgebungsvariable `PORT`; ohne ein explizites `WEB_PORT` würde der
+Web-Container dauerhaft auf Port 3000 lauschen, während seine Domain
+unbeirrt auf 8080 routet. Beide Services setzen deshalb `PORT` bzw.
+`WEB_PORT` auf denselben Wert `8080`, den auch die jeweilige Domain trägt.
+`EXPOSE 3001`/`EXPOSE 3000` in den Dockerfiles werden auf `8080`
+nachgezogen, damit sie den tatsächlichen Produktions-Listen-Port
+dokumentieren statt den lokalen Standardfall.
 
 Der Repository-Slug `BitWhatElse/darts-platform` stimmt mit dem Git-Remote
 überein und bleibt unverändert.

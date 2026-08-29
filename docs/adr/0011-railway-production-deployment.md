@@ -38,6 +38,17 @@ selbsterklärenden Entscheidungen fest.
 - **`invited_by_user_id` nullable.** `NULL` modelliert eine vom System
   erzeugte Einladung. Verworfen: ein Pseudo-Benutzer als Einlader, weil er
   dauerhaft und ohne fachlichen Zweck in `users` stünde.
+- **Ports an beiden Domains explizit deklariert.** `api` und `web` setzen in
+  `.railway/railway.ts` `domains: [{ domain: ..., port: 8080 }]` und binden
+  über `PORT`/`WEB_PORT` selbst auf 8080. Verworfen: eine Domain als
+  blosser String (`domains: ["api.dartbase.ch"]`) ohne Portangabe, weil das
+  Railway-SDK (`railway@3.11.0`) eine so angegebene Domain intern trotzdem
+  fest auf Zielport 8080 abbildet — eine portlose Variante existiert im SDK
+  nicht — und weil `next start --port ...` (`apps/web/package.json`) Vorrang
+  vor der von Railway injizierten Umgebungsvariable `PORT` hat. Ohne
+  explizites `WEB_PORT` bliebe der Web-Container für immer auf Port 3000,
+  während seine Domain unbeirrt auf 8080 routet: `app.dartbase.ch` würde mit
+  HTTP 502 antworten.
 
 ## Folgen
 
@@ -58,3 +69,9 @@ selbsterklärenden Entscheidungen fest.
   Prüfkette erfasst. Kein CI-Lauf validiert die Datei; ein Fehler darin fällt
   erst auf, wenn jemand `railway config plan` gegen das echte Projekt ausführt.
   Diese Validierung bleibt ein manueller Schritt vor `railway config apply`.
+  Die Port-/Domain-Fehlklasse oben ist ein Beispiel dafür: Sie ist
+  typkorrekt (`domains` akzeptiert einen blossen String genauso wie ein
+  Objekt mit `port`) und lintkonform — weder `pnpm typecheck` noch `pnpm
+  lint` schlagen an. Nur `railway config plan` (sofern jemand die
+  resultierenden Zielports tatsächlich prüft) und der erste echte Aufruf der
+  Domain nach dem Deployment decken sie auf.

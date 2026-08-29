@@ -747,7 +747,7 @@ git commit -m "feat: add bootstrap organization cli entrypoint"
 
 Zwei Punkte, die beim Schreiben leicht falsch laufen:
 
-Die Domains werden **ohne** Portangabe deklariert. `apps/api/src/main.ts:41` bindet an `PORT ?? API_PORT`, und Railway setzt `PORT` selbst. Ein festes `port: 3001` würde am tatsächlichen Listen-Port vorbeirouten.
+Die Ports werden an beiden Domains **explizit** deklariert, nicht weggelassen. Das Railway-SDK (`railway@3.11.0`, `normalizeNetworking` in `node_modules/railway/dist/iac/index.js`) bildet eine als blossen String angegebene Domain intern trotzdem fest auf Zielport 8080 ab — eine portlose Variante existiert im SDK nicht. Zusätzlich hat `next start --port ...` (`apps/web/package.json:8`) Vorrang vor der von Railway injizierten Umgebungsvariable `PORT`; ohne ein explizites `WEB_PORT` bliebe der Web-Container für immer auf Port 3000, während seine Domain unbeirrt auf 8080 routet, was `app.dartbase.ch` mit HTTP 502 quittiert. Beide Services setzen deshalb `PORT` bzw. `WEB_PORT` auf `8080` und deklarieren ihre Domain als Objekt mit demselben `port: 8080`.
 
 Der Worker braucht **alle** Variablen aus `applicationEnvironmentSchema`, nicht nur `DATABASE_URL`. `apps/worker/src/main.ts:6` ruft `parseApplicationEnvironment(process.env)` auf, und das Schema verlangt `REDIS_URL`, `BETTER_AUTH_SECRET` und `BETTER_AUTH_URL` als Pflichtfelder — auch wenn der Worker sie nie liest. Fehlen sie, wirft der Container beim Start einen `EnvironmentValidationError`.
 
@@ -784,11 +784,12 @@ export default defineRailway((context) => {
     healthcheck: "/api/v1/health",
     healthcheckTimeout: 120,
     replicas: 1,
-    domains: ["api.dartbase.ch"],
+    domains: [{ domain: "api.dartbase.ch", port: 8080 }],
     env: {
       NODE_ENV: "production",
       LOG_LEVEL: "log",
       RAILWAY_DOCKERFILE_PATH: "/Dockerfile.api",
+      PORT: "8080",
       DATABASE_URL: database.env.DATABASE_URL,
       REDIS_URL: cache.env.REDIS_URL,
       BETTER_AUTH_SECRET: context.shared.BETTER_AUTH_SECRET,
@@ -802,10 +803,11 @@ export default defineRailway((context) => {
     healthcheck: "/",
     healthcheckTimeout: 120,
     replicas: 1,
-    domains: ["app.dartbase.ch"],
+    domains: [{ domain: "app.dartbase.ch", port: 8080 }],
     env: {
       NODE_ENV: "production",
       RAILWAY_DOCKERFILE_PATH: "/Dockerfile.web",
+      WEB_PORT: "8080",
       NEXT_PUBLIC_API_URL: context.shared.NEXT_PUBLIC_API_URL,
     },
   });
