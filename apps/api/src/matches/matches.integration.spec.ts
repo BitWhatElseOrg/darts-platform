@@ -59,14 +59,15 @@ describe("persistent X01 match", () => {
     await service.acquireControllerLease({ organizationId, matchId: state.id, controllerId, force: false, auth, audit });
     state = await service.submitVisit({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: state.version, playerId: playerOneId, points: 100, dartsThrown: 3, controllerId }, auth, audit });
 
-    await expect(service.abort({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: state.version, controllerId }, auth: scorerAuth, audit })).rejects.toMatchObject({ status: 403 });
-    await expect(service.abort({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: state.version - 1, controllerId }, auth, audit })).rejects.toMatchObject({ status: 409 });
-    await expect(service.abort({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: state.version, controllerId: randomUUID() }, auth, audit })).rejects.toMatchObject({ status: 409 });
+    await expect(service.abort({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: state.version, controllerId, reason: "Keine Berechtigung" }, auth: scorerAuth, audit })).rejects.toMatchObject({ status: 403 });
+    await expect(service.abort({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: state.version - 1, controllerId, reason: "Veraltete Version" }, auth, audit })).rejects.toMatchObject({ status: 409 });
+    await expect(service.abort({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: state.version, controllerId: randomUUID(), reason: "Falsche Steuerung" }, auth, audit })).rejects.toMatchObject({ status: 409 });
 
     const commandId = randomUUID();
     const input = { organizationId, matchId: state.id, data: { commandId, expectedVersion: state.version, controllerId, reason: "Board neu starten" }, auth, audit };
-    await expect(service.abort(input)).resolves.toEqual({ matchId: state.id, status: "ABORTED", tournamentMatchId: null });
-    await expect(service.abort(input)).resolves.toEqual({ matchId: state.id, status: "ABORTED", tournamentMatchId: null });
+    await expect(Promise.all(Array.from({ length: 4 }, () => service.abort(input)))).resolves.toEqual(
+      Array.from({ length: 4 }, () => ({ matchId: state.id, status: "ABORTED", tournamentMatchId: null })),
+    );
 
     expect(await service.list({ organizationId, auth })).not.toContainEqual(expect.objectContaining({ id: state.id }));
     expect(await databaseService.database.select().from(visits).where(and(eq(visits.organizationId, organizationId), eq(visits.matchId, state.id)))).toHaveLength(0);
@@ -76,7 +77,9 @@ describe("persistent X01 match", () => {
     expect((await databaseService.database.select().from(boards).where(eq(boards.id, boardId)))[0]?.status).toBe("AVAILABLE");
     expect(await databaseService.database.select().from(scoreCommands).where(eq(scoreCommands.commandId, commandId))).toHaveLength(1);
     expect((await databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, state.id), eq(outboxEvents.eventType, "MATCH_ABORTED"))))).toHaveLength(1);
-    expect((await databaseService.database.select().from(auditEvents).where(and(eq(auditEvents.entityId, state.id), eq(auditEvents.action, "MATCH_ABORTED"))))).toHaveLength(1);
+    const abortedAuditEvents = await databaseService.database.select().from(auditEvents).where(and(eq(auditEvents.entityId, state.id), eq(auditEvents.action, "MATCH_ABORTED")));
+    expect(abortedAuditEvents).toHaveLength(1);
+    expect(abortedAuditEvents[0]?.newValue).toMatchObject({ discardedVisitCount: 1 });
   });
 
   it("is idempotent, rejects stale versions, supports undo and completes 501", async () => {

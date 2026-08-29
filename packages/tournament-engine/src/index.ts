@@ -2,6 +2,7 @@ export {
   TournamentValidationError,
   allocateGroups,
   calculateGroupStandings,
+  calculateTournamentLifecycle,
   createTournamentPlan,
   generateKnockoutBracket,
   generateRoundRobin,
@@ -18,6 +19,8 @@ export {
   type TournamentPlan,
   type TournamentPlanInput,
   type TournamentStructurePreview,
+  type TournamentLifecycle,
+  type TournamentLifecycleStage,
   type WithdrawalMatchDecision,
   type WithdrawalMatchSnapshot,
 } from "./tournament.js";

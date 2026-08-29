@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, eq, inArray, isNotNull, notInArray, or } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 
 import {
   auditEvents,
@@ -32,12 +33,14 @@ import type {
   TournamentSummary,
   WithdrawTournamentParticipantInput,
 } from "@darts-platform/schemas";
+import { withdrawTournamentParticipantSchema } from "@darts-platform/schemas";
 
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { DatabaseService } from "../database/database.service.js";
 import { abortScoringMatch } from "../matches/abort-match.js";
 import { resolveCompletedTournamentGroup } from "./resolve-completed-group.js";
+import { updateTournamentProgress } from "./update-tournament-progress.js";
 
 export type TournamentMutationResult =
   | "ok"
@@ -88,6 +91,14 @@ function stageLabel(match: PlannedMatch, groupLabels: ReadonlyMap<string, string
   }
   if (match.stageType === "ROUND_ROBIN") return "Jeder gegen jeden";
   return `K.-o. · Runde ${match.round}`;
+}
+
+function derivedCommandId(parentCommandId: string, aggregateId: string): string {
+  const hex = createHash("sha256").update(`${parentCommandId}:${aggregateId}`).digest("hex").slice(0, 32).split("");
+  hex[12] = "5";
+  hex[16] = "8";
+  const compact = hex.join("");
+  return `${compact.slice(0, 8)}-${compact.slice(8, 12)}-${compact.slice(12, 16)}-${compact.slice(16, 20)}-${compact.slice(20)}`;
 }
 
 @Injectable()
@@ -691,9 +702,19 @@ export class TournamentsRepository {
 
   public withdrawParticipant(input: ActorInput & { readonly data: WithdrawTournamentParticipantInput }): Promise<TournamentMutationResult> {
     return this.databaseService.database.transaction(async (transaction) => {
-      const [duplicate] = await transaction.select({ organizationId: tournamentCommands.organizationId, tournamentId: tournamentCommands.tournamentId }).from(tournamentCommands).where(eq(tournamentCommands.commandId, input.data.commandId)).limit(1);
+      await transaction.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.data.commandId}, 0))`);
+      const [duplicate] = await transaction.select({ organizationId: tournamentCommands.organizationId, tournamentId: tournamentCommands.tournamentId, type: tournamentCommands.type, payload: tournamentCommands.payload }).from(tournamentCommands).where(eq(tournamentCommands.commandId, input.data.commandId)).limit(1);
       if (duplicate !== undefined) {
-        if (duplicate.organizationId === input.organizationId && duplicate.tournamentId === input.tournamentId) return "ok";
+        const payload = withdrawTournamentParticipantSchema.safeParse(duplicate.payload);
+        if (
+          duplicate.organizationId === input.organizationId &&
+          duplicate.tournamentId === input.tournamentId &&
+          duplicate.type === "WITHDRAW_PARTICIPANT" &&
+          payload.success &&
+          payload.data.expectedVersion === input.data.expectedVersion &&
+          payload.data.playerId === input.data.playerId &&
+          payload.data.reason === input.data.reason
+        ) return "ok";
         throw new TournamentValidationError("COMMAND_ID_ALREADY_USED", "The command ID has already been used for another tournament.");
       }
       const [tournament] = await transaction.select().from(tournaments).where(and(eq(tournaments.organizationId, input.organizationId), eq(tournaments.id, input.tournamentId))).for("update").limit(1);
@@ -706,73 +727,93 @@ export class TournamentsRepository {
       const withdrawnAt = new Date();
       await transaction.update(tournamentParticipants).set({ status: "WITHDRAWN", withdrawnAt, withdrawalReason: input.data.reason }).where(and(eq(tournamentParticipants.organizationId, input.organizationId), eq(tournamentParticipants.id, participant.id)));
 
+      // Score submission locks the scoring aggregate before its tournament row; withdrawal
+      // uses the same order so a deciding visit cannot deadlock with this transaction.
+      const scoringLinks = await transaction.select({ scoringMatchId: tournamentMatches.scoringMatchId }).from(tournamentMatches).where(and(
+        eq(tournamentMatches.organizationId, input.organizationId),
+        eq(tournamentMatches.tournamentId, input.tournamentId),
+        eq(tournamentMatches.status, "IN_PROGRESS"),
+      ));
+      const scoringMatchIds = [...new Set(scoringLinks.flatMap((row) => row.scoringMatchId === null ? [] : [row.scoringMatchId]))].sort();
+      const lockedScoringRows = scoringMatchIds.length === 0 ? [] : await transaction.select().from(matches).where(and(
+        eq(matches.organizationId, input.organizationId),
+        inArray(matches.id, scoringMatchIds),
+      )).orderBy(asc(matches.id)).for("update");
       const matchRows = await transaction.select().from(tournamentMatches).where(and(eq(tournamentMatches.organizationId, input.organizationId), eq(tournamentMatches.tournamentId, input.tournamentId))).for("update");
       const withdrawnRows = await transaction.select({ playerId: tournamentParticipants.playerId }).from(tournamentParticipants).where(and(eq(tournamentParticipants.organizationId, input.organizationId), eq(tournamentParticipants.tournamentId, input.tournamentId), eq(tournamentParticipants.status, "WITHDRAWN")));
-      const decisions = resolveTournamentWithdrawals({
-        withdrawnPlayerIds: withdrawnRows.map((row) => row.playerId),
-        matches: matchRows.map((match) => ({ id: match.id, status: match.status as "WAITING" | "READY" | "IN_PROGRESS" | "COMPLETED" | "BYE" | "CANCELLED", participantOneId: match.participantOneId, participantTwoId: match.participantTwoId, sourceOneMatchId: match.sourceOneMatchId, sourceTwoMatchId: match.sourceTwoMatchId, winnerPlayerId: match.winnerPlayerId })),
-      });
-      for (const decision of decisions) {
-        const stored = matchRows.find((match) => match.id === decision.matchId);
-        if (stored === undefined) throw new Error("Withdrawal match invariant violated.");
-        if (stored.status === "IN_PROGRESS" && stored.scoringMatchId !== null) {
-          const [scoring] = await transaction.select().from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, stored.scoringMatchId))).for("update").limit(1);
-          if (scoring === undefined) throw new Error("Withdrawal scoring match invariant violated.");
-          await abortScoringMatch(transaction, { organizationId: input.organizationId, match: scoring, commandId: input.data.commandId, tournamentMatchId: stored.id, reason: input.data.reason, source: "TOURNAMENT_WITHDRAWAL" });
+      const withdrawnPlayerIds = withdrawnRows.map((row) => row.playerId);
+      const withdrawnSet = new Set(withdrawnPlayerIds);
+      const snapshots = (rows: typeof matchRows) => rows.map((match) => ({
+        id: match.id,
+        status: match.status as "WAITING" | "READY" | "IN_PROGRESS" | "COMPLETED" | "BYE" | "CANCELLED",
+        participantOneId: match.participantOneId,
+        participantTwoId: match.participantTwoId,
+        participantOneResolved: match.participantOneId !== null || match.participantOneRef === null,
+        participantTwoResolved: match.participantTwoId !== null || match.participantTwoRef === null,
+        sourceOneMatchId: match.sourceOneMatchId,
+        sourceTwoMatchId: match.sourceTwoMatchId,
+        winnerPlayerId: match.winnerPlayerId,
+      }));
+      let discardedVisitCount = 0;
+      const applyDecisions = async (
+        decisions: ReturnType<typeof resolveTournamentWithdrawals>,
+        storedRows: typeof matchRows,
+      ): Promise<Set<string>> => {
+        const affectedGroupIds = new Set<string>();
+        for (const decision of decisions) {
+          const stored = storedRows.find((match) => match.id === decision.matchId);
+          if (stored === undefined) throw new Error("Withdrawal match invariant violated.");
+          if (stored.groupId !== null) affectedGroupIds.add(stored.groupId);
+          if (stored.status === "IN_PROGRESS" && stored.scoringMatchId !== null) {
+            const targetsWithdrawnPlayer =
+              (stored.participantOneId !== null && withdrawnSet.has(stored.participantOneId)) ||
+              (stored.participantTwoId !== null && withdrawnSet.has(stored.participantTwoId));
+            if (!targetsWithdrawnPlayer || !["COMPLETED", "CANCELLED"].includes(decision.status)) {
+              throw new Error("Withdrawal attempted to abort an unrelated scoring match.");
+            }
+            const scoring = lockedScoringRows.find((match) => match.id === stored.scoringMatchId);
+            if (scoring === undefined) throw new Error("Withdrawal scoring match invariant violated.");
+            const aborted = await abortScoringMatch(transaction, { organizationId: input.organizationId, match: scoring, commandId: derivedCommandId(input.data.commandId, stored.id), tournamentMatchId: stored.id, reason: input.data.reason, source: "TOURNAMENT_WITHDRAWAL" });
+            discardedVisitCount += aborted.discardedVisitCount;
+          }
+          const completed = decision.status === "COMPLETED" || decision.status === "BYE";
+          await transaction.update(tournamentMatches).set({
+            status: decision.status,
+            participantOneId: decision.participantOneId,
+            participantTwoId: decision.participantTwoId,
+            winnerPlayerId: decision.winnerPlayerId,
+            resultType: decision.resultType,
+            ...(stored.status === "IN_PROGRESS" ? { boardId: null, scoringMatchId: null } : {}),
+            completedAt: completed ? withdrawnAt : null,
+            version: stored.version + 1,
+            updatedAt: withdrawnAt,
+          }).where(and(eq(tournamentMatches.organizationId, input.organizationId), eq(tournamentMatches.id, stored.id)));
+          if (decision.resultType === "WALKOVER") {
+            await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Tournament", aggregateId: input.tournamentId, eventType: "TOURNAMENT_MATCH_WALKOVER", payload: { tournamentId: input.tournamentId, tournamentMatchId: stored.id, winnerPlayerId: decision.winnerPlayerId, withdrawnPlayerId: input.data.playerId } });
+          }
         }
-        const completed = decision.status === "COMPLETED" || decision.status === "BYE";
-        await transaction.update(tournamentMatches).set({
-          status: decision.status,
-          participantOneId: decision.participantOneId,
-          participantTwoId: decision.participantTwoId,
-          winnerPlayerId: decision.winnerPlayerId,
-          resultType: decision.resultType,
-          ...(stored.status === "IN_PROGRESS" ? { boardId: null, scoringMatchId: null } : {}),
-          completedAt: completed ? withdrawnAt : null,
-          version: stored.version + 1,
-          updatedAt: withdrawnAt,
-        }).where(and(eq(tournamentMatches.organizationId, input.organizationId), eq(tournamentMatches.id, stored.id)));
-        if (decision.resultType === "WALKOVER") {
-          await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Tournament", aggregateId: input.tournamentId, eventType: "TOURNAMENT_MATCH_WALKOVER", payload: { tournamentId: input.tournamentId, tournamentMatchId: stored.id, winnerPlayerId: decision.winnerPlayerId, withdrawnPlayerId: input.data.playerId } });
-        }
-      }
-      const affectedGroupIds = new Set(
-        decisions.flatMap((decision) => {
-          const groupId = matchRows.find((match) => match.id === decision.matchId)?.groupId;
-          return groupId === null || groupId === undefined ? [] : [groupId];
-        }),
-      );
+        return affectedGroupIds;
+      };
+      const decisions = resolveTournamentWithdrawals({ withdrawnPlayerIds, matches: snapshots(matchRows) });
+      const affectedGroupIds = await applyDecisions(decisions, matchRows);
+      const withdrawnGroupRows = await transaction.select({ groupId: tournamentGroupParticipants.groupId }).from(tournamentGroupParticipants).where(and(
+        eq(tournamentGroupParticipants.organizationId, input.organizationId),
+        eq(tournamentGroupParticipants.tournamentId, input.tournamentId),
+        eq(tournamentGroupParticipants.playerId, input.data.playerId),
+      ));
+      for (const row of withdrawnGroupRows) affectedGroupIds.add(row.groupId);
       for (const groupId of affectedGroupIds) {
         await resolveCompletedTournamentGroup(transaction, input.organizationId, input.tournamentId, groupId);
       }
-      let groupsCompleted = false;
-      if (affectedGroupIds.size > 0) {
-        const [openGroupMatch] = await transaction.select({ id: tournamentMatches.id }).from(tournamentMatches).where(and(
-          eq(tournamentMatches.organizationId, input.organizationId),
-          eq(tournamentMatches.tournamentId, input.tournamentId),
-          isNotNull(tournamentMatches.groupId),
-          notInArray(tournamentMatches.status, ["COMPLETED", "BYE", "CANCELLED"]),
-        )).limit(1);
-        groupsCompleted = openGroupMatch === undefined;
-        if (groupsCompleted) {
-          await transaction.update(tournamentStages).set({ status: "COMPLETED", updatedAt: withdrawnAt }).where(and(
-            eq(tournamentStages.organizationId, input.organizationId),
-            eq(tournamentStages.tournamentId, input.tournamentId),
-            eq(tournamentStages.type, "GROUP"),
-          ));
-          await transaction.update(tournamentStages).set({ status: "OPEN", updatedAt: withdrawnAt }).where(and(
-            eq(tournamentStages.organizationId, input.organizationId),
-            eq(tournamentStages.tournamentId, input.tournamentId),
-            eq(tournamentStages.type, "SINGLE_ELIMINATION"),
-          ));
-        }
-      }
-      const [openMatch] = await transaction.select({ id: tournamentMatches.id }).from(tournamentMatches).where(and(eq(tournamentMatches.organizationId, input.organizationId), eq(tournamentMatches.tournamentId, input.tournamentId), notInArray(tournamentMatches.status, ["COMPLETED", "BYE", "CANCELLED"]))).limit(1);
+      const refreshedMatchRows = await transaction.select().from(tournamentMatches).where(and(eq(tournamentMatches.organizationId, input.organizationId), eq(tournamentMatches.tournamentId, input.tournamentId))).for("update");
+      const automaticDecisions = resolveTournamentWithdrawals({ withdrawnPlayerIds, matches: snapshots(refreshedMatchRows) });
+      await applyDecisions(automaticDecisions, refreshedMatchRows);
+      await updateTournamentProgress(transaction, input.organizationId, input.tournamentId, withdrawnAt);
       const nextVersion = tournament.version + 1;
-      await transaction.update(tournaments).set({ version: nextVersion, ...(openMatch === undefined ? { status: "COMPLETED" } : groupsCompleted ? { status: "KNOCKOUT" } : {}), updatedAt: withdrawnAt }).where(and(eq(tournaments.organizationId, input.organizationId), eq(tournaments.id, input.tournamentId)));
+      await transaction.update(tournaments).set({ version: nextVersion, updatedAt: withdrawnAt }).where(and(eq(tournaments.organizationId, input.organizationId), eq(tournaments.id, input.tournamentId)));
       await transaction.insert(tournamentCommands).values({ commandId: input.data.commandId, organizationId: input.organizationId, tournamentId: input.tournamentId, type: "WITHDRAW_PARTICIPANT", payload: input.data, resultingVersion: nextVersion });
       await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Tournament", aggregateId: input.tournamentId, eventType: "TOURNAMENT_PARTICIPANT_WITHDRAWN", payload: { tournamentId: input.tournamentId, playerId: input.data.playerId, version: nextVersion } });
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: "TOURNAMENT_PARTICIPANT_WITHDRAWN", entityType: "TournamentParticipant", entityId: participant.id, oldValue: participant, newValue: { status: "WITHDRAWN", withdrawnAt, withdrawalReason: input.data.reason }, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: "TOURNAMENT_PARTICIPANT_WITHDRAWN", entityType: "TournamentParticipant", entityId: participant.id, oldValue: participant, newValue: { status: "WITHDRAWN", withdrawnAt, withdrawalReason: input.data.reason, discardedVisitCount }, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
       return "ok";
     });
   }

@@ -13,6 +13,7 @@ import {
   players,
   tournamentMatches,
   tournamentParticipants,
+  tournamentStages,
   users,
   visits,
 } from "@darts-platform/database";
@@ -154,8 +155,11 @@ describe("persistent tournament MVP", () => {
 
     const commandId = randomUUID();
     const withdrawal = { organizationId, tournamentId: created.id, data: { commandId, expectedVersion: dashboard.tournament.version, playerId: ready.participants[0].playerId, reason: "Verletzung" }, auth, audit };
-    dashboard = await service.withdrawParticipant(withdrawal);
-    const duplicate = await service.withdrawParticipant(withdrawal);
+    const [firstWithdrawal, duplicate] = await Promise.all([
+      service.withdrawParticipant(withdrawal),
+      service.withdrawParticipant(withdrawal),
+    ]);
+    dashboard = firstWithdrawal;
     expect(duplicate.tournament.version).toBe(dashboard.tournament.version);
     expect(dashboard.participants.find((entry) => entry.playerId === ready.participants[0].playerId)).toMatchObject({ status: "WITHDRAWN", withdrawalReason: "Verletzung" });
     expect(dashboard.recentResults.find((entry) => entry.matchId === ready.matchId)?.resultType).toBe("WALKOVER");
@@ -170,6 +174,205 @@ describe("persistent tournament MVP", () => {
     expect((await databaseService.database.select().from(matches).where(eq(matches.id, scoring.id)))[0]?.status).toBe("ABORTED");
     expect(await databaseService.database.select().from(visits).where(eq(visits.matchId, scoring.id))).toHaveLength(0);
     expect((await databaseService.database.select().from(boards).where(eq(boards.id, boardIds[0])))[0]?.status).toBe("AVAILABLE");
+
+    const publicDashboard = await service.publicDashboard(created.id);
+    const publicParticipant = publicDashboard.participants.find((entry) => entry.playerId === ready.participants[0].playerId);
+    expect(publicParticipant).toMatchObject({ status: "WITHDRAWN" });
+    expect(publicParticipant).not.toHaveProperty("withdrawnAt");
+    expect(publicParticipant).not.toHaveProperty("withdrawalReason");
+  });
+
+  it("resolves vacant group qualification slots as byes and completes every stage", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Vacant Qualifier Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T14:00:00.000Z"),
+        format: "GROUPS_THEN_KNOCKOUT",
+        startingScore: 501,
+        doubleOut: true,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 2,
+        qualifyPerGroup: 1,
+        knockoutSize: 2,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    let dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    const [emptyGroup, survivingGroup] = dashboard.groups;
+    if (emptyGroup === undefined || survivingGroup === undefined) throw new Error("Expected two groups.");
+
+    for (const playerId of emptyGroup.rows.map((row) => row.playerId)) {
+      dashboard = await service.withdrawParticipant({
+        organizationId,
+        tournamentId: created.id,
+        data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, playerId, reason: "Nicht mehr spielfähig" },
+        auth,
+        audit,
+      });
+    }
+    dashboard = await service.withdrawParticipant({
+      organizationId,
+      tournamentId: created.id,
+      data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, playerId: survivingGroup.rows[0]?.playerId ?? "", reason: "Nicht mehr spielfähig" },
+      auth,
+      audit,
+    });
+
+    const survivorId = survivingGroup.rows[1]?.playerId;
+    expect(survivorId).toBeDefined();
+    expect(dashboard.tournament.status).toBe("COMPLETED");
+    expect(dashboard.bracket).toContainEqual(expect.objectContaining({
+      status: "BYE",
+      resultType: "BYE",
+      winnerDisplayName: survivingGroup.rows[1]?.displayName,
+    }));
+    const stages = await databaseService.database.select().from(tournamentStages).where(and(
+      eq(tournamentStages.organizationId, organizationId),
+      eq(tournamentStages.tournamentId, created.id),
+    ));
+    expect(stages.every((stage) => stage.status === "COMPLETED")).toBe(true);
+
+    await expect(service.withdrawParticipant({
+      organizationId,
+      tournamentId: created.id,
+      data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, playerId: survivorId ?? "", reason: "Nachträglicher Ausfall" },
+      auth,
+      audit,
+    })).rejects.toMatchObject({ response: { code: "TOURNAMENT_ALREADY_COMPLETED" }, status: 409 });
+  });
+
+  it("closes a knockout stage when a withdrawal decides its final", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Final Walkover Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T15:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        doubleOut: true,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds.slice(0, 2),
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 2,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    const finalist = dashboard.participants[0];
+    if (finalist === undefined) throw new Error("Expected a finalist.");
+    const completed = await service.withdrawParticipant({
+      organizationId,
+      tournamentId: created.id,
+      data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, playerId: finalist.playerId, reason: "Verletzung" },
+      auth,
+      audit,
+    });
+    expect(completed.tournament.status).toBe("COMPLETED");
+    const [stage] = await databaseService.database.select().from(tournamentStages).where(and(
+      eq(tournamentStages.organizationId, organizationId),
+      eq(tournamentStages.tournamentId, created.id),
+    ));
+    expect(stage?.status).toBe("COMPLETED");
+  });
+
+  it("applies a prior withdrawal when a later result resolves the dependent final", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Delayed Walkover Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T16:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        doubleOut: true,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    let dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    const semifinals = dashboard.queue.filter((entry) => entry.readiness === "READY").slice(0, 2);
+    const firstSemifinal = semifinals[0];
+    const secondSemifinal = semifinals[1];
+    if (firstSemifinal === undefined || secondSemifinal === undefined) throw new Error("Expected two semifinals.");
+    dashboard = await service.assign({
+      organizationId,
+      tournamentId: created.id,
+      data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, matchId: firstSemifinal.matchId, boardId: boardIds[0] },
+      auth,
+      audit,
+    });
+    dashboard = await service.assign({
+      organizationId,
+      tournamentId: created.id,
+      data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, matchId: secondSemifinal.matchId, boardId: boardIds[1] },
+      auth,
+      audit,
+    });
+
+    const completeScoringMatch = async (tournamentMatchId: string): Promise<string> => {
+      const [scheduled] = await databaseService.database.select().from(tournamentMatches).where(eq(tournamentMatches.id, tournamentMatchId));
+      if (scheduled?.scoringMatchId === null || scheduled?.scoringMatchId === undefined) throw new Error("Expected linked scoring match.");
+      let scoring = await matchesService.get({ organizationId, matchId: scheduled.scoringMatchId, auth });
+      const winnerPlayerId = scoring.currentPlayerId;
+      if (winnerPlayerId === null) throw new Error("Expected starting player.");
+      for (const points of [180, 0, 180, 0] as const) {
+        if (scoring.currentPlayerId === null) throw new Error("Expected active player.");
+        scoring = await matchesService.submitVisit({
+          organizationId,
+          matchId: scoring.id,
+          data: { commandId: randomUUID(), expectedVersion: scoring.version, playerId: scoring.currentPlayerId, points, dartsThrown: 3 },
+          auth,
+          audit,
+        });
+      }
+      scoring = await matchesService.submitVisit({
+        organizationId,
+        matchId: scoring.id,
+        data: { commandId: randomUUID(), expectedVersion: scoring.version, playerId: winnerPlayerId, points: 141, dartsThrown: 3, checkoutDouble: 12 },
+        auth,
+        audit,
+      });
+      expect(scoring.status).toBe("COMPLETED");
+      return winnerPlayerId;
+    };
+
+    const withdrawnWinnerId = await completeScoringMatch(firstSemifinal.matchId);
+    dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    dashboard = await service.withdrawParticipant({
+      organizationId,
+      tournamentId: created.id,
+      data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, playerId: withdrawnWinnerId, reason: "Verletzung nach dem Halbfinal" },
+      auth,
+      audit,
+    });
+    expect(dashboard.bracket.find((match) => match.round === 2)?.status).toBe("WAITING");
+
+    const activeWinnerId = await completeScoringMatch(secondSemifinal.matchId);
+    dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    expect(dashboard.bracket.find((match) => match.round === 2)).toMatchObject({
+      status: "COMPLETED",
+      resultType: "WALKOVER",
+      winnerDisplayName: dashboard.participants.find((participant) => participant.playerId === activeWinnerId)?.displayName,
+    });
+    expect(dashboard.tournament.status).toBe("COMPLETED");
   });
 
   it("creates a tenant-safe plan, assigns idempotently and synchronizes a completed match", async () => {

@@ -19,7 +19,7 @@ export const submitVisitSchema = z.object({
 export const undoVisitSchema = z.object({ commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), controllerId: z.uuid().optional() });
 export const abortMatchSchema = z.object({
   commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), controllerId: z.uuid().optional(),
-  reason: z.string().trim().max(500).optional(),
+  reason: z.string().trim().min(3).max(500),
 });
 export const abortMatchResponseSchema = z.object({ matchId: z.uuid(), status: z.literal("ABORTED"), tournamentMatchId: z.uuid().nullable() });
 export const boardControllerLeaseRequestSchema = z.object({ controllerId: z.uuid(), force: z.boolean().default(false) });

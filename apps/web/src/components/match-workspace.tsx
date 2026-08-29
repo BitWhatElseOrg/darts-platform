@@ -97,7 +97,12 @@ function Scoreboard({ organizationId, match, canAbort, canScore }: { readonly or
   const replayingRef = useRef(false);
   const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
   const scope = `match:${organizationId}:${match.id}`;
-  const refresh = useCallback(async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ["matches", organizationId] }), queryClient.invalidateQueries({ queryKey: ["boards", organizationId] })]); }, [organizationId, queryClient]);
+  const refresh = useCallback(async () => { await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["matches", organizationId] }),
+    queryClient.invalidateQueries({ queryKey: ["boards", organizationId] }),
+    queryClient.invalidateQueries({ queryKey: ["tournament-dashboard", organizationId] }),
+    queryClient.invalidateQueries({ queryKey: ["tournaments", organizationId] }),
+  ]); }, [organizationId, queryClient]);
   const refreshQueue = useCallback(async () => setQueued(await listOfflineCommands(scope)), [scope]);
   useEffect(() => {
     let active = true;
@@ -193,6 +198,7 @@ function Scoreboard({ organizationId, match, canAbort, canScore }: { readonly or
     }),
     onSuccess: async () => {
       await removeOfflineCommandsForScope(scope);
+      setQueued([]);
       setAbortOpen(false);
       await refresh();
     },
@@ -247,7 +253,7 @@ function Scoreboard({ organizationId, match, canAbort, canScore }: { readonly or
         pending={submit.isPending}
         points={Number(points)}
       />
-      <AbortMatchDialog error={abort.isError ? mutationMessage(abort.error) : null} onCancel={() => { abort.reset(); setAbortOpen(false); }} onSubmit={(reason) => abort.mutate(reason)} open={abortOpen} pending={abort.isPending} />
+      <AbortMatchDialog error={abort.isError ? mutationMessage(abort.error) : null} onCancel={() => { abort.reset(); setAbortOpen(false); }} onSubmit={(reason) => abort.mutate(reason)} open={abortOpen} pending={abort.isPending} queuedCount={queued.length} />
       <div className="border-t border-slate-800 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h4 className="text-sm font-semibold text-slate-200">Letzte Aufnahmen</h4>
@@ -263,12 +269,13 @@ function Scoreboard({ organizationId, match, canAbort, canScore }: { readonly or
   );
 }
 
-function AbortMatchDialog({ error, onCancel, onSubmit, open, pending }: {
+function AbortMatchDialog({ error, onCancel, onSubmit, open, pending, queuedCount }: {
   readonly error: string | null;
   readonly onCancel: () => void;
   readonly onSubmit: (reason: string) => void;
   readonly open: boolean;
   readonly pending: boolean;
+  readonly queuedCount: number;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [reason, setReason] = useState("");
@@ -290,7 +297,7 @@ function AbortMatchDialog({ error, onCancel, onSubmit, open, pending }: {
       <form className="space-y-5 p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); onSubmit(reason.trim()); }}>
         <div>
           <h4 className="text-xl font-semibold" id="abort-match-title">Match abbrechen</h4>
-          <p className="mt-2 text-sm leading-6 text-slate-300" id="abort-match-description">Alle Aufnahmen, Legs und noch nicht übertragenen Eingaben dieses Matches werden unwiderruflich verworfen. Das Board wird freigegeben; eine Turnierpaarung wechselt zurück auf READY.</p>
+          <p className="mt-2 text-sm leading-6 text-slate-300" id="abort-match-description">Alle Aufnahmen und Legs dieses Matches werden unwiderruflich verworfen. {queuedCount} lokal gespeicherte {queuedCount === 1 ? "Aufnahme wird" : "Aufnahmen werden"} verworfen. Das Board wird freigegeben; eine Turnierpaarung wechselt zurück auf READY.</p>
         </div>
         <label className="block space-y-2 text-sm font-semibold text-slate-200">
           <span>Abbruchgrund</span>

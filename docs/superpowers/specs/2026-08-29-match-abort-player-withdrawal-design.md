@@ -1,7 +1,7 @@
 # Technischer Match-Abbruch und Spielerausfall
 
-**Datum:** 29. August 2026  
-**Status:** fachlich freigegeben  
+**Datum:** 29. August 2026
+**Status:** fachlich freigegeben
 **Geltungsbereich:** laufende X01-Matches, Turniersteuerung und lokale Entwicklungsdaten
 
 ## Ziel

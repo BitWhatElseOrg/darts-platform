@@ -113,6 +113,7 @@ test("a club can complete a match and start a generated tournament match", async
   await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("401");
   await page.getByRole("button", { name: "Match abbrechen" }).click();
   const abortDialog = page.getByRole("dialog", { name: "Match abbrechen" });
+  await expect(abortDialog).toContainText("0 lokal gespeicherte Aufnahmen werden verworfen");
   await abortDialog.getByLabel("Abbruchgrund").fill("Board versehentlich falsch zugewiesen");
   await abortDialog.getByRole("button", { name: "Match endgültig abbrechen" }).click();
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toHaveCount(0);
@@ -238,4 +239,9 @@ test("a club can complete a match and start a generated tournament match", async
   await withdrawalDialog.getByRole("button", { name: "Ausfall bestätigen" }).click();
   await expect(page.getByText("E2E Player One · Ausgefallen")).toBeVisible();
   await expect(page.getByText(/gewinnt kampflos/u).first()).toBeVisible();
+
+  const tournamentId = new URL(tournamentUrl).pathname.split("/").at(-1);
+  if (tournamentId === undefined) throw new Error("Expected tournament ID in dashboard URL.");
+  await page.goto(`/live/${tournamentId}`);
+  await expect(page.getByText("E2E Player One · Ausgefallen")).toBeVisible();
 });

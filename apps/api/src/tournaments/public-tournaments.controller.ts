@@ -1,5 +1,5 @@
 import { Controller, Get, Inject, Param, ParseUUIDPipe } from "@nestjs/common";
-import type { TournamentDashboard } from "@darts-platform/schemas";
+import type { PublicTournamentDashboard } from "@darts-platform/schemas";
 
 import { Public } from "../auth/public.decorator.js";
 import { TournamentsService } from "./tournaments.service.js";
@@ -12,7 +12,7 @@ export class PublicTournamentsController {
   @Get(":tournamentId/live")
   public live(
     @Param("tournamentId", ParseUUIDPipe) tournamentId: string,
-  ): Promise<TournamentDashboard> {
+  ): Promise<PublicTournamentDashboard> {
     return this.service.publicDashboard(tournamentId);
   }
 }

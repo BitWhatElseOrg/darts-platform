@@ -77,6 +77,50 @@ export interface TournamentStructurePreview {
   readonly warnings: readonly string[];
 }
 
+export interface TournamentLifecycleStage {
+  readonly id: string;
+  readonly type: "GROUP" | "ROUND_ROBIN" | "SINGLE_ELIMINATION";
+  readonly hasOpenMatches: boolean;
+}
+
+export interface TournamentLifecycle {
+  readonly tournamentStatus: "GROUP_STAGE" | "KNOCKOUT" | "COMPLETED";
+  readonly stages: readonly {
+    readonly id: string;
+    readonly status: "OPEN" | "WAITING" | "COMPLETED";
+  }[];
+}
+
+export function calculateTournamentLifecycle(input: {
+  readonly format: "GROUPS_THEN_KNOCKOUT" | "ROUND_ROBIN" | "SINGLE_ELIMINATION";
+  readonly stages: readonly TournamentLifecycleStage[];
+}): TournamentLifecycle {
+  const hasOpenMatches = input.stages.some((stage) => stage.hasOpenMatches);
+  const groupsHaveOpenMatches = input.stages.some(
+    (stage) => stage.type === "GROUP" && stage.hasOpenMatches,
+  );
+  const tournamentStatus = !hasOpenMatches
+    ? "COMPLETED"
+    : input.format === "SINGLE_ELIMINATION" ||
+        (input.format === "GROUPS_THEN_KNOCKOUT" && !groupsHaveOpenMatches)
+      ? "KNOCKOUT"
+      : "GROUP_STAGE";
+
+  return {
+    tournamentStatus,
+    stages: input.stages.map((stage) => ({
+      id: stage.id,
+      status: !stage.hasOpenMatches
+        ? "COMPLETED"
+        : input.format === "GROUPS_THEN_KNOCKOUT" &&
+            stage.type === "SINGLE_ELIMINATION" &&
+            groupsHaveOpenMatches
+          ? "WAITING"
+          : "OPEN",
+    })),
+  };
+}
+
 export type GroupMatchResult =
   | {
       readonly type: "PLAYED";
@@ -116,6 +160,8 @@ export interface WithdrawalMatchSnapshot {
   readonly sourceOneMatchId: string | null;
   readonly sourceTwoMatchId: string | null;
   readonly winnerPlayerId: string | null;
+  readonly participantOneResolved?: boolean;
+  readonly participantTwoResolved?: boolean;
 }
 
 export interface WithdrawalMatchDecision {
@@ -555,11 +601,18 @@ export function resolveTournamentWithdrawals(input: {
       const secondSource = match.sourceTwoMatchId === null ? null : matches.get(match.sourceTwoMatchId);
       const participantOneId = match.participantOneId ?? firstSource?.winnerPlayerId ?? null;
       const participantTwoId = match.participantTwoId ?? secondSource?.winnerPlayerId ?? null;
+      const firstResolved = participantOneId !== null || match.participantOneResolved === true || (firstSource !== null && firstSource !== undefined && ["COMPLETED", "BYE", "CANCELLED"].includes(firstSource.status));
+      const secondResolved = participantTwoId !== null || match.participantTwoResolved === true || (secondSource !== null && secondSource !== undefined && ["COMPLETED", "BYE", "CANCELLED"].includes(secondSource.status));
+      if (
+        match.status === "IN_PROGRESS" &&
+        !withdrawn.has(participantOneId ?? "") &&
+        !withdrawn.has(participantTwoId ?? "")
+      ) continue;
       let status: WithdrawalMatchDecision["status"] = match.status === "IN_PROGRESS" ? "READY" : match.status;
       let winnerPlayerId: string | null = null;
       let resultType: WithdrawalMatchDecision["resultType"] = null;
 
-      if (participantOneId !== null && participantTwoId !== null) {
+      if (firstResolved && secondResolved && participantOneId !== null && participantTwoId !== null) {
         const firstWithdrawn = withdrawn.has(participantOneId);
         const secondWithdrawn = withdrawn.has(participantTwoId);
         if (firstWithdrawn && secondWithdrawn) {
@@ -570,6 +623,15 @@ export function resolveTournamentWithdrawals(input: {
           resultType = "WALKOVER";
         } else if (status === "WAITING") {
           status = "READY";
+        }
+      } else if (firstResolved && secondResolved) {
+        const remainingPlayerId = participantOneId ?? participantTwoId;
+        if (remainingPlayerId === null || withdrawn.has(remainingPlayerId)) {
+          status = "CANCELLED";
+        } else {
+          status = "BYE";
+          winnerPlayerId = remainingPlayerId;
+          resultType = "BYE";
         }
       }
 

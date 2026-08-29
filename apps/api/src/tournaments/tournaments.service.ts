@@ -16,6 +16,7 @@ import {
   type GroupMatchResult,
 } from "@darts-platform/tournament-engine";
 import {
+  publicTournamentDashboardSchema,
   tournamentDashboardSchema,
   advancedFormatPreviewSchema,
   tournamentListSchema,
@@ -28,6 +29,7 @@ import {
   type CreateTournamentInput,
   type GroupStanding,
   type MatchStateResponse,
+  type PublicTournamentDashboard,
   type ReleaseBoardInput,
   type TournamentDashboard,
   type TournamentStructurePreview,
@@ -156,10 +158,19 @@ export class TournamentsService {
     return this.projectDashboard(data);
   }
 
-  public async publicDashboard(tournamentId: string): Promise<TournamentDashboard> {
+  public async publicDashboard(tournamentId: string): Promise<PublicTournamentDashboard> {
     const data = await this.repository.getPublicDashboardData(tournamentId);
     if (data === null) throw new NotFoundException("Turnier nicht gefunden.");
-    return this.projectDashboard(data);
+    const dashboard = await this.projectDashboard(data);
+    return publicTournamentDashboardSchema.parse({
+      ...dashboard,
+      participants: dashboard.participants.map((participant) => ({
+        playerId: participant.playerId,
+        displayName: participant.displayName,
+        seed: participant.seed,
+        status: participant.status,
+      })),
+    });
   }
 
   public async assign(input: {

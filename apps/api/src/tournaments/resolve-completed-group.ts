@@ -89,22 +89,36 @@ export async function resolveCompletedTournamentGroup(
     eq(tournamentMatches.status, "WAITING"),
   )).for("update");
 
-  for (const [index, standing] of qualifiers.entries()) {
+  for (const index of Array.from({ length: group.qualifyCount }, (_, rankIndex) => rankIndex)) {
+    const standing = qualifiers[index];
     for (const knockoutMatch of knockoutMatches) {
       const firstReference = groupRankReferenceSchema.safeParse(knockoutMatch.participantOneRef);
       const secondReference = groupRankReferenceSchema.safeParse(knockoutMatch.participantTwoRef);
       const rank = index + 1;
-      const participantOneId = firstReference.success && firstReference.data.groupKey === group.key && firstReference.data.rank === rank ? standing.playerId : knockoutMatch.participantOneId;
-      const participantTwoId = secondReference.success && secondReference.data.groupKey === group.key && secondReference.data.rank === rank ? standing.playerId : knockoutMatch.participantTwoId;
-      if (participantOneId === knockoutMatch.participantOneId && participantTwoId === knockoutMatch.participantTwoId) continue;
+      const resolvesFirst = firstReference.success && firstReference.data.groupKey === group.key && firstReference.data.rank === rank;
+      const resolvesSecond = secondReference.success && secondReference.data.groupKey === group.key && secondReference.data.rank === rank;
+      const participantOneId = resolvesFirst ? (standing?.playerId ?? null) : knockoutMatch.participantOneId;
+      const participantTwoId = resolvesSecond ? (standing?.playerId ?? null) : knockoutMatch.participantTwoId;
+      const participantOneRef = resolvesFirst && standing === undefined ? null : knockoutMatch.participantOneRef;
+      const participantTwoRef = resolvesSecond && standing === undefined ? null : knockoutMatch.participantTwoRef;
+      if (
+        participantOneId === knockoutMatch.participantOneId &&
+        participantTwoId === knockoutMatch.participantTwoId &&
+        participantOneRef === knockoutMatch.participantOneRef &&
+        participantTwoRef === knockoutMatch.participantTwoRef
+      ) continue;
       await transaction.update(tournamentMatches).set({
         participantOneId,
         participantTwoId,
+        participantOneRef,
+        participantTwoRef,
         status: participantOneId !== null && participantTwoId !== null ? "READY" : knockoutMatch.status,
         updatedAt: new Date(),
       }).where(and(eq(tournamentMatches.organizationId, organizationId), eq(tournamentMatches.id, knockoutMatch.id)));
       knockoutMatch.participantOneId = participantOneId;
       knockoutMatch.participantTwoId = participantTwoId;
+      knockoutMatch.participantOneRef = participantOneRef;
+      knockoutMatch.participantTwoRef = participantTwoRef;
     }
   }
 }

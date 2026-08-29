@@ -586,7 +586,7 @@ export const tournamentParticipants = pgTable(
     check("tournament_participants_status_check", sql`${table.status} in ('ACTIVE', 'WITHDRAWN')`),
     check(
       "tournament_participants_withdrawal_check",
-      sql`(${table.status} = 'ACTIVE' and ${table.withdrawnAt} is null and ${table.withdrawalReason} is null) or (${table.status} = 'WITHDRAWN' and ${table.withdrawnAt} is not null and length(trim(${table.withdrawalReason})) between 3 and 500)`,
+      sql`(${table.status} = 'ACTIVE' and ${table.withdrawnAt} is null and ${table.withdrawalReason} is null) or (${table.status} = 'WITHDRAWN' and ${table.withdrawnAt} is not null and ${table.withdrawalReason} is not null and length(trim(${table.withdrawalReason})) between 3 and 500)`,
     ),
   ],
 );
@@ -779,7 +779,7 @@ export const tournamentMatches = pgTable(
     check("tournament_matches_result_type_check", sql`${table.resultType} is null or ${table.resultType} in ('PLAYED', 'BYE', 'WALKOVER')`),
     check(
       "tournament_matches_result_type_consistency",
-      sql`(${table.status} = 'COMPLETED' and ${table.resultType} in ('PLAYED', 'WALKOVER')) or (${table.status} = 'BYE' and ${table.resultType} = 'BYE') or (${table.status} not in ('COMPLETED', 'BYE') and ${table.resultType} is null)`,
+      sql`(${table.status} = 'COMPLETED' and ${table.resultType} is not null and ${table.resultType} in ('PLAYED', 'WALKOVER')) or (${table.status} = 'BYE' and ${table.resultType} is not null and ${table.resultType} = 'BYE') or (${table.status} not in ('COMPLETED', 'BYE') and ${table.resultType} is null)`,
     ),
     check(
       "tournament_matches_participants_different",

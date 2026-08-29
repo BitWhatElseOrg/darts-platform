@@ -24,4 +24,13 @@ describe("abort match contract", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("requires a meaningful abort reason", () => {
+    expect(
+      abortMatchSchema.safeParse({
+        commandId: randomUUID(),
+        expectedVersion: 0,
+      }).success,
+    ).toBe(false);
+  });
 });

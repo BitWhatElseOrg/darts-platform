@@ -4,6 +4,7 @@ import {
   TournamentValidationError,
   allocateGroups,
   calculateGroupStandings,
+  calculateTournamentLifecycle,
   createTournamentPlan,
   generateKnockoutBracket,
   generateRoundRobin,
@@ -16,6 +17,34 @@ const participants = (count: number) =>
     playerId: `player-${index + 1}`,
     seed: index + 1,
   }));
+
+describe("tournament lifecycle", () => {
+  it("completes a knockout stage and tournament after its final terminal result", () => {
+    expect(calculateTournamentLifecycle({
+      format: "SINGLE_ELIMINATION",
+      stages: [{ id: "knockout", type: "SINGLE_ELIMINATION", hasOpenMatches: false }],
+    })).toEqual({
+      tournamentStatus: "COMPLETED",
+      stages: [{ id: "knockout", status: "COMPLETED" }],
+    });
+  });
+
+  it("opens knockout only after every group match is terminal", () => {
+    expect(calculateTournamentLifecycle({
+      format: "GROUPS_THEN_KNOCKOUT",
+      stages: [
+        { id: "groups", type: "GROUP", hasOpenMatches: false },
+        { id: "knockout", type: "SINGLE_ELIMINATION", hasOpenMatches: true },
+      ],
+    })).toEqual({
+      tournamentStatus: "KNOCKOUT",
+      stages: [
+        { id: "groups", status: "COMPLETED" },
+        { id: "knockout", status: "OPEN" },
+      ],
+    });
+  });
+});
 
 describe("round robin", () => {
   it("generates every pairing once for an even player count", () => {
@@ -181,6 +210,28 @@ describe("group ranking", () => {
 });
 
 describe("withdrawal progression", () => {
+  it("leaves an unrelated active match untouched", () => {
+    expect(resolveTournamentWithdrawals({ withdrawnPlayerIds: ["p2"], matches: [
+      { id: "affected", status: "READY", participantOneId: "p1", participantTwoId: "p2", sourceOneMatchId: null, sourceTwoMatchId: null, winnerPlayerId: null },
+      { id: "unrelated", status: "IN_PROGRESS", participantOneId: "p3", participantTwoId: "p4", sourceOneMatchId: null, sourceTwoMatchId: null, winnerPlayerId: null },
+    ] })).toEqual([
+      { matchId: "affected", status: "COMPLETED", participantOneId: "p1", participantTwoId: "p2", winnerPlayerId: "p1", resultType: "WALKOVER" },
+    ]);
+  });
+
+  it("turns a fully resolved vacant slot into a bye and propagates its winner", () => {
+    const matches = [
+      { id: "semi", status: "WAITING" as const, participantOneId: "p1", participantTwoId: null, participantOneResolved: true, participantTwoResolved: true, sourceOneMatchId: null, sourceTwoMatchId: null, winnerPlayerId: null },
+      { id: "other-semi", status: "COMPLETED" as const, participantOneId: "p2", participantTwoId: "p3", participantOneResolved: true, participantTwoResolved: true, sourceOneMatchId: null, sourceTwoMatchId: null, winnerPlayerId: "p2" },
+      { id: "final", status: "WAITING" as const, participantOneId: null, participantTwoId: null, participantOneResolved: false, participantTwoResolved: false, sourceOneMatchId: "semi", sourceTwoMatchId: "other-semi", winnerPlayerId: null },
+    ];
+
+    expect(resolveTournamentWithdrawals({ withdrawnPlayerIds: [], matches })).toEqual([
+      { matchId: "semi", status: "BYE", participantOneId: "p1", participantTwoId: null, winnerPlayerId: "p1", resultType: "BYE" },
+      { matchId: "final", status: "READY", participantOneId: "p1", participantTwoId: "p2", winnerPlayerId: null, resultType: null },
+    ]);
+  });
+
   it("awards a ready match to the active opponent", () => {
     expect(resolveTournamentWithdrawals({ withdrawnPlayerIds: ["p2"], matches: [
       { id: "semi", status: "READY", participantOneId: "p1", participantTwoId: "p2", sourceOneMatchId: null, sourceTwoMatchId: null, winnerPlayerId: null },

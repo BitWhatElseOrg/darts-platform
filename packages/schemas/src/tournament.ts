@@ -153,6 +153,15 @@ export const bracketMatchSchema = z.object({
   winnerDisplayName: z.string().nullable(),
 });
 
+const tournamentDashboardParticipantSchema = z.object({
+  playerId: z.uuid(),
+  displayName: z.string(),
+  seed: z.number().int().positive(),
+  status: tournamentParticipantStatusSchema,
+  withdrawnAt: z.coerce.date().nullable(),
+  withdrawalReason: z.string().nullable(),
+});
+
 export const tournamentDashboardSchema = z.object({
   tournament: z.object({
     id: z.uuid(),
@@ -168,14 +177,7 @@ export const tournamentDashboardSchema = z.object({
     totalMatches: z.number().int().nonnegative(),
     startsAt: z.coerce.date(),
   }),
-  participants: z.array(z.object({
-    playerId: z.uuid(),
-    displayName: z.string(),
-    seed: z.number().int().positive(),
-    status: tournamentParticipantStatusSchema,
-    withdrawnAt: z.coerce.date().nullable(),
-    withdrawalReason: z.string().nullable(),
-  })),
+  participants: z.array(tournamentDashboardParticipantSchema),
   boards: z.array(boardSlotSchema),
   queue: z.array(queueEntrySchema),
   conflicts: z.array(tournamentConflictSchema),
@@ -183,6 +185,13 @@ export const tournamentDashboardSchema = z.object({
   bracket: z.array(bracketMatchSchema),
   recentResults: z.array(tournamentResultSchema),
   generatedAt: z.coerce.date(),
+});
+
+export const publicTournamentDashboardSchema = tournamentDashboardSchema.extend({
+  participants: z.array(tournamentDashboardParticipantSchema.omit({
+    withdrawnAt: true,
+    withdrawalReason: true,
+  })),
 });
 
 export const tournamentStructurePreviewSchema = z.object({
@@ -356,6 +365,7 @@ export type GroupStanding = z.infer<typeof groupStandingSchema>;
 export type GroupStandingRow = z.infer<typeof groupStandingRowSchema>;
 export type TournamentResult = z.infer<typeof tournamentResultSchema>;
 export type TournamentDashboard = z.infer<typeof tournamentDashboardSchema>;
+export type PublicTournamentDashboard = z.infer<typeof publicTournamentDashboardSchema>;
 export type TournamentStructurePreview = z.infer<typeof tournamentStructurePreviewSchema>;
 export type TournamentStructurePreviewInput = z.infer<
   typeof tournamentStructurePreviewInputSchema
