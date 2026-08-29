@@ -317,7 +317,7 @@ export const matches = pgTable(
   (table) => [
     index("matches_organization_status_idx").on(table.organizationId, table.status),
     index("matches_board_id_idx").on(table.boardId),
-    check("matches_status_check", sql`${table.status} in ('IN_PROGRESS', 'COMPLETED')`),
+    check("matches_status_check", sql`${table.status} in ('IN_PROGRESS', 'COMPLETED', 'ABORTED')`),
     check("matches_starting_score_check", sql`${table.startingScore} >= 2`),
     check("matches_best_of_legs_check", sql`${table.bestOfLegs} > 0 and mod(${table.bestOfLegs}, 2) = 1`),
     check("matches_legs_to_win_set_check", sql`${table.legsToWinSet} > 0`),
@@ -455,7 +455,7 @@ export const scoreCommands = pgTable(
   },
   (table) => [
     index("score_commands_organization_match_idx").on(table.organizationId, table.matchId),
-    check("score_commands_type_check", sql`${table.type} in ('SUBMIT_VISIT', 'UNDO_LAST_VISIT')`),
+    check("score_commands_type_check", sql`${table.type} in ('SUBMIT_VISIT', 'UNDO_LAST_VISIT', 'ABORT_MATCH')`),
     check("score_commands_version_check", sql`${table.resultingVersion} >= 0`),
   ],
 );
@@ -567,6 +567,9 @@ export const tournamentParticipants = pgTable(
       .notNull()
       .references(() => players.id, { onDelete: "restrict" }),
     seed: integer("seed").notNull(),
+    status: varchar("status", { length: 20 }).default("ACTIVE").notNull(),
+    withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
+    withdrawalReason: text("withdrawal_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
@@ -580,6 +583,11 @@ export const tournamentParticipants = pgTable(
     ),
     index("tournament_participants_organization_idx").on(table.organizationId),
     check("tournament_participants_seed_check", sql`${table.seed} > 0`),
+    check("tournament_participants_status_check", sql`${table.status} in ('ACTIVE', 'WITHDRAWN')`),
+    check(
+      "tournament_participants_withdrawal_check",
+      sql`(${table.status} = 'ACTIVE' and ${table.withdrawnAt} is null and ${table.withdrawalReason} is null) or (${table.status} = 'WITHDRAWN' and ${table.withdrawnAt} is not null and length(trim(${table.withdrawalReason})) between 3 and 500)`,
+    ),
   ],
 );
 
@@ -743,6 +751,7 @@ export const tournamentMatches = pgTable(
     winnerPlayerId: uuid("winner_player_id").references(() => players.id, {
       onDelete: "restrict",
     }),
+    resultType: varchar("result_type", { length: 20 }),
     version: integer("version").default(0).notNull(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     ...timestamps,
@@ -766,6 +775,11 @@ export const tournamentMatches = pgTable(
     check(
       "tournament_matches_status_check",
       sql`${table.status} in ('WAITING', 'READY', 'IN_PROGRESS', 'COMPLETED', 'BYE', 'CANCELLED')`,
+    ),
+    check("tournament_matches_result_type_check", sql`${table.resultType} is null or ${table.resultType} in ('PLAYED', 'BYE', 'WALKOVER')`),
+    check(
+      "tournament_matches_result_type_consistency",
+      sql`(${table.status} = 'COMPLETED' and ${table.resultType} in ('PLAYED', 'WALKOVER')) or (${table.status} = 'BYE' and ${table.resultType} = 'BYE') or (${table.status} not in ('COMPLETED', 'BYE') and ${table.resultType} is null)`,
     ),
     check(
       "tournament_matches_participants_different",
@@ -796,7 +810,7 @@ export const tournamentCommands = pgTable(
     ),
     check(
       "tournament_commands_type_check",
-      sql`${table.type} in ('ASSIGN_MATCH', 'RELEASE_BOARD', 'RESULT_CORRECTION')`,
+      sql`${table.type} in ('ASSIGN_MATCH', 'RELEASE_BOARD', 'RESULT_CORRECTION', 'WITHDRAW_PARTICIPANT')`,
     ),
     check("tournament_commands_version_check", sql`${table.resultingVersion} >= 0`),
   ],

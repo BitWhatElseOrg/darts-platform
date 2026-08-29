@@ -17,9 +17,9 @@ export {
 } from "./advanced-tournament";
 export { boardListSchema, boardSchema, boardStatusSchema, createBoardSchema, type BoardResponse, type CreateBoardInput } from "./board";
 export {
-  boardControllerLeaseRequestSchema, boardControllerLeaseSchema, createMatchSchema, matchListSchema, matchStateSchema, matchStatusSchema, matchVisitSchema,
+  abortMatchResponseSchema, abortMatchSchema, boardControllerLeaseRequestSchema, boardControllerLeaseSchema, createMatchSchema, matchListSchema, matchStateSchema, matchStatusSchema, matchVisitSchema,
   submitVisitSchema, undoVisitSchema, visitOutcomeSchema,
-  type BoardControllerLeaseRequest, type BoardControllerLeaseResponse, type CreateMatchInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput,
+  type AbortMatchInput, type AbortMatchResponse, type BoardControllerLeaseRequest, type BoardControllerLeaseResponse, type CreateMatchInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput,
 } from "./match";
 export {
   createInvitationSchema,
@@ -53,11 +53,14 @@ export {
   tournamentDashboardSchema,
   tournamentFormatSchema,
   tournamentListSchema,
+  tournamentMatchResultTypeSchema,
+  tournamentParticipantStatusSchema,
   tournamentResultSchema,
   tournamentStatusSchema,
   tournamentStructurePreviewSchema,
   tournamentStructurePreviewInputSchema,
   tournamentSummarySchema,
+  withdrawTournamentParticipantSchema,
   type AssignMatchInput,
   type BoardSlot,
   type BoardSlotMatch,
@@ -75,11 +78,14 @@ export {
   type TournamentConflict,
   type TournamentDashboard,
   type TournamentFormat,
+  type TournamentMatchResultType,
+  type TournamentParticipantStatus,
   type TournamentResult,
   type TournamentStatus,
   type TournamentStructurePreview,
   type TournamentStructurePreviewInput,
   type TournamentSummary,
+  type WithdrawTournamentParticipantInput,
 } from "./tournament";
 export {
   createPlayerSchema,

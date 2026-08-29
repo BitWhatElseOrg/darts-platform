@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createTournamentSchema } from "./tournament";
+import { createTournamentSchema, withdrawTournamentParticipantSchema } from "./tournament";
 
 const id = (index: number) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
 const valid = {
@@ -52,5 +52,24 @@ describe("create tournament contract", () => {
         knockoutSize: 32,
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("withdraw tournament participant contract", () => {
+  it("accepts a versioned withdrawal with a meaningful reason", () => {
+    expect(
+      withdrawTournamentParticipantSchema.parse({
+        commandId: id(201),
+        expectedVersion: 4,
+        playerId: id(202),
+        reason: "  Verletzung  ",
+      }),
+    ).toMatchObject({ expectedVersion: 4, reason: "Verletzung" });
+  });
+
+  it("rejects reasons outside the 3 to 500 character boundary", () => {
+    const base = { commandId: id(201), expectedVersion: 4, playerId: id(202) };
+    expect(withdrawTournamentParticipantSchema.safeParse({ ...base, reason: "ab" }).success).toBe(false);
+    expect(withdrawTournamentParticipantSchema.safeParse({ ...base, reason: "x".repeat(501) }).success).toBe(false);
   });
 });
