@@ -17,8 +17,12 @@ const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1_000;
  * for as long as either holds it, regardless of how many rows are already
  * in `organizations`. Cast to bigint explicitly so postgres does not infer
  * an int4 parameter type for the literal.
+ *
+ * Exported only so integration tests can take the exact same lock from a
+ * second session to prove `createBootstrapOrganization` actually contends
+ * on it; production code never needs to reference this outside this file.
  */
-const BOOTSTRAP_ADVISORY_LOCK_KEY = 8_179_302_441;
+export const BOOTSTRAP_ADVISORY_LOCK_KEY = 8_179_302_441;
 
 export class OrganizationAlreadyExistsError extends Error {
   public readonly count: number;
@@ -58,18 +62,22 @@ export async function assertNoExistingOrganization(
 
 export interface CreateBootstrapOrganizationOptions {
   /**
-   * When true, the check for "no organization exists yet" is repeated
-   * inside the same transaction as the insert, guarded by a Postgres
-   * advisory lock. This closes the check-then-act race that exists when
-   * `assertNoExistingOrganization` and this function are called as two
-   * separate, unsynchronized statements: two concurrent bootstrap runs can
-   * both pass the earlier check before either has committed. With this
-   * option, only one concurrent transaction can hold the lock at a time,
-   * and the loser observes the winner's committed row and throws
-   * `OrganizationAlreadyExistsError` instead of inserting a second
-   * organization. Defaults to false so existing callers (and tests that
-   * run against a shared database already containing organizations from
-   * other suites) keep their current behaviour.
+   * When true (the default), the check for "no organization exists yet"
+   * is repeated inside the same transaction as the insert, guarded by a
+   * Postgres advisory lock. This closes the check-then-act race that
+   * exists when `assertNoExistingOrganization` and this function are
+   * called as two separate, unsynchronized statements: two concurrent
+   * bootstrap runs can both pass the earlier check before either has
+   * committed. With this option enabled, only one concurrent transaction
+   * can hold the lock at a time, and the loser observes the winner's
+   * committed row and throws `OrganizationAlreadyExistsError` instead of
+   * inserting a second organization.
+   *
+   * Defaults to true: safe-by-default, so a caller that forgets to pass
+   * this option still gets the race-safe path. Set explicitly to false
+   * only where that is truly intended, e.g. integration tests that run
+   * against a shared database already containing organizations from
+   * other suites and want the pre-existing, unsynchronized behaviour.
    */
   readonly enforceExclusivity?: boolean;
 }
@@ -79,7 +87,7 @@ export async function createBootstrapOrganization(
   input: BootstrapOrganizationInput,
   options: CreateBootstrapOrganizationOptions = {},
 ): Promise<BootstrapOrganizationResult> {
-  const enforceExclusivity = options.enforceExclusivity ?? false;
+  const enforceExclusivity = options.enforceExclusivity ?? true;
 
   return database.transaction(async (transaction) => {
     if (enforceExclusivity) {

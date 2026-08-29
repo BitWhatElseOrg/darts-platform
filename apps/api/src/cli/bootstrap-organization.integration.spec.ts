@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
@@ -13,6 +13,7 @@ import { bootstrapOrganizationSchema } from "@darts-platform/schemas";
 
 import {
   assertNoExistingOrganization,
+  BOOTSTRAP_ADVISORY_LOCK_KEY,
   createBootstrapOrganization,
   OrganizationAlreadyExistsError,
 } from "./bootstrap-organization.service.js";
@@ -36,14 +37,22 @@ describe("createBootstrapOrganization", () => {
     const slug = `bootstrap-${randomUUID()}`;
     const email = `bootstrap-${randomUUID()}@example.test`;
 
-    const result = await createBootstrapOrganization(connection.database, {
-      name: "Bootstrap Test Organization",
-      slug,
-      email,
-      timezone: "Europe/Zurich",
-      locale: "de-CH",
-      expiresInDays: 7,
-    });
+    // enforceExclusivity: false — this suite runs against a shared database
+    // that already contains organizations from other suites; the default
+    // (safe) path would correctly refuse here, which is not what this test
+    // is checking. The race-safe default is covered separately below.
+    const result = await createBootstrapOrganization(
+      connection.database,
+      {
+        name: "Bootstrap Test Organization",
+        slug,
+        email,
+        timezone: "Europe/Zurich",
+        locale: "de-CH",
+        expiresInDays: 7,
+      },
+      { enforceExclusivity: false },
+    );
     createdOrganizationIds.push(result.organizationId);
 
     expect(result.slug).toBe(slug);
@@ -85,9 +94,11 @@ describe("createBootstrapOrganization", () => {
       email: `${local}@example.test`.toUpperCase(),
     });
 
+    // enforceExclusivity: false — same reason as the test above.
     const result = await createBootstrapOrganization(
       connection.database,
       parsed,
+      { enforceExclusivity: false },
     );
     createdOrganizationIds.push(result.organizationId);
 
@@ -103,16 +114,32 @@ describe("createBootstrapOrganization", () => {
   });
 });
 
-describe("createBootstrapOrganization with enforceExclusivity", () => {
-  it("rejects concurrently racing attempts once an organization exists, inserting none of them", async () => {
-    const sentinel = await createBootstrapOrganization(connection.database, {
-      name: "Sentinel Organization",
-      slug: `bootstrap-sentinel-${randomUUID()}`,
-      email: `bootstrap-${randomUUID()}@example.test`,
-      timezone: "Europe/Zurich",
-      locale: "de-CH",
-      expiresInDays: 7,
-    });
+describe("createBootstrapOrganization race protection (enforceExclusivity)", () => {
+  // NOTE on coverage: this test seeds a sentinel organization before racing,
+  // so both concurrent attempts see count > 0 as soon as they check — a
+  // plain, lock-free count check would refuse here too. It does NOT prove
+  // that the advisory lock itself is what prevents the race in the harder
+  // case (two attempts starting from zero organizations, exactly one must
+  // win). That from-empty case cannot be exercised here: this suite runs
+  // against a shared database that other suites also write to and is never
+  // actually empty, and deleting their rows to force an empty table is not
+  // an option. What this test does verify: with an organization already
+  // present, concurrent enforceExclusivity attempts are both rejected and
+  // neither inserts a row. The test below this one proves the lock itself
+  // is taken, independent of how many organizations already exist.
+  it("rejects concurrent attempts when an organization already exists, inserting neither", async () => {
+    const sentinel = await createBootstrapOrganization(
+      connection.database,
+      {
+        name: "Sentinel Organization",
+        slug: `bootstrap-sentinel-${randomUUID()}`,
+        email: `bootstrap-${randomUUID()}@example.test`,
+        timezone: "Europe/Zurich",
+        locale: "de-CH",
+        expiresInDays: 7,
+      },
+      { enforceExclusivity: false },
+    );
     createdOrganizationIds.push(sentinel.organizationId);
 
     const raceSlugA = `bootstrap-race-a-${randomUUID()}`;
@@ -165,6 +192,73 @@ describe("createBootstrapOrganization with enforceExclusivity", () => {
       );
 
     expect(raceRows).toHaveLength(0);
+  });
+
+  // This test proves the lock mechanism itself, independent of the coverage
+  // gap noted above. A first session takes BOOTSTRAP_ADVISORY_LOCK_KEY by
+  // hand and holds it open. A second, genuinely separate session (its own
+  // postgres connection, not just a concurrent call on the same pool) has
+  // its Postgres `lock_timeout` set to 200ms and then calls the real
+  // createBootstrapOrganization with enforceExclusivity: true. If that
+  // function did not take this exact advisory lock, the call would not
+  // contend with the held lock at all and would proceed straight to the
+  // count check. Because it does contend, Postgres itself cancels the
+  // waiting statement once 200ms of waiting elapses, deterministically —
+  // this is a server-enforced timeout, not a client-side race on wall-clock
+  // timing, so it is not flaky under load. Removing the pg_advisory_xact_lock
+  // call from the implementation would make this test hang and then fail
+  // with a different error (or succeed outright), not silently stay green.
+  it("blocks a concurrent enforceExclusivity call on the exact advisory lock it takes internally", async () => {
+    let markHolderReady: () => void = () => {};
+    const holderHasLock = new Promise<void>((resolve) => {
+      markHolderReady = resolve;
+    });
+    let requestRelease: () => void = () => {};
+    const releaseRequested = new Promise<void>((resolve) => {
+      requestRelease = resolve;
+    });
+
+    const holderTransaction = connection.database.transaction(async (tx) => {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(${BOOTSTRAP_ADVISORY_LOCK_KEY}::bigint)`,
+      );
+      markHolderReady();
+      await releaseRequested;
+    });
+
+    await holderHasLock;
+
+    const contenderUrl = new URL(environment.DATABASE_URL);
+    contenderUrl.searchParams.set("lock_timeout", "200");
+    const contender = createDatabaseConnection(contenderUrl.toString());
+
+    try {
+      // drizzle wraps the underlying postgres error in a DrizzleQueryError
+      // whose own .message is a generic "Failed query: ..."; the specific
+      // "canceling statement due to lock timeout" (Postgres code 55P03)
+      // lives on .cause, which is what actually proves Postgres cancelled
+      // the statement because it was waiting on the held lock.
+      await expect(
+        createBootstrapOrganization(
+          contender.database,
+          {
+            name: "Should Never Be Created",
+            slug: `bootstrap-lock-${randomUUID()}`,
+            email: `bootstrap-${randomUUID()}@example.test`,
+            timezone: "Europe/Zurich",
+            locale: "de-CH",
+            expiresInDays: 7,
+          },
+          { enforceExclusivity: true },
+        ),
+      ).rejects.toMatchObject({
+        cause: { message: expect.stringMatching(/lock timeout/iu) },
+      });
+    } finally {
+      requestRelease();
+      await holderTransaction;
+      await contender.close();
+    }
   });
 });
 
