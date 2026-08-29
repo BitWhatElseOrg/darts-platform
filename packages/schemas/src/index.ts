@@ -22,6 +22,7 @@ export {
   type BoardControllerLeaseRequest, type BoardControllerLeaseResponse, type CreateMatchInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput,
 } from "./match";
 export {
+  bootstrapOrganizationSchema,
   createInvitationSchema,
   createOrganizationSchema,
   invitationListSchema,
@@ -30,6 +31,7 @@ export {
   organizationListSchema,
   organizationRoleSchema,
   organizationSummarySchema,
+  type BootstrapOrganizationInput,
   type CreateInvitationInput,
   type CreateOrganizationInput,
   type Invitation,

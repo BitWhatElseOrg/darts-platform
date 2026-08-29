@@ -29,6 +29,11 @@ export const createOrganizationSchema = z.object({
   locale: z.string().trim().min(2).max(35).default("de-CH"),
 });
 
+export const bootstrapOrganizationSchema = createOrganizationSchema.extend({
+  email: z.email().trim().toLowerCase(),
+  expiresInDays: z.coerce.number().int().min(1).max(90).default(7),
+});
+
 export const organizationSummarySchema = z.object({
   id: z.uuid(),
   name: z.string(),
@@ -58,6 +63,9 @@ export const invitationSchema = z.object({
 export const invitationListSchema = z.array(invitationSchema);
 
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
+export type BootstrapOrganizationInput = z.infer<
+  typeof bootstrapOrganizationSchema
+>;
 export type OrganizationSummary = z.infer<typeof organizationSummarySchema>;
 export type CreateInvitationInput = z.infer<typeof createInvitationSchema>;
 export type Invitation = z.infer<typeof invitationSchema>;
