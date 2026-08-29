@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { ScoringValidationError } from "@darts-platform/scoring-engine";
-import { boardControllerLeaseSchema, matchListSchema, matchStateSchema, type BoardControllerLeaseResponse, type CreateMatchInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput } from "@darts-platform/schemas";
+import { abortMatchResponseSchema, boardControllerLeaseSchema, matchListSchema, matchStateSchema, type AbortMatchInput, type AbortMatchResponse, type BoardControllerLeaseResponse, type CreateMatchInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
@@ -53,6 +53,23 @@ export class MatchesService {
     return this.mutate(input, () => this.repository.undo(input));
   }
 
+  public async abort(input: { readonly organizationId: string; readonly matchId: string; readonly data: AbortMatchInput; readonly auth: AuthContext; readonly audit: AuditContext }): Promise<AbortMatchResponse> {
+    await this.require(input, "match:abort");
+    try {
+      const result = await this.repository.abort(input);
+      if (result === "not-found") throw new NotFoundException("Match not found.");
+      if (result === "version-conflict" || result === "controller-conflict") {
+        const state = await this.repository.getState(input.organizationId, input.matchId);
+        if (state === null) throw new NotFoundException("Match not found.");
+        if (result === "version-conflict") throw new MatchVersionConflictException(state);
+        throw new ConflictException({ code: "BOARD_CONTROLLER_CONFLICT", message: "Ein anderes Gerät steuert dieses Board.", details: { currentState: state } });
+      }
+      return abortMatchResponseSchema.parse(result);
+    } catch (error) {
+      this.rethrowDomainError(error);
+    }
+  }
+
   public async acquireControllerLease(input: { readonly organizationId: string; readonly matchId: string; readonly controllerId: string; readonly force: boolean; readonly auth: AuthContext; readonly audit: AuditContext }): Promise<BoardControllerLeaseResponse> {
     await this.require(input, "match:score");
     const lease = await this.repository.acquireControllerLease(input);
@@ -75,7 +92,7 @@ export class MatchesService {
     }
   }
 
-  private async require(input: { readonly organizationId: string; readonly auth: AuthContext }, permission: "match:read" | "match:create" | "match:score" | "match:undo"): Promise<void> {
+  private async require(input: { readonly organizationId: string; readonly auth: AuthContext }, permission: "match:read" | "match:create" | "match:score" | "match:undo" | "match:abort"): Promise<void> {
     await this.access.requirePermission({ organizationId: input.organizationId, userId: input.auth.user.id, permission });
   }
 
