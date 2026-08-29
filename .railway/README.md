@@ -4,6 +4,7 @@ Die Datei [`railway.ts`](./railway.ts) beschreibt die produktive Phase-0-Infrast
 
 - Web-Service
 - API-Service mit Readiness-Healthcheck
+- Worker-Service für asynchrone Statistikaggregate
 - PostgreSQL
 - Redis
 - service-spezifische Dockerfiles
