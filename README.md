@@ -165,6 +165,7 @@ Alle Phasen und Exit-Kriterien sind in der [Roadmap](./ROADMAP.md) beschrieben.
 | `pnpm infra:logs` | Infrastruktur-Logs verfolgen |
 | `pnpm db:generate` | Drizzle-Migration aus Schemaänderungen erzeugen |
 | `pnpm db:migrate` | versionierte Migrationen anwenden |
+| `pnpm db:seed:dev` | lokale Demo-Daten idempotent ergänzen |
 | `pnpm lint` | ESLint für das gesamte Monorepo ausführen |
 | `pnpm typecheck` | TypeScript-Prüfung aller Workspaces ausführen |
 | `pnpm test` | Unit- und Integrationstests ausführen |
@@ -193,6 +194,17 @@ pnpm test:e2e
 ```
 
 Falls Port `5432` lokal bereits belegt ist, kann `POSTGRES_PORT` in der ignorierten `.env` angepasst werden; `DATABASE_URL` muss denselben Hostport verwenden.
+
+### Lokale Demo-Daten
+
+Nach `pnpm infra:up` und `pnpm db:migrate` ergänzt `pnpm db:seed:dev` eine Demo-Organisation mit 32 fiktiven Spielern, acht Boards, zwei abgeschlossenen Turnieren und einem laufenden 32er-Turnier. Der Befehl ist idempotent und löscht oder ersetzt keine bestehenden lokalen Daten.
+
+```text
+E-Mail: demo@dart-ost.local
+Passwort: DartOstDemo2026!
+```
+
+Der Seed verweigert Production und standardmässig jede nicht-lokale PostgreSQL-Adresse. Für bewusst isolierte Remote-Entwicklungsdatenbanken ist zusätzlich `ALLOW_REMOTE_DEV_SEED=true` erforderlich.
 
 ## Qualitätsanforderungen
 

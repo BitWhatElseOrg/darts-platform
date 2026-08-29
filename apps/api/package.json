@@ -7,6 +7,7 @@
     "dev": "tsx watch src/main.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
+    "seed:dev": "tsx src/development/seed-development.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
