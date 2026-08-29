@@ -15,7 +15,7 @@ Phase 6 implementierten Ausschnitt. Verbindliche technische Quelle sind
 
 ## Implementierter Stand Phase 0–6
 
-Die Migrationen `0000` bis `0009` enthalten heute Identity und Tenancy,
+Die Migrationen `0000` bis `0010` enthalten heute Identity und Tenancy,
 Scoring, den Tournament-MVP, erweiterte Matchregeln, Offline-/Controller-Daten
 und Statistikaggregate. Dazu gehören insbesondere:
 
@@ -116,11 +116,16 @@ organization_id uuid FK organizations NOT NULL
 email varchar NOT NULL
 role varchar NOT NULL
 status varchar NOT NULL DEFAULT 'PENDING'
-invited_by_user_id uuid FK users NOT NULL
+invited_by_user_id uuid FK users NULL
 expires_at timestamptz NOT NULL
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
 ```
+
+`invited_by_user_id` ist seit Migration `0010` nullable (`ON DELETE
+RESTRICT`, wo gesetzt). `NULL` bedeutet: die Einladung wurde vom System
+erzeugt (z. B. durch den Bootstrap-Befehl), nicht durch einen anderen
+Benutzer — kein fehlender oder fehlerhafter Wert.
 
 Zulässige Rollen:
 
