@@ -33,20 +33,20 @@ er `player_statistic_aggregates` füllt.
 | Environments | ausschliesslich `production` |
 | Erstzugang | CLI-Bootstrap-Befehl im Repository |
 | Statistik-Worker | wird mit deployt |
-| Domains | eigene Domain, zwei Subdomains |
+| Domains | `app.dartbase.ch` und `api.dartbase.ch` |
 | Umfang | Live-Betrieb plus Betriebsabsicherung |
 | `invited_by_user_id` | Migration macht die Spalte nullable |
 
-Offen: Der Domainname ist noch nicht gewählt. `<domain>` steht in diesem
-Dokument als Platzhalter und muss festgelegt sein, bevor `.railway/railway.ts`
-angepasst wird — die Domain fliesst in vier Shared Variables und in zwei
-Service-Definitionen ein.
+`dartbase.ch` ist bei cyon registriert. Beide Hosts sind Subdomains und werden
+über gewöhnliche CNAME-Einträge angebunden. Der Apex `dartbase.ch` bleibt
+vorerst unbelegt; ein CNAME ist dort nicht zulässig, und ob cyon ALIAS, ANAME
+oder eine URL-Weiterleitung anbietet, ist ungeprüft.
 
 ## Zielarchitektur
 
 ```text
-app.<domain>   -> web     (Dockerfile.web,    Healthcheck /)
-api.<domain>   -> api     (Dockerfile.api,    Healthcheck /api/v1/health, 1 Replica)
+app.dartbase.ch   -> web     (Dockerfile.web,    Healthcheck /)
+api.dartbase.ch   -> api     (Dockerfile.api,    Healthcheck /api/v1/health, 1 Replica)
                   +-- postgres  (PITR aktiviert)
                   +-- redis
                   worker  (Dockerfile.worker, kein Ingress)
@@ -54,7 +54,7 @@ api.<domain>   -> api     (Dockerfile.api,    Healthcheck /api/v1/health, 1 Repl
 
 Beide öffentlichen Hosts liegen unter derselben registrierbaren Domain. Damit
 bleibt `SameSite=Lax` gültig, `auth.factory.ts` wird nicht angefasst und
-Socket.IO verbindet direkt gegen `api.<domain>`.
+Socket.IO verbindet direkt gegen `api.dartbase.ch`.
 
 Die API läuft bewusst mit einer Replik. `scripts/start-api.mjs` führt vor jedem
 Start die Drizzle-Migrationen aus; parallele Startvorgänge würden gleichzeitig
@@ -76,8 +76,8 @@ nicht installiert. Es kommt als devDependency in die Wurzel.
 
 - fünfter Service `worker` mit `RAILWAY_DOCKERFILE_PATH=/Dockerfile.worker`,
   `DATABASE_URL` aus dem Postgres-Service, ohne Healthcheck und ohne Ingress
-- `domains: ["app.<domain>"]` am Web-Service
-- `domains: ["api.<domain>"]` am API-Service
+- `domains: ["app.dartbase.ch"]` am Web-Service
+- `domains: ["api.dartbase.ch"]` am API-Service
 - `worker` gehört in die Gruppe `Applications`
 
 Die Domains werden ohne feste Portangabe deklariert. `apps/api/src/main.ts`
@@ -155,23 +155,22 @@ als expliziter Befehl statt als Startlogik umgesetzt ist.
 
 ## Inbetriebnahme
 
-1. Domain registrieren.
-2. Railway-Projekt anlegen, `railway login`, `railway link`.
-3. Shared Variables im Environment `production` setzen:
+1. Railway-Projekt anlegen, `railway login`, `railway link`.
+2. Shared Variables im Environment `production` setzen:
    `BETTER_AUTH_SECRET` (`openssl rand -base64 32`),
-   `BETTER_AUTH_URL` = `https://api.<domain>`,
-   `WEB_ORIGIN` = `https://app.<domain>`,
-   `NEXT_PUBLIC_API_URL` = `https://api.<domain>/api/v1`.
-4. `railway config plan` prüfen, dann `railway config apply`.
-5. CNAME-Einträge gemäss `railway domain status` setzen, Zertifikate abwarten.
-6. **Verifizieren, dass `NEXT_PUBLIC_API_URL` im ausgelieferten Browser-Bundle
+   `BETTER_AUTH_URL` = `https://api.dartbase.ch`,
+   `WEB_ORIGIN` = `https://app.dartbase.ch`,
+   `NEXT_PUBLIC_API_URL` = `https://api.dartbase.ch/api/v1`.
+3. `railway config plan` prüfen, dann `railway config apply`.
+4. CNAME-Einträge gemäss `railway domain status` setzen, Zertifikate abwarten.
+5. **Verifizieren, dass `NEXT_PUBLIC_API_URL` im ausgelieferten Browser-Bundle
    steht.** Railway reicht Service-Variablen nicht automatisch als Build-Args
    durch. `Dockerfile.web` deklariert das `ARG` im Build-Stage korrekt, der
    tatsächliche Wert muss aber am gebauten Artefakt geprüft werden. Steht dort
    `localhost:3001`, schlägt jede API-Anfrage im Browser fehl.
-7. `GET https://api.<domain>/api/v1/health` muss HTTP 200 liefern.
-8. Bootstrap ausführen.
-9. Smoke-Test nach `infrastructure/railway.md`: registrieren, Einladung
+6. `GET https://api.dartbase.ch/api/v1/health` muss HTTP 200 liefern.
+7. Bootstrap ausführen.
+8. Smoke-Test nach `infrastructure/railway.md`: registrieren, Einladung
    annehmen, Spieler anlegen, zweiten Benutzer einladen, Viewer-Sicht prüfen,
    tenant-fremden Zugriff prüfen (erwartet HTTP 403).
 
@@ -202,3 +201,5 @@ als expliziter Befehl statt als Startlogik umgesetzt ist.
 - E-Mail-Versand für Einladungen; Einladungen werden weiterhin mündlich oder
   manuell weitergegeben
 - Generalprobe mit vollständigem Testturnier vor dem Termin
+- Belegung des Apex `dartbase.ch`; wer ihn eintippt, landet vorerst nicht auf
+  der Anwendung
