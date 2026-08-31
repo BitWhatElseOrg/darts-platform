@@ -3,7 +3,7 @@ export {
   type Database,
   type DatabaseConnection,
 } from "./client.js";
-export { migrateDatabase } from "./migrate.js";
+export { migrateDatabase } from "./migration-runner.js";
 export {
   accounts,
   auditEvents,
