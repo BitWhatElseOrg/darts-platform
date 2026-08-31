@@ -195,6 +195,38 @@ docker build -f Dockerfile.web \
 Railway-Einrichtung, die Domain- und DNS-Zuständigkeiten, Variablen, Smoke-Tests
 und Rollback beschreibt das [Deployment-Runbook](./infrastructure/railway.md).
 
+### Erster Production-Owner
+
+Die leere Production-Datenbank wird über den einmaligen, kompilierten
+CLI-Befehl `pnpm db:bootstrap:production` vorbereitet. Er delegiert an
+`pnpm --filter @darts-platform/api bootstrap:production` und läuft ausschließlich
+im Railway-API-Container. Der rohe Guard verlangt `NODE_ENV=production` und
+`ALLOW_PRODUCTION_BOOTSTRAP=true`, bevor Konfiguration oder Datenbankverbindung
+aufgebaut werden. Es gibt keinen öffentlichen Endpoint, keinen Startup-Hook,
+kein Default- oder temporäres Passwort und keinen manuellen SQL-Fallback.
+
+Die Bootstrap-spezifischen Variablen sind exakt:
+
+```text
+ALLOW_PRODUCTION_BOOTSTRAP=true
+BOOTSTRAP_OWNER_EMAIL
+BOOTSTRAP_ORGANIZATION_NAME
+BOOTSTRAP_ORGANIZATION_SLUG
+BOOTSTRAP_TIMEZONE (optional, Europe/Zurich)
+BOOTSTRAP_LOCALE (optional, de-CH)
+```
+
+Der Befehl gibt nur ein sicheres JSON-Ergebnis mit Status, Organisation,
+normalisierter Owner-E-Mail und Ablaufzeit aus. `created` legt die erwartete
+Organisation und 48-Stunden-OWNER-Einladung an, `pending` verwendet eine noch
+gültige exakte Einladung wieder, und `already-complete` bestätigt eine bereits
+akzeptierte OWNER-Membership ohne Schreibvorgang. Der persistente
+System-Prinzipal dient nur als nicht anmeldbarer Einladungs- und Audit-Actor;
+reguläre API-Einladungen können weiterhin keine OWNER-Rolle erzeugen. Die
+einmalige Railway-SSH-Ausführung und der authentifizierte Smoke-Test sind im
+[ADR 0012](./docs/adr/0012-production-owner-bootstrap.md) und im
+[Railway-Runbook](./infrastructure/railway.md) beschrieben.
+
 Die Auth-, Tenant-Isolations-, PostgreSQL- und Redis-Integrationstests benötigen die laufende Compose-Infrastruktur. Sie werden zusammen mit den Unit- und API-Tests über `pnpm test` ausgeführt. Die CI stellt dafür eigene Service-Container bereit.
 
 Für den UI-Smoke-Test muss Chromium einmalig mit seinen Systembibliotheken installiert werden:
@@ -281,6 +313,7 @@ Verbindliche Architektur- und Arbeitsregeln stehen in [AGENTS.md](./AGENTS.md).
 | [ADR 0009](./docs/adr/0009-phase-6-statistics.md) | Reproduzierbare Spielerstatistiken |
 | [ADR 0010](./docs/adr/0010-invite-only-registration.md) | Einladungsgebundene Registrierung und rollenbasierter Verwaltungszugang |
 | [ADR 0011](./docs/adr/0011-preview-database-strategy.md) | Neon für Development/Preview und Railway PostgreSQL für Production/Staging |
+| [ADR 0012](./docs/adr/0012-production-owner-bootstrap.md) | Einmaliger Production-Owner-Bootstrap über eine interne OWNER-Einladung |
 | [Bedienungsanleitung](./docs/manual/index.html) | Deutsche Anleitung für Administration, Turnierleitung und Scoring |
 | [Railway-Runbook](./infrastructure/railway.md) | Deployment, Variablen, Smoke-Test, Diagnose und Rollback |
 | [Neon-Preview-Runbook](./infrastructure/neon-preview.md) | Isolierte Development- und Preview-Datenbanken mit Neon |

@@ -333,6 +333,32 @@ eine offene, noch nicht abgelaufene Organisationseinladung vorliegt. Nach der
 Registrierung nimmt der Benutzer die Einladung an und erhält erst dadurch die
 zugewiesene Organisationsrolle.
 
+### Einmaliger Production-Owner-Bootstrap
+
+Für eine leere Production-Datenbank gibt es einen separaten, kompilierten
+CLI-Pfad: `pnpm db:bootstrap:production` delegiert an
+`pnpm --filter @darts-platform/api bootstrap:production` und wird einmalig im
+Railway-API-Container ausgeführt. Der rohe Guard verlangt `NODE_ENV=production`
+und `ALLOW_PRODUCTION_BOOTSTRAP=true`, bevor vollständige Konfiguration oder
+Datenbankverbindung aufgebaut werden. Ein öffentlicher Endpoint, ein
+Startup-Hook, ein Default-/temporäres Passwort und manueller SQL-Bootstrap sind
+ausgeschlossen.
+
+Der Pfad legt einen persistenten, nicht anmeldbaren System-Prinzipal mit der
+reservierten Adresse `production-bootstrap@system.dartbase.invalid` an. Er hat
+keinen Account, kein Passwort, keine Session und keine Membership und erhält
+keine Tenant-Rechte. Er bleibt als referenzieller Actor für OWNER-Einladung und
+Audit bestehen. Die Einladung gilt 48 Stunden; die Statuswerte `created`,
+`pending` und `already-complete` sind nur für die jeweils exakt geprüften
+Bootstrap-Zustände zulässig. Eine abgelaufene, passende Einladung kann als
+historisierte `EXPIRED`-Zeile erneuert werden.
+
+Die öffentliche `createInvitationSchema`- und Controller-Schreibgrenze bleibt
+unverändert und lehnt `OWNER` ab. Erst die authentifizierte Registrierung mit
+der eingeladenen E-Mail-Adresse und die anschließende Annahme erzeugen die
+aktive OWNER-Membership. Details und der SSH-Schlüssel-Lifecycle stehen im
+[ADR 0012](./docs/adr/0012-production-owner-bootstrap.md).
+
 ---
 
 ## 8. Hauptdomänen
@@ -1055,7 +1081,11 @@ BitWhatElse Projects
 
 Alle fünf Services sind erfolgreich deployt. Die Railway-IaC bildet den
 Live-Stand einschließlich Worker, Domains, Volumes und Service-Konfigurationen
-ab; der kontrollierte Production-Plan meldet keine Änderungen.
+ab; der kontrollierte Production-Plan meldet keine Änderungen. Das separate
+Release-Hardening-Plan setzt für die drei GitHub-gebundenen Services später
+`checkSuites: true`; bis dieser Plan geprüft, freigegeben und angewendet ist,
+darf aus der aktuellen IaC-Konfiguration kein aktives Railway-CI-Gate abgeleitet
+werden.
 
 Domain- und DNS-Fluss:
 

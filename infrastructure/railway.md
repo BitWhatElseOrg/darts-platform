@@ -139,7 +139,108 @@ Mindestens diese Shared beziehungsweise Service-Variablen werden benötigt:
 werden. Secret-Werte werden ausschließlich in Railway hinterlegt und weder im
 Repository noch in Tickets oder Logs kopiert.
 
-## Verbindliches CI-Gate
+## Einmaliger Production-Owner-Bootstrap
+
+Die leere Production-Datenbank wird über den kompilierten API-Befehl vorbereitet;
+es gibt keinen öffentlichen Bootstrap-Endpoint, keinen automatischen
+Startup-Hook, kein Default-/temporäres Passwort und keinen manuellen SQL-
+Fallback. Der Root-Befehl und seine API-Delegation sind:
+
+```text
+pnpm db:bootstrap:production
+→ pnpm --filter @darts-platform/api bootstrap:production
+→ node dist/operations/bootstrap-production.js
+```
+
+Der API-Build muss vor der Ausführung erfolgreich gewesen sein. Der rohe Guard
+prüft zuerst `NODE_ENV=production` und exakt `ALLOW_PRODUCTION_BOOTSTRAP=true`;
+erst danach werden Anwendungskonfiguration und Datenbankverbindung aufgebaut.
+Die Bootstrap-spezifischen Variablen sind exakt:
+
+```text
+ALLOW_PRODUCTION_BOOTSTRAP=true
+BOOTSTRAP_OWNER_EMAIL
+BOOTSTRAP_ORGANIZATION_NAME
+BOOTSTRAP_ORGANIZATION_SLUG
+BOOTSTRAP_TIMEZONE (optional, Standard: Europe/Zurich)
+BOOTSTRAP_LOCALE (optional, Standard: de-CH)
+```
+
+E-Mail-Adresse, Organisationsname, Slug, Zeitzone und Locale werden serverseitig
+normalisiert und validiert. Die Transaktion erzeugt eine 48 Stunden gültige
+OWNER-Einladung über den nicht anmeldbaren, persistenten System-Prinzipal
+`production-bootstrap@system.dartbase.invalid`. Dieser besitzt keinen Account,
+kein Passwort, keine Session und keine Membership und erhält keine Rechte; er
+bleibt nur für Einladungsreferenz und Audit bestehen. Reguläre öffentliche
+Einladungen lehnen `OWNER` weiterhin ab.
+
+Erfolg wird als genau ein sicheres JSON-Objekt nach stdout ausgegeben. `created` bedeutet
+neue Bootstrap-Daten und Einladung, `pending` eine unveränderte, noch gültige
+exakte Einladung, `already-complete` eine exakt abgeschlossene Owner-Aufnahme
+ohne Schreibvorgang. Eine passende abgelaufene Einladung wird historisiert und
+erneuert (`created`). Reruns liefern `pending` oder `already-complete` nur für
+den jeweils exakt bestätigten Zustand; fremde oder widersprüchliche Daten
+brechen fail-closed ab. Die Ausgabe enthält weder Passwort, Datenbank-URL,
+Secret noch Stacktrace. Kontrollierte Fehler ergeben genau ein sanitisiertes
+JSON-Objekt nach stderr und Exit-Code 1.
+
+### Einmalige Railway-SSH-Ausführung
+
+Die Ausführung erfolgt erst nach erfolgreichem API-Deployment und einmalig über
+Railway SSH. Die Identität ist nur für diesen Vorgang gültig:
+
+```bash
+release_ssh_dir="$(mktemp -d)"
+ssh-keygen -q -t ed25519 -N '' -f "$release_ssh_dir/id_ed25519"
+railway ssh keys add --key "$release_ssh_dir/id_ed25519.pub" --name dartbase-production-bootstrap
+railway ssh keys list
+```
+
+Die Ausgabe von `railway ssh keys list` liefert die temporäre Schlüssel-ID.
+Diese ID wird vor der Ausführung notiert. Im verknüpften Railway-Projekt und der
+Production-Umgebung wird anschließend der kompilierte API-Befehl ausgeführt;
+die vorhandene Service-Umgebung muss `NODE_ENV=production` liefern:
+
+```bash
+railway ssh \
+  --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+  --environment 94bb1675-f688-40e0-a403-e62807715120 \
+  --service @darts-platform/api \
+  --identity-file "$release_ssh_dir/id_ed25519" \
+  env \
+  ALLOW_PRODUCTION_BOOTSTRAP=true \
+  BOOTSTRAP_OWNER_EMAIL="$bootstrap_owner_email" \
+  BOOTSTRAP_ORGANIZATION_NAME="$bootstrap_organization_name" \
+  BOOTSTRAP_ORGANIZATION_SLUG="$bootstrap_organization_slug" \
+  BOOTSTRAP_TIMEZONE=Europe/Zurich \
+  BOOTSTRAP_LOCALE=de-CH \
+  pnpm db:bootstrap:production
+```
+
+Die sechs Bootstrap-Variablen werden mit den bestätigten Werten belegt; die
+Optionen für Zeitzone und Locale dürfen bei abweichenden, validen Werten
+entsprechend ersetzt oder weggelassen werden. Erwartet wird ein einzelnes
+`production_bootstrap_completed`-JSON-Ereignis mit `created` oder dem exakt
+idempotenten `pending`-Status und nicht-null `expiresAt`. Bei einer bereits
+abgeschlossenen Aufnahme ist `already-complete` mit `expiresAt: null` korrekt.
+
+Unmittelbar nach der Ausführung wird die Identität aus Railway und lokal
+entfernt; die Entfernung wird gelesen und bestätigt:
+
+```bash
+railway ssh keys remove "$temporary_key_id"
+shred -u "$release_ssh_dir/id_ed25519" "$release_ssh_dir/id_ed25519.pub"
+rmdir "$release_ssh_dir"
+railway ssh keys list
+```
+
+Der temporäre Schlüssel darf in der abschließenden Liste nicht mehr erscheinen.
+Der Operator verarbeitet kein Passwort. Der eingeladene Owner registriert sich
+anschließend selbst mit der exakt eingeladenen E-Mail-Adresse, meldet sich an,
+öffnet die offene Einladung und nimmt sie an. Erst danach existiert die aktive
+OWNER-Membership.
+
+## GitHub-CI-Gate (derzeit manuelle Freigabe)
 
 Der Workflow `.github/workflows/ci.yml` veröffentlicht zwei stabile Checks:
 
@@ -200,12 +301,10 @@ erreichbar sind, wird HTTP 503 erwartet.
 Am 31. August 2026 lieferten beide öffentlichen Smoke-Tests HTTP 200. Der
 API-Health-Endpunkt meldete PostgreSQL und Redis jeweils als `ok`.
 
-Vor dem ersten UI-Smoke-Test muss eine gültige Einladung für den ersten
-Administrator bereitgestellt werden. Die öffentliche Registrierung besitzt
-absichtlich keinen Bootstrap-Bypass. Das Repository enthält derzeit noch keinen
-automatisierten Erstbenutzer-Befehl; vor der ersten Production-Inbetriebnahme
-muss deshalb ein kontrollierter, auditierbarer Bootstrap-Prozess ergänzt oder
-als Betriebsprozess freigegeben werden.
+Vor dem ersten UI-Smoke-Test muss der beschriebene einmalige Bootstrap erfolgreich
+sein und der Owner die Einladung authentifiziert angenommen haben. Der
+Bootstrap-CLI-Status und die Entfernung der temporären SSH-Identität werden als
+Readback dokumentiert.
 
 Danach über die Weboberfläche:
 
@@ -218,6 +317,13 @@ Danach über die Weboberfläche:
 7. Einen tenant-fremden Zugriff prüfen; erwartet wird HTTP 403.
 8. Eine unbekannte Subdomain aufrufen und prüfen, dass sie weder einen fremden
    Tenant auswählt noch interne Informationen offenlegt.
+
+Das Railway-CI-Gate ist ein nachgelagerter Release-Schritt. Die aktuelle
+IaC-Konfiguration kann weiterhin `checkSuites: false` enthalten; erst der
+separate, geprüfte und freigegebene Railway-Rollout-Plan setzt die drei
+GitHub-gebundenen Services auf `checkSuites: true`. Bis zu dessen erfolgreichem
+Apply und Readback darf die bestehende manuelle CI-Prüfung nicht als technisch
+erzwungenes Production-Gate beschrieben werden.
 
 ## Logging und Diagnose
 
