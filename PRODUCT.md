@@ -92,7 +92,9 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 
 - Produktname (siehe Brand Commitments)
 - Plan- und Preismodell: `FREE / CLUB / PRO / ENTERPRISE` steht in der Roadmap als Möglichkeit, nicht als Entscheidung. Keine Preise, keine Limits festgelegt.
-- Custom Domains, Organisations-Branding und Sponsor-Assets sind Phase-7-Scope ohne Detailentscheidung.
+- Kundeneigene Organisationsdomains, Organisations-Branding und Sponsor-Assets
+  sind Phase-7-Scope ohne Detailentscheidung. Die bereits eingerichtete
+  Plattformdomain `dartbase.ch` ist nicht Teil dieses Produktfeatures.
 - Ob Teams und Doppel gleichrangig zum Einzel werden (Phase 4), ist nicht entschieden.
 
 ## Brand Commitments

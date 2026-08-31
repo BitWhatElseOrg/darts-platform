@@ -53,6 +53,8 @@ Testcontainers
 Docker
 GitHub Actions
 Railway
+Cloudflare DNS (authoritativ)
+Cyon (Registrar für dartbase.ch)
 Neon (nur Development/Preview)
 PR-Agent
 ```

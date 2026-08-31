@@ -7,16 +7,22 @@
 **Primärplattform:** Responsive Web-App + PWA  
 **Zielgeräte:** Desktop, Tablet, Smartphone, TV/Beamer  
 **Sprache:** TypeScript  
-**Hosting-Ziel:** Railway  
+**Hosting-Ziel:** Railway
+**DNS:** Cloudflare
+**Domain-Registrar:** Cyon
 **Repository:** GitHub Monorepo
 
-**Implementierter Stand (26. August 2026):** Die Phasen 0 bis 6 sind produktseitig
+**Implementierter Stand (31. August 2026):** Die Phasen 0 bis 6 sind produktseitig
 umgesetzt. Web und API decken Organisations- und Spieleradministration,
 X01-Scoring, Turnierplanung und -leitung, Realtime-/Live-Flächen,
 Offline-Sicherheit und Statistiken ab; der Worker aktualisiert
 Karriereaggregate. Registrierungen sind nur für gültig eingeladene
-E-Mail-Adressen möglich. Die folgenden Kapitel beschreiben weiterhin das
-Zielbild und kennzeichnen spätere Ausbaustufen als solche.
+E-Mail-Adressen möglich. Das Production-Projekt `dartbase` enthält erfolgreich
+deployte Web-, API-, Worker-, PostgreSQL- und Redis-Services. Die öffentliche
+Web- und API-Erreichbarkeit ist über `dartbase.ch` und `api.dartbase.ch`
+verifiziert; beide Endpunkte besitzen gültige Railway-Zertifikate. Die folgenden
+Kapitel beschreiben weiterhin das Zielbild und kennzeichnen spätere
+Ausbaustufen als solche.
 
 ---
 
@@ -177,6 +183,7 @@ flowchart TB
 | Container | Docker |
 | CI/CD | GitHub Actions |
 | Hosting | Railway |
+| DNS / Domain | Cloudflare als autoritatives DNS, Cyon als Registrar |
 
 ---
 
@@ -1033,33 +1040,47 @@ Preview-Branches eingesetzt. Production-Zugangsdaten und unmaskierte
 Production-Daten werden nicht nach Neon übertragen. Die verbindlichen Regeln
 stehen in [ADR 0011](./docs/adr/0011-preview-database-strategy.md).
 
-Empfohlene Produktionsstruktur:
+Aktuell angelegte Produktionsstruktur zum 31. August 2026:
 
 ```text
-Railway Workspace
-│
-├── Projekt: Vereinswebseite
-│   └── website
-│
-└── Projekt: Darts Platform
-    ├── web
-    ├── api
-    ├── realtime
-    ├── worker
-    ├── postgres
-    ├── redis
-    └── object-storage
+BitWhatElse Projects
+└── Railway-Projekt: dartbase
+    └── Environment: production
+        ├── @darts-platform/web
+        ├── @darts-platform/api
+        ├── @darts-platform/worker
+        ├── Postgres
+        └── Redis
 ```
 
-Alternative:
+Alle fünf Services sind erfolgreich deployt. Die Railway-IaC bildet den
+Live-Stand einschließlich Worker, Domains, Volumes und Service-Konfigurationen
+ab; der kontrollierte Production-Plan meldet keine Änderungen.
 
-Alle Services einer fachlich zusammengehörenden App in **einem Railway Project**, damit privates Networking genutzt werden kann.
-
-Öffentlich erreichbar:
+Domain- und DNS-Fluss:
 
 ```text
-app.example.ch  -> web
-api.example.ch  -> api (nur falls extern benötigt)
+Cyon (Registrar)
+  └── NS-Delegation -> Cloudflare (autoritativer DNS, DNS only)
+                         ├── dartbase.ch   -> Railway Web
+                         ├── *.dartbase.ch -> Railway Web
+                         ├── api.dartbase.ch -> Railway API
+                         └── _acme-challenge -> Railway DNS Authorization
+```
+
+`dartbase.ch` und `*.dartbase.ch` belegen die zwei Custom-Domain-Slots des
+Railway-Hobby-Tarifs am Web-Service. Beide Zertifikate sind gültig. Cloudflare
+bleibt zunächst für alle Railway-Einträge auf `DNS only`; insbesondere darf der
+ACME-CNAME nicht proxied werden. `api.dartbase.ch` ist über einen expliziten
+CNAME am API-Service angelegt, verifiziert und mit einem gültigen Zertifikat
+erreichbar.
+
+Öffentlich vorgesehen:
+
+```text
+dartbase.ch       -> web
+*.dartbase.ch     -> web; Hostname-Auflösung und Tenant-Zuordnung erfolgen in der App
+api.dartbase.ch   -> api
 ```
 
 Nur intern:
@@ -1072,6 +1093,9 @@ interne API-Verbindungen
 ```
 
 Railway Private Networking wird für Service-to-Service-Kommunikation verwendet.
+Die erforderliche öffentliche API-Domain wird als exakter Eintrag am API-Service
+konfiguriert; dessen eigene Domain-Slots werden durch Root und Wildcard am
+Web-Service nicht verbraucht.
 
 ---
 

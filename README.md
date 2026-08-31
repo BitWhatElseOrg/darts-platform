@@ -2,11 +2,19 @@
 
 Eine robuste, mandantenfähige Plattform zur Organisation und Durchführung von Dartturnieren, Ligen und Turnierserien – vom Teilnehmermanagement über Live-Scoring bis zur öffentlichen Ergebnisanzeige.
 
-> **Projektstatus (26. August 2026):** Die Phasen 0 bis 6 sind umgesetzt. Die
+> **Projektstatus (31. August 2026):** Die Phasen 0 bis 6 sind umgesetzt. Die
 > Plattform deckt Einladung und Anmeldung, Organisationen, Spieler, Boards,
 > vollständiges X01-Scoring, Turnierplanung und -leitung, öffentliche
 > Live-Ansichten, Offline-Sicherheit sowie Spielerstatistiken ab. Als Nächstes
 > folgt der Multi-Tenant-SaaS-Ausbau aus Phase 7.
+
+Das Railway-Projekt für Production heisst `dartbase`. Cyon bleibt Registrar für
+`dartbase.ch`; die autoritative DNS-Zone ist bei Cloudflare aktiv. Apex und
+Wildcard zeigen auf den Railway-Web-Service. Die Zertifikate für Apex und
+Wildcard sind gültig. Web, API, Worker, PostgreSQL und Redis sind erfolgreich
+deployt. `api.dartbase.ch` zeigt über einen expliziten Cloudflare-CNAME auf den
+API-Service und besitzt ein gültiges Railway-Zertifikat. Die öffentlichen Web-
+und API-Smoke-Tests bestehen.
 
 ## Quick Start
 
@@ -78,8 +86,11 @@ Der aktuelle Stand bietet zusätzlich zur Foundation:
 - serverseitige Rollen und Permissions für jeden Tenant-Zugriff
 - Spieler anlegen, lesen, bearbeiten und revisionssicher archivieren
 - Audit-Einträge innerhalb derselben Transaktion wie die jeweilige Mutation
-- reproduzierbare Production-Images für Web und API
-- Railway Infrastructure as Code für Web, API, PostgreSQL und Redis
+- reproduzierbare Production-Images für Web, API und Worker
+- Railway Infrastructure as Code für Web, API, Worker, PostgreSQL und Redis
+- ein vorbereitetes Production-Projekt `dartbase` mit Web-, API- und Worker-Service
+- Cloudflare als autoritatives DNS für `dartbase.ch`, Cyon als Registrar sowie
+  Apex- und Wildcard-Domain am Railway-Web-Service
 - automatische Migrationen vor dem API-Start und dependency-sensitive Healthchecks
 - strukturierte JSON-Logs mit stabilen Correlation-IDs
 - eine infrastrukturfrei getestete X01-Scoring-Engine
@@ -109,7 +120,7 @@ Weitere Details stehen in der [Zielarchitektur](./ARCHITECTURE.md) und im [Daten
 | Realtime & Jobs | WebSocket/Socket.IO, Redis, BullMQ |
 | Authentifizierung | Better Auth |
 | Tests | Vitest, Playwright, Testcontainers |
-| Betrieb | Docker, GitHub Actions, Railway |
+| Betrieb | Docker, GitHub Actions, Railway; Cloudflare DNS; Cyon als Registrar |
 | Observability | OpenTelemetry, Sentry |
 
 ## Monorepo-Struktur
@@ -181,8 +192,8 @@ docker build -f Dockerfile.web \
   -t darts-platform-web .
 ```
 
-Railway-Einrichtung, Variablen, Smoke-Tests und Rollback beschreibt das
-[Deployment-Runbook](./infrastructure/railway.md).
+Railway-Einrichtung, die Domain- und DNS-Zuständigkeiten, Variablen, Smoke-Tests
+und Rollback beschreibt das [Deployment-Runbook](./infrastructure/railway.md).
 
 Die Auth-, Tenant-Isolations-, PostgreSQL- und Redis-Integrationstests benötigen die laufende Compose-Infrastruktur. Sie werden zusammen mit den Unit- und API-Tests über `pnpm test` ausgeführt. Die CI stellt dafür eigene Service-Container bereit.
 
