@@ -7,7 +7,7 @@ import { OrganizationAccessService } from "../organizations/organization-access.
 import { MatchesRepository, type MutationResult } from "./matches.repository.js";
 
 export class MatchVersionConflictException extends ConflictException {
-  public constructor(currentState: MatchStateResponse) {
+  public constructor(currentState: MatchStateResponse | null) {
     super({ code: "MATCH_VERSION_CONFLICT", message: "The match state changed. Synchronize with the current server state.", details: { currentState } });
   }
 }
@@ -60,8 +60,8 @@ export class MatchesService {
       if (result === "not-found") throw new NotFoundException("Match not found.");
       if (result === "version-conflict" || result === "controller-conflict") {
         const state = await this.repository.getState(input.organizationId, input.matchId);
-        if (state === null) throw new NotFoundException("Match not found.");
         if (result === "version-conflict") throw new MatchVersionConflictException(state);
+        if (state === null) throw new NotFoundException("Match not found.");
         throw new ConflictException({ code: "BOARD_CONTROLLER_CONFLICT", message: "Ein anderes Gerät steuert dieses Board.", details: { currentState: state } });
       }
       return abortMatchResponseSchema.parse(result);
@@ -82,9 +82,9 @@ export class MatchesService {
       const result = await mutation();
       if (result === "not-found") throw new NotFoundException("Match not found.");
       const state = await this.repository.getState(input.organizationId, input.matchId);
+      if (result === "version-conflict") throw new MatchVersionConflictException(state === null ? null : matchStateSchema.parse(state));
       if (state === null) throw new NotFoundException("Match not found.");
       const parsed = matchStateSchema.parse(state);
-      if (result === "version-conflict") throw new MatchVersionConflictException(parsed);
       if (result === "controller-conflict") throw new ConflictException({ code: "BOARD_CONTROLLER_CONFLICT", message: "Ein anderes Gerät steuert dieses Board.", details: { currentState: parsed } });
       return parsed;
     } catch (error) {

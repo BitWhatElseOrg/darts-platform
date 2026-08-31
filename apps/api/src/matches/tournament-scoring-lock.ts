@@ -45,6 +45,7 @@ export async function lockTournamentScoringContext(
     ))
     .for("update")
     .limit(1);
-  if (scheduled === undefined) throw new Error("Tournament scoring lock invariant violated.");
+  // A withdrawal can clear the link after the unlocked candidate lookup and before this row lock.
+  if (scheduled === undefined) return null;
   return scheduled;
 }

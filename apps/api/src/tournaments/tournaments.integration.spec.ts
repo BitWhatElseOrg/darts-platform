@@ -24,7 +24,7 @@ import {
 import type { AuthContext } from "../auth/auth.types.js";
 import { DatabaseService } from "../database/database.service.js";
 import { MatchesRepository } from "../matches/matches.repository.js";
-import { MatchesService } from "../matches/matches.service.js";
+import { MatchesService, MatchVersionConflictException } from "../matches/matches.service.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { OrganizationsRepository } from "../organizations/organizations.repository.js";
 import { TournamentsRepository } from "./tournaments.repository.js";
@@ -52,12 +52,57 @@ const foreignAuth: AuthContext = {
 };
 const audit = { correlationId: randomUUID(), ip: "127.0.0.1", userAgent: "vitest" } as const;
 
-function databaseServiceWithLockTimeout(database: Database): DatabaseService {
+type DatabaseTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+async function currentBackendPid(transaction: DatabaseTransaction): Promise<number> {
+  const [row] = await transaction.execute(sql<{ readonly pid: number }>`select pg_backend_pid() as pid`);
+  if (row === undefined || typeof row.pid !== "number") throw new Error("Expected PostgreSQL backend PID.");
+  return row.pid;
+}
+
+async function waitForBackendToBlockOnTournamentMatch(input: {
+  readonly database: Database;
+  readonly backendPid: number;
+  readonly blockingBackendPid: number;
+}): Promise<void> {
+  const deadline = Date.now() + 1_500;
+  while (Date.now() < deadline) {
+    const waiting = await input.database.execute(sql`
+      select activity.pid
+      from pg_stat_activity as activity
+      where activity.pid = ${input.backendPid}
+        and activity.wait_event_type = 'Lock'
+        and ${input.blockingBackendPid} = any(pg_blocking_pids(activity.pid))
+        and activity.query like '%tournament_matches%'
+      limit 1
+    `);
+    if (waiting.length === 1) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("Withdrawal backend did not block on the held tournament-match row.");
+}
+
+async function expectLockTimeout(operation: Promise<unknown>): Promise<void> {
+  try {
+    await operation;
+  } catch (error) {
+    const cause = error instanceof Error && "cause" in error ? error.cause : undefined;
+    expect(String(cause)).toContain("lock timeout");
+    return;
+  }
+  throw new Error("Expected a PostgreSQL lock timeout.");
+}
+
+function databaseServiceWithLockTimeout(
+  database: Database,
+  onTransactionStarted?: (backendPid: number) => void,
+): DatabaseService {
   const timedDatabase = Object.create(database) as Database;
   Object.defineProperty(timedDatabase, "transaction", {
     value: <T>(callback: Parameters<Database["transaction"]>[0]): Promise<T> =>
       database.transaction(async (transaction) => {
         await transaction.execute(sql`set local lock_timeout = '2s'`);
+        onTransactionStarted?.(await currentBackendPid(transaction));
         return callback(transaction) as Promise<T>;
       }),
   });
@@ -201,8 +246,11 @@ describe("persistent tournament MVP", () => {
     const withdrawalConnection = createDatabaseConnection(parseApplicationEnvironment(process.env).DATABASE_URL);
     const visitConnection = createDatabaseConnection(parseApplicationEnvironment(process.env).DATABASE_URL);
     const lockConnection = createDatabaseConnection(parseApplicationEnvironment(process.env).DATABASE_URL);
+    const observerConnection = createDatabaseConnection(parseApplicationEnvironment(process.env).DATABASE_URL);
     let releaseTournamentMatchLock: (() => void) | undefined;
     let heldTournamentMatchLock: Promise<void> | undefined;
+    let withdrawalPromise: Promise<unknown> | undefined;
+    let visitPromise: Promise<unknown> | undefined;
 
     try {
       const created = await service.create({
@@ -260,10 +308,12 @@ describe("persistent tournament MVP", () => {
       const tournamentMatchIsLocked = new Promise<void>((resolve) => {
         tournamentMatchLocked = resolve;
       });
+      let heldLockBackendPid!: number;
       const release = new Promise<void>((resolve) => {
         releaseTournamentMatchLock = resolve;
       });
       heldTournamentMatchLock = lockConnection.database.transaction(async (transaction) => {
+        heldLockBackendPid = await currentBackendPid(transaction);
         await transaction.execute(sql`
           select id
           from tournament_matches
@@ -275,13 +325,18 @@ describe("persistent tournament MVP", () => {
       });
       await tournamentMatchIsLocked;
 
+      let withdrawalTransactionStarted!: (backendPid: number) => void;
+      const withdrawalTransactionStartedPromise = new Promise<number>((resolve) => {
+        withdrawalTransactionStarted = resolve;
+      });
       const withdrawalRepository = new TournamentsRepository(
-        databaseServiceWithLockTimeout(withdrawalConnection.database),
+        databaseServiceWithLockTimeout(withdrawalConnection.database, withdrawalTransactionStarted),
       );
       const visitRepository = new MatchesRepository(
         databaseServiceWithLockTimeout(visitConnection.database),
       );
-      const withdrawalPromise = withdrawalRepository.withdrawParticipant({
+      const visitService = new MatchesService(visitRepository, access);
+      withdrawalPromise = withdrawalRepository.withdrawParticipant({
         organizationId,
         tournamentId: created.id,
         data: {
@@ -297,7 +352,20 @@ describe("persistent tournament MVP", () => {
         return result;
       });
 
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await waitForBackendToBlockOnTournamentMatch({
+        database: observerConnection.database,
+        backendPid: await withdrawalTransactionStartedPromise,
+        blockingBackendPid: heldLockBackendPid,
+      });
+      await expectLockTimeout(observerConnection.database.transaction(async (transaction) => {
+        await transaction.execute(sql`set local lock_timeout = '250ms'`);
+        await transaction.execute(sql`
+          select id
+          from tournaments
+          where id = ${created.id} and organization_id = ${organizationId}
+          for update
+        `);
+      }));
       await expect(visitConnection.database.transaction(async (transaction) => {
         await transaction.execute(sql`set local lock_timeout = '2s'`);
         await transaction.execute(sql`
@@ -307,7 +375,7 @@ describe("persistent tournament MVP", () => {
           for update
         `);
       })).resolves.toBeUndefined();
-      const visitPromise = visitRepository.submitVisit({
+      visitPromise = visitService.submitVisit({
         organizationId,
         matchId: scoring.id,
         data: {
@@ -319,9 +387,6 @@ describe("persistent tournament MVP", () => {
         },
         auth,
         audit,
-      }).then((result) => {
-        if (result !== "ok") throw new Error(`Visit returned ${result}.`);
-        return result;
       });
 
       if (releaseTournamentMatchLock === undefined) {
@@ -329,8 +394,17 @@ describe("persistent tournament MVP", () => {
       }
       releaseTournamentMatchLock();
       const results = await Promise.allSettled([withdrawalPromise, visitPromise]);
-      expect(results.some((result) => result.status === "rejected" &&
-        String(result.reason).includes("deadlock detected"))).toBe(false);
+      expect(results[0]).toMatchObject({ status: "fulfilled", value: "ok" });
+      const visitResult = results[1];
+      expect(visitResult).toMatchObject({ status: "rejected" });
+      if (visitResult?.status !== "rejected") throw new Error("Expected the visit to lose with a version conflict.");
+      expect(visitResult.reason).toBeInstanceOf(MatchVersionConflictException);
+      expect(visitResult.reason).toMatchObject({
+        status: 409,
+        response: { code: "MATCH_VERSION_CONFLICT", details: { currentState: null } },
+      });
+      expect(String(visitResult.reason)).not.toContain("deadlock detected");
+      expect(String(visitResult.reason)).not.toContain("lock timeout");
       expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
 
       const [tournament] = await databaseService.database
@@ -372,10 +446,13 @@ describe("persistent tournament MVP", () => {
     } finally {
       releaseTournamentMatchLock?.();
       await heldTournamentMatchLock?.catch(() => undefined);
+      await withdrawalPromise?.catch(() => undefined);
+      await visitPromise?.catch(() => undefined);
       await Promise.all([
         withdrawalConnection.close(),
         visitConnection.close(),
         lockConnection.close(),
+        observerConnection.close(),
       ]);
     }
   });
