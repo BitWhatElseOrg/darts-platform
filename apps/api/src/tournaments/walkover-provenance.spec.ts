@@ -13,6 +13,16 @@ describe("walkover provenance", () => {
     );
   });
 
+  it("rejects the sole withdrawn participant when that participant is the winner", () => {
+    expect(() => getWalkoverWithdrawnPlayerId({
+      participantOneId: "11111111-1111-4111-8111-111111111111",
+      participantTwoId: "22222222-2222-4222-8222-222222222222",
+      winnerPlayerId: "22222222-2222-4222-8222-222222222222",
+    }, new Set(["22222222-2222-4222-8222-222222222222"]))).toThrow(
+      "Walkover withdrawal invariant violated.",
+    );
+  });
+
   it.each([
     new Set<string>(),
     new Set([

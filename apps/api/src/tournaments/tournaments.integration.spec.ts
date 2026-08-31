@@ -60,10 +60,11 @@ async function currentBackendPid(transaction: DatabaseTransaction): Promise<numb
   return row.pid;
 }
 
-async function waitForBackendToBlockOnTournamentMatch(input: {
+async function waitForBackendToBlockOnRelation(input: {
   readonly database: Database;
   readonly backendPid: number;
   readonly blockingBackendPid: number;
+  readonly relation: "tournament_matches" | "tournaments";
 }): Promise<void> {
   const deadline = Date.now() + 1_500;
   while (Date.now() < deadline) {
@@ -73,13 +74,13 @@ async function waitForBackendToBlockOnTournamentMatch(input: {
       where activity.pid = ${input.backendPid}
         and activity.wait_event_type = 'Lock'
         and ${input.blockingBackendPid} = any(pg_blocking_pids(activity.pid))
-        and activity.query like '%tournament_matches%'
+        and activity.query like ${`%${input.relation}%`}
       limit 1
     `);
     if (waiting.length === 1) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error("Withdrawal backend did not block on the held tournament-match row.");
+  throw new Error(`Backend did not block on ${input.relation}.`);
 }
 
 async function expectLockTimeout(operation: Promise<unknown>): Promise<void> {
@@ -332,8 +333,12 @@ describe("persistent tournament MVP", () => {
       const withdrawalRepository = new TournamentsRepository(
         databaseServiceWithLockTimeout(withdrawalConnection.database, withdrawalTransactionStarted),
       );
+      let visitTransactionStarted!: (backendPid: number) => void;
+      const visitTransactionStartedPromise = new Promise<number>((resolve) => {
+        visitTransactionStarted = resolve;
+      });
       const visitRepository = new MatchesRepository(
-        databaseServiceWithLockTimeout(visitConnection.database),
+        databaseServiceWithLockTimeout(visitConnection.database, visitTransactionStarted),
       );
       const visitService = new MatchesService(visitRepository, access);
       withdrawalPromise = withdrawalRepository.withdrawParticipant({
@@ -352,10 +357,12 @@ describe("persistent tournament MVP", () => {
         return result;
       });
 
-      await waitForBackendToBlockOnTournamentMatch({
+      const withdrawalBackendPid = await withdrawalTransactionStartedPromise;
+      await waitForBackendToBlockOnRelation({
         database: observerConnection.database,
-        backendPid: await withdrawalTransactionStartedPromise,
+        backendPid: withdrawalBackendPid,
         blockingBackendPid: heldLockBackendPid,
+        relation: "tournament_matches",
       });
       await expectLockTimeout(observerConnection.database.transaction(async (transaction) => {
         await transaction.execute(sql`set local lock_timeout = '250ms'`);
@@ -387,6 +394,12 @@ describe("persistent tournament MVP", () => {
         },
         auth,
         audit,
+      });
+      await waitForBackendToBlockOnRelation({
+        database: observerConnection.database,
+        backendPid: await visitTransactionStartedPromise,
+        blockingBackendPid: withdrawalBackendPid,
+        relation: "tournaments",
       });
 
       if (releaseTournamentMatchLock === undefined) {
