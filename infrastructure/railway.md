@@ -152,6 +152,15 @@ pnpm db:bootstrap:production
 → node dist/operations/bootstrap-production.js
 ```
 
+Der Root- beziehungsweise API-pnpm-Wrapper ist der normale Bedienbefehl und
+kann zusätzlich Lifecycle- oder Bannertext ausgeben. Für maschinenlesbares
+Readback wird aus dem API-Image-Arbeitsverzeichnis `/app` der kompilierte
+Node-Entry-Point direkt aufgerufen:
+
+```text
+node /app/apps/api/dist/operations/bootstrap-production.js
+```
+
 Der API-Build muss vor der Ausführung erfolgreich gewesen sein. Der rohe Guard
 prüft zuerst `NODE_ENV=production` und exakt `ALLOW_PRODUCTION_BOOTSTRAP=true`;
 erst danach werden Anwendungskonfiguration und Datenbankverbindung aufgebaut.
@@ -174,15 +183,18 @@ kein Passwort, keine Session und keine Membership und erhält keine Rechte; er
 bleibt nur für Einladungsreferenz und Audit bestehen. Reguläre öffentliche
 Einladungen lehnen `OWNER` weiterhin ab.
 
-Erfolg wird als genau ein sicheres JSON-Objekt nach stdout ausgegeben. `created` bedeutet
-neue Bootstrap-Daten und Einladung, `pending` eine unveränderte, noch gültige
+Der direkte kompilierte Node-Entry-Point schreibt genau eine sichere JSON-Zeile
+nach stdout; bei Fehler genau eine sanitierte JSON-Zeile nach stderr. Der
+pnpm-Wrapper kann zusätzlich sicheren Lifecycle-/Bannertext ausgeben. `created`
+bedeutet neue Bootstrap-Daten und Einladung, `pending` eine unveränderte, noch
+gültige
 exakte Einladung, `already-complete` eine exakt abgeschlossene Owner-Aufnahme
 ohne Schreibvorgang. Eine passende abgelaufene Einladung wird historisiert und
 erneuert (`created`). Reruns liefern `pending` oder `already-complete` nur für
 den jeweils exakt bestätigten Zustand; fremde oder widersprüchliche Daten
 brechen fail-closed ab. Die Ausgabe enthält weder Passwort, Datenbank-URL,
-Secret noch Stacktrace. Kontrollierte Fehler ergeben genau ein sanitisiertes
-JSON-Objekt nach stderr und Exit-Code 1.
+Secret noch Stacktrace. Kontrollierte Fehler des direkten Node-Entry-Points
+ergeben die eine sanitierte JSON-Zeile nach stderr und Exit-Code 1.
 
 ### Einmalige Railway-SSH-Ausführung
 
@@ -214,13 +226,14 @@ railway ssh \
   BOOTSTRAP_ORGANIZATION_SLUG="$bootstrap_organization_slug" \
   BOOTSTRAP_TIMEZONE=Europe/Zurich \
   BOOTSTRAP_LOCALE=de-CH \
-  pnpm db:bootstrap:production
+  node /app/apps/api/dist/operations/bootstrap-production.js
 ```
 
 Die sechs Bootstrap-Variablen werden mit den bestätigten Werten belegt; die
 Optionen für Zeitzone und Locale dürfen bei abweichenden, validen Werten
-entsprechend ersetzt oder weggelassen werden. Erwartet wird ein einzelnes
-`production_bootstrap_completed`-JSON-Ereignis mit `created` oder dem exakt
+entsprechend ersetzt oder weggelassen werden. Erwartet wird genau eine
+`production_bootstrap_completed`-JSON-Zeile vom direkten Node-Entry-Point mit
+`created` oder dem exakt
 idempotenten `pending`-Status und nicht-null `expiresAt`. Bei einer bereits
 abgeschlossenen Aufnahme ist `already-complete` mit `expiresAt: null` korrekt.
 

@@ -27,6 +27,18 @@ pnpm db:bootstrap:production
 → node dist/operations/bootstrap-production.js
 ```
 
+Die Root- und API-pnpm-Wrapper sind bequeme Bedienbefehle und dürfen zusätzlich
+Lifecycle- oder Bannertext ausgeben. Für maschinenlesbares Readback im API-Image
+wird aus dem Image-Arbeitsverzeichnis `/app` der kompilierte Node-Entry-Point
+direkt aufgerufen:
+
+```text
+node /app/apps/api/dist/operations/bootstrap-production.js
+```
+
+Nur dieser direkte Entry-Point schreibt genau eine sanitierte JSON-Zeile; der
+Wrapper darf neben seinem Kindprozess unkritischen Lifecycle-Text ausgeben.
+
 Der Befehl ist nur zulässig, wenn `NODE_ENV=production` und der rohe
 Freigabewert `ALLOW_PRODUCTION_BOOTSTRAP=true` vorliegen. Diese Prüfung erfolgt
 vor der vollständigen Anwendungskonfiguration und vor dem Aufbau einer
@@ -103,8 +115,9 @@ einladen.
 
 ### Sichere Ausgabe und Betriebszugriff
 
-Die CLI schreibt genau ein sanitisiertes JSON-Ereignis: bei Erfolg nach stdout,
-bei Fehler nach stderr. Die Erfolgsdaten enthalten nur Ereignis, Status,
+Der kompilierte Node-Entry-Point schreibt genau eine sanitierte JSON-Zeile: bei
+Erfolg nach stdout, bei Fehler nach stderr. Die Erfolgsdaten enthalten nur
+Ereignis, Status,
 Organisations-ID und -Slug, normalisierte Owner-E-Mail sowie `expiresAt` (bei
 `already-complete` `null`). Fehlermeldungen enthalten nur einen stabilen Code
 und eine kontrollierte Nachricht. Datenbank-URLs, Secrets, Passwörter,

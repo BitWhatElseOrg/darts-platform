@@ -216,8 +216,13 @@ BOOTSTRAP_TIMEZONE (optional, Europe/Zurich)
 BOOTSTRAP_LOCALE (optional, de-CH)
 ```
 
-Der Befehl gibt nur ein sicheres JSON-Ergebnis mit Status, Organisation,
-normalisierter Owner-E-Mail und Ablaufzeit aus. `created` legt die erwartete
+Der direkte kompilierte Node-Entry-Point
+`node /app/apps/api/dist/operations/bootstrap-production.js` gibt genau eine
+sichere JSON-Zeile mit Status, Organisation, normalisierter Owner-E-Mail und
+Ablaufzeit aus. Der Root- beziehungsweise API-pnpm-Wrapper bleibt der normale
+Bedienbefehl, kann aber zusätzlich sicheren Lifecycle- oder Bannertext ausgeben.
+Der direkte Entry-Point ist für maschinenlesbares Readback zu verwenden.
+`created` legt die erwartete
 Organisation und 48-Stunden-OWNER-Einladung an, `pending` verwendet eine noch
 gültige exakte Einladung wieder, und `already-complete` bestätigt eine bereits
 akzeptierte OWNER-Membership ohne Schreibvorgang. Der persistente

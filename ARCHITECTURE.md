@@ -344,6 +344,12 @@ Datenbankverbindung aufgebaut werden. Ein öffentlicher Endpoint, ein
 Startup-Hook, ein Default-/temporäres Passwort und manueller SQL-Bootstrap sind
 ausgeschlossen.
 
+Die pnpm-Wrapper sind Convenience-Befehle und dürfen Lifecycle-/Bannertext
+ausgeben. Für maschinenlesbares Readback wird aus dem Image-Arbeitsverzeichnis
+`/app` der kompilierte Node-Entry-Point direkt aufgerufen:
+`node /app/apps/api/dist/operations/bootstrap-production.js`; dieser direkte
+Aufruf liefert die einzelne sanitierte JSON-Zeile.
+
 Der Pfad legt einen persistenten, nicht anmeldbaren System-Prinzipal mit der
 reservierten Adresse `production-bootstrap@system.dartbase.invalid` an. Er hat
 keinen Account, kein Passwort, keine Session und keine Membership und erhält

@@ -47,6 +47,14 @@ pnpm db:bootstrap:production
 → node dist/operations/bootstrap-production.js
 ```
 
+Der Root-/API-pnpm-Wrapper bleibt der normale Bedienbefehl und kann zusätzlich
+Lifecycle- oder Bannertext ausgeben. Für maschinenlesbares Readback aus dem
+API-Image wird aus `/app` der kompilierte Node-Entry-Point direkt aufgerufen:
+
+```text
+node /app/apps/api/dist/operations/bootstrap-production.js
+```
+
 Der Guard verlangt rohe `NODE_ENV=production`- und
 `ALLOW_PRODUCTION_BOOTSTRAP=true`-Werte und läuft vor Konfigurations- oder
 Datenbankaufbau. Die Bootstrap-spezifischen Variablen sind exakt:
@@ -63,8 +71,10 @@ BOOTSTRAP_LOCALE (optional, de-CH)
 Die Ausführung erfolgt einmalig über eine kurzlebige Railway-SSH-Identität im
 kompilierten API-Image. Der Schlüssel wird direkt danach aus Railway und vom
 lokalen Dateisystem entfernt und per `railway ssh keys list` verifiziert. Der
-CLI-Output ist ein einzelnes sicheres JSON-Ereignis mit `created`, `pending` oder
-`already-complete`; Passwörter, Datenbank-URLs und Secrets erscheinen nicht.
+direkte kompilierte Node-Entry-Point schreibt genau eine sichere JSON-Zeile
+mit `created`, `pending` oder `already-complete`; der pnpm-Wrapper kann zusätzlich
+sicheren Lifecycle-/Bannertext ausgeben. Passwörter, Datenbank-URLs und Secrets
+erscheinen im CLI-Output nicht.
 Die 48-Stunden-OWNER-Einladung wird nach der Registrierung und authentifizierten
 Annahme des Owners aktiv. Der persistente System-Prinzipal ist nicht anmeldbar
 und besitzt keine Account-, Session- oder Membership-Daten. Der normale
