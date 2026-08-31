@@ -8,6 +8,7 @@ import {
 import { resolveTournamentWithdrawals } from "@darts-platform/tournament-engine";
 
 import type { DatabaseService } from "../database/database.service.js";
+import { getWalkoverWithdrawnPlayerId } from "./walkover-provenance.js";
 
 type DatabaseTransaction = Parameters<Parameters<DatabaseService["database"]["transaction"]>[0]>[0];
 
@@ -66,9 +67,7 @@ export async function applyWithdrawalPropagation(
       eq(tournamentMatches.id, stored.id),
     ));
     if (decision.resultType === "WALKOVER") {
-      const withdrawnPlayerId = [decision.participantOneId, decision.participantTwoId]
-        .find((playerId): playerId is string => playerId !== null && withdrawnSet.has(playerId));
-      if (withdrawnPlayerId === undefined) throw new Error("Walkover withdrawal invariant violated.");
+      const withdrawnPlayerId = getWalkoverWithdrawnPlayerId(decision, withdrawnSet);
       await transaction.insert(outboxEvents).values({
         organizationId,
         aggregateType: "Tournament",

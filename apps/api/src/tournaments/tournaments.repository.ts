@@ -41,6 +41,7 @@ import { DatabaseService } from "../database/database.service.js";
 import { abortScoringMatch } from "../matches/abort-match.js";
 import { resolveCompletedTournamentGroup } from "./resolve-completed-group.js";
 import { updateTournamentProgress } from "./update-tournament-progress.js";
+import { getWalkoverWithdrawnPlayerId } from "./walkover-provenance.js";
 
 export type TournamentMutationResult =
   | "ok"
@@ -789,7 +790,8 @@ export class TournamentsRepository {
             updatedAt: withdrawnAt,
           }).where(and(eq(tournamentMatches.organizationId, input.organizationId), eq(tournamentMatches.id, stored.id)));
           if (decision.resultType === "WALKOVER") {
-            await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Tournament", aggregateId: input.tournamentId, eventType: "TOURNAMENT_MATCH_WALKOVER", payload: { tournamentId: input.tournamentId, tournamentMatchId: stored.id, winnerPlayerId: decision.winnerPlayerId, withdrawnPlayerId: input.data.playerId } });
+            const withdrawnPlayerId = getWalkoverWithdrawnPlayerId(decision, withdrawnSet);
+            await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Tournament", aggregateId: input.tournamentId, eventType: "TOURNAMENT_MATCH_WALKOVER", payload: { tournamentId: input.tournamentId, tournamentMatchId: stored.id, winnerPlayerId: decision.winnerPlayerId, withdrawnPlayerId } });
           }
         }
         return affectedGroupIds;

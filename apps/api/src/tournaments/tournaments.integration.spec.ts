@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
@@ -311,7 +311,11 @@ describe("persistent tournament MVP", () => {
     const semifinals = dashboard.queue.filter((entry) => entry.readiness === "READY").slice(0, 2);
     const firstSemifinal = semifinals[0];
     const secondSemifinal = semifinals[1];
-    if (firstSemifinal === undefined || secondSemifinal === undefined) throw new Error("Expected two semifinals.");
+    const finalMatchId = dashboard.bracket.find((match) => match.round === 2)?.matchId;
+    if (firstSemifinal === undefined || secondSemifinal === undefined || finalMatchId === undefined) throw new Error("Expected two semifinals and a final.");
+    const laterWithdrawnPlayerId = secondSemifinal.participants[0]?.playerId;
+    const activeWinnerId = secondSemifinal.participants[1]?.playerId;
+    if (laterWithdrawnPlayerId === null || laterWithdrawnPlayerId === undefined || activeWinnerId === null || activeWinnerId === undefined) throw new Error("Expected resolved semifinal participants.");
     dashboard = await service.assign({
       organizationId,
       tournamentId: created.id,
@@ -365,12 +369,37 @@ describe("persistent tournament MVP", () => {
     });
     expect(dashboard.bracket.find((match) => match.round === 2)?.status).toBe("WAITING");
 
-    const activeWinnerId = await completeScoringMatch(secondSemifinal.matchId);
-    dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    dashboard = await service.withdrawParticipant({
+      organizationId,
+      tournamentId: created.id,
+      data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, playerId: laterWithdrawnPlayerId, reason: "Verletzung im anderen Halbfinal" },
+      auth,
+      audit,
+    });
     expect(dashboard.bracket.find((match) => match.round === 2)).toMatchObject({
       status: "COMPLETED",
       resultType: "WALKOVER",
       winnerDisplayName: dashboard.participants.find((participant) => participant.playerId === activeWinnerId)?.displayName,
+    });
+    const walkoverEvents = await databaseService.database
+      .select({ payload: outboxEvents.payload })
+      .from(outboxEvents)
+      .where(and(
+        eq(outboxEvents.organizationId, organizationId),
+        eq(outboxEvents.aggregateId, created.id),
+        eq(outboxEvents.eventType, "TOURNAMENT_MATCH_WALKOVER"),
+      ))
+      .orderBy(desc(outboxEvents.occurredAt));
+    const walkoverEvent = walkoverEvents.find((event) =>
+      typeof event.payload === "object" &&
+      event.payload !== null &&
+      "tournamentMatchId" in event.payload &&
+      event.payload.tournamentMatchId === finalMatchId,
+    );
+
+    expect(walkoverEvent?.payload).toMatchObject({
+      tournamentMatchId: finalMatchId,
+      withdrawnPlayerId: withdrawnWinnerId,
     });
     expect(dashboard.tournament.status).toBe("COMPLETED");
   });
