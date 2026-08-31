@@ -85,6 +85,13 @@
       "when": 1788005427372,
       "tag": "0011_charming_doorman",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1788208861629,
+      "tag": "0012_production_bootstrap_owner_invitation",
+      "breakpoints": true
     }
   ]
 }

@@ -37,4 +37,18 @@ describe("database connection", () => {
     expect(byName.get("tournament_matches_result_type_consistency")).toContain("result_type is not null");
     expect(byName.get("tournament_participants_withdrawal_check")).toContain("withdrawal_reason is not null");
   });
+
+  it("allows owner role for stored bootstrap invitations", async () => {
+    const definitions = await connection.database.execute<{
+      readonly constraint_name: string;
+      readonly definition: string;
+    }>(sql`
+      select conname as constraint_name, pg_get_constraintdef(oid) as definition
+      from pg_constraint
+      where conname = 'organization_invitations_role_check'
+    `);
+
+    expect(definitions).toHaveLength(1);
+    expect(definitions[0]?.definition).toContain("OWNER");
+  });
 });

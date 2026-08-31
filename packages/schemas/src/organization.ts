@@ -50,7 +50,7 @@ export const invitationSchema = z.object({
   organizationId: z.uuid(),
   organizationName: z.string().optional(),
   email: z.email(),
-  role: invitableOrganizationRoleSchema,
+  role: organizationRoleSchema,
   status: z.enum(["PENDING", "ACCEPTED", "CANCELLED", "EXPIRED"]),
   expiresAt: z.coerce.date(),
 });

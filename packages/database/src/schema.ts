@@ -230,7 +230,7 @@ export const organizationInvitations = pgTable(
     ),
     check(
       "organization_invitations_role_check",
-      sql`${table.role} in ('ADMIN', 'TOURNAMENT_DIRECTOR', 'SCORER', 'MEMBER', 'VIEWER')`,
+      sql`${table.role} in ('OWNER', 'ADMIN', 'TOURNAMENT_DIRECTOR', 'SCORER', 'MEMBER', 'VIEWER')`,
     ),
     check(
       "organization_invitations_status_check",
