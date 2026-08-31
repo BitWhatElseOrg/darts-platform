@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   accounts,
@@ -22,6 +23,11 @@ import {
 import { createTemporaryDatabase } from "../testing/temporary-database.js";
 
 const testDatabaseUrl = process.env.DATABASE_URL;
+const apiRoot = fileURLToPath(new URL("../../", import.meta.url));
+const compiledBootstrapCli = fileURLToPath(
+  new URL("../../dist/operations/bootstrap-production.js", import.meta.url),
+);
+const pnpmExecutable = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const now = new Date("2026-08-31T12:00:00.000Z");
 const input = {
   ownerEmail: "owner@example.ch",
@@ -31,20 +37,22 @@ const input = {
   locale: "de-CH",
 } as const;
 
-async function runBootstrapCli(environment: NodeJS.ProcessEnv): Promise<{
+interface ChildProcessResult {
   readonly exitCode: number | null;
   readonly stdout: string;
   readonly stderr: string;
-}> {
-  const child = spawn(
-    process.execPath,
-    ["--import", "tsx", "src/operations/bootstrap-production.ts"],
-    {
-      cwd: process.cwd(),
-      env: environment,
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
+}
+
+async function runChildProcess(input: {
+  readonly command: string;
+  readonly arguments: readonly string[];
+  readonly environment: NodeJS.ProcessEnv;
+}): Promise<ChildProcessResult> {
+  const child = spawn(input.command, input.arguments, {
+    cwd: apiRoot,
+    env: input.environment,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   let stdout = "";
   let stderr = "";
   child.stdout.setEncoding("utf8");
@@ -62,6 +70,30 @@ async function runBootstrapCli(environment: NodeJS.ProcessEnv): Promise<{
   });
   return { exitCode, stdout, stderr };
 }
+
+async function runBootstrapCli(
+  environment: NodeJS.ProcessEnv,
+): Promise<ChildProcessResult> {
+  return runChildProcess({
+    command: process.execPath,
+    arguments: [compiledBootstrapCli],
+    environment,
+  });
+}
+
+beforeAll(async () => {
+  const build = await runChildProcess({
+    command: pnpmExecutable,
+    arguments: ["run", "build"],
+    environment: process.env,
+  });
+
+  if (build.exitCode !== 0) {
+    throw new Error(
+      `API build failed before CLI contract tests.\n${build.stdout}${build.stderr}`,
+    );
+  }
+}, 120_000);
 
 async function withTemporaryDatabase<T>(
   run: (database: Database) => Promise<T>,

@@ -7,12 +7,12 @@ import {
   createDatabaseConnection,
   organizationInvitations,
   organizations,
-  sessions,
   users,
 } from "@darts-platform/database";
 import { createInvitationSchema } from "@darts-platform/schemas";
 
 import { createAuth } from "./auth.factory.js";
+import { AuthService } from "./auth.service.js";
 import type { AuthContext } from "./auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { DatabaseService } from "../database/database.service.js";
@@ -131,10 +131,6 @@ describe("Better Auth integration", () => {
         ...environment,
         DATABASE_URL: temporary.databaseUrl,
       };
-      const isolatedAuth = createAuth(
-        temporary.connection.database,
-        isolatedEnvironment,
-      );
       const ownerEmail = `production-owner-${randomUUID()}@example.test`;
       const bootstrapInput = {
         ownerEmail,
@@ -152,6 +148,10 @@ describe("Better Auth integration", () => {
 
       try {
         databaseService = new DatabaseService(isolatedEnvironment);
+        const authService = new AuthService(
+          databaseService,
+          isolatedEnvironment,
+        );
         const repository = new OrganizationsRepository(databaseService);
         const organizationsService = new OrganizationsService(
           repository,
@@ -161,7 +161,7 @@ describe("Better Auth integration", () => {
           temporary.connection.database,
           bootstrapInput,
         );
-        const signUpResponse = await isolatedAuth.handler(
+        const signUpResponse = await authService.auth.handler(
           new Request(
             `${isolatedEnvironment.BETTER_AUTH_URL}/api/v1/auth/sign-up/email`,
             {
@@ -180,28 +180,28 @@ describe("Better Auth integration", () => {
         );
 
         expect(signUpResponse.status).toBe(200);
-        const [registeredUser] = await temporary.connection.database
-          .select({
-            id: users.id,
-            email: users.email,
-            name: users.displayName,
-          })
-          .from(users)
-          .where(eq(users.email, bootstrapInput.ownerEmail));
-        if (registeredUser === undefined) {
-          throw new Error("Better Auth did not create the production owner.");
+        const setCookie = signUpResponse.headers.get("set-cookie");
+        expect(setCookie).toContain("better-auth.session_token=");
+        const sessionCookie = setCookie?.split(";", 1)[0];
+        if (sessionCookie === undefined) {
+          throw new Error("Better Auth did not return an owner session cookie.");
         }
-        const [registeredSession] = await temporary.connection.database
-          .select({ id: sessions.id, expiresAt: sessions.expiresAt })
-          .from(sessions)
-          .where(eq(sessions.userId, registeredUser.id));
-        if (registeredSession === undefined) {
-          throw new Error("Better Auth did not create an owner session.");
+        const authContext: AuthContext | null = await authService.getSession({
+          cookie: sessionCookie,
+        });
+        expect(authContext).toMatchObject({
+          user: {
+            email: bootstrapInput.ownerEmail,
+            name: "Production Owner",
+          },
+          session: {
+            id: expect.any(String),
+            expiresAt: expect.any(Date),
+          },
+        });
+        if (authContext === null) {
+          throw new Error("Better Auth did not authenticate the owner cookie.");
         }
-        const authContext: AuthContext = {
-          user: registeredUser,
-          session: registeredSession,
-        };
 
         const pending = await organizationsService.listInvitations(authContext);
         expect(pending).toHaveLength(1);
