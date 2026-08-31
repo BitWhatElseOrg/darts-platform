@@ -728,19 +728,20 @@ export class TournamentsRepository {
       const withdrawnAt = new Date();
       await transaction.update(tournamentParticipants).set({ status: "WITHDRAWN", withdrawnAt, withdrawalReason: input.data.reason }).where(and(eq(tournamentParticipants.organizationId, input.organizationId), eq(tournamentParticipants.id, participant.id)));
 
-      // Score submission locks the scoring aggregate before its tournament row; withdrawal
-      // uses the same order so a deciding visit cannot deadlock with this transaction.
-      const scoringLinks = await transaction.select({ scoringMatchId: tournamentMatches.scoringMatchId }).from(tournamentMatches).where(and(
+      // Global mutation lock order: Tournament → Participant → TournamentMatches → sorted Scoring Matches.
+      const matchRows = await transaction.select().from(tournamentMatches).where(and(
         eq(tournamentMatches.organizationId, input.organizationId),
         eq(tournamentMatches.tournamentId, input.tournamentId),
-        eq(tournamentMatches.status, "IN_PROGRESS"),
-      ));
-      const scoringMatchIds = [...new Set(scoringLinks.flatMap((row) => row.scoringMatchId === null ? [] : [row.scoringMatchId]))].sort();
+      )).for("update");
+      const scoringMatchIds = [...new Set(matchRows.flatMap((match) =>
+        match.status === "IN_PROGRESS" && match.scoringMatchId !== null
+          ? [match.scoringMatchId]
+          : [],
+      ))].sort();
       const lockedScoringRows = scoringMatchIds.length === 0 ? [] : await transaction.select().from(matches).where(and(
         eq(matches.organizationId, input.organizationId),
         inArray(matches.id, scoringMatchIds),
       )).orderBy(asc(matches.id)).for("update");
-      const matchRows = await transaction.select().from(tournamentMatches).where(and(eq(tournamentMatches.organizationId, input.organizationId), eq(tournamentMatches.tournamentId, input.tournamentId))).for("update");
       const withdrawnRows = await transaction.select({ playerId: tournamentParticipants.playerId }).from(tournamentParticipants).where(and(eq(tournamentParticipants.organizationId, input.organizationId), eq(tournamentParticipants.tournamentId, input.tournamentId), eq(tournamentParticipants.status, "WITHDRAWN")));
       const withdrawnPlayerIds = withdrawnRows.map((row) => row.playerId);
       const withdrawnSet = new Set(withdrawnPlayerIds);

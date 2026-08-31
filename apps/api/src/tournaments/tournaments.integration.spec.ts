@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import {
   auditEvents,
   boards,
+  createDatabaseConnection,
   memberships,
   matches,
   organizations,
@@ -14,8 +15,10 @@ import {
   tournamentMatches,
   tournamentParticipants,
   tournamentStages,
+  tournaments,
   users,
   visits,
+  type Database,
 } from "@darts-platform/database";
 
 import type { AuthContext } from "../auth/auth.types.js";
@@ -48,6 +51,18 @@ const foreignAuth: AuthContext = {
   session: { id: randomUUID(), expiresAt: new Date(Date.now() + 60_000) },
 };
 const audit = { correlationId: randomUUID(), ip: "127.0.0.1", userAgent: "vitest" } as const;
+
+function databaseServiceWithLockTimeout(database: Database): DatabaseService {
+  const timedDatabase = Object.create(database) as Database;
+  Object.defineProperty(timedDatabase, "transaction", {
+    value: <T>(callback: Parameters<Database["transaction"]>[0]): Promise<T> =>
+      database.transaction(async (transaction) => {
+        await transaction.execute(sql`set local lock_timeout = '2s'`);
+        return callback(transaction) as Promise<T>;
+      }),
+  });
+  return { database: timedDatabase } as unknown as DatabaseService;
+}
 
 beforeAll(async () => {
   await databaseService.database.insert(users).values([
@@ -180,6 +195,189 @@ describe("persistent tournament MVP", () => {
     expect(publicParticipant).toMatchObject({ status: "WITHDRAWN" });
     expect(publicParticipant).not.toHaveProperty("withdrawnAt");
     expect(publicParticipant).not.toHaveProperty("withdrawalReason");
+  });
+
+  it("serializes a withdrawal with a concurrent scoring visit without a deadlock", async () => {
+    const withdrawalConnection = createDatabaseConnection(parseApplicationEnvironment(process.env).DATABASE_URL);
+    const visitConnection = createDatabaseConnection(parseApplicationEnvironment(process.env).DATABASE_URL);
+    const lockConnection = createDatabaseConnection(parseApplicationEnvironment(process.env).DATABASE_URL);
+    let releaseTournamentMatchLock: (() => void) | undefined;
+    let heldTournamentMatchLock: Promise<void> | undefined;
+
+    try {
+      const created = await service.create({
+        organizationId,
+        data: {
+          name: `Withdrawal Lock Order Cup ${randomUUID()}`,
+          startsAt: new Date("2026-09-13T13:00:00.000Z"),
+          format: "SINGLE_ELIMINATION",
+          startingScore: 501,
+          doubleOut: true,
+          bestOfLegs: 1,
+          bestOfSets: 1,
+          participantIds: playerIds,
+          groupCount: 1,
+          qualifyPerGroup: 1,
+          knockoutSize: 4,
+          seeding: "SEEDED",
+          boardIds: [...boardIds],
+        },
+        auth,
+        audit,
+      });
+      let dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+      const ready = dashboard.queue.find((entry) => entry.readiness === "READY");
+      if (ready === undefined || ready.participants[0].playerId === null) {
+        throw new Error("Expected a resolved ready tournament match.");
+      }
+      dashboard = await service.assign({
+        organizationId,
+        tournamentId: created.id,
+        data: {
+          commandId: randomUUID(),
+          expectedVersion: dashboard.tournament.version,
+          matchId: ready.matchId,
+          boardId: boardIds[0],
+        },
+        auth,
+        audit,
+      });
+      const expectedTournamentVersion = dashboard.tournament.version;
+      const [scheduled] = await databaseService.database
+        .select()
+        .from(tournamentMatches)
+        .where(and(
+          eq(tournamentMatches.organizationId, organizationId),
+          eq(tournamentMatches.id, ready.matchId),
+        ));
+      if (scheduled?.scoringMatchId === null || scheduled?.scoringMatchId === undefined) {
+        throw new Error("Expected an assigned scoring match.");
+      }
+      const scoring = await matchesService.get({ organizationId, matchId: scheduled.scoringMatchId, auth });
+      if (scoring.currentPlayerId === null) throw new Error("Expected an active scoring player.");
+
+      let tournamentMatchLocked!: () => void;
+      const tournamentMatchIsLocked = new Promise<void>((resolve) => {
+        tournamentMatchLocked = resolve;
+      });
+      const release = new Promise<void>((resolve) => {
+        releaseTournamentMatchLock = resolve;
+      });
+      heldTournamentMatchLock = lockConnection.database.transaction(async (transaction) => {
+        await transaction.execute(sql`
+          select id
+          from tournament_matches
+          where id = ${ready.matchId} and organization_id = ${organizationId}
+          for update
+        `);
+        tournamentMatchLocked();
+        await release;
+      });
+      await tournamentMatchIsLocked;
+
+      const withdrawalRepository = new TournamentsRepository(
+        databaseServiceWithLockTimeout(withdrawalConnection.database),
+      );
+      const visitRepository = new MatchesRepository(
+        databaseServiceWithLockTimeout(visitConnection.database),
+      );
+      const withdrawalPromise = withdrawalRepository.withdrawParticipant({
+        organizationId,
+        tournamentId: created.id,
+        data: {
+          commandId: randomUUID(),
+          expectedVersion: expectedTournamentVersion,
+          playerId: ready.participants[0].playerId,
+          reason: "Verletzung",
+        },
+        auth,
+        audit,
+      }).then((result) => {
+        if (result !== "ok") throw new Error(`Withdrawal returned ${result}.`);
+        return result;
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await expect(visitConnection.database.transaction(async (transaction) => {
+        await transaction.execute(sql`set local lock_timeout = '2s'`);
+        await transaction.execute(sql`
+          select id
+          from matches
+          where id = ${scoring.id} and organization_id = ${organizationId}
+          for update
+        `);
+      })).resolves.toBeUndefined();
+      const visitPromise = visitRepository.submitVisit({
+        organizationId,
+        matchId: scoring.id,
+        data: {
+          commandId: randomUUID(),
+          expectedVersion: scoring.version,
+          playerId: scoring.currentPlayerId,
+          points: 100,
+          dartsThrown: 3,
+        },
+        auth,
+        audit,
+      }).then((result) => {
+        if (result !== "ok") throw new Error(`Visit returned ${result}.`);
+        return result;
+      });
+
+      if (releaseTournamentMatchLock === undefined) {
+        throw new Error("Tournament-match lock release was not initialized.");
+      }
+      releaseTournamentMatchLock();
+      const results = await Promise.allSettled([withdrawalPromise, visitPromise]);
+      expect(results.some((result) => result.status === "rejected" &&
+        String(result.reason).includes("deadlock detected"))).toBe(false);
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+
+      const [tournament] = await databaseService.database
+        .select()
+        .from(tournaments)
+        .where(and(
+          eq(tournaments.organizationId, organizationId),
+          eq(tournaments.id, created.id),
+        ));
+      const [tournamentMatch] = await databaseService.database
+        .select()
+        .from(tournamentMatches)
+        .where(and(
+          eq(tournamentMatches.organizationId, organizationId),
+          eq(tournamentMatches.id, ready.matchId),
+        ));
+      const [scoringMatch] = await databaseService.database
+        .select()
+        .from(matches)
+        .where(and(
+          eq(matches.organizationId, organizationId),
+          eq(matches.id, scoring.id),
+        ));
+      const persistedVisits = await databaseService.database
+        .select()
+        .from(visits)
+        .where(and(
+          eq(visits.organizationId, organizationId),
+          eq(visits.matchId, scoring.id),
+        ));
+      expect(tournament?.version).toBe(expectedTournamentVersion + 1);
+      expect(tournamentMatch).toMatchObject({
+        status: "COMPLETED",
+        resultType: "WALKOVER",
+        scoringMatchId: null,
+      });
+      expect(scoringMatch?.status).toBe("ABORTED");
+      expect(persistedVisits).toHaveLength(0);
+    } finally {
+      releaseTournamentMatchLock?.();
+      await heldTournamentMatchLock?.catch(() => undefined);
+      await Promise.all([
+        withdrawalConnection.close(),
+        visitConnection.close(),
+        lockConnection.close(),
+      ]);
+    }
   });
 
   it("resolves vacant group qualification slots as byes and completes every stage", async () => {
