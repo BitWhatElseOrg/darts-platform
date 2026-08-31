@@ -451,13 +451,7 @@ describe.skipIf(testDatabaseUrl === undefined)(
             });
           }
 
-          await expect(
-            bootstrapProductionOwner(database, input, now),
-          ).rejects.toThrow(/BOOTSTRAP_STATE_INVALID/u);
-          expect(
-            await database.select().from(organizationInvitations),
-          ).toHaveLength(1);
-          expect(await database.select().from(auditEvents)).toHaveLength(1);
+          await expectBootstrapStateInvalidWithoutWrites(database);
         });
       },
     );
@@ -645,6 +639,22 @@ describe.skipIf(testDatabaseUrl === undefined)(
     );
 
     it(
+      "rejects completed state with only expired invitation history without writes",
+      { timeout: 120_000 },
+      async () => {
+        await withTemporaryDatabase(async (database) => {
+          await createCompletedBootstrapFixture(database);
+          await database
+            .update(organizationInvitations)
+            .set({ status: "EXPIRED", updatedAt: now })
+            .where(eq(organizationInvitations.status, "ACCEPTED"));
+
+          await expectBootstrapStateInvalidWithoutWrites(database);
+        });
+      },
+    );
+
+    it(
       "rejects an owner membership while its bootstrap invitation is still pending",
       { timeout: 120_000 },
       async () => {
@@ -662,13 +672,7 @@ describe.skipIf(testDatabaseUrl === undefined)(
             status: "ACTIVE",
           });
 
-          await expect(
-            bootstrapProductionOwner(database, input, now),
-          ).rejects.toThrow(/BOOTSTRAP_STATE_INVALID/u);
-          expect(await database.select().from(auditEvents)).toHaveLength(1);
-          expect(
-            await database.select().from(organizationInvitations),
-          ).toHaveLength(1);
+          await expectBootstrapStateInvalidWithoutWrites(database);
         });
       },
     );
@@ -740,6 +744,27 @@ describe.skipIf(testDatabaseUrl === undefined)(
           await database
             .update(organizationInvitations)
             .set({ role: "ADMIN", updatedAt: now })
+            .where(eq(organizationInvitations.status, "PENDING"));
+
+          await expectBootstrapStateInvalidWithoutWrites(database);
+        });
+      },
+    );
+
+    it(
+      "rejects a pre-completion invitation with mismatched inviter lineage without writes",
+      { timeout: 120_000 },
+      async () => {
+        await withTemporaryDatabase(async (database) => {
+          await bootstrapProductionOwner(database, input, now);
+          const owner = await insertUser(
+            database,
+            input.ownerEmail,
+            "Production Owner",
+          );
+          await database
+            .update(organizationInvitations)
+            .set({ invitedByUserId: owner.id, updatedAt: now })
             .where(eq(organizationInvitations.status, "PENDING"));
 
           await expectBootstrapStateInvalidWithoutWrites(database);
