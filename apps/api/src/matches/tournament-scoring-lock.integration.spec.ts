@@ -120,7 +120,7 @@ describe("tournament scoring lock context", () => {
         releaseTournamentLock = resolve;
       });
       heldTournamentLock = connectionA.database.transaction(async (transaction) => {
-        await transaction.execute(sql`select id from tournaments where id = ${fixture.tournamentId} for update`);
+        await transaction.execute(sql`select id from tournaments where id = ${fixture.tournamentId} and organization_id = ${fixture.organizationId} for update`);
         tournamentLocked();
         await release;
       });
@@ -132,7 +132,7 @@ describe("tournament scoring lock context", () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
       await expect(connectionC.database.transaction(async (transaction) => {
         await transaction.execute(sql`set local lock_timeout = '250ms'`);
-        await transaction.execute(sql`select id from matches where id = ${fixture.scoringMatchId} for update`);
+        await transaction.execute(sql`select id from matches where id = ${fixture.scoringMatchId} and organization_id = ${fixture.organizationId} for update`);
       })).resolves.toBeUndefined();
 
       if (releaseTournamentLock === undefined) throw new Error("Tournament lock release was not initialized.");
