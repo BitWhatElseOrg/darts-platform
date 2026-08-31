@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
@@ -29,6 +30,38 @@ const input = {
   timezone: "Europe/Zurich",
   locale: "de-CH",
 } as const;
+
+async function runBootstrapCli(environment: NodeJS.ProcessEnv): Promise<{
+  readonly exitCode: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}> {
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", "src/operations/bootstrap-production.ts"],
+    {
+      cwd: process.cwd(),
+      env: environment,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+
+  const exitCode = await new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", resolve);
+  });
+  return { exitCode, stdout, stderr };
+}
 
 async function withTemporaryDatabase<T>(
   run: (database: Database) => Promise<T>,
@@ -276,6 +309,102 @@ describe("production bootstrap guard", () => {
       }),
     ).not.toThrow();
   });
+
+  it.each([
+    { nodeEnv: "development", allowProduction: "true" },
+    { nodeEnv: "production", allowProduction: "false" },
+  ])(
+    "CLI rejects $nodeEnv / $allowProduction before environment parsing without leaking secrets",
+    { timeout: 30_000 },
+    async ({ nodeEnv, allowProduction }) => {
+      const sentinelDatabaseUrl =
+        "postgresql://sentinel-user:sentinel-password@sentinel.invalid/sentinel-db";
+      const sentinelAuthSecret =
+        "SENTINEL_AUTH_SECRET_MUST_NEVER_BE_PRINTED_123456789";
+      const result = await runBootstrapCli({
+        ...process.env,
+        NODE_ENV: nodeEnv,
+        ALLOW_PRODUCTION_BOOTSTRAP: allowProduction,
+        DATABASE_URL: sentinelDatabaseUrl,
+        BETTER_AUTH_SECRET: sentinelAuthSecret,
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toBe("");
+      expect(JSON.parse(result.stderr)).toEqual({
+        event: "production_bootstrap_failed",
+        code: "BOOTSTRAP_NOT_ALLOWED",
+        message:
+          "Production bootstrap requires NODE_ENV=production and ALLOW_PRODUCTION_BOOTSTRAP=true.",
+      });
+      expect(`${result.stdout}${result.stderr}`).not.toContain(
+        sentinelDatabaseUrl,
+      );
+      expect(`${result.stdout}${result.stderr}`).not.toContain(
+        sentinelAuthSecret,
+      );
+      expect(`${result.stdout}${result.stderr}`).not.toContain(
+        "sentinel-password",
+      );
+      expect(result.stderr).not.toContain("Error:");
+      expect(result.stderr.trim().split("\n")).toHaveLength(1);
+    },
+  );
+
+  it(
+    "CLI prints one safe completion event for a successful bootstrap",
+    { timeout: 120_000 },
+    async () => {
+      if (testDatabaseUrl === undefined) {
+        throw new Error("DATABASE_URL is required for the CLI integration test.");
+      }
+      const temporary = await createTemporaryDatabase(testDatabaseUrl);
+      const sentinelAuthSecret =
+        "SENTINEL_AUTH_SECRET_MUST_NEVER_BE_PRINTED_123456789";
+
+      try {
+        const result = await runBootstrapCli({
+          ...process.env,
+          NODE_ENV: "production",
+          ALLOW_PRODUCTION_BOOTSTRAP: "true",
+          DATABASE_URL: temporary.databaseUrl,
+          BETTER_AUTH_SECRET: sentinelAuthSecret,
+          BOOTSTRAP_OWNER_EMAIL: input.ownerEmail,
+          BOOTSTRAP_ORGANIZATION_NAME: input.organizationName,
+          BOOTSTRAP_ORGANIZATION_SLUG: input.organizationSlug,
+          BOOTSTRAP_TIMEZONE: input.timezone,
+          BOOTSTRAP_LOCALE: input.locale,
+        });
+
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toBe("");
+        expect(result.stdout.trim().split("\n")).toHaveLength(1);
+        const event: unknown = JSON.parse(result.stdout);
+        expect(event).toMatchObject({
+          event: "production_bootstrap_completed",
+          status: "created",
+          organizationSlug: input.organizationSlug,
+          ownerEmail: input.ownerEmail,
+        });
+        expect(
+          Object.keys(event as Readonly<Record<string, unknown>>).sort(),
+        ).toEqual(
+          [
+            "event",
+            "expiresAt",
+            "organizationId",
+            "organizationSlug",
+            "ownerEmail",
+            "status",
+          ].sort(),
+        );
+        expect(result.stdout).not.toContain(temporary.databaseUrl);
+        expect(result.stdout).not.toContain(sentinelAuthSecret);
+      } finally {
+        await temporary.cleanup();
+      }
+    },
+  );
 });
 
 describe("production bootstrap input", () => {

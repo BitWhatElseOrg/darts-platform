@@ -7,10 +7,20 @@ import {
   createDatabaseConnection,
   organizationInvitations,
   organizations,
+  sessions,
   users,
 } from "@darts-platform/database";
+import { createInvitationSchema } from "@darts-platform/schemas";
 
 import { createAuth } from "./auth.factory.js";
+import type { AuthContext } from "./auth.types.js";
+import type { AuditContext } from "../common/audit-context.js";
+import { DatabaseService } from "../database/database.service.js";
+import { OrganizationAccessService } from "../organizations/organization-access.service.js";
+import { OrganizationsRepository } from "../organizations/organizations.repository.js";
+import { OrganizationsService } from "../organizations/organizations.service.js";
+import { bootstrapProductionOwner } from "../operations/production-bootstrap.js";
+import { createTemporaryDatabase } from "../testing/temporary-database.js";
 
 const environment = parseApplicationEnvironment(process.env);
 const connection = createDatabaseConnection(environment.DATABASE_URL);
@@ -111,4 +121,124 @@ describe("Better Auth integration", () => {
       user: { email, name: "Auth Integration" },
     });
   });
+
+  it(
+    "onboards the production bootstrap owner through registration and invitation acceptance",
+    { timeout: 120_000 },
+    async () => {
+      const temporary = await createTemporaryDatabase(environment.DATABASE_URL);
+      const isolatedEnvironment = {
+        ...environment,
+        DATABASE_URL: temporary.databaseUrl,
+      };
+      const isolatedAuth = createAuth(
+        temporary.connection.database,
+        isolatedEnvironment,
+      );
+      const ownerEmail = `production-owner-${randomUUID()}@example.test`;
+      const bootstrapInput = {
+        ownerEmail,
+        organizationName: "Production Darts Club",
+        organizationSlug: `production-darts-${randomUUID()}`,
+        timezone: "Europe/Zurich",
+        locale: "de-CH",
+      } as const;
+      const audit: AuditContext = {
+        ip: "127.0.0.1",
+        userAgent: "production-bootstrap-acceptance-test",
+        correlationId: randomUUID(),
+      };
+      let databaseService: DatabaseService | undefined;
+
+      try {
+        databaseService = new DatabaseService(isolatedEnvironment);
+        const repository = new OrganizationsRepository(databaseService);
+        const organizationsService = new OrganizationsService(
+          repository,
+          new OrganizationAccessService(repository),
+        );
+        const bootstrap = await bootstrapProductionOwner(
+          temporary.connection.database,
+          bootstrapInput,
+        );
+        const signUpResponse = await isolatedAuth.handler(
+          new Request(
+            `${isolatedEnvironment.BETTER_AUTH_URL}/api/v1/auth/sign-up/email`,
+            {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                origin: isolatedEnvironment.WEB_ORIGIN,
+              },
+              body: JSON.stringify({
+                name: "Production Owner",
+                email: bootstrapInput.ownerEmail,
+                password: "IntegrationTest123!",
+              }),
+            },
+          ),
+        );
+
+        expect(signUpResponse.status).toBe(200);
+        const [registeredUser] = await temporary.connection.database
+          .select({
+            id: users.id,
+            email: users.email,
+            name: users.displayName,
+          })
+          .from(users)
+          .where(eq(users.email, bootstrapInput.ownerEmail));
+        if (registeredUser === undefined) {
+          throw new Error("Better Auth did not create the production owner.");
+        }
+        const [registeredSession] = await temporary.connection.database
+          .select({ id: sessions.id, expiresAt: sessions.expiresAt })
+          .from(sessions)
+          .where(eq(sessions.userId, registeredUser.id));
+        if (registeredSession === undefined) {
+          throw new Error("Better Auth did not create an owner session.");
+        }
+        const authContext: AuthContext = {
+          user: registeredUser,
+          session: registeredSession,
+        };
+
+        const pending = await organizationsService.listInvitations(authContext);
+        expect(pending).toHaveLength(1);
+        expect(pending[0]).toMatchObject({
+          role: "OWNER",
+          email: bootstrapInput.ownerEmail,
+        });
+        const invitation = pending[0];
+        if (invitation === undefined) {
+          throw new Error("The production owner invitation is missing.");
+        }
+
+        await organizationsService.acceptInvitation({
+          invitationId: invitation.id,
+          auth: authContext,
+          audit,
+        });
+
+        expect(
+          await repository.getActiveMembership({
+            organizationId: bootstrap.organizationId,
+            userId: authContext.user.id,
+          }),
+        ).toEqual({ role: "OWNER" });
+        expect(
+          createInvitationSchema.safeParse({
+            email: bootstrapInput.ownerEmail,
+            role: "OWNER",
+          }).success,
+        ).toBe(false);
+      } finally {
+        try {
+          await databaseService?.onApplicationShutdown();
+        } finally {
+          await temporary.cleanup();
+        }
+      }
+    },
+  );
 });

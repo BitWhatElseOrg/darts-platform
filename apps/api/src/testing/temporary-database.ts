@@ -16,6 +16,7 @@ const migrationsFolder = fileURLToPath(
 
 export interface TemporaryDatabase {
   readonly databaseName: string;
+  readonly databaseUrl: string;
   readonly connection: DatabaseConnection;
   cleanup(): Promise<void>;
 }
@@ -78,6 +79,7 @@ export async function createTemporaryDatabase(
 
   return {
     databaseName,
+    databaseUrl: isolatedUrl,
     connection,
     cleanup(): Promise<void> {
       cleanupPromise ??= (async () => {
