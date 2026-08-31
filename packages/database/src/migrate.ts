@@ -1,5 +1,6 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
+import { pathToFileURL } from "node:url";
 import postgres from "postgres";
 
 function requireDatabaseUrl(): string {
@@ -14,15 +15,12 @@ function requireDatabaseUrl(): string {
   return value;
 }
 
-const databaseUrl = requireDatabaseUrl();
-const structuredLogging = process.env.NODE_ENV === "production";
-
 function logMigration(
   level: "log" | "warn" | "error",
   event: string,
   details: Readonly<Record<string, unknown>> = {},
 ): void {
-  if (structuredLogging) {
+  if (process.env.NODE_ENV === "production") {
     const output = level === "error" ? process.stderr : process.stdout;
     output.write(
       `${JSON.stringify({
@@ -45,7 +43,10 @@ function logMigration(
   }
 }
 
-async function runMigrations(): Promise<void> {
+export async function migrateDatabase(
+  databaseUrl: string,
+  migrationsFolder = "./drizzle",
+): Promise<void> {
   const migrationClient = postgres(databaseUrl, {
     max: 1,
     onnotice: (notice) => {
@@ -58,22 +59,32 @@ async function runMigrations(): Promise<void> {
   });
 
   try {
-    logMigration("log", "database_migration_started");
     await migrate(drizzle(migrationClient), {
-      migrationsFolder: "./drizzle",
+      migrationsFolder,
     });
-    logMigration("log", "database_migration_completed");
   } finally {
     await migrationClient.end({ timeout: 5 });
   }
 }
 
-runMigrations().catch((error: unknown) => {
-  logMigration("error", "database_migration_failed", {
-    message: error instanceof Error ? error.message : String(error),
-    ...(error instanceof Error && error.stack !== undefined
-      ? { stack: error.stack }
-      : {}),
+async function runMigrations(): Promise<void> {
+  logMigration("log", "database_migration_started");
+  await migrateDatabase(requireDatabaseUrl());
+  logMigration("log", "database_migration_completed");
+}
+
+const isDirectExecution =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectExecution) {
+  runMigrations().catch((error: unknown) => {
+    logMigration("error", "database_migration_failed", {
+      message: error instanceof Error ? error.message : String(error),
+      ...(error instanceof Error && error.stack !== undefined
+        ? { stack: error.stack }
+        : {}),
+    });
+    process.exitCode = 1;
   });
-  process.exitCode = 1;
-});
+}
