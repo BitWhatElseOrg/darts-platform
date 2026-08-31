@@ -253,7 +253,7 @@ anschließend selbst mit der exakt eingeladenen E-Mail-Adresse, meldet sich an,
 öffnet die offene Einladung und nimmt sie an. Erst danach existiert die aktive
 OWNER-Membership.
 
-## GitHub-CI-Gate (derzeit manuelle Freigabe)
+## GitHub-CI-Gate
 
 Der Workflow `.github/workflows/ci.yml` veröffentlicht zwei stabile Checks:
 
@@ -262,12 +262,13 @@ Phase 0 quality gate
 Deployment artifacts
 ```
 
-Beide Checks sollen im GitHub-Ruleset für `main` als required status checks
-markiert werden. Das private Repository läuft derzeit auf GitHub Free; GitHub
-verweigert Rulesets für private Repositories in diesem Tarif. Bis zu einem
-Upgrade bleibt das Repository privat und das Team prüft beide Checks vor jedem
-Release manuell. Der Workflow reagiert zusätzlich auf `merge_group`, sodass er
-nach einer späteren Ruleset-Aktivierung auch mit einer Merge Queue funktioniert.
+Das private Repository läuft derzeit auf GitHub Free und besitzt deshalb keine
+geschützten Required-Check-Regeln für `main`. Unabhängig davon verwendet der von
+Web, API und Worker gemeinsam genutzte Railway-GitHub-Source
+`checkSuites: true`: Railway wartet vor dem Deployment auf erfolgreiche Check
+Suites des verfolgten Commits. Der Workflow reagiert zusätzlich auf
+`merge_group`, sodass er nach einer späteren Ruleset-Aktivierung auch mit einer
+Merge Queue funktioniert.
 
 ## Kontrollierter Deployment-Ablauf
 
@@ -331,12 +332,14 @@ Danach über die Weboberfläche:
 8. Eine unbekannte Subdomain aufrufen und prüfen, dass sie weder einen fremden
    Tenant auswählt noch interne Informationen offenlegt.
 
-Das Railway-CI-Gate ist ein nachgelagerter Release-Schritt. Die aktuelle
-IaC-Konfiguration kann weiterhin `checkSuites: false` enthalten; erst der
-separate, geprüfte und freigegebene Railway-Rollout-Plan setzt die drei
-GitHub-gebundenen Services auf `checkSuites: true`. Bis zu dessen erfolgreichem
-Apply und Readback darf die bestehende manuelle CI-Prüfung nicht als technisch
-erzwungenes Production-Gate beschrieben werden.
+Der gemeinsame Railway-GitHub-Source ist in der IaC-Konfiguration mit
+`checkSuites: true` definiert und wird von Web, API und Worker verwendet. Das
+private GitHub-Free-Repository besitzt weiterhin keine geschützten
+Required-Check-Regeln; Railway wartet dennoch auf erfolgreiche Check Suites des
+verfolgten Commits, bevor das jeweilige Deployment beginnt. Vor dem Release
+werden der separat freigegebene IaC-Apply samt leerem Readback, beide
+GitHub-CI-Checks und die exakten Deployment-Revisionen aller drei Services
+verifiziert.
 
 ## Logging und Diagnose
 

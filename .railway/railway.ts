@@ -13,7 +13,7 @@ const repository = "BitWhatElse/darts-platform";
 const region = "europe-west4-drams3a";
 
 export default defineRailway(() => {
-  const source = github(repository, { branch: "main", checkSuites: false });
+  const source = github(repository, { branch: "main", checkSuites: true });
   const database = postgres("Postgres", { region });
   const cache = redis("Redis", { region });
   cache.deploy = {

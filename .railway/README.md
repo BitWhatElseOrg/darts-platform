@@ -81,11 +81,12 @@ und besitzt keine Account-, Session- oder Membership-Daten. Der normale
 öffentliche Einladungsweg akzeptiert weiterhin kein `OWNER`.
 
 Die vollständige SSH- und Smoke-Test-Prozedur steht im
-[Railway-Runbook](../infrastructure/railway.md). Ein Railway-CI-Gate ist damit
-nicht automatisch aktiviert: Der aktuelle IaC-Stand kann `checkSuites: false`
-enthalten. Die spätere, separat zu prüfende und freizugebende Railway-
-Rollout-Planung muss `checkSuites: true` für Web, API und Worker setzen und
-anschließend per Readback bestätigen.
+[Railway-Runbook](../infrastructure/railway.md). Der von Web, API und Worker
+gemeinsam genutzte GitHub-Source ist mit `checkSuites: true` definiert. Das
+private Repository auf GitHub Free besitzt keine geschützten Required-Check-
+Regeln; Railway wartet dennoch auf erfolgreiche Check Suites des verfolgten
+Commits, bevor es deployt. Der Production-IaC-Plan wird separat geprüft und
+freigegeben und der Apply anschließend mit einem leeren Readback bestätigt.
 
 Produktionswerte und die Reihenfolge der ersten Inbetriebnahme stehen im
 [Railway-Runbook](../infrastructure/railway.md).
