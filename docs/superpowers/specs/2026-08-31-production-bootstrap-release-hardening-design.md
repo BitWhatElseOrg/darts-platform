@@ -2,7 +2,7 @@
 
 **Datum:** 31. August 2026
 
-**Status:** fachlich freigegeben, schriftliches Review ausstehend
+**Status:** fachlich und schriftlich freigegeben
 
 **Geltungsbereich:** erster Production-Owner, Turnier-/Scoring-Lock-Reihenfolge, Walkover-Outbox-Provenienz und Railway-Deployment-Gate
 
