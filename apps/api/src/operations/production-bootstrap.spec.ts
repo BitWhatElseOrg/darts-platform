@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -84,6 +84,181 @@ async function insertOrganization(
   }
   return organization;
 }
+
+interface CompletedBootstrapFixture {
+  readonly organizationId: string;
+  readonly ownerUserId: string;
+  readonly systemUserId: string;
+}
+
+async function createCompletedBootstrapFixture(
+  database: Database,
+  options: { readonly withExpiredHistory?: boolean } = {},
+): Promise<CompletedBootstrapFixture> {
+  const bootstrap = options.withExpiredHistory
+    ? await (async () => {
+        const staleTime = new Date(now.getTime() - 49 * 60 * 60 * 1_000);
+        await bootstrapProductionOwner(database, input, staleTime);
+        return bootstrapProductionOwner(database, input, now);
+      })()
+    : await bootstrapProductionOwner(database, input, now);
+  const owner = await insertUser(
+    database,
+    input.ownerEmail,
+    "Production Owner",
+  );
+  await database
+    .update(organizationInvitations)
+    .set({ status: "ACCEPTED", updatedAt: now })
+    .where(
+      and(
+        eq(organizationInvitations.email, input.ownerEmail),
+        eq(organizationInvitations.status, "PENDING"),
+      ),
+    );
+  await database.insert(memberships).values({
+    organizationId: bootstrap.organizationId,
+    userId: owner.id,
+    role: "OWNER",
+    status: "ACTIVE",
+  });
+  const [systemUser] = await database
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, PRODUCTION_BOOTSTRAP_USER_EMAIL));
+  if (systemUser === undefined) {
+    throw new Error("Bootstrap system user is missing.");
+  }
+
+  return {
+    organizationId: bootstrap.organizationId,
+    ownerUserId: owner.id,
+    systemUserId: systemUser.id,
+  };
+}
+
+async function readBootstrapControlState(database: Database) {
+  return {
+    users: await database.select().from(users).orderBy(users.id),
+    organizations: await database
+      .select()
+      .from(organizations)
+      .orderBy(organizations.id),
+    memberships: await database
+      .select()
+      .from(memberships)
+      .orderBy(memberships.id),
+    invitations: await database
+      .select()
+      .from(organizationInvitations)
+      .orderBy(organizationInvitations.id),
+    audits: await database.select().from(auditEvents).orderBy(auditEvents.id),
+    accounts: await database.select().from(accounts).orderBy(accounts.id),
+    sessions: await database.select().from(sessions).orderBy(sessions.id),
+  };
+}
+
+async function expectBootstrapStateInvalidWithoutWrites(
+  database: Database,
+): Promise<void> {
+  const before = await readBootstrapControlState(database);
+  await expect(
+    bootstrapProductionOwner(database, input, now),
+  ).rejects.toThrow(/BOOTSTRAP_STATE_INVALID/u);
+  expect(await readBootstrapControlState(database)).toEqual(before);
+}
+
+const completedStateAnomalies = [
+  {
+    name: "an extra user",
+    mutate: async (database: Database): Promise<void> => {
+      await insertUser(database, "unexpected@example.ch", "Unexpected User");
+    },
+  },
+  {
+    name: "an extra organization",
+    mutate: async (database: Database): Promise<void> => {
+      await insertOrganization(database, {
+        name: "Unexpected Organization",
+        slug: "unexpected-organization",
+      });
+    },
+  },
+  {
+    name: "an additional human membership",
+    mutate: async (
+      database: Database,
+      fixture: CompletedBootstrapFixture,
+    ): Promise<void> => {
+      const extraUser = await insertUser(
+        database,
+        "additional-member@example.ch",
+        "Additional Member",
+      );
+      await database.insert(memberships).values({
+        organizationId: fixture.organizationId,
+        userId: extraUser.id,
+        role: "MEMBER",
+        status: "SUSPENDED",
+      });
+    },
+  },
+  {
+    name: "a foreign owner membership",
+    mutate: async (
+      database: Database,
+      fixture: CompletedBootstrapFixture,
+    ): Promise<void> => {
+      const foreignOrganization = await insertOrganization(database, {
+        name: "Foreign Organization",
+        slug: "foreign-organization",
+      });
+      await database.insert(memberships).values({
+        organizationId: foreignOrganization.id,
+        userId: fixture.ownerUserId,
+        role: "OWNER",
+        status: "ACTIVE",
+      });
+    },
+  },
+  {
+    name: "duplicate accepted invitations",
+    mutate: async (
+      database: Database,
+      fixture: CompletedBootstrapFixture,
+    ): Promise<void> => {
+      await database.insert(organizationInvitations).values({
+        organizationId: fixture.organizationId,
+        email: input.ownerEmail,
+        role: "OWNER",
+        status: "ACCEPTED",
+        invitedByUserId: fixture.systemUserId,
+        expiresAt: new Date("2026-09-03T12:00:00.000Z"),
+      });
+    },
+  },
+  {
+    name: "a cancelled invitation",
+    mutate: async (database: Database): Promise<void> => {
+      await database
+        .update(organizationInvitations)
+        .set({ status: "CANCELLED", updatedAt: now })
+        .where(eq(organizationInvitations.status, "ACCEPTED"));
+    },
+  },
+  {
+    name: "mismatched invitation lineage",
+    mutate: async (
+      database: Database,
+      fixture: CompletedBootstrapFixture,
+    ): Promise<void> => {
+      await database
+        .update(organizationInvitations)
+        .set({ invitedByUserId: fixture.ownerUserId, updatedAt: now })
+        .where(eq(organizationInvitations.status, "ACCEPTED"));
+    },
+  },
+] as const;
 
 describe("production bootstrap guard", () => {
   it.each([
@@ -428,6 +603,47 @@ describe.skipIf(testDatabaseUrl === undefined)(
       },
     );
 
+    it.each(completedStateAnomalies)(
+      "rejects completed state containing $name without writes",
+      { timeout: 120_000 },
+      async ({ mutate }) => {
+        await withTemporaryDatabase(async (database) => {
+          const fixture = await createCompletedBootstrapFixture(database);
+          await mutate(database, fixture);
+          await expectBootstrapStateInvalidWithoutWrites(database);
+        });
+      },
+    );
+
+    it(
+      "accepts one exact accepted invitation plus exact expired history without writes",
+      { timeout: 120_000 },
+      async () => {
+        await withTemporaryDatabase(async (database) => {
+          const fixture = await createCompletedBootstrapFixture(database, {
+            withExpiredHistory: true,
+          });
+          const before = await readBootstrapControlState(database);
+
+          const result = await bootstrapProductionOwner(database, input, now);
+
+          expect(result).toEqual({
+            status: "already-complete",
+            organizationId: fixture.organizationId,
+            organizationSlug: input.organizationSlug,
+            ownerEmail: input.ownerEmail,
+            expiresAt: null,
+          });
+          expect(
+            before.invitations
+              .map((invitation) => invitation.status)
+              .sort(),
+          ).toEqual(["ACCEPTED", "EXPIRED"]);
+          expect(await readBootstrapControlState(database)).toEqual(before);
+        });
+      },
+    );
+
     it(
       "rejects an owner membership while its bootstrap invitation is still pending",
       { timeout: 120_000 },
@@ -475,6 +691,96 @@ describe.skipIf(testDatabaseUrl === undefined)(
           expect(
             await database.select().from(organizationInvitations),
           ).toHaveLength(1);
+        });
+      },
+    );
+
+    it.each(["non-active-owner", "system-membership"] as const)(
+      "rejects pre-completion %s without writes",
+      { timeout: 120_000 },
+      async (membershipKind) => {
+        await withTemporaryDatabase(async (database) => {
+          const bootstrap = await bootstrapProductionOwner(database, input, now);
+          const userId =
+            membershipKind === "non-active-owner"
+              ? (
+                  await insertUser(
+                    database,
+                    input.ownerEmail,
+                    "Production Owner",
+                  )
+                ).id
+              : (
+                  await database
+                    .select({ id: users.id })
+                    .from(users)
+                    .where(eq(users.email, PRODUCTION_BOOTSTRAP_USER_EMAIL))
+                )[0]?.id;
+          if (userId === undefined) {
+            throw new Error("Membership test user is missing.");
+          }
+          await database.insert(memberships).values({
+            organizationId: bootstrap.organizationId,
+            userId,
+            role: membershipKind === "non-active-owner" ? "OWNER" : "VIEWER",
+            status: membershipKind === "non-active-owner" ? "SUSPENDED" : "INVITED",
+          });
+
+          await expectBootstrapStateInvalidWithoutWrites(database);
+        });
+      },
+    );
+
+    it(
+      "rejects a pre-completion invitation with mismatched identity without writes",
+      { timeout: 120_000 },
+      async () => {
+        await withTemporaryDatabase(async (database) => {
+          await bootstrapProductionOwner(database, input, now);
+          await database
+            .update(organizationInvitations)
+            .set({ role: "ADMIN", updatedAt: now })
+            .where(eq(organizationInvitations.status, "PENDING"));
+
+          await expectBootstrapStateInvalidWithoutWrites(database);
+        });
+      },
+    );
+
+    it(
+      "treats an invitation expiring exactly now as expired and replaces it atomically",
+      { timeout: 120_000 },
+      async () => {
+        await withTemporaryDatabase(async (database) => {
+          await bootstrapProductionOwner(database, input, now);
+          const [expiringInvitation] = await database
+            .select({ id: organizationInvitations.id })
+            .from(organizationInvitations)
+            .where(eq(organizationInvitations.status, "PENDING"));
+          if (expiringInvitation === undefined) {
+            throw new Error("Expiring invitation is missing.");
+          }
+          await database
+            .update(organizationInvitations)
+            .set({ expiresAt: now, updatedAt: now })
+            .where(eq(organizationInvitations.id, expiringInvitation.id));
+
+          const result = await bootstrapProductionOwner(database, input, now);
+
+          expect(result).toMatchObject({
+            status: "created",
+            expiresAt: new Date("2026-09-02T12:00:00.000Z"),
+          });
+          const invitations = await database
+            .select()
+            .from(organizationInvitations);
+          expect(
+            invitations.filter((invitation) => invitation.status === "EXPIRED"),
+          ).toHaveLength(1);
+          expect(
+            invitations.filter((invitation) => invitation.status === "PENDING"),
+          ).toHaveLength(1);
+          expect(await database.select().from(auditEvents)).toHaveLength(2);
         });
       },
     );

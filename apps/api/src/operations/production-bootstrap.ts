@@ -295,23 +295,44 @@ export async function bootstrapProductionOwner(
     });
 
     if (ownerMembership !== undefined) {
-      if (bootstrapUser === undefined || organization === undefined) {
+      if (
+        bootstrapUser === undefined ||
+        ownerUser === undefined ||
+        organization === undefined
+      ) {
         invalidState("The completed bootstrap identity is incomplete.");
       }
-      assertExactOrganization(organization, input);
+      assertOnlyBootstrapUsers(state, input);
+      if (state.users.length !== 2) {
+        invalidState(
+          "Completed bootstrap requires exactly the system and owner users.",
+        );
+      }
+      const completedOrganization = matchingOrganization(state, input);
+      if (completedOrganization?.id !== organization.id) {
+        invalidState("The completed bootstrap organization is not exact.");
+      }
+      if (
+        state.memberships.length !== 1 ||
+        state.memberships[0]?.id !== ownerMembership.id
+      ) {
+        invalidState(
+          "Completed bootstrap requires exactly one active owner membership.",
+        );
+      }
       assertExactSystemPrincipal(bootstrapUser, state);
       assertExactInvitationIdentity(
         state.invitations,
         input,
-        organization.id,
+        completedOrganization.id,
         bootstrapUser.id,
       );
       assertCompletedInvitationState(state.invitations);
 
       return {
         status: "already-complete",
-        organizationId: organization.id,
-        organizationSlug: organization.slug,
+        organizationId: completedOrganization.id,
+        organizationSlug: completedOrganization.slug,
         ownerEmail: input.ownerEmail,
         expiresAt: null,
       };
