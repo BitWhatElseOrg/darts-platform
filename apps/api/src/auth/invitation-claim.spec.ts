@@ -14,7 +14,8 @@ describe("invitation claims", () => {
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(hash).toMatch(/^[a-f0-9]{64}$/);
     expect(invitationClaimMatches(token, hash)).toBe(true);
-    expect(invitationClaimMatches(`${token.slice(0, -1)}A`, hash)).toBe(false);
+    const invalidToken = `${token.startsWith("A") ? "B" : "A"}${token.slice(1)}`;
+    expect(invitationClaimMatches(invalidToken, hash)).toBe(false);
     expect(invitationClaimMatches(undefined, hash)).toBe(false);
     expect(invitationClaimMatches(token, null)).toBe(false);
   });
