@@ -54,6 +54,15 @@ test("the sign-in page shows its brand logos", async ({ page }) => {
   const footer = page.locator("footer");
   await expect(footer).toContainText("powered by");
   await expect(footer.getByRole("img", { name: "Sutter Precision" })).toBeVisible();
+  const sutterPrecisionLink = footer.getByRole("link", {
+    name: "Website von Sutter Precision öffnen (öffnet in neuem Tab)",
+  });
+  await expect(sutterPrecisionLink).toHaveAttribute(
+    "href",
+    "https://www.sutter-precision.ch/",
+  );
+  await expect(sutterPrecisionLink).toHaveAttribute("target", "_blank");
+  await expect(sutterPrecisionLink).toHaveAttribute("rel", "noopener noreferrer");
   const footerSecondaryText = footer.getByText("powered by", { exact: true });
   const computedColors = await footerSecondaryText.evaluate((element) => {
     const footerElement = element.closest("footer");

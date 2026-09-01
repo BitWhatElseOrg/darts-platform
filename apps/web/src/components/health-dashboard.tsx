@@ -71,7 +71,7 @@ export function HealthDashboard() {
 
   return (
     <section
-      aria-labelledby="environment-title"
+      aria-labelledby="services-title"
       className="w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-900/80 p-5 shadow-2xl shadow-black/20 backdrop-blur sm:p-8"
     >
       <div className="mb-5 flex flex-col gap-4 border-b border-slate-800 pb-5 sm:flex-row sm:items-center sm:justify-between">
@@ -79,8 +79,8 @@ export function HealthDashboard() {
           <p className="mb-1 text-xs font-semibold tracking-[0.2em] text-emerald-300 uppercase">
             Systemstatus
           </p>
-          <h2 id="environment-title" className="text-xl font-semibold text-white">
-            Entwicklungsumgebung
+          <h2 id="services-title" className="text-xl font-semibold text-white">
+            DartBase-Dienste
           </h2>
         </div>
         <Button
@@ -102,8 +102,7 @@ export function HealthDashboard() {
 
       {healthQuery.isError ? (
         <p className="mt-5 rounded-lg border border-rose-400/30 bg-rose-400/10 p-3 text-sm text-rose-200">
-          Der API-Systemstatus ist nicht erreichbar. Prüfe, ob API und lokale
-          Infrastruktur laufen.
+          Der Systemstatus ist aktuell nicht erreichbar. Versuche es in Kürze erneut.
         </p>
       ) : null}
     </section>
