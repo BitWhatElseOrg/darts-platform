@@ -1,20 +1,25 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   auditEvents, boardControllerLeases, boards, legs, matches, matchParticipants, outboxEvents, players, scoreCommands,
-  tournamentCommands, tournamentGroupParticipants, tournamentGroups, tournamentMatches,
+  tournamentCommands, tournamentGroups, tournamentMatches,
   tournaments, tournamentStages,
   visits,
 } from "@darts-platform/database";
 import { ScoringValidationError, createX01Match, executeX01Command, projectX01Match, type X01Command, type X01Match } from "@darts-platform/scoring-engine";
-import { calculateGroupStandings } from "@darts-platform/tournament-engine";
-import type { CorrectTournamentResultInput, CreateMatchInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
+import type { AbortMatchInput, AbortMatchResponse, CorrectTournamentResultInput, CreateMatchInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { DatabaseService } from "../database/database.service.js";
+import { applyWithdrawalPropagation } from "../tournaments/apply-withdrawal-propagation.js";
+import { resolveCompletedTournamentGroup } from "../tournaments/resolve-completed-group.js";
+import { updateTournamentProgress } from "../tournaments/update-tournament-progress.js";
+import { abortScoringMatch } from "./abort-match.js";
+import { lockTournamentScoringContext } from "./tournament-scoring-lock.js";
 
 export type MutationResult = "ok" | "not-found" | "version-conflict" | "controller-conflict";
+export type AbortMutationResult = AbortMatchResponse | Exclude<MutationResult, "ok">;
 export type TournamentCorrectionResult =
   | Exclude<MutationResult, "controller-conflict">
   | "result-not-correctable"
@@ -27,6 +32,7 @@ const storedSubmitSchema = z.object({
   dartsThrown: z.union([z.literal(1), z.literal(2), z.literal(3)]), checkoutDouble: z.number().int().optional(), checkoutAttempts: z.number().int().min(0).max(3).default(0),
 });
 const storedUndoSchema = z.object({ type: z.literal("UNDO_LAST_VISIT"), commandId: z.uuid(), targetCommandId: z.uuid() });
+const storedAbortSchema = z.object({ type: z.literal("ABORT_MATCH"), commandId: z.uuid(), tournamentMatchId: z.uuid().nullable() });
 const storedCommandSchema = z.discriminatedUnion("type", [storedSubmitSchema, storedUndoSchema]);
 const groupRankReferenceSchema = z.object({
   type: z.literal("GROUP_RANK"),
@@ -46,7 +52,7 @@ export class MatchesRepository {
   public constructor(@Inject(DatabaseService) private readonly databaseService: DatabaseService) {}
 
   public async list(organizationId: string): Promise<MatchStateResponse[]> {
-    const rows = await this.databaseService.database.select({ id: matches.id }).from(matches).where(eq(matches.organizationId, organizationId)).orderBy(desc(matches.createdAt));
+    const rows = await this.databaseService.database.select({ id: matches.id }).from(matches).where(and(eq(matches.organizationId, organizationId), notInArray(matches.status, ["ABORTED"]))).orderBy(desc(matches.createdAt));
     const states = await Promise.all(rows.map((row) => this.getState(organizationId, row.id)));
     return states.filter((state): state is MatchStateResponse => state !== null);
   }
@@ -55,7 +61,7 @@ export class MatchesRepository {
     const [matchRow] = await this.databaseService.database
       .select({ match: matches, boardName: boards.name })
       .from(matches).leftJoin(boards, and(eq(boards.id, matches.boardId), eq(boards.organizationId, organizationId)))
-      .where(and(eq(matches.organizationId, organizationId), eq(matches.id, matchId))).limit(1);
+      .where(and(eq(matches.organizationId, organizationId), eq(matches.id, matchId), notInArray(matches.status, ["ABORTED"]))).limit(1);
     if (matchRow === undefined) return null;
 
     const participantRows = await this.databaseService.database
@@ -156,6 +162,36 @@ export class MatchesRepository {
     });
   }
 
+  public abort(input: ActorInput & { readonly data: AbortMatchInput }): Promise<AbortMutationResult> {
+    return this.databaseService.database.transaction(async (transaction): Promise<AbortMutationResult> => {
+      await transaction.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.data.commandId}, 0))`);
+      const [duplicate] = await transaction.select({ organizationId: scoreCommands.organizationId, matchId: scoreCommands.matchId, payload: scoreCommands.payload }).from(scoreCommands).where(eq(scoreCommands.commandId, input.data.commandId)).limit(1);
+      if (duplicate !== undefined) {
+        if (duplicate.organizationId !== input.organizationId || duplicate.matchId !== input.matchId) throw new ScoringValidationError("COMMAND_ID_ALREADY_USED", "The command ID has already been used for another match.");
+        const payload = storedAbortSchema.safeParse(duplicate.payload);
+        if (!payload.success) throw new ScoringValidationError("COMMAND_ID_ALREADY_USED", "The command ID has already been used for another score command.");
+        return { matchId: input.matchId, status: "ABORTED", tournamentMatchId: payload.data.tournamentMatchId };
+      }
+      const tournamentContext = await lockTournamentScoringContext(transaction, input.organizationId, input.matchId);
+      const [match] = await transaction.select().from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
+      if (match === undefined) return "not-found";
+      if (match.version !== input.data.expectedVersion) return "version-conflict";
+      if (match.status !== "IN_PROGRESS") throw new ScoringValidationError("MATCH_NOT_ABORTABLE", "Only an active match can be aborted.");
+      const [lease] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
+      if (lease !== undefined && lease.expiresAt > new Date() && lease.controllerId !== input.data.controllerId) return "controller-conflict";
+      const scheduled = tournamentContext;
+      const aborted = await abortScoringMatch(transaction, { organizationId: input.organizationId, match, commandId: input.data.commandId, tournamentMatchId: scheduled?.id ?? null, ...(input.data.reason === undefined ? {} : { reason: input.data.reason }), source: "DIRECT" });
+      if (scheduled !== null) {
+        await transaction.update(tournamentMatches).set({ status: "READY", boardId: null, scoringMatchId: null, winnerPlayerId: null, resultType: null, completedAt: null, version: scheduled.version + 1, updatedAt: new Date() }).where(and(eq(tournamentMatches.organizationId, input.organizationId), eq(tournamentMatches.id, scheduled.id)));
+        await transaction.update(tournaments).set({ version: sql`${tournaments.version} + 1`, updatedAt: new Date() }).where(and(eq(tournaments.organizationId, input.organizationId), eq(tournaments.id, scheduled.tournamentId)));
+        await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Tournament", aggregateId: scheduled.tournamentId, eventType: "TOURNAMENT_MATCH_REOPENED", payload: { tournamentId: scheduled.tournamentId, tournamentMatchId: scheduled.id, scoringMatchId: input.matchId } });
+      }
+      await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Match", aggregateId: input.matchId, eventType: "MATCH_ABORTED", payload: { matchId: input.matchId, tournamentMatchId: scheduled?.id ?? null, commandId: input.data.commandId, discardedVisitCount: aborted.discardedVisitCount } });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: "MATCH_ABORTED", entityType: "Match", entityId: input.matchId, oldValue: match, newValue: { status: "ABORTED", reason: input.data.reason ?? null, tournamentMatchId: scheduled?.id ?? null, discardedVisitCount: aborted.discardedVisitCount }, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
+      return { matchId: input.matchId, status: "ABORTED", tournamentMatchId: scheduled?.id ?? null };
+    });
+  }
+
   public submitVisit(input: ActorInput & { readonly data: SubmitVisitInput }): Promise<MutationResult> {
     return this.databaseService.database.transaction(async (transaction): Promise<MutationResult> => {
       const [duplicate] = await transaction.select({ organizationId: scoreCommands.organizationId, matchId: scoreCommands.matchId }).from(scoreCommands)
@@ -164,6 +200,7 @@ export class MatchesRepository {
         if (duplicate.organizationId === input.organizationId && duplicate.matchId === input.matchId) return "ok";
         throw new ScoringValidationError("COMMAND_ID_ALREADY_USED", "The command ID has already been used for another match.");
       }
+      await lockTournamentScoringContext(transaction, input.organizationId, input.matchId);
       const [match] = await transaction.select().from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
       if (match === undefined) return "not-found";
       if (match.version !== input.data.expectedVersion) return "version-conflict";
@@ -463,6 +500,7 @@ export class MatchesRepository {
         .set({
           status: "IN_PROGRESS",
           winnerPlayerId: null,
+          resultType: null,
           completedAt: null,
           version: scheduled.version + 1,
           updatedAt: new Date(),
@@ -603,6 +641,7 @@ export class MatchesRepository {
         if (duplicate.organizationId === input.organizationId && duplicate.matchId === input.matchId) return "ok";
         throw new ScoringValidationError("COMMAND_ID_ALREADY_USED", "The command ID has already been used for another match.");
       }
+      await lockTournamentScoringContext(transaction, input.organizationId, input.matchId);
       const [match] = await transaction.select().from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
       if (match === undefined) return "not-found";
       if (match.version !== input.data.expectedVersion) return "version-conflict";
@@ -766,6 +805,7 @@ export class MatchesRepository {
       .update(tournamentMatches)
       .set({
         status: "COMPLETED",
+        resultType: "PLAYED",
         winnerPlayerId,
         completedAt: new Date(),
         version: scheduled.version + 1,
@@ -823,7 +863,7 @@ export class MatchesRepository {
     }
 
     if (scheduled.groupId !== null) {
-      await this.resolveCompletedGroup(
+      await resolveCompletedTournamentGroup(
         transaction,
         organizationId,
         scheduled.tournamentId,
@@ -831,73 +871,14 @@ export class MatchesRepository {
       );
     }
 
-    const [openStageMatch] = await transaction
-      .select({ id: tournamentMatches.id })
-      .from(tournamentMatches)
-      .where(
-        and(
-          eq(tournamentMatches.organizationId, organizationId),
-          eq(tournamentMatches.stageId, scheduled.stageId),
-          notInArray(tournamentMatches.status, ["COMPLETED", "BYE", "CANCELLED"]),
-        ),
-      )
-      .limit(1);
-    if (openStageMatch === undefined) {
-      await transaction
-        .update(tournamentStages)
-        .set({ status: "COMPLETED", updatedAt: new Date() })
-        .where(
-          and(
-            eq(tournamentStages.organizationId, organizationId),
-            eq(tournamentStages.id, scheduled.stageId),
-          ),
-        );
-    }
-
-    const [openTournamentMatch] = await transaction
-      .select({ id: tournamentMatches.id })
-      .from(tournamentMatches)
-      .where(
-        and(
-          eq(tournamentMatches.organizationId, organizationId),
-          eq(tournamentMatches.tournamentId, scheduled.tournamentId),
-          notInArray(tournamentMatches.status, ["COMPLETED", "BYE", "CANCELLED"]),
-        ),
-      )
-      .limit(1);
-    const [openGroupMatch] = await transaction
-      .select({ id: tournamentMatches.id })
-      .from(tournamentMatches)
-      .where(
-        and(
-          eq(tournamentMatches.organizationId, organizationId),
-          eq(tournamentMatches.tournamentId, scheduled.tournamentId),
-          isNotNull(tournamentMatches.groupId),
-          notInArray(tournamentMatches.status, ["COMPLETED", "BYE", "CANCELLED"]),
-        ),
-      )
-      .limit(1);
-    const [tournament] = await transaction
-      .select({ format: tournaments.format })
-      .from(tournaments)
-      .where(
-        and(
-          eq(tournaments.organizationId, organizationId),
-          eq(tournaments.id, scheduled.tournamentId),
-        ),
-      )
-      .limit(1);
-    if (tournament === undefined) throw new Error("Tournament progression invariant violated.");
-    const groupsCompleted =
-      tournament.format === "GROUPS_THEN_KNOCKOUT" && openGroupMatch === undefined;
-    const nextTournamentStatus =
-      openTournamentMatch === undefined ? "COMPLETED" : groupsCompleted ? "KNOCKOUT" : undefined;
+    const now = new Date();
+    await applyWithdrawalPropagation(transaction, organizationId, scheduled.tournamentId, now);
+    await updateTournamentProgress(transaction, organizationId, scheduled.tournamentId, now);
     await transaction
       .update(tournaments)
       .set({
         version: sql`${tournaments.version} + 1`,
-        ...(nextTournamentStatus === undefined ? {} : { status: nextTournamentStatus }),
-        updatedAt: new Date(),
+        updatedAt: now,
       })
       .where(
         and(
@@ -917,166 +898,5 @@ export class MatchesRepository {
         winnerPlayerId,
       },
     });
-    if (groupsCompleted && openTournamentMatch !== undefined) {
-      await transaction
-        .update(tournamentStages)
-        .set({ status: "OPEN", updatedAt: new Date() })
-        .where(
-          and(
-            eq(tournamentStages.organizationId, organizationId),
-            eq(tournamentStages.tournamentId, scheduled.tournamentId),
-            eq(tournamentStages.type, "SINGLE_ELIMINATION"),
-          ),
-        );
-    }
-  }
-
-  private async resolveCompletedGroup(
-    transaction: Parameters<Parameters<typeof this.databaseService.database.transaction>[0]>[0],
-    organizationId: string,
-    tournamentId: string,
-    groupId: string,
-  ): Promise<void> {
-    const [unfinished] = await transaction
-      .select({ id: tournamentMatches.id })
-      .from(tournamentMatches)
-      .where(
-        and(
-          eq(tournamentMatches.organizationId, organizationId),
-          eq(tournamentMatches.groupId, groupId),
-          notInArray(tournamentMatches.status, ["COMPLETED", "BYE", "CANCELLED"]),
-        ),
-      )
-      .limit(1);
-    if (unfinished !== undefined) return;
-    const [group] = await transaction
-      .select()
-      .from(tournamentGroups)
-      .where(
-        and(
-          eq(tournamentGroups.organizationId, organizationId),
-          eq(tournamentGroups.id, groupId),
-        ),
-      )
-      .limit(1);
-    if (group === undefined) throw new Error("Tournament group invariant violated.");
-    const members = await transaction
-      .select()
-      .from(tournamentGroupParticipants)
-      .where(
-        and(
-          eq(tournamentGroupParticipants.organizationId, organizationId),
-          eq(tournamentGroupParticipants.groupId, groupId),
-        ),
-      );
-    const completed = await transaction
-      .select()
-      .from(tournamentMatches)
-      .where(
-        and(
-          eq(tournamentMatches.organizationId, organizationId),
-          eq(tournamentMatches.groupId, groupId),
-          eq(tournamentMatches.status, "COMPLETED"),
-        ),
-      );
-    const results = [];
-    for (const match of completed) {
-      if (
-        match.scoringMatchId === null ||
-        match.participantOneId === null ||
-        match.participantTwoId === null ||
-        match.winnerPlayerId === null
-      ) {
-        throw new Error("Completed tournament match invariant violated.");
-      }
-      const participantRows = await transaction
-        .select()
-        .from(matchParticipants)
-        .where(
-          and(
-            eq(matchParticipants.organizationId, organizationId),
-            eq(matchParticipants.matchId, match.scoringMatchId),
-          ),
-        );
-      const first = participantRows.find(
-        (participant) => participant.playerId === match.participantOneId,
-      );
-      const second = participantRows.find(
-        (participant) => participant.playerId === match.participantTwoId,
-      );
-      if (first === undefined || second === undefined) {
-        throw new Error("Completed match participant invariant violated.");
-      }
-      results.push({
-        playerOneId: first.playerId,
-        playerTwoId: second.playerId,
-        playerOneLegs: first.legsWon,
-        playerTwoLegs: second.legsWon,
-        winnerPlayerId: match.winnerPlayerId,
-      });
-    }
-    const standings = calculateGroupStandings({
-      participants: members.map((member) => ({ playerId: member.playerId, seed: member.seed })),
-      results,
-    });
-    const knockoutMatches = await transaction
-      .select()
-      .from(tournamentMatches)
-      .where(
-        and(
-          eq(tournamentMatches.organizationId, organizationId),
-          eq(tournamentMatches.tournamentId, tournamentId),
-          eq(tournamentMatches.round, 1),
-          eq(tournamentMatches.status, "WAITING"),
-        ),
-      )
-      .for("update");
-    for (const standing of standings.slice(0, group.qualifyCount)) {
-      for (const knockoutMatch of knockoutMatches) {
-        const firstReference = groupRankReferenceSchema.safeParse(
-          knockoutMatch.participantOneRef,
-        );
-        const secondReference = groupRankReferenceSchema.safeParse(
-          knockoutMatch.participantTwoRef,
-        );
-        const participantOneId =
-          firstReference.success &&
-          firstReference.data.groupKey === group.key &&
-          firstReference.data.rank === standing.position
-            ? standing.playerId
-            : knockoutMatch.participantOneId;
-        const participantTwoId =
-          secondReference.success &&
-          secondReference.data.groupKey === group.key &&
-          secondReference.data.rank === standing.position
-            ? standing.playerId
-            : knockoutMatch.participantTwoId;
-        if (
-          participantOneId === knockoutMatch.participantOneId &&
-          participantTwoId === knockoutMatch.participantTwoId
-        ) {
-          continue;
-        }
-        await transaction
-          .update(tournamentMatches)
-          .set({
-            participantOneId,
-            participantTwoId,
-            status:
-              participantOneId !== null && participantTwoId !== null
-                ? "READY"
-                : knockoutMatch.status,
-            updatedAt: new Date(),
-          })
-          .where(
-            and(
-              eq(tournamentMatches.organizationId, organizationId),
-              eq(tournamentMatches.id, knockoutMatch.id),
-            ),
-          );
-        knockoutMatch.participantOneId = participantOneId;
-        knockoutMatch.participantTwoId = participantTwoId;
-      }
-    }
   }
 }

@@ -8,6 +8,7 @@ import {
   createTournamentSchema,
   releaseBoardSchema,
   tournamentStructurePreviewInputSchema,
+  withdrawTournamentParticipantSchema,
   type AssignMatchInput,
   type AdvancedFormatPreview,
   type AdvancedFormatPreviewInput,
@@ -18,6 +19,7 @@ import {
   type TournamentStructurePreview,
   type TournamentStructurePreviewInput,
   type TournamentSummary,
+  type WithdrawTournamentParticipantInput,
 } from "@darts-platform/schemas";
 
 import { CurrentAuth } from "../auth/current-auth.decorator.js";
@@ -133,5 +135,17 @@ export class TournamentsController {
       auth,
       audit: getAuditContext(request),
     });
+  }
+
+  @Post(":tournamentId/withdrawals")
+  public withdrawParticipant(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("tournamentId", ParseUUIDPipe) tournamentId: string,
+    @Body() body: unknown,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<TournamentDashboard> {
+    const data: WithdrawTournamentParticipantInput = parseBody(withdrawTournamentParticipantSchema, body);
+    return this.service.withdrawParticipant({ organizationId, tournamentId, data, auth, audit: getAuditContext(request) });
   }
 }

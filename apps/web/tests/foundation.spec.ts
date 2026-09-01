@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -7,6 +7,41 @@ import {
 } from "./registration-invitation";
 
 const registrationSeeds: RegistrationInvitationSeed[] = [];
+
+async function visibleLabeledControl(container: Locator, label: string): Promise<Locator> {
+  const visibleLabel = container.getByText(label, { exact: true });
+  await expect(visibleLabel).toBeVisible();
+  const control = container.getByLabel(label, { exact: true });
+  await expect(control).toBeVisible();
+  const controlId = await control.getAttribute("id");
+  if (controlId === null) throw new Error(`Expected the ${label} control to have an id.`);
+  expect(
+    await visibleLabel.evaluate(
+      (element, id) => element instanceof HTMLLabelElement && element.control?.id === id,
+      controlId,
+    ),
+    `${label} visible label association`,
+  ).toBe(true);
+  return control;
+}
+
+function relativeLuminance([red, green, blue]: readonly number[]): number {
+  const [linearRed, linearGreen, linearBlue] = [red, green, blue].map((channel) => {
+    const normalized = channel / 255;
+    return normalized <= 0.04045
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * linearRed + 0.7152 * linearGreen + 0.0722 * linearBlue;
+}
+
+function contrastRatio(foreground: readonly number[], background: readonly number[]): number {
+  const foregroundLuminance = relativeLuminance(foreground);
+  const backgroundLuminance = relativeLuminance(background);
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+  const darker = Math.min(foregroundLuminance, backgroundLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
 
 test.afterEach(async () => {
   await Promise.all(registrationSeeds.splice(0).map((seed) => seed.cleanup()));
@@ -19,6 +54,31 @@ test("the sign-in page shows its brand logos", async ({ page }) => {
   const footer = page.locator("footer");
   await expect(footer).toContainText("powered by");
   await expect(footer.getByRole("img", { name: "Sutter Precision" })).toBeVisible();
+  const footerSecondaryText = footer.getByText("powered by", { exact: true });
+  const computedColors = await footerSecondaryText.evaluate((element) => {
+    const footerElement = element.closest("footer");
+    if (footerElement === null) throw new Error("Expected secondary text inside a footer.");
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (context === null) throw new Error("Expected a canvas 2D context for contrast testing.");
+    const toRgba = (color: string): readonly number[] => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = color;
+      context.fillRect(0, 0, 1, 1);
+      return Array.from(context.getImageData(0, 0, 1, 1).data);
+    };
+    return {
+      background: toRgba(getComputedStyle(footerElement).backgroundColor),
+      foreground: toRgba(getComputedStyle(element).color),
+    };
+  });
+  expect(computedColors.background[3], "public sign-in footer owns an opaque background").toBe(255);
+  expect(
+    contrastRatio(computedColors.foreground.slice(0, 3), computedColors.background.slice(0, 3)),
+    "public sign-in footer secondary text contrast",
+  ).toBeGreaterThanOrEqual(4.5);
   await expect(page.getByRole("link", { name: "Turnierleitung" })).toHaveCount(0);
 });
 
@@ -34,16 +94,19 @@ test("the tournament administration uses the entry page dark surface", async ({ 
 test("a viewer does not receive tournament administration access", async ({ page }) => {
   const suffix = randomUUID();
   const email = `e2e-viewer-${suffix}@example.test`;
-  registrationSeeds.push(await createRegistrationInvitation(email, "VIEWER"));
+  const invitation = await createRegistrationInvitation(email, "VIEWER");
+  registrationSeeds.push(invitation);
 
   await page.goto("/");
   await page.getByRole("button", { name: "Eingeladen? Konto erstellen" }).click();
   await page.getByLabel("Name").fill("E2E Viewer");
   await page.getByLabel("E-Mail").fill(email);
   await page.getByLabel("Passwort").fill("E2ePassword123!");
+  await page.getByLabel("Einladungscode").fill(invitation.claimToken);
   await page.getByRole("button", { name: "Konto erstellen" }).click();
 
   await expect(page.getByText(email)).toBeVisible();
+  await page.getByLabel("Einladungscode").fill(invitation.claimToken);
   await page.getByRole("button", { name: "Annehmen" }).click();
   await expect(
     page.getByRole("heading", { name: "E2E Invitation Organization" }),
@@ -59,7 +122,8 @@ test("a club can complete a match and start a generated tournament match", async
   const organizationName = `E2E Club ${suffix.slice(0, 8)}`;
   const organizationSlug = `e2e-club-${suffix}`;
 
-  registrationSeeds.push(await createRegistrationInvitation(email));
+  const invitation = await createRegistrationInvitation(email);
+  registrationSeeds.push(invitation);
 
   await page.goto("/");
 
@@ -70,25 +134,38 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByLabel("Name").fill("E2E Owner");
   await page.getByLabel("E-Mail").fill(email);
   await page.getByLabel("Passwort").fill("E2ePassword123!");
+  await page.getByLabel("Einladungscode").fill(invitation.claimToken);
   await page.getByRole("button", { name: "Konto erstellen" }).click();
 
   await expect(page.getByText(email)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Offene Einladungen" })).toBeVisible();
+  await page.getByLabel("Einladungscode").fill(invitation.claimToken);
   await page.getByRole("button", { name: "Annehmen" }).click();
   await expect(page.getByRole("link", { name: "Turnierleitung" })).toBeVisible();
-  await page.getByPlaceholder("Vereinsname").fill(organizationName);
-  await page.getByPlaceholder("club-slug").fill(organizationSlug);
+  const organizationForm = page.locator("form").filter({
+    has: page.getByRole("heading", { name: "Organisation erstellen" }),
+  });
+  await (await visibleLabeledControl(organizationForm, "Organisationsname")).fill(organizationName);
+  await (await visibleLabeledControl(organizationForm, "Organisationskürzel")).fill(organizationSlug);
   await page.getByRole("button", { name: "Erstellen", exact: true }).click();
 
   await expect(
     page.getByRole("heading", { name: organizationName }),
   ).toBeVisible();
-  await page.getByPlaceholder("Anzeigename").fill("E2E Player One");
-  await page.getByPlaceholder("Spitzname (optional)").fill("The Test One");
+  const playerForm = page.locator("form").filter({
+    has: page.getByRole("button", { name: "Spieler hinzufügen" }),
+  });
+  const invitationForm = page.locator("form").filter({
+    has: page.getByRole("button", { name: "Einladen" }),
+  });
+  await visibleLabeledControl(invitationForm, "E-Mail-Adresse für Einladung");
+  await visibleLabeledControl(invitationForm, "Rolle");
+  await (await visibleLabeledControl(playerForm, "Anzeigename")).fill("E2E Player One");
+  await (await visibleLabeledControl(playerForm, "Spitzname (optional)")).fill("The Test One");
   await page.getByRole("button", { name: "Spieler hinzufügen" }).click();
   await expect(page.getByText("E2E Player One", { exact: true }).first()).toBeVisible();
-  await page.getByPlaceholder("Anzeigename").fill("E2E Player Two");
-  await page.getByPlaceholder("Spitzname (optional)").fill("The Test Two");
+  await playerForm.getByLabel("Anzeigename", { exact: true }).fill("E2E Player Two");
+  await playerForm.getByLabel("Spitzname (optional)", { exact: true }).fill("The Test Two");
   await page.getByRole("button", { name: "Spieler hinzufügen" }).click();
   await expect(page.getByText("E2E Player Two", { exact: true }).first()).toBeVisible();
 
@@ -104,14 +181,39 @@ test("a club can complete a match and start a generated tournament match", async
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
   await expect(page.getByText("Dieses Gerät steuert das Board · Verbindung aktiv")).toBeVisible();
   await expect(page.getByLabel("Aufnahmescore")).toBeEnabled();
+  await expect(page.getByLabel("Geworfene Darts")).toHaveCount(0);
+  await expect(page.getByLabel("Checkout-Double")).toHaveCount(0);
+  await expect(page.getByLabel("Doppelversuche")).toHaveCount(0);
 
-  const record = async (score: number, expectedRest: number, checkoutDouble?: number) => {
+  await page.getByLabel("Aufnahmescore").fill("100");
+  await page.getByRole("button", { name: "Erfassen" }).click();
+  await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("401");
+  await page.getByRole("button", { name: "Match abbrechen" }).click();
+  const abortDialog = page.getByRole("dialog", { name: "Match abbrechen" });
+  await expect(abortDialog).toContainText("0 lokal gespeicherte Aufnahmen werden verworfen");
+  await abortDialog.getByLabel("Abbruchgrund").fill("Board versehentlich falsch zugewiesen");
+  await abortDialog.getByRole("button", { name: "Match endgültig abbrechen" }).click();
+  await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toHaveCount(0);
+  await expect(page.getByText(/E2E Board: frei/u)).toBeVisible();
+  await page.getByLabel("Board", { exact: true }).selectOption({ label: "E2E Board" });
+  await page.getByRole("button", { name: "Match starten" }).click();
+  await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
+  await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("501");
+
+  const record = async (
+    score: number,
+    expectedRest: number,
+    checkout?: { readonly field: number; readonly darts: 1 | 2 | 3 },
+  ) => {
     await page.getByLabel("Aufnahmescore").fill(String(score));
-    if (checkoutDouble !== undefined) {
-      await page.getByLabel("Checkout-Double").fill(String(checkoutDouble));
-      await page.getByLabel("Doppelversuche").fill("1");
-    }
     await page.getByRole("button", { name: "Erfassen" }).click();
+    if (checkout !== undefined) {
+      const dialog = page.getByRole("dialog", { name: "Checkout erfassen" });
+      await expect(dialog).toBeVisible();
+      await dialog.getByLabel("Checkout-Feld").selectOption(String(checkout.field));
+      await dialog.getByLabel("Benötigte Darts").selectOption(String(checkout.darts));
+      await dialog.getByRole("button", { name: "Checkout speichern" }).click();
+    }
     await expect(page.getByLabel(`E2E Player One, Restscore`)).toHaveText(String(expectedRest));
   };
 
@@ -126,6 +228,7 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByRole("button", { name: "Letzte Aufnahme zurücknehmen" }).click();
   await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("501");
   await record(180, 321);
+  await expect(page.getByText("E2E Player One · 3 Darts").first()).toBeVisible();
   await page.getByLabel("Aufnahmescore").fill("60");
   await page.getByRole("button", { name: "Erfassen" }).click();
   await expect(page.getByLabel("E2E Player Two, Restscore")).toHaveText("441");
@@ -133,12 +236,27 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByLabel("Aufnahmescore").fill("60");
   await page.getByRole("button", { name: "Erfassen" }).click();
   await expect(page.getByLabel("E2E Player Two, Restscore")).toHaveText("381");
-  await record(141, 0, 12);
+  await record(91, 50);
+  await page.getByLabel("Aufnahmescore").fill("60");
+  await page.getByRole("button", { name: "Erfassen" }).click();
+  await expect(page.getByLabel("E2E Player Two, Restscore")).toHaveText("321");
+  await page.getByLabel("Aufnahmescore").fill("50");
+  await page.getByRole("button", { name: "Erfassen" }).click();
+  const checkoutDialog = page.getByRole("dialog", { name: "Checkout erfassen" });
+  await expect(checkoutDialog).toBeVisible();
+  await checkoutDialog.getByRole("button", { name: "Abbrechen" }).click();
+  await expect(checkoutDialog).toHaveCount(0);
+  await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("50");
+  await page.getByRole("button", { name: "Erfassen" }).click();
+  await checkoutDialog.getByLabel("Checkout-Feld").selectOption("25");
+  await checkoutDialog.getByLabel("Benötigte Darts").selectOption("1");
+  await checkoutDialog.getByRole("button", { name: "Checkout speichern" }).click();
+  await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("0");
   await expect(page.getByText("Match beendet")).toBeVisible();
   await expect(page.getByText("E2E Player One gewinnt")).toBeVisible();
 
   for (const name of ["E2E Player Three", "E2E Player Four"]) {
-    await page.getByPlaceholder("Anzeigename").fill(name);
+    await page.getByLabel("Anzeigename", { exact: true }).fill(name);
     await page.getByRole("button", { name: "Spieler hinzufügen" }).click();
     await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
   }
@@ -166,14 +284,14 @@ test("a club can complete a match and start a generated tournament match", async
   const scoreTournamentVisit = async (score: number, checkoutDouble?: number) => {
     const visitScore = page.getByLabel("Aufnahmescore");
     await visitScore.fill(String(score));
-    if (checkoutDouble !== undefined) {
-      await page.getByLabel("Checkout-Double").fill(String(checkoutDouble));
-      await page.getByLabel("Doppelversuche").fill("1");
-    }
     await page.getByRole("button", { name: "Erfassen" }).click();
     if (checkoutDouble === undefined) {
       await expect(visitScore).toHaveValue("");
     } else {
+      const dialog = page.getByRole("dialog", { name: "Checkout erfassen" });
+      await dialog.getByLabel("Checkout-Feld").selectOption(String(checkoutDouble));
+      await dialog.getByLabel("Benötigte Darts").selectOption("3");
+      await dialog.getByRole("button", { name: "Checkout speichern" }).click();
       await expect(page.getByText("Match beendet")).toBeVisible();
     }
   };
@@ -190,4 +308,17 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByRole("button", { name: "Match wieder öffnen" }).click();
   await expect(page.getByText("Noch kein Ergebnis erfasst.")).toBeVisible();
   await expect(page.getByText("141").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Spielerausfall erfassen" }).click();
+  const withdrawalDialog = page.getByRole("dialog", { name: "Spielerausfall erfassen" });
+  await withdrawalDialog.getByLabel("Spieler").selectOption({ label: "E2E Player One" });
+  await withdrawalDialog.getByLabel("Ausfallgrund").fill("Akute Verletzung");
+  await withdrawalDialog.getByRole("button", { name: "Ausfall bestätigen" }).click();
+  await expect(page.getByText("E2E Player One · Ausgefallen")).toBeVisible();
+  await expect(page.getByText(/gewinnt kampflos/u).first()).toBeVisible();
+
+  const tournamentId = new URL(tournamentUrl).pathname.split("/").at(-1);
+  if (tournamentId === undefined) throw new Error("Expected tournament ID in dashboard URL.");
+  await page.goto(`/live/${tournamentId}`);
+  await expect(page.getByText("E2E Player One · Ausgefallen")).toBeVisible();
 });

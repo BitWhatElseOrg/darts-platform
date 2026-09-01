@@ -17,6 +17,11 @@ export const submitVisitSchema = z.object({
   controllerId: z.uuid().optional(),
 }).refine((value) => (value.checkoutAttempts ?? 0) <= value.dartsThrown, { message: "Checkout attempts cannot exceed darts thrown.", path: ["checkoutAttempts"] });
 export const undoVisitSchema = z.object({ commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), controllerId: z.uuid().optional() });
+export const abortMatchSchema = z.object({
+  commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), controllerId: z.uuid().optional(),
+  reason: z.string().trim().min(3).max(500),
+});
+export const abortMatchResponseSchema = z.object({ matchId: z.uuid(), status: z.literal("ABORTED"), tournamentMatchId: z.uuid().nullable() });
 export const boardControllerLeaseRequestSchema = z.object({ controllerId: z.uuid(), force: z.boolean().default(false) });
 export const boardControllerLeaseSchema = z.object({ controllerId: z.uuid(), owned: z.boolean(), expiresAt: z.coerce.date() });
 export const matchParticipantStateSchema = z.object({
@@ -46,6 +51,8 @@ export const matchListSchema = z.array(matchStateSchema);
 export type CreateMatchInput = z.infer<typeof createMatchSchema>;
 export type SubmitVisitInput = z.infer<typeof submitVisitSchema>;
 export type UndoVisitInput = z.infer<typeof undoVisitSchema>;
+export type AbortMatchInput = z.infer<typeof abortMatchSchema>;
+export type AbortMatchResponse = z.infer<typeof abortMatchResponseSchema>;
 export type MatchStateResponse = z.infer<typeof matchStateSchema>;
 export type BoardControllerLeaseRequest = z.infer<typeof boardControllerLeaseRequestSchema>;
 export type BoardControllerLeaseResponse = z.infer<typeof boardControllerLeaseSchema>;

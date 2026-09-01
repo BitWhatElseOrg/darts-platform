@@ -15,6 +15,8 @@ export const tournamentFormatSchema = z.enum([
 ]);
 
 export const seedingModeSchema = z.enum(["SEEDED", "RANDOM"]);
+export const tournamentParticipantStatusSchema = z.enum(["ACTIVE", "WITHDRAWN"]);
+export const tournamentMatchResultTypeSchema = z.enum(["PLAYED", "BYE", "WALKOVER"]);
 
 export const boardSlotStateSchema = z.enum(["FREE", "PLAYING", "BLOCKED"]);
 
@@ -118,6 +120,7 @@ export const groupStandingRowSchema = z.object({
   legsAgainst: z.number().int().nonnegative(),
   legDifference: z.number().int(),
   points: z.number().int().nonnegative(),
+  withdrawn: z.boolean(),
   qualified: z.boolean(),
 });
 
@@ -132,6 +135,7 @@ export const groupStandingSchema = z.object({
 export const tournamentResultSchema = z.object({
   matchId: z.uuid(),
   stageLabel: z.string(),
+  resultType: tournamentMatchResultTypeSchema,
   participantNames: z.tuple([z.string(), z.string()]),
   winnerPlayerId: z.uuid(),
   winnerDisplayName: z.string(),
@@ -144,8 +148,18 @@ export const bracketMatchSchema = z.object({
   round: z.number().int().positive(),
   position: z.number().int().positive(),
   status: z.enum(["WAITING", "READY", "IN_PROGRESS", "COMPLETED", "BYE", "CANCELLED"]),
+  resultType: tournamentMatchResultTypeSchema.nullable(),
   participantNames: z.tuple([z.string(), z.string()]),
   winnerDisplayName: z.string().nullable(),
+});
+
+const tournamentDashboardParticipantSchema = z.object({
+  playerId: z.uuid(),
+  displayName: z.string(),
+  seed: z.number().int().positive(),
+  status: tournamentParticipantStatusSchema,
+  withdrawnAt: z.coerce.date().nullable(),
+  withdrawalReason: z.string().nullable(),
 });
 
 export const tournamentDashboardSchema = z.object({
@@ -163,6 +177,7 @@ export const tournamentDashboardSchema = z.object({
     totalMatches: z.number().int().nonnegative(),
     startsAt: z.coerce.date(),
   }),
+  participants: z.array(tournamentDashboardParticipantSchema),
   boards: z.array(boardSlotSchema),
   queue: z.array(queueEntrySchema),
   conflicts: z.array(tournamentConflictSchema),
@@ -170,6 +185,13 @@ export const tournamentDashboardSchema = z.object({
   bracket: z.array(bracketMatchSchema),
   recentResults: z.array(tournamentResultSchema),
   generatedAt: z.coerce.date(),
+});
+
+export const publicTournamentDashboardSchema = tournamentDashboardSchema.extend({
+  participants: z.array(tournamentDashboardParticipantSchema.omit({
+    withdrawnAt: true,
+    withdrawalReason: true,
+  })),
 });
 
 export const tournamentStructurePreviewSchema = z.object({
@@ -320,10 +342,16 @@ export const correctTournamentResultSchema = z.object({
   matchId: z.uuid(),
   reason: z.string().trim().min(3).max(500),
 });
+export const withdrawTournamentParticipantSchema = z.object({
+  commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), playerId: z.uuid(),
+  reason: z.string().trim().min(3).max(500),
+});
 
 export type TournamentStatus = z.infer<typeof tournamentStatusSchema>;
 export type TournamentFormat = z.infer<typeof tournamentFormatSchema>;
 export type SeedingMode = z.infer<typeof seedingModeSchema>;
+export type TournamentParticipantStatus = z.infer<typeof tournamentParticipantStatusSchema>;
+export type TournamentMatchResultType = z.infer<typeof tournamentMatchResultTypeSchema>;
 export type BoardSlotState = z.infer<typeof boardSlotStateSchema>;
 export type QueueReadiness = z.infer<typeof queueReadinessSchema>;
 export type ConflictSeverity = z.infer<typeof conflictSeveritySchema>;
@@ -337,6 +365,7 @@ export type GroupStanding = z.infer<typeof groupStandingSchema>;
 export type GroupStandingRow = z.infer<typeof groupStandingRowSchema>;
 export type TournamentResult = z.infer<typeof tournamentResultSchema>;
 export type TournamentDashboard = z.infer<typeof tournamentDashboardSchema>;
+export type PublicTournamentDashboard = z.infer<typeof publicTournamentDashboardSchema>;
 export type TournamentStructurePreview = z.infer<typeof tournamentStructurePreviewSchema>;
 export type TournamentStructurePreviewInput = z.infer<
   typeof tournamentStructurePreviewInputSchema
@@ -345,3 +374,4 @@ export type CreateTournamentInput = z.infer<typeof createTournamentSchema>;
 export type AssignMatchInput = z.infer<typeof assignMatchSchema>;
 export type ReleaseBoardInput = z.infer<typeof releaseBoardSchema>;
 export type CorrectTournamentResultInput = z.infer<typeof correctTournamentResultSchema>;
+export type WithdrawTournamentParticipantInput = z.infer<typeof withdrawTournamentParticipantSchema>;

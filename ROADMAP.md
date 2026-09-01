@@ -4,7 +4,7 @@
 
 Die Roadmap führt vom technischen Fundament bis zum Vollausbau als Multi-Tenant Dart-Plattform.
 
-**Aktueller Stand (26. August 2026):** Phasen 0 bis 6 sind implementiert. Der
+**Aktueller Stand (31. August 2026):** Phasen 0 bis 6 sind implementiert. Der
 nächste geplante Produktabschnitt ist Phase 7. Registrierung neuer Konten ist
 bereits heute einladungsgebunden; Turnierverwaltung wird nur Rollen mit der
 entsprechenden Permission angeboten.
@@ -58,9 +58,26 @@ Saubere technische Basis schaffen.
 - [x] Verwaltungszugänge werden rollenabhängig angezeigt und serverseitig autorisiert
 - [x] CI prüft Lint, Typen, Tests, Build, E2E und Deployment-Images
 
-Die accountseitige Erstinstallation, Domain-Zuweisung und Aktivierung der beiden
-required GitHub-Checks ist im [Railway-Runbook](./infrastructure/railway.md)
-dokumentiert.
+## Betriebsstatus Production
+
+- [x] Railway Hobby ist aktiviert und das Production-Projekt heisst `dartbase`.
+- [x] Web, API und Worker sind als Railway-Services angelegt.
+- [x] Cyon delegiert `dartbase.ch` an die autoritativen Cloudflare-Nameserver.
+- [x] Apex-, Wildcard-, ACME- und Railway-Verifikationseinträge sind in
+  Cloudflare als `DNS only` eingerichtet und die Cloudflare-Zone ist aktiv.
+- [x] Das Wildcard-Zertifikat ist gültig.
+- [x] Das separate Zertifikat für `dartbase.ch` ist gültig.
+- [x] Web, API, Worker, PostgreSQL und Redis sind erfolgreich deployt; die
+  internen Healthchecks bestehen.
+- [x] Der exakte Cloudflare-CNAME `api` zeigt auf den API-Service und das
+  Zertifikat für `api.dartbase.ch` ist gültig.
+- [x] Die öffentlichen Web- und API-Smoke-Tests bestehen.
+- [x] Die beiden stabilen GitHub-Checks sind definiert und werden vor Releases
+  verifiziert. Ein verpflichtendes Ruleset bleibt dokumentiert ausstehend,
+  solange das private Repository GitHub Free verwendet.
+
+Einrichtung, Diagnose, IaC-Abgleich und die GitHub-Tarifgrenze stehen im
+[Railway-Runbook](./infrastructure/railway.md).
 
 ---
 
@@ -313,7 +330,8 @@ Realtime-Publikationsstatus und aktualisiert persistente Spieleraggregate.
 
 **Status:** Basis vorhanden – Organisationen, Mitgliedschaften, Rollen,
 Permissions und Einladungen sind umgesetzt; Settings, Limits, Branding,
-Custom Domains und Billing bleiben offen.
+kundeneigene Organisationsdomains und Billing bleiben offen. Die technische
+Plattformdomain `dartbase.ch` ist davon unabhängig bereits eingerichtet.
 
 ## Ziel
 
@@ -327,7 +345,7 @@ Mehrere Vereine / Veranstalter professionell betreiben.
 - Plans
 - Branding
 - Sponsor Assets
-- Custom Domains
+- kundeneigene Custom Domains pro Organisation
 - Billing vorbereiten
 - Audit Ausbau
 - Organization Dashboard

@@ -1,6 +1,6 @@
 {
   "name": "darts-platform",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@11.24.0",
   "engines": {
@@ -19,6 +19,8 @@
     "test:e2e": "turbo run build --filter=@darts-platform/config --filter=@darts-platform/database --filter=@darts-platform/domain --filter=@darts-platform/scoring-engine --filter=@darts-platform/statistics --filter=@darts-platform/schemas --filter=@darts-platform/ui && dotenv -e .env -- pnpm --filter @darts-platform/web test:e2e",
     "db:generate": "dotenv -e .env -- pnpm --filter @darts-platform/database db:generate",
     "db:migrate": "dotenv -e .env -- pnpm --filter @darts-platform/database db:migrate",
+    "db:bootstrap:production": "pnpm --filter @darts-platform/api bootstrap:production",
+    "db:seed:dev": "dotenv -e .env -- pnpm --filter @darts-platform/api seed:dev",
     "start:api:deploy": "node scripts/start-api.mjs",
     "start:web:deploy": "pnpm --filter @darts-platform/web start",
     "start:worker:deploy": "pnpm --filter @darts-platform/worker start",
@@ -33,6 +35,7 @@
     "eslint": "^9.39.0",
     "eslint-config-next": "16.3.3",
     "globals": "^16.5.0",
+    "railway": "^3.11.0",
     "turbo": "^2.6.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.0"

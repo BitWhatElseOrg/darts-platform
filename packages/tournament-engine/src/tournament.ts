@@ -77,13 +77,67 @@ export interface TournamentStructurePreview {
   readonly warnings: readonly string[];
 }
 
-export interface GroupMatchResult {
-  readonly playerOneId: string;
-  readonly playerTwoId: string;
-  readonly playerOneLegs: number;
-  readonly playerTwoLegs: number;
-  readonly winnerPlayerId: string;
+export interface TournamentLifecycleStage {
+  readonly id: string;
+  readonly type: "GROUP" | "ROUND_ROBIN" | "SINGLE_ELIMINATION";
+  readonly hasOpenMatches: boolean;
 }
+
+export interface TournamentLifecycle {
+  readonly tournamentStatus: "GROUP_STAGE" | "KNOCKOUT" | "COMPLETED";
+  readonly stages: readonly {
+    readonly id: string;
+    readonly status: "OPEN" | "WAITING" | "COMPLETED";
+  }[];
+}
+
+export function calculateTournamentLifecycle(input: {
+  readonly format: "GROUPS_THEN_KNOCKOUT" | "ROUND_ROBIN" | "SINGLE_ELIMINATION";
+  readonly stages: readonly TournamentLifecycleStage[];
+}): TournamentLifecycle {
+  const hasOpenMatches = input.stages.some((stage) => stage.hasOpenMatches);
+  const groupsHaveOpenMatches = input.stages.some(
+    (stage) => stage.type === "GROUP" && stage.hasOpenMatches,
+  );
+  const tournamentStatus = !hasOpenMatches
+    ? "COMPLETED"
+    : input.format === "SINGLE_ELIMINATION" ||
+        (input.format === "GROUPS_THEN_KNOCKOUT" && !groupsHaveOpenMatches)
+      ? "KNOCKOUT"
+      : "GROUP_STAGE";
+
+  return {
+    tournamentStatus,
+    stages: input.stages.map((stage) => ({
+      id: stage.id,
+      status: !stage.hasOpenMatches
+        ? "COMPLETED"
+        : input.format === "GROUPS_THEN_KNOCKOUT" &&
+            stage.type === "SINGLE_ELIMINATION" &&
+            groupsHaveOpenMatches
+          ? "WAITING"
+          : "OPEN",
+    })),
+  };
+}
+
+export type GroupMatchResult =
+  | {
+      readonly type: "PLAYED";
+      readonly playerOneId: string;
+      readonly playerTwoId: string;
+      readonly playerOneLegs: number;
+      readonly playerTwoLegs: number;
+      readonly winnerPlayerId: string;
+    }
+  | {
+      readonly type: "WALKOVER";
+      readonly playerOneId: string;
+      readonly playerTwoId: string;
+      readonly playerOneLegs: 0;
+      readonly playerTwoLegs: 0;
+      readonly winnerPlayerId: string;
+    };
 
 export interface GroupStanding {
   readonly position: number;
@@ -95,6 +149,28 @@ export interface GroupStanding {
   readonly legsAgainst: number;
   readonly legDifference: number;
   readonly points: number;
+  readonly withdrawn: boolean;
+}
+
+export interface WithdrawalMatchSnapshot {
+  readonly id: string;
+  readonly status: "WAITING" | "READY" | "IN_PROGRESS" | "COMPLETED" | "BYE" | "CANCELLED";
+  readonly participantOneId: string | null;
+  readonly participantTwoId: string | null;
+  readonly sourceOneMatchId: string | null;
+  readonly sourceTwoMatchId: string | null;
+  readonly winnerPlayerId: string | null;
+  readonly participantOneResolved?: boolean;
+  readonly participantTwoResolved?: boolean;
+}
+
+export interface WithdrawalMatchDecision {
+  readonly matchId: string;
+  readonly status: "WAITING" | "READY" | "COMPLETED" | "BYE" | "CANCELLED";
+  readonly participantOneId: string | null;
+  readonly participantTwoId: string | null;
+  readonly winnerPlayerId: string | null;
+  readonly resultType: "WALKOVER" | "BYE" | null;
 }
 
 function assertUniqueParticipants(participants: readonly EngineParticipant[]): void {
@@ -429,6 +505,7 @@ export function generateKnockoutBracket(input: {
 export function calculateGroupStandings(input: {
   readonly participants: readonly EngineParticipant[];
   readonly results: readonly GroupMatchResult[];
+  readonly withdrawnPlayerIds?: readonly string[];
 }): readonly GroupStanding[] {
   assertUniqueParticipants(input.participants);
   const rows = new Map(
@@ -456,12 +533,11 @@ export function calculateGroupStandings(input: {
         "A result references an invalid group participant.",
       );
     }
-    if (
-      result.playerOneLegs < 0 ||
-      result.playerTwoLegs < 0 ||
-      result.playerOneLegs === result.playerTwoLegs ||
-      ![result.playerOneId, result.playerTwoId].includes(result.winnerPlayerId)
-    ) {
+    const validWinner = [result.playerOneId, result.playerTwoId].includes(result.winnerPlayerId);
+    const validScore = result.type === "WALKOVER"
+      ? result.playerOneLegs === 0 && result.playerTwoLegs === 0
+      : result.playerOneLegs >= 0 && result.playerTwoLegs >= 0 && result.playerOneLegs !== result.playerTwoLegs;
+    if (!validScore || !validWinner) {
       throw new TournamentValidationError("INVALID_GROUP_RESULT", "A group result is invalid.");
     }
     const pairingKey = [result.playerOneId, result.playerTwoId].sort().join(":");
@@ -502,7 +578,81 @@ export function calculateGroupStandings(input: {
       legsAgainst: row.legsAgainst,
       legDifference: row.legsFor - row.legsAgainst,
       points: row.points,
+      withdrawn: input.withdrawnPlayerIds?.includes(row.playerId) ?? false,
     }));
+}
+
+export function resolveTournamentWithdrawals(input: {
+  readonly withdrawnPlayerIds: readonly string[];
+  readonly matches: readonly WithdrawalMatchSnapshot[];
+}): readonly WithdrawalMatchDecision[] {
+  const withdrawn = new Set(input.withdrawnPlayerIds);
+  const matches = new Map(input.matches.map((match) => [match.id, { ...match }]));
+  const decisions = new Map<string, WithdrawalMatchDecision>();
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    for (const original of input.matches) {
+      const match = matches.get(original.id);
+      if (match === undefined || ["COMPLETED", "BYE", "CANCELLED"].includes(match.status)) continue;
+
+      const firstSource = match.sourceOneMatchId === null ? null : matches.get(match.sourceOneMatchId);
+      const secondSource = match.sourceTwoMatchId === null ? null : matches.get(match.sourceTwoMatchId);
+      const participantOneId = match.participantOneId ?? firstSource?.winnerPlayerId ?? null;
+      const participantTwoId = match.participantTwoId ?? secondSource?.winnerPlayerId ?? null;
+      const firstResolved = participantOneId !== null || match.participantOneResolved === true || (firstSource !== null && firstSource !== undefined && ["COMPLETED", "BYE", "CANCELLED"].includes(firstSource.status));
+      const secondResolved = participantTwoId !== null || match.participantTwoResolved === true || (secondSource !== null && secondSource !== undefined && ["COMPLETED", "BYE", "CANCELLED"].includes(secondSource.status));
+      if (
+        match.status === "IN_PROGRESS" &&
+        !withdrawn.has(participantOneId ?? "") &&
+        !withdrawn.has(participantTwoId ?? "")
+      ) continue;
+      let status: WithdrawalMatchDecision["status"] = match.status === "IN_PROGRESS" ? "READY" : match.status;
+      let winnerPlayerId: string | null = null;
+      let resultType: WithdrawalMatchDecision["resultType"] = null;
+
+      if (firstResolved && secondResolved && participantOneId !== null && participantTwoId !== null) {
+        const firstWithdrawn = withdrawn.has(participantOneId);
+        const secondWithdrawn = withdrawn.has(participantTwoId);
+        if (firstWithdrawn && secondWithdrawn) {
+          status = "CANCELLED";
+        } else if (firstWithdrawn || secondWithdrawn) {
+          status = "COMPLETED";
+          winnerPlayerId = firstWithdrawn ? participantTwoId : participantOneId;
+          resultType = "WALKOVER";
+        } else if (status === "WAITING") {
+          status = "READY";
+        }
+      } else if (firstResolved && secondResolved) {
+        const remainingPlayerId = participantOneId ?? participantTwoId;
+        if (remainingPlayerId === null || withdrawn.has(remainingPlayerId)) {
+          status = "CANCELLED";
+        } else {
+          status = "BYE";
+          winnerPlayerId = remainingPlayerId;
+          resultType = "BYE";
+        }
+      }
+
+      if (
+        participantOneId === match.participantOneId &&
+        participantTwoId === match.participantTwoId &&
+        status === match.status &&
+        winnerPlayerId === match.winnerPlayerId
+      ) continue;
+
+      const next = { ...match, participantOneId, participantTwoId, status, winnerPlayerId };
+      matches.set(match.id, next);
+      decisions.set(match.id, { matchId: match.id, status, participantOneId, participantTwoId, winnerPlayerId, resultType });
+      changed = true;
+    }
+  }
+
+  return input.matches.flatMap((match) => {
+    const decision = decisions.get(match.id);
+    return decision === undefined ? [] : [decision];
+  });
 }
 
 function roundRobinMatches(input: {

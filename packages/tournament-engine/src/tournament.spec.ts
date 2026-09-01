@@ -4,10 +4,12 @@ import {
   TournamentValidationError,
   allocateGroups,
   calculateGroupStandings,
+  calculateTournamentLifecycle,
   createTournamentPlan,
   generateKnockoutBracket,
   generateRoundRobin,
   previewTournamentStructure,
+  resolveTournamentWithdrawals,
 } from "./tournament";
 
 const participants = (count: number) =>
@@ -15,6 +17,34 @@ const participants = (count: number) =>
     playerId: `player-${index + 1}`,
     seed: index + 1,
   }));
+
+describe("tournament lifecycle", () => {
+  it("completes a knockout stage and tournament after its final terminal result", () => {
+    expect(calculateTournamentLifecycle({
+      format: "SINGLE_ELIMINATION",
+      stages: [{ id: "knockout", type: "SINGLE_ELIMINATION", hasOpenMatches: false }],
+    })).toEqual({
+      tournamentStatus: "COMPLETED",
+      stages: [{ id: "knockout", status: "COMPLETED" }],
+    });
+  });
+
+  it("opens knockout only after every group match is terminal", () => {
+    expect(calculateTournamentLifecycle({
+      format: "GROUPS_THEN_KNOCKOUT",
+      stages: [
+        { id: "groups", type: "GROUP", hasOpenMatches: false },
+        { id: "knockout", type: "SINGLE_ELIMINATION", hasOpenMatches: true },
+      ],
+    })).toEqual({
+      tournamentStatus: "KNOCKOUT",
+      stages: [
+        { id: "groups", status: "COMPLETED" },
+        { id: "knockout", status: "OPEN" },
+      ],
+    });
+  });
+});
 
 describe("round robin", () => {
   it("generates every pairing once for an even player count", () => {
@@ -144,12 +174,89 @@ describe("group ranking", () => {
     const standings = calculateGroupStandings({
       participants: participants(4),
       results: [
-        { playerOneId: "player-1", playerTwoId: "player-2", playerOneLegs: 3, playerTwoLegs: 0, winnerPlayerId: "player-1" },
-        { playerOneId: "player-3", playerTwoId: "player-4", playerOneLegs: 3, playerTwoLegs: 2, winnerPlayerId: "player-3" },
-        { playerOneId: "player-1", playerTwoId: "player-3", playerOneLegs: 2, playerTwoLegs: 3, winnerPlayerId: "player-3" },
+        { type: "PLAYED", playerOneId: "player-1", playerTwoId: "player-2", playerOneLegs: 3, playerTwoLegs: 0, winnerPlayerId: "player-1" },
+        { type: "PLAYED", playerOneId: "player-3", playerTwoId: "player-4", playerOneLegs: 3, playerTwoLegs: 2, winnerPlayerId: "player-3" },
+        { type: "PLAYED", playerOneId: "player-1", playerTwoId: "player-3", playerOneLegs: 2, playerTwoLegs: 3, winnerPlayerId: "player-3" },
       ],
     });
     expect(standings.map((row) => row.playerId)).toEqual(["player-3", "player-1", "player-4", "player-2"]);
     expect(standings[0]).toMatchObject({ won: 2, points: 4, legDifference: 2 });
+  });
+
+  it("counts a walkover without inventing legs and marks withdrawn players", () => {
+    const standings = calculateGroupStandings({
+      participants: participants(3),
+      withdrawnPlayerIds: ["player-3"],
+      results: [
+        { type: "PLAYED", playerOneId: "player-1", playerTwoId: "player-2", playerOneLegs: 2, playerTwoLegs: 1, winnerPlayerId: "player-1" },
+        { type: "WALKOVER", playerOneId: "player-2", playerTwoId: "player-3", playerOneLegs: 0, playerTwoLegs: 0, winnerPlayerId: "player-2" },
+      ],
+    });
+
+    expect(standings.find((row) => row.playerId === "player-2")).toMatchObject({ played: 2, won: 1, lost: 1, legsFor: 1, legsAgainst: 2, points: 2 });
+    expect(standings.find((row) => row.playerId === "player-3")).toMatchObject({ withdrawn: true, played: 1, lost: 1 });
+  });
+
+  it("validates played and walkover score shapes independently", () => {
+    expect(() => calculateGroupStandings({
+      participants: participants(2),
+      results: [{ type: "PLAYED", playerOneId: "player-1", playerTwoId: "player-2", playerOneLegs: 0, playerTwoLegs: 0, winnerPlayerId: "player-1" }],
+    })).toThrow(TournamentValidationError);
+    expect(() => calculateGroupStandings({
+      participants: participants(2),
+      results: [{ type: "WALKOVER", playerOneId: "player-1", playerTwoId: "player-2", playerOneLegs: 1 as 0, playerTwoLegs: 0, winnerPlayerId: "player-1" }],
+    })).toThrow(TournamentValidationError);
+  });
+});
+
+describe("withdrawal progression", () => {
+  it("leaves an unrelated active match untouched", () => {
+    expect(resolveTournamentWithdrawals({ withdrawnPlayerIds: ["p2"], matches: [
+      { id: "affected", status: "READY", participantOneId: "p1", participantTwoId: "p2", sourceOneMatchId: null, sourceTwoMatchId: null, winnerPlayerId: null },
+      { id: "unrelated", status: "IN_PROGRESS", participantOneId: "p3", participantTwoId: "p4", sourceOneMatchId: null, sourceTwoMatchId: null, winnerPlayerId: null },
+    ] })).toEqual([
+      { matchId: "affected", status: "COMPLETED", participantOneId: "p1", participantTwoId: "p2", winnerPlayerId: "p1", resultType: "WALKOVER" },
+    ]);
+  });
+
+  it("turns a fully resolved vacant slot into a bye and propagates its winner", () => {
+    const matches = [
+      { id: "semi", status: "WAITING" as const, participantOneId: "p1", participantTwoId: null, participantOneResolved: true, participantTwoResolved: true, sourceOneMatchId: null, sourceTwoMatchId: null, winnerPlayerId: null },
+      { id: "other-semi", status: "COMPLETED" as const, participantOneId: "p2", participantTwoId: "p3", participantOneResolved: true, participantTwoResolved: true, sourceOneMatchId: null, sourceTwoMatchId: null, winnerPlayerId: "p2" },
+      { id: "final", status: "WAITING" as const, participantOneId: null, participantTwoId: null, participantOneResolved: false, participantTwoResolved: false, sourceOneMatchId: "semi", sourceTwoMatchId: "other-semi", winnerPlayerId: null },
+    ];
+
+    expect(resolveTournamentWithdrawals({ withdrawnPlayerIds: [], matches })).toEqual([
+      { matchId: "semi", status: "BYE", participantOneId: "p1", participantTwoId: null, winnerPlayerId: "p1", resultType: "BYE" },
+      { matchId: "final", status: "READY", participantOneId: "p1", participantTwoId: "p2", winnerPlayerId: null, resultType: null },
+    ]);
+  });
+
+  it("awards a ready match to the active opponent", () => {
+    expect(resolveTournamentWithdrawals({ withdrawnPlayerIds: ["p2"], matches: [
+      { id: "semi", status: "READY", participantOneId: "p1", participantTwoId: "p2", sourceOneMatchId: null, sourceTwoMatchId: null, winnerPlayerId: null },
+    ] })).toEqual([
+      { matchId: "semi", status: "COMPLETED", participantOneId: "p1", participantTwoId: "p2", winnerPlayerId: "p1", resultType: "WALKOVER" },
+    ]);
+  });
+
+  it("waits for an unresolved opponent and then propagates the walkover winner", () => {
+    const matches = [
+      { id: "source", status: "COMPLETED" as const, participantOneId: "p3", participantTwoId: "p4", sourceOneMatchId: null, sourceTwoMatchId: null, winnerPlayerId: "p3" },
+      { id: "semi", status: "WAITING" as const, participantOneId: "p2", participantTwoId: null, sourceOneMatchId: null, sourceTwoMatchId: "source", winnerPlayerId: null },
+      { id: "final", status: "WAITING" as const, participantOneId: null, participantTwoId: "p5", sourceOneMatchId: "semi", sourceTwoMatchId: null, winnerPlayerId: null },
+    ];
+    expect(resolveTournamentWithdrawals({ withdrawnPlayerIds: ["p2"], matches })).toEqual([
+      { matchId: "semi", status: "COMPLETED", participantOneId: "p2", participantTwoId: "p3", winnerPlayerId: "p3", resultType: "WALKOVER" },
+      { matchId: "final", status: "READY", participantOneId: "p3", participantTwoId: "p5", winnerPlayerId: null, resultType: null },
+    ]);
+  });
+
+  it("cancels a match when both resolved participants withdrew", () => {
+    expect(resolveTournamentWithdrawals({ withdrawnPlayerIds: ["p1", "p2"], matches: [
+      { id: "match", status: "READY", participantOneId: "p1", participantTwoId: "p2", sourceOneMatchId: null, sourceTwoMatchId: null, winnerPlayerId: null },
+    ] })).toEqual([
+      { matchId: "match", status: "CANCELLED", participantOneId: "p1", participantTwoId: "p2", winnerPlayerId: null, resultType: null },
+    ]);
   });
 });

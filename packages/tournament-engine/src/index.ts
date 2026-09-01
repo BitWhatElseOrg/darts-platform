@@ -2,10 +2,12 @@ export {
   TournamentValidationError,
   allocateGroups,
   calculateGroupStandings,
+  calculateTournamentLifecycle,
   createTournamentPlan,
   generateKnockoutBracket,
   generateRoundRobin,
   previewTournamentStructure,
+  resolveTournamentWithdrawals,
   type EngineGroup,
   type EngineParticipant,
   type GroupAllocationInput,
@@ -17,6 +19,10 @@ export {
   type TournamentPlan,
   type TournamentPlanInput,
   type TournamentStructurePreview,
+  type TournamentLifecycle,
+  type TournamentLifecycleStage,
+  type WithdrawalMatchDecision,
+  type WithdrawalMatchSnapshot,
 } from "./tournament.js";
 export {
   allocateAdvancedSeeds,

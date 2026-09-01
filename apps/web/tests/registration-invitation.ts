@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { eq } from "drizzle-orm";
 
@@ -12,6 +12,7 @@ import {
 import type { Invitation } from "@darts-platform/schemas";
 
 export interface RegistrationInvitationSeed {
+  readonly claimToken: string;
   cleanup(): Promise<void>;
 }
 
@@ -23,6 +24,10 @@ export async function createRegistrationInvitation(
   const connection = createDatabaseConnection(environment.DATABASE_URL);
   const inviterId = randomUUID();
   const organizationId = randomUUID();
+  const claimToken = randomBytes(32).toString("base64url");
+  const claimTokenHash = createHash("sha256")
+    .update(claimToken, "utf8")
+    .digest("hex");
 
   try {
     await connection.database.transaction(async (transaction) => {
@@ -42,6 +47,7 @@ export async function createRegistrationInvitation(
         organizationId,
         email: email.trim().toLowerCase(),
         role,
+        claimTokenHash,
         invitedByUserId: inviterId,
         expiresAt: new Date(Date.now() + 60 * 60 * 1_000),
       });
@@ -54,6 +60,7 @@ export async function createRegistrationInvitation(
   let cleanedUp = false;
 
   return {
+    claimToken,
     async cleanup() {
       if (cleanedUp) return;
       cleanedUp = true;

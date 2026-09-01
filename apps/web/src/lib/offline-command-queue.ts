@@ -54,6 +54,12 @@ export async function removeOfflineCommand(commandId: string): Promise<void> {
   db.close();
 }
 
+export async function removeOfflineCommandsForScope(scope: string): Promise<number> {
+  const commands = await listOfflineCommands(scope);
+  await Promise.all(commands.map((command) => removeOfflineCommand(command.commandId)));
+  return commands.length;
+}
+
 export async function markOfflineCommandConflict(command: OfflineCommand, message: string): Promise<void> {
   await saveOfflineCommand({ ...command, status: "CONFLICT", error: message });
 }

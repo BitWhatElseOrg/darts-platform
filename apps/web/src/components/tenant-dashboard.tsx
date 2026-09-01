@@ -10,10 +10,10 @@ import { z } from "zod";
 import { hasOrganizationPermission } from "@darts-platform/domain";
 import {
   createInvitationSchema,
+  createdInvitationSchema,
   createOrganizationSchema,
   createPlayerSchema,
   invitationListSchema,
-  invitationSchema,
   organizationListSchema,
   organizationSummarySchema,
   playerListSchema,
@@ -43,6 +43,7 @@ type InvitationFormData = z.infer<typeof invitationFormSchema>;
 const acceptedSchema = z.object({ accepted: z.literal(true) });
 const inputClassName =
   "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
+const labelClassName = "block text-sm font-medium text-slate-300";
 
 function messageFrom(error: unknown): string {
   return userFacingErrorMessage(error);
@@ -63,6 +64,9 @@ export function TenantDashboard({
   const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(
     null,
   );
+  const [invitationClaims, setInvitationClaims] = useState<
+    Readonly<Record<string, string>>
+  >({});
   const organizationsQuery = useQuery({
     queryKey: ["organizations"],
     queryFn: ({ signal }) =>
@@ -92,10 +96,11 @@ export function TenantDashboard({
         );
 
   const acceptInvitation = useMutation({
-    mutationFn: (invitationId: string) =>
+    mutationFn: (input: { readonly invitationId: string; readonly claimToken: string }) =>
       apiRequest({
-        path: `/invitations/${invitationId}/accept`,
+        path: `/invitations/${input.invitationId}/accept`,
         method: "POST",
+        body: { claimToken: input.claimToken },
         schema: acceptedSchema,
       }),
     onSuccess: async () => {
@@ -134,21 +139,51 @@ export function TenantDashboard({
           <div className="mt-3 space-y-3">
             {invitationsQuery.data.map((invitation) => (
               <div
-                className="flex flex-col gap-3 rounded-xl bg-slate-950/40 p-4 sm:flex-row sm:items-center sm:justify-between"
+                className="grid gap-3 rounded-xl bg-slate-950/40 p-4 sm:grid-cols-[1fr_minmax(16rem,1fr)_auto] sm:items-end"
                 key={invitation.id}
               >
                 <p className="text-sm text-slate-200">
                   {invitation.organizationName ?? "Organisation"} · {roleLabel(invitation.role)}
                 </p>
+                <div className="space-y-2">
+                  <label
+                    className={labelClassName}
+                    htmlFor={`invitation-claim-${invitation.id}`}
+                  >
+                    Einladungscode
+                  </label>
+                  <input
+                    id={`invitation-claim-${invitation.id}`}
+                    className={`${inputClassName} font-mono`}
+                    autoComplete="off"
+                    onChange={(event) =>
+                      setInvitationClaims((current) => ({
+                        ...current,
+                        [invitation.id]: event.target.value,
+                      }))
+                    }
+                    value={invitationClaims[invitation.id] ?? ""}
+                  />
+                </div>
                 <Button
                   disabled={acceptInvitation.isPending}
-                  onClick={() => acceptInvitation.mutate(invitation.id)}
+                  onClick={() =>
+                    acceptInvitation.mutate({
+                      invitationId: invitation.id,
+                      claimToken: invitationClaims[invitation.id] ?? "",
+                    })
+                  }
                 >
                   Annehmen
                 </Button>
               </div>
             ))}
           </div>
+          {acceptInvitation.isError ? (
+            <p role="alert" className="mt-3 text-sm text-rose-200">
+              Einladungscode ungültig oder Einladung nicht mehr verfügbar.
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -225,8 +260,14 @@ function OrganizationsPanel({
 
       <form className="mt-6 space-y-3 border-t border-slate-800 pt-5" onSubmit={(event) => void submit(event)}>
         <h3 className="text-sm font-semibold text-slate-200">Organisation erstellen</h3>
-        <input className={inputClassName} placeholder="Vereinsname" {...form.register("name")} />
-        <input className={inputClassName} placeholder="club-slug" {...form.register("slug")} />
+        <div className="space-y-2">
+          <label className={labelClassName} htmlFor="organization-name">Organisationsname</label>
+          <input id="organization-name" className={inputClassName} placeholder="Vereinsname" {...form.register("name")} />
+        </div>
+        <div className="space-y-2">
+          <label className={labelClassName} htmlFor="organization-slug">Organisationskürzel</label>
+          <input id="organization-slug" className={inputClassName} placeholder="club-slug" {...form.register("slug")} />
+        </div>
         {createOrganization.isError ? (
           <p role="alert" className="text-sm text-rose-300">
             {messageFrom(createOrganization.error)}
@@ -293,7 +334,7 @@ function OrganizationWorkspace({
         path: `/organizations/${organization.id}/invitations`,
         method: "POST",
         body: data,
-        schema: invitationSchema,
+        schema: createdInvitationSchema,
       }),
     onSuccess: () => invitationForm.reset(),
   });
@@ -314,11 +355,17 @@ function OrganizationWorkspace({
 
       {canCreatePlayers ? (
         <form
-          className="mt-5 grid gap-3 sm:grid-cols-[1fr_1fr_auto]"
+          className="mt-5 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
           onSubmit={(event) => void playerForm.handleSubmit((data) => createPlayer.mutate(data))(event)}
         >
-          <input className={inputClassName} placeholder="Anzeigename" {...playerForm.register("displayName")} />
-          <input className={inputClassName} placeholder="Spitzname (optional)" {...playerForm.register("nickname")} />
+          <div className="space-y-2">
+            <label className={labelClassName} htmlFor="player-display-name">Anzeigename</label>
+            <input id="player-display-name" className={inputClassName} placeholder="Anzeigename" {...playerForm.register("displayName")} />
+          </div>
+          <div className="space-y-2">
+            <label className={labelClassName} htmlFor="player-nickname">Spitzname (optional)</label>
+            <input id="player-nickname" className={inputClassName} placeholder="Spitzname (optional)" {...playerForm.register("nickname")} />
+          </div>
           <Button disabled={createPlayer.isPending} type="submit">Spieler hinzufügen</Button>
         </form>
       ) : null}
@@ -350,20 +397,39 @@ function OrganizationWorkspace({
 
       {canManageMembers ? (
         <form
-          className="mt-8 grid gap-3 border-t border-slate-800 pt-6 sm:grid-cols-[1fr_auto_auto]"
+          className="mt-8 grid gap-3 border-t border-slate-800 pt-6 sm:grid-cols-[1fr_auto_auto] sm:items-end"
           onSubmit={(event) => void invitationForm.handleSubmit((data) => inviteMember.mutate(data))(event)}
         >
-          <input className={inputClassName} type="email" placeholder="member@example.com" {...invitationForm.register("email")} />
-          <select className={inputClassName} {...invitationForm.register("role")}>
-            <option value="ADMIN">Admin</option>
-            <option value="TOURNAMENT_DIRECTOR">Turnierleitung</option>
-            <option value="SCORER">Scorer</option>
-            <option value="MEMBER">Mitglied</option>
-            <option value="VIEWER">Zuschauer</option>
-          </select>
+          <div className="space-y-2">
+            <label className={labelClassName} htmlFor="invitation-email">E-Mail-Adresse für Einladung</label>
+            <input id="invitation-email" className={inputClassName} type="email" placeholder="member@example.com" {...invitationForm.register("email")} />
+          </div>
+          <div className="space-y-2">
+            <label className={labelClassName} htmlFor="invitation-role">Rolle</label>
+            <select id="invitation-role" className={inputClassName} {...invitationForm.register("role")}>
+              <option value="ADMIN">Admin</option>
+              <option value="TOURNAMENT_DIRECTOR">Turnierleitung</option>
+              <option value="SCORER">Scorer</option>
+              <option value="MEMBER">Mitglied</option>
+              <option value="VIEWER">Zuschauer</option>
+            </select>
+          </div>
           <Button disabled={inviteMember.isPending} type="submit">Einladen</Button>
           {inviteMember.isSuccess ? (
-            <p className="text-sm text-emerald-300 sm:col-span-3">Einladung erstellt.</p>
+            <div className="space-y-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 sm:col-span-3">
+              <p className="text-sm text-emerald-100">
+                Einladung erstellt. Teile diesen einmal angezeigten Code sicher mit der eingeladenen Person.
+              </p>
+              <label className={labelClassName} htmlFor="created-invitation-claim">
+                Einladungscode
+              </label>
+              <input
+                id="created-invitation-claim"
+                className={`${inputClassName} font-mono`}
+                readOnly
+                value={inviteMember.data.claimToken}
+              />
+            </div>
           ) : null}
           {inviteMember.isError ? (
             <p role="alert" className="text-sm text-rose-300 sm:col-span-3">{messageFrom(inviteMember.error)}</p>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { tournamentDashboardSchema, type BoardSlot } from "@darts-platform/schemas";
+import { publicTournamentDashboardSchema, type BoardSlot } from "@darts-platform/schemas";
 import QRCode from "qrcode";
 import Image from "next/image";
 import Link from "next/link";
@@ -24,7 +24,7 @@ export function LiveTournament({ tournamentId, mode, boardId }: LiveTournamentPr
     queryKey,
     queryFn: ({ signal }) => apiRequest({
       path: `/public/tournaments/${tournamentId}/live`,
-      schema: tournamentDashboardSchema,
+      schema: publicTournamentDashboardSchema,
       signal,
     }),
     refetchInterval: connection === "verbunden" ? false : 5_000,
@@ -70,17 +70,27 @@ export function LiveTournament({ tournamentId, mode, boardId }: LiveTournamentPr
         {mode !== "board" ? (
           <div className="space-y-7">
             <section>
+              <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">Teilnehmende</h2>
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {dashboard.participants.map((participant) => (
+                  <li className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-sm" key={participant.playerId}>
+                    {participant.displayName}{participant.status === "WITHDRAWN" ? " · Ausgefallen" : ""}
+                  </li>
+                ))}
+              </ul>
+            </section>
+            <section>
               <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">Gruppenranglisten</h2>
               <div className="space-y-4">{dashboard.groups.map((group) => (
                 <div className="overflow-hidden rounded-xl border border-slate-800" key={group.groupLabel}>
                   <h3 className="bg-slate-900 px-4 py-3 font-bold">Gruppe {group.groupLabel}</h3>
-                  <ol>{group.rows.map((row) => <li className="grid grid-cols-[2rem_1fr_3rem] border-t border-slate-800 px-4 py-2 text-sm" key={row.playerId}><span>{row.position}.</span><span>{row.displayName}</span><span className="text-right font-bold">{row.points}</span></li>)}</ol>
+                  <ol>{group.rows.map((row) => <li className="grid grid-cols-[2rem_1fr_3rem] border-t border-slate-800 px-4 py-2 text-sm" key={row.playerId}><span>{row.position}.</span><span>{row.displayName}{row.withdrawn ? " · Ausgefallen" : ""}</span><span className="text-right font-bold">{row.points}</span></li>)}</ol>
                 </div>
               ))}</div>
             </section>
             {dashboard.bracket.length > 0 ? <section>
               <h2 className="mb-3 text-sm font-bold uppercase tracking-widest text-slate-400">K.-o.-Tableau</h2>
-              <div className="grid gap-3 sm:grid-cols-2">{dashboard.bracket.map((match) => <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-sm" key={match.matchId}><p className="text-xs text-slate-500">{match.stageLabel}</p><p className={match.winnerDisplayName === match.participantNames[0] ? "mt-2 font-bold text-emerald-300" : "mt-2"}>{match.participantNames[0]}</p><p className={match.winnerDisplayName === match.participantNames[1] ? "font-bold text-emerald-300" : ""}>{match.participantNames[1]}</p></div>)}</div>
+              <div className="grid gap-3 sm:grid-cols-2">{dashboard.bracket.map((match) => <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-sm" key={match.matchId}><p className="text-xs text-slate-400">{match.stageLabel}{match.resultType === "WALKOVER" ? " · Walkover" : match.resultType === "BYE" ? " · Freilos" : ""}</p><p className={match.winnerDisplayName === match.participantNames[0] ? "mt-2 font-bold text-emerald-300" : "mt-2"}>{match.participantNames[0]}</p><p className={match.winnerDisplayName === match.participantNames[1] ? "font-bold text-emerald-300" : ""}>{match.participantNames[1]}</p></div>)}</div>
             </section> : null}
           </div>
         ) : null}
@@ -97,8 +107,8 @@ function LiveBoard({ board, mode, tournamentId }: { readonly board: BoardSlot; r
     void QRCode.toDataURL(url, { margin: 1, width: 144 }).then(setQrCode);
   }, [board.boardId, mode, tournamentId]);
   return <article className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-    <div className="flex items-start justify-between gap-4"><div><p className="text-sm font-bold uppercase tracking-wider text-emerald-300">{board.boardName}</p><p className="mt-1 text-xs text-slate-500">{board.state === "PLAYING" ? "Match läuft" : board.state === "FREE" ? "Frei" : "Nicht verfügbar"}</p></div>{qrCode !== null ? <Image alt={`QR-Code für ${board.boardName}`} className="h-20 w-20 rounded bg-white p-1" height={80} src={qrCode} unoptimized width={80} /> : null}</div>
-    {board.match === null ? <p className="mt-8 text-xl text-slate-500">Kein aktives Match</p> : <div className="mt-5 grid grid-cols-2 gap-3">{board.match.participants.map((participant) => <div className={participant.isActive ? "rounded-xl bg-emerald-400/10 p-3" : "p-3"} key={participant.playerId}><p className="truncate text-sm">{participant.displayName}</p><p className="mt-2 text-5xl font-black tabular-nums">{participant.remaining}</p><p className="mt-1 text-sm text-slate-400">{participant.legsWon} Legs · {participant.setsWon} Sets</p></div>)}</div>}
+    <div className="flex items-start justify-between gap-4"><div><p className="text-sm font-bold uppercase tracking-wider text-emerald-300">{board.boardName}</p><p className="mt-1 text-xs text-slate-400">{board.state === "PLAYING" ? "Match läuft" : board.state === "FREE" ? "Frei" : "Nicht verfügbar"}</p></div>{qrCode !== null ? <Image alt={`QR-Code für ${board.boardName}`} className="h-20 w-20 rounded bg-white p-1" height={80} src={qrCode} unoptimized width={80} /> : null}</div>
+    {board.match === null ? <p className="mt-8 text-xl text-slate-400">Kein aktives Match</p> : <div className="mt-5 grid grid-cols-2 gap-3">{board.match.participants.map((participant) => <div className={participant.isActive ? "rounded-xl bg-emerald-400/10 p-3" : "p-3"} key={participant.playerId}><p className="truncate text-sm">{participant.displayName}</p><p className="mt-2 text-5xl font-black tabular-nums">{participant.remaining}</p><p className="mt-1 text-sm text-slate-400">{participant.legsWon} Legs · {participant.setsWon} Sets</p></div>)}</div>}
   </article>;
 }
 

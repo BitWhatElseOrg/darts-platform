@@ -2,11 +2,19 @@
 
 Eine robuste, mandantenfähige Plattform zur Organisation und Durchführung von Dartturnieren, Ligen und Turnierserien – vom Teilnehmermanagement über Live-Scoring bis zur öffentlichen Ergebnisanzeige.
 
-> **Projektstatus (26. August 2026):** Die Phasen 0 bis 6 sind umgesetzt. Die
+> **Projektstatus (31. August 2026):** Die Phasen 0 bis 6 sind umgesetzt. Die
 > Plattform deckt Einladung und Anmeldung, Organisationen, Spieler, Boards,
 > vollständiges X01-Scoring, Turnierplanung und -leitung, öffentliche
 > Live-Ansichten, Offline-Sicherheit sowie Spielerstatistiken ab. Als Nächstes
 > folgt der Multi-Tenant-SaaS-Ausbau aus Phase 7.
+
+Das Railway-Projekt für Production heisst `dartbase`. Cyon bleibt Registrar für
+`dartbase.ch`; die autoritative DNS-Zone ist bei Cloudflare aktiv. Apex und
+Wildcard zeigen auf den Railway-Web-Service. Die Zertifikate für Apex und
+Wildcard sind gültig. Web, API, Worker, PostgreSQL und Redis sind erfolgreich
+deployt. `api.dartbase.ch` zeigt über einen expliziten Cloudflare-CNAME auf den
+API-Service und besitzt ein gültiges Railway-Zertifikat. Die öffentlichen Web-
+und API-Smoke-Tests bestehen.
 
 ## Quick Start
 
@@ -74,12 +82,16 @@ Der aktuelle Stand bietet zusätzlich zur Foundation:
 - Registrierung ausschliesslich mit gültiger Einladung, Login, Logout und
   persistente HttpOnly-Sessions über Better Auth
 - Organisationserstellung mit transaktionaler OWNER-Mitgliedschaft
-- zeitlich begrenzte, an eine E-Mail-Adresse gebundene Einladungen
+- zeitlich begrenzte Einladungen mit kryptografischem Einladungscode; der Code
+  wird bei Registrierung und Annahme serverseitig geprüft
 - serverseitige Rollen und Permissions für jeden Tenant-Zugriff
 - Spieler anlegen, lesen, bearbeiten und revisionssicher archivieren
 - Audit-Einträge innerhalb derselben Transaktion wie die jeweilige Mutation
-- reproduzierbare Production-Images für Web und API
-- Railway Infrastructure as Code für Web, API, PostgreSQL und Redis
+- reproduzierbare Production-Images für Web, API und Worker
+- Railway Infrastructure as Code für Web, API, Worker, PostgreSQL und Redis
+- ein vorbereitetes Production-Projekt `dartbase` mit Web-, API- und Worker-Service
+- Cloudflare als autoritatives DNS für `dartbase.ch`, Cyon als Registrar sowie
+  Apex- und Wildcard-Domain am Railway-Web-Service
 - automatische Migrationen vor dem API-Start und dependency-sensitive Healthchecks
 - strukturierte JSON-Logs mit stabilen Correlation-IDs
 - eine infrastrukturfrei getestete X01-Scoring-Engine
@@ -105,11 +117,11 @@ Weitere Details stehen in der [Zielarchitektur](./ARCHITECTURE.md) und im [Daten
 | Frontend | Next.js, React, Tailwind CSS, shadcn/ui |
 | Daten & Formulare | TanStack Query, React Hook Form, Zod |
 | Backend | NestJS, Fastify, REST unter `/api/v1` |
-| Persistenz | PostgreSQL, Drizzle ORM |
+| Persistenz | PostgreSQL, Drizzle ORM; Railway in Production/Staging, Neon nur für Development/Preview |
 | Realtime & Jobs | WebSocket/Socket.IO, Redis, BullMQ |
 | Authentifizierung | Better Auth |
 | Tests | Vitest, Playwright, Testcontainers |
-| Betrieb | Docker, GitHub Actions, Railway |
+| Betrieb | Docker, GitHub Actions, Railway; Cloudflare DNS; Cyon als Registrar |
 | Observability | OpenTelemetry, Sentry |
 
 ## Monorepo-Struktur
@@ -165,6 +177,7 @@ Alle Phasen und Exit-Kriterien sind in der [Roadmap](./ROADMAP.md) beschrieben.
 | `pnpm infra:logs` | Infrastruktur-Logs verfolgen |
 | `pnpm db:generate` | Drizzle-Migration aus Schemaänderungen erzeugen |
 | `pnpm db:migrate` | versionierte Migrationen anwenden |
+| `pnpm db:seed:dev` | lokale Demo-Daten idempotent ergänzen |
 | `pnpm lint` | ESLint für das gesamte Monorepo ausführen |
 | `pnpm typecheck` | TypeScript-Prüfung aller Workspaces ausführen |
 | `pnpm test` | Unit- und Integrationstests ausführen |
@@ -180,8 +193,46 @@ docker build -f Dockerfile.web \
   -t darts-platform-web .
 ```
 
-Railway-Einrichtung, Variablen, Smoke-Tests und Rollback beschreibt das
-[Deployment-Runbook](./infrastructure/railway.md).
+Railway-Einrichtung, die Domain- und DNS-Zuständigkeiten, Variablen, Smoke-Tests
+und Rollback beschreibt das [Deployment-Runbook](./infrastructure/railway.md).
+
+### Erster Production-Owner
+
+Die leere Production-Datenbank wird über den einmaligen, kompilierten
+CLI-Befehl `pnpm db:bootstrap:production` vorbereitet. Er delegiert an
+`pnpm --filter @darts-platform/api bootstrap:production` und läuft ausschließlich
+im Railway-API-Container. Der rohe Guard verlangt `NODE_ENV=production` und
+`ALLOW_PRODUCTION_BOOTSTRAP=true`, bevor Konfiguration oder Datenbankverbindung
+aufgebaut werden. Es gibt keinen öffentlichen Endpoint, keinen Startup-Hook,
+kein Default- oder temporäres Passwort und keinen manuellen SQL-Fallback.
+
+Die Bootstrap-spezifischen Variablen sind exakt:
+
+```text
+ALLOW_PRODUCTION_BOOTSTRAP=true
+BOOTSTRAP_OWNER_EMAIL
+BOOTSTRAP_INVITATION_CLAIM_TOKEN (43 Zeichen, mindestens 256 Bit Zufall)
+BOOTSTRAP_ORGANIZATION_NAME
+BOOTSTRAP_ORGANIZATION_SLUG
+BOOTSTRAP_TIMEZONE (optional, Europe/Zurich)
+BOOTSTRAP_LOCALE (optional, de-CH)
+```
+
+Der direkte kompilierte Node-Entry-Point
+`node /app/apps/api/dist/operations/bootstrap-production.js` gibt genau eine
+sichere JSON-Zeile mit Status, Organisation, normalisierter Owner-E-Mail und
+Ablaufzeit aus. Der Root- beziehungsweise API-pnpm-Wrapper bleibt der normale
+Bedienbefehl, kann aber zusätzlich sicheren Lifecycle- oder Bannertext ausgeben.
+Der direkte Entry-Point ist für maschinenlesbares Readback zu verwenden.
+`created` legt die erwartete
+Organisation und 48-Stunden-OWNER-Einladung an, `pending` verwendet eine noch
+gültige exakte Einladung wieder, und `already-complete` bestätigt eine bereits
+akzeptierte OWNER-Membership ohne Schreibvorgang. Der persistente
+System-Prinzipal dient nur als nicht anmeldbarer Einladungs- und Audit-Actor;
+reguläre API-Einladungen können weiterhin keine OWNER-Rolle erzeugen. Die
+einmalige Railway-SSH-Ausführung und der authentifizierte Smoke-Test sind im
+[ADR 0012](./docs/adr/0012-production-owner-bootstrap.md) und im
+[Railway-Runbook](./infrastructure/railway.md) beschrieben.
 
 Die Auth-, Tenant-Isolations-, PostgreSQL- und Redis-Integrationstests benötigen die laufende Compose-Infrastruktur. Sie werden zusammen mit den Unit- und API-Tests über `pnpm test` ausgeführt. Die CI stellt dafür eigene Service-Container bereit.
 
@@ -193,6 +244,17 @@ pnpm test:e2e
 ```
 
 Falls Port `5432` lokal bereits belegt ist, kann `POSTGRES_PORT` in der ignorierten `.env` angepasst werden; `DATABASE_URL` muss denselben Hostport verwenden.
+
+### Lokale Demo-Daten
+
+Nach `pnpm infra:up` und `pnpm db:migrate` ergänzt `pnpm db:seed:dev` eine Demo-Organisation mit 32 fiktiven Spielern, acht Boards, zwei abgeschlossenen Turnieren und einem laufenden 32er-Turnier. Der Befehl ist idempotent und löscht oder ersetzt keine bestehenden lokalen Daten.
+
+```text
+E-Mail: demo@dart-ost.local
+Passwort: DartOstDemo2026!
+```
+
+Der Seed verweigert Production und standardmässig jede nicht-lokale PostgreSQL-Adresse. Für bewusst isolierte Remote-Entwicklungsdatenbanken ist zusätzlich `ALLOW_REMOTE_DEV_SEED=true` erforderlich.
 
 ## Qualitätsanforderungen
 
@@ -212,6 +274,19 @@ pnpm test:e2e
 ```
 
 Besonders kritisch sind Scoring-Korrektheit, Turnierintegrität, Tenant-Isolation und Autorisierung. Änderungen an diesen Bereichen benötigen passende Unit-, Integrations- oder E2E-Tests.
+
+## Pull-Request-Review mit PR-Agent
+
+Der Workflow [`.github/workflows/pr-agent.yml`](./.github/workflows/pr-agent.yml)
+startet für interne Pull Requests automatisch ein Review. Er läuft im
+eingeschränkten Modus mit Schreibrechten nur für Issues und Pull Requests; das
+verwendete PR-Agent-Image ist auf einen unveränderlichen Digest gepinnt.
+
+Vor der ersten Ausführung muss im GitHub-Repository das Actions-Secret
+`OPENAI_KEY` hinterlegt werden. Automatische Reviews aus Forks sind deaktiviert.
+Mitglieder, Owner und Collaborators können auf einem Pull Request zusätzlich
+PR-Agent-Kommandos wie `/review`, `/describe` oder `/improve` kommentieren. Die
+projektspezifischen Review-Regeln stehen in [`.pr_agent.toml`](./.pr_agent.toml).
 
 ## Mitwirken
 
@@ -244,8 +319,11 @@ Verbindliche Architektur- und Arbeitsregeln stehen in [AGENTS.md](./AGENTS.md).
 | [ADR 0008](./docs/adr/0008-phase-5-offline-reliability.md) | Offline-Queue und Board-Controller-Lock |
 | [ADR 0009](./docs/adr/0009-phase-6-statistics.md) | Reproduzierbare Spielerstatistiken |
 | [ADR 0010](./docs/adr/0010-invite-only-registration.md) | Einladungsgebundene Registrierung und rollenbasierter Verwaltungszugang |
+| [ADR 0011](./docs/adr/0011-preview-database-strategy.md) | Neon für Development/Preview und Railway PostgreSQL für Production/Staging |
+| [ADR 0012](./docs/adr/0012-production-owner-bootstrap.md) | Einmaliger Production-Owner-Bootstrap über eine interne OWNER-Einladung |
 | [Bedienungsanleitung](./docs/manual/index.html) | Deutsche Anleitung für Administration, Turnierleitung und Scoring |
 | [Railway-Runbook](./infrastructure/railway.md) | Deployment, Variablen, Smoke-Test, Diagnose und Rollback |
+| [Neon-Preview-Runbook](./infrastructure/neon-preview.md) | Isolierte Development- und Preview-Datenbanken mit Neon |
 
 ## Lizenz
 

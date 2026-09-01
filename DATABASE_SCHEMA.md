@@ -116,6 +116,7 @@ organization_id uuid FK organizations NOT NULL
 email varchar NOT NULL
 role varchar NOT NULL
 status varchar NOT NULL DEFAULT 'PENDING'
+claim_token_hash varchar(64) NULL
 invited_by_user_id uuid FK users NOT NULL
 expires_at timestamptz NOT NULL
 created_at timestamptz NOT NULL
@@ -130,6 +131,7 @@ TOURNAMENT_DIRECTOR
 SCORER
 MEMBER
 VIEWER
+OWNER (nur interner Production-Bootstrap)
 ```
 
 Zulässige Statuswerte:
@@ -142,9 +144,14 @@ EXPIRED
 ```
 
 Ein Konto kann nur erstellt werden, wenn für seine normalisierte E-Mail-Adresse
-ein Datensatz mit `status = PENDING` und `expires_at > now()` existiert. Die
-eigentliche Mitgliedschaft entsteht erst beim expliziten Annehmen der Einladung.
+ein Datensatz mit `status = PENDING`, `claim_token_hash IS NOT NULL` und
+`expires_at > now()` existiert und der Einladungscode dessen Hash ergibt. Die
+eigentliche Mitgliedschaft entsteht erst beim atomischen, einmaligen Annehmen
+der Einladung mit demselben Code.
 Ein Index auf `(email, status)` unterstützt diese Prüfung.
+
+Migration 0013 markiert vorhandene tokenlose `PENDING`-Einladungen als
+`EXPIRED`; neue Einladungen müssen einen gültigen Claim-Hash besitzen.
 
 ---
 

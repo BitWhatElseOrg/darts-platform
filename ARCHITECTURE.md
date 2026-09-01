@@ -7,16 +7,22 @@
 **Primärplattform:** Responsive Web-App + PWA  
 **Zielgeräte:** Desktop, Tablet, Smartphone, TV/Beamer  
 **Sprache:** TypeScript  
-**Hosting-Ziel:** Railway  
+**Hosting-Ziel:** Railway
+**DNS:** Cloudflare
+**Domain-Registrar:** Cyon
 **Repository:** GitHub Monorepo
 
-**Implementierter Stand (26. August 2026):** Die Phasen 0 bis 6 sind produktseitig
+**Implementierter Stand (31. August 2026):** Die Phasen 0 bis 6 sind produktseitig
 umgesetzt. Web und API decken Organisations- und Spieleradministration,
 X01-Scoring, Turnierplanung und -leitung, Realtime-/Live-Flächen,
 Offline-Sicherheit und Statistiken ab; der Worker aktualisiert
 Karriereaggregate. Registrierungen sind nur für gültig eingeladene
-E-Mail-Adressen möglich. Die folgenden Kapitel beschreiben weiterhin das
-Zielbild und kennzeichnen spätere Ausbaustufen als solche.
+E-Mail-Adressen möglich. Das Production-Projekt `dartbase` enthält erfolgreich
+deployte Web-, API-, Worker-, PostgreSQL- und Redis-Services. Die öffentliche
+Web- und API-Erreichbarkeit ist über `dartbase.ch` und `api.dartbase.ch`
+verifiziert; beide Endpunkte besitzen gültige Railway-Zertifikate. Die folgenden
+Kapitel beschreiben weiterhin das Zielbild und kennzeichnen spätere
+Ausbaustufen als solche.
 
 ---
 
@@ -177,6 +183,7 @@ flowchart TB
 | Container | Docker |
 | CI/CD | GitHub Actions |
 | Hosting | Railway |
+| DNS / Domain | Cloudflare als autoritatives DNS, Cyon als Registrar |
 
 ---
 
@@ -322,9 +329,42 @@ eine Bedienhilfe; API-Guard und Organisationszugriff bleiben die verbindliche
 Sicherheitsgrenze.
 
 Neue Konten dürfen nur angelegt werden, wenn für die normalisierte E-Mail-Adresse
-eine offene, noch nicht abgelaufene Organisationseinladung vorliegt. Nach der
-Registrierung nimmt der Benutzer die Einladung an und erhält erst dadurch die
-zugewiesene Organisationsrolle.
+eine offene, noch nicht abgelaufene Organisationseinladung und der passende
+kryptografische Einladungscode vorliegen. Nach der Registrierung nimmt der
+Benutzer die Einladung mit demselben Code atomisch einmalig an und erhält erst
+dadurch die zugewiesene Organisationsrolle.
+
+### Einmaliger Production-Owner-Bootstrap
+
+Für eine leere Production-Datenbank gibt es einen separaten, kompilierten
+CLI-Pfad: `pnpm db:bootstrap:production` delegiert an
+`pnpm --filter @darts-platform/api bootstrap:production` und wird einmalig im
+Railway-API-Container ausgeführt. Der rohe Guard verlangt `NODE_ENV=production`
+und `ALLOW_PRODUCTION_BOOTSTRAP=true`, bevor vollständige Konfiguration oder
+Datenbankverbindung aufgebaut werden. Ein öffentlicher Endpoint, ein
+Startup-Hook, ein Default-/temporäres Passwort und manueller SQL-Bootstrap sind
+ausgeschlossen.
+
+Die pnpm-Wrapper sind Convenience-Befehle und dürfen Lifecycle-/Bannertext
+ausgeben. Für maschinenlesbares Readback wird aus dem Image-Arbeitsverzeichnis
+`/app` der kompilierte Node-Entry-Point direkt aufgerufen:
+`node /app/apps/api/dist/operations/bootstrap-production.js`; dieser direkte
+Aufruf liefert die einzelne sanitierte JSON-Zeile.
+
+Der Pfad legt einen persistenten, nicht anmeldbaren System-Prinzipal mit der
+reservierten Adresse `production-bootstrap@system.dartbase.invalid` an. Er hat
+keinen Account, kein Passwort, keine Session und keine Membership und erhält
+keine Tenant-Rechte. Er bleibt als referenzieller Actor für OWNER-Einladung und
+Audit bestehen. Die Einladung gilt 48 Stunden; die Statuswerte `created`,
+`pending` und `already-complete` sind nur für die jeweils exakt geprüften
+Bootstrap-Zustände zulässig. Eine abgelaufene, passende Einladung kann als
+historisierte `EXPIRED`-Zeile erneuert werden.
+
+Die öffentliche `createInvitationSchema`- und Controller-Schreibgrenze bleibt
+unverändert und lehnt `OWNER` ab. Erst die authentifizierte Registrierung mit
+der eingeladenen E-Mail-Adresse und die anschließende Annahme erzeugen die
+aktive OWNER-Membership. Details und der SSH-Schlüssel-Lifecycle stehen im
+[ADR 0012](./docs/adr/0012-production-owner-bootstrap.md).
 
 ---
 
@@ -1027,33 +1067,57 @@ KO-Runde generieren
 
 ## 33. Deployment auf Railway
 
-Empfohlene Produktionsstruktur:
+Railway PostgreSQL bleibt die verbindliche Datenbank für Production und
+Staging. Neon wird ausschließlich für isolierte Development- und kurzlebige
+Preview-Branches eingesetzt. Production-Zugangsdaten und unmaskierte
+Production-Daten werden nicht nach Neon übertragen. Die verbindlichen Regeln
+stehen in [ADR 0011](./docs/adr/0011-preview-database-strategy.md).
+
+Aktuell angelegte Produktionsstruktur zum 31. August 2026:
 
 ```text
-Railway Workspace
-│
-├── Projekt: Vereinswebseite
-│   └── website
-│
-└── Projekt: Darts Platform
-    ├── web
-    ├── api
-    ├── realtime
-    ├── worker
-    ├── postgres
-    ├── redis
-    └── object-storage
+BitWhatElse Projects
+└── Railway-Projekt: dartbase
+    └── Environment: production
+        ├── @darts-platform/web
+        ├── @darts-platform/api
+        ├── @darts-platform/worker
+        ├── Postgres
+        └── Redis
 ```
 
-Alternative:
+Alle fünf Services sind erfolgreich deployt. Die Railway-IaC bildet den
+Live-Stand einschließlich Worker, Domains, Volumes und Service-Konfigurationen
+ab; der kontrollierte Production-Plan meldet keine Änderungen. Das separate
+Release-Hardening-Plan setzt für die drei GitHub-gebundenen Services später
+`checkSuites: true`; bis dieser Plan geprüft, freigegeben und angewendet ist,
+darf aus der aktuellen IaC-Konfiguration kein aktives Railway-CI-Gate abgeleitet
+werden.
 
-Alle Services einer fachlich zusammengehörenden App in **einem Railway Project**, damit privates Networking genutzt werden kann.
-
-Öffentlich erreichbar:
+Domain- und DNS-Fluss:
 
 ```text
-app.example.ch  -> web
-api.example.ch  -> api (nur falls extern benötigt)
+Cyon (Registrar)
+  └── NS-Delegation -> Cloudflare (autoritativer DNS, DNS only)
+                         ├── dartbase.ch   -> Railway Web
+                         ├── *.dartbase.ch -> Railway Web
+                         ├── api.dartbase.ch -> Railway API
+                         └── _acme-challenge -> Railway DNS Authorization
+```
+
+`dartbase.ch` und `*.dartbase.ch` belegen die zwei Custom-Domain-Slots des
+Railway-Hobby-Tarifs am Web-Service. Beide Zertifikate sind gültig. Cloudflare
+bleibt zunächst für alle Railway-Einträge auf `DNS only`; insbesondere darf der
+ACME-CNAME nicht proxied werden. `api.dartbase.ch` ist über einen expliziten
+CNAME am API-Service angelegt, verifiziert und mit einem gültigen Zertifikat
+erreichbar.
+
+Öffentlich vorgesehen:
+
+```text
+dartbase.ch       -> web
+*.dartbase.ch     -> web; Hostname-Auflösung und Tenant-Zuordnung erfolgen in der App
+api.dartbase.ch   -> api
 ```
 
 Nur intern:
@@ -1066,6 +1130,9 @@ interne API-Verbindungen
 ```
 
 Railway Private Networking wird für Service-to-Service-Kommunikation verwendet.
+Die erforderliche öffentliche API-Domain wird als exakter Eintrag am API-Service
+konfiguriert; dessen eigene Domain-Slots werden durch Root und Wildcard am
+Web-Service nicht verbraucht.
 
 ---
 

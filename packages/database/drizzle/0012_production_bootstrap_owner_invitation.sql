@@ -1,0 +1,2 @@
+ALTER TABLE "organization_invitations" DROP CONSTRAINT "organization_invitations_role_check";--> statement-breakpoint
+ALTER TABLE "organization_invitations" ADD CONSTRAINT "organization_invitations_role_check" CHECK ("organization_invitations"."role" in ('OWNER', 'ADMIN', 'TOURNAMENT_DIRECTOR', 'SCORER', 'MEMBER', 'VIEWER'));

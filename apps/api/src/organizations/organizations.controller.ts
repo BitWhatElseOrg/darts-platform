@@ -15,7 +15,7 @@ import {
   createOrganizationSchema,
   type CreateInvitationInput,
   type CreateOrganizationInput,
-  type Invitation,
+  type CreatedInvitation,
   type OrganizationSummary,
 } from "@darts-platform/schemas";
 
@@ -62,7 +62,7 @@ export class OrganizationsController {
     @Body() body: unknown,
     @CurrentAuth() auth: AuthContext,
     @Req() request: FastifyRequest,
-  ): Promise<Invitation> {
+  ): Promise<CreatedInvitation> {
     const data: CreateInvitationInput = parseBody(createInvitationSchema, body);
     return this.organizationsService.invite({
       organizationId,

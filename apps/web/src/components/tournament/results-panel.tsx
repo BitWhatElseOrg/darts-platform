@@ -32,14 +32,14 @@ export function ResultsPanel({ results, canCorrect, busy, onCorrect }: ResultsPa
               <p className="mt-1 font-plate text-[0.875rem] font-semibold text-wedge-900">
                 {result.participantNames[0]} <span className="px-1 font-normal text-sisal-500">–</span> {result.participantNames[1]}
               </p>
-              <p className="mt-1"><StateTag label={`${result.winnerDisplayName} gewinnt`} tone="waiting" /></p>
-              {canCorrect && selectedId !== result.matchId ? (
+              <p className="mt-1"><StateTag label={result.resultType === "WALKOVER" ? `${result.winnerDisplayName} gewinnt kampflos` : `${result.winnerDisplayName} gewinnt`} tone="waiting" /></p>
+              {canCorrect && result.resultType === "PLAYED" && selectedId !== result.matchId ? (
                 <Control className="mt-2" density="tight" disabled={busy} onClick={() => {
                   setSelectedId(result.matchId);
                   setReason("");
                 }} variant="wire">Ergebnis korrigieren</Control>
               ) : null}
-              {canCorrect && selectedId === result.matchId ? (
+              {canCorrect && result.resultType === "PLAYED" && selectedId === result.matchId ? (
                 <div className="mt-3 flex flex-col gap-2">
                   <label className="font-plate text-[0.75rem] font-semibold uppercase tracking-[0.12em] text-sisal-500" htmlFor={`correction-${result.matchId}`}>Korrekturgrund</label>
                   <textarea

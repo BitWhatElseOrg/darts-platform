@@ -12,6 +12,11 @@ import {
   type Database,
 } from "@darts-platform/database";
 
+import {
+  INVITATION_CLAIM_HEADER,
+  invitationClaimMatches,
+} from "./invitation-claim.js";
+
 export function createAuth(
   database: Database,
   environment: ApplicationEnvironment,
@@ -40,9 +45,11 @@ export function createAuth(
     databaseHooks: {
       user: {
         create: {
-          before: async (user) => {
-            const [invitation] = await database
-              .select({ id: organizationInvitations.id })
+          before: async (user, context) => {
+            const invitationClaim =
+              context?.headers?.get(INVITATION_CLAIM_HEADER) ?? null;
+            const invitations = await database
+              .select({ claimTokenHash: organizationInvitations.claimTokenHash })
               .from(organizationInvitations)
               .where(
                 and(
@@ -53,10 +60,16 @@ export function createAuth(
                   eq(organizationInvitations.status, "PENDING"),
                   gt(organizationInvitations.expiresAt, new Date()),
                 ),
-              )
-              .limit(1);
+              );
 
-            if (invitation === undefined) {
+            if (
+              !invitations.some((invitation) =>
+                invitationClaimMatches(
+                  invitationClaim,
+                  invitation.claimTokenHash,
+                ),
+              )
+            ) {
               throw new APIError("FORBIDDEN", {
                 message: "Registration requires a valid invitation.",
               });
