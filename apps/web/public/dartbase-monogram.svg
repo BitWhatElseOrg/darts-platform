@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 164 128" role="img">
+  <title>DartBase</title>
+  <path
+    fill="#f8fafc"
+    fill-rule="evenodd"
+    d="M8 12h29c24 0 39 19 39 52s-15 52-39 52H8V12Zm15 16v72h13c16 0 25-13 25-36s-9-36-25-36H23Z"
+    clip-rule="evenodd"
+  />
+  <path fill="#34d399" d="M82 20h6v88h-6z" />
+  <path
+    fill="#f8fafc"
+    fill-rule="evenodd"
+    d="M96 12h31c20 0 31 10 31 27 0 11-5 20-15 25 12 5 18 13 18 25 0 18-13 27-34 27H96V12Zm15 15v29h14c12 0 18-5 18-15 0-9-6-14-18-14h-14Zm0 45v29h15c13 0 20-5 20-15 0-9-7-14-20-14h-15Z"
+    clip-rule="evenodd"
+  />
+</svg>

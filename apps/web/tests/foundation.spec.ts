@@ -115,7 +115,7 @@ test("the sign-in form exposes credentials to password managers", async ({ page 
   await expect(page.getByLabel("Passwort")).toHaveAttribute("autocomplete", "new-password");
 });
 
-test("the public sign-in page links to the standalone manual", async ({ page }) => {
+test("the public sign-in page links to the branded standalone manual", async ({ page }) => {
   await page.goto("/");
 
   const manualLink = page.getByRole("link", { name: "Bedienungsanleitung" });
@@ -128,6 +128,27 @@ test("the public sign-in page links to the standalone manual", async ({ page }) 
   await expect(
     page.getByRole("heading", { level: 1, name: "Bedienungsanleitung" }),
   ).toBeVisible();
+  const dartBaseMark = page.locator(".brand-logo");
+  await expect(dartBaseMark).toHaveAttribute("src", "/dartbase-monogram.svg");
+  await expect
+    .poll(() =>
+      dartBaseMark.evaluate(
+        (image) => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0,
+      ),
+    )
+    .toBe(true);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const manualHeading = page.getByRole("heading", { level: 1, name: "Bedienungsanleitung" });
+  await expect
+    .poll(() =>
+      manualHeading.evaluate((heading) => {
+        const range = document.createRange();
+        range.selectNodeContents(heading);
+        return range.getClientRects().length;
+      }),
+    )
+    .toBe(1);
   await expect(page.getByRole("navigation", { name: "Inhaltsverzeichnis" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Zurück zu DartBase" })).toHaveAttribute(
     "href",

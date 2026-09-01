@@ -195,6 +195,8 @@ UI-Code importiert beide Assets ausschliesslich über
 `apps/web/src/assets/index.ts`; neue Logos und Bilder werden in den Unterordnern
 `logos` beziehungsweise `images` abgelegt. Die öffentliche Bedienungsanleitung
 übernimmt dieselbe Slate-/Emerald-Richtung und bleibt auch ohne Sitzung lesbar.
+Sie verwendet ein eigenes, transparentes DartBase-DB-Monogramm; das
+PWA-/App-Icon und die Sponsorenlogos bleiben davon getrennte Markenassets.
 
 ## Overview
 
