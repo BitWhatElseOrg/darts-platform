@@ -141,10 +141,28 @@ describe("player tenant isolation", () => {
     await expect(
       organizationsService.acceptInvitation({
         invitationId: invitation.id,
+        data: { claimToken: `${invitation.claimToken.slice(0, -1)}A` },
+        auth: foreignAuth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+
+    await expect(
+      organizationsService.acceptInvitation({
+        invitationId: invitation.id,
+        data: { claimToken: invitation.claimToken },
         auth: foreignAuth,
         audit,
       }),
     ).resolves.toEqual({ accepted: true });
+    await expect(
+      organizationsService.acceptInvitation({
+        invitationId: invitation.id,
+        data: { claimToken: invitation.claimToken },
+        auth: foreignAuth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
     await expect(
       playersService.list({
         organizationId: ownerOrganizationId,

@@ -13,6 +13,7 @@ const authFormSchema = z.object({
   name: z.string().trim().max(255),
   email: z.email().trim().toLowerCase(),
   password: z.string().min(10).max(128),
+  invitationClaim: z.string().trim(),
 });
 
 type AuthFormData = z.infer<typeof authFormSchema>;
@@ -29,7 +30,7 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
   const [serverError, setServerError] = useState<string | null>(null);
   const form = useForm<AuthFormData>({
     resolver: zodResolver(authFormSchema),
-    defaultValues: { name: "", email: "", password: "" },
+    defaultValues: { name: "", email: "", password: "", invitationClaim: "" },
   });
 
   const submit = form.handleSubmit(async (data) => {
@@ -41,6 +42,11 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
             name: data.name,
             email: data.email,
             password: data.password,
+            fetchOptions: {
+              headers: {
+                "x-dartbase-invitation-claim": data.invitationClaim,
+              },
+            },
           })
         : await authClient.signIn.email({
             email: data.email,
@@ -51,7 +57,7 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
       setServerError(
         mode === "sign-in"
           ? "E-Mail oder Passwort ist nicht korrekt."
-          : "Das Konto konnte nicht erstellt werden. Verwende die E-Mail-Adresse deiner gültigen Einladung.",
+          : "Das Konto konnte nicht erstellt werden. Prüfe E-Mail-Adresse und Einladungscode.",
       );
       return;
     }
@@ -78,14 +84,25 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
 
       <form className="space-y-4" onSubmit={(event) => void submit(event)}>
         {mode === "register" ? (
-          <label className="block space-y-2 text-sm text-slate-300">
-            <span>Name</span>
-            <input
-              className={inputClassName}
-              autoComplete="name"
-              {...form.register("name")}
-            />
-          </label>
+          <>
+            <label className="block space-y-2 text-sm text-slate-300">
+              <span>Name</span>
+              <input
+                className={inputClassName}
+                autoComplete="name"
+                {...form.register("name")}
+              />
+            </label>
+            <label className="block space-y-2 text-sm text-slate-300">
+              <span>Einladungscode</span>
+              <input
+                className={`${inputClassName} font-mono`}
+                autoComplete="off"
+                required
+                {...form.register("invitationClaim")}
+              />
+            </label>
+          </>
         ) : null}
 
         <label className="block space-y-2 text-sm text-slate-300">

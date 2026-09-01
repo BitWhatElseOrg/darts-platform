@@ -14,6 +14,10 @@ import type {
 
 import type { AuditContext } from "../common/audit-context.js";
 import { DatabaseService } from "../database/database.service.js";
+import {
+  generateInvitationClaimToken,
+  hashInvitationClaimToken,
+} from "../auth/invitation-claim.js";
 
 interface ActorInput {
   readonly userId: string;
@@ -114,10 +118,17 @@ export class OrganizationsRepository {
     input: CreateInvitationInput &
       ActorInput & { readonly organizationId: string },
   ) {
+    const claimToken = generateInvitationClaimToken();
+    const claimTokenHash = hashInvitationClaimToken(claimToken);
+
     return this.databaseService.database.transaction(async (transaction) => {
       await transaction
         .update(organizationInvitations)
-        .set({ status: "CANCELLED", updatedAt: new Date() })
+        .set({
+          status: "CANCELLED",
+          claimTokenHash: null,
+          updatedAt: new Date(),
+        })
         .where(
           and(
             eq(organizationInvitations.organizationId, input.organizationId),
@@ -132,6 +143,7 @@ export class OrganizationsRepository {
           organizationId: input.organizationId,
           email: input.email,
           role: input.role,
+          claimTokenHash,
           invitedByUserId: input.userId,
           expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 48),
         })
@@ -153,7 +165,7 @@ export class OrganizationsRepository {
         correlationId: input.audit.correlationId,
       });
 
-      return invitation;
+      return { ...invitation, claimToken };
     });
   }
 
@@ -187,8 +199,11 @@ export class OrganizationsRepository {
     readonly invitationId: string;
     readonly userId: string;
     readonly email: string;
+    readonly claimToken: string;
     readonly audit: AuditContext;
   }) {
+    const claimTokenHash = hashInvitationClaimToken(input.claimToken);
+
     return this.databaseService.database.transaction(async (transaction) => {
       const [invitation] = await transaction
         .select()
@@ -198,12 +213,34 @@ export class OrganizationsRepository {
             eq(organizationInvitations.id, input.invitationId),
             eq(organizationInvitations.email, input.email),
             eq(organizationInvitations.status, "PENDING"),
+            eq(organizationInvitations.claimTokenHash, claimTokenHash),
             gt(organizationInvitations.expiresAt, new Date()),
           ),
         )
-        .limit(1);
+        .limit(1)
+        .for("update");
 
       if (invitation === undefined) {
+        return null;
+      }
+
+      const [claimedInvitation] = await transaction
+        .update(organizationInvitations)
+        .set({
+          status: "ACCEPTED",
+          claimTokenHash: null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(organizationInvitations.id, invitation.id),
+            eq(organizationInvitations.status, "PENDING"),
+            eq(organizationInvitations.claimTokenHash, claimTokenHash),
+          ),
+        )
+        .returning({ id: organizationInvitations.id });
+
+      if (claimedInvitation === undefined) {
         return null;
       }
 
@@ -219,11 +256,6 @@ export class OrganizationsRepository {
           target: [memberships.organizationId, memberships.userId],
           set: { role: invitation.role, status: "ACTIVE" },
         });
-
-      await transaction
-        .update(organizationInvitations)
-        .set({ status: "ACCEPTED", updatedAt: new Date() })
-        .where(eq(organizationInvitations.id, invitation.id));
 
       await transaction.insert(auditEvents).values({
         organizationId: invitation.organizationId,

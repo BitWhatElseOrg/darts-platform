@@ -82,7 +82,8 @@ Der aktuelle Stand bietet zusätzlich zur Foundation:
 - Registrierung ausschliesslich mit gültiger Einladung, Login, Logout und
   persistente HttpOnly-Sessions über Better Auth
 - Organisationserstellung mit transaktionaler OWNER-Mitgliedschaft
-- zeitlich begrenzte, an eine E-Mail-Adresse gebundene Einladungen
+- zeitlich begrenzte Einladungen mit kryptografischem Einladungscode; der Code
+  wird bei Registrierung und Annahme serverseitig geprüft
 - serverseitige Rollen und Permissions für jeden Tenant-Zugriff
 - Spieler anlegen, lesen, bearbeiten und revisionssicher archivieren
 - Audit-Einträge innerhalb derselben Transaktion wie die jeweilige Mutation
@@ -210,6 +211,7 @@ Die Bootstrap-spezifischen Variablen sind exakt:
 ```text
 ALLOW_PRODUCTION_BOOTSTRAP=true
 BOOTSTRAP_OWNER_EMAIL
+BOOTSTRAP_INVITATION_CLAIM_TOKEN (43 Zeichen, mindestens 256 Bit Zufall)
 BOOTSTRAP_ORGANIZATION_NAME
 BOOTSTRAP_ORGANIZATION_SLUG
 BOOTSTRAP_TIMEZONE (optional, Europe/Zurich)

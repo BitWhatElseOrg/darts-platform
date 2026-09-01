@@ -20,6 +20,10 @@ import {
   bootstrapProductionOwner,
   parseProductionBootstrapInput,
 } from "./production-bootstrap.js";
+import {
+  generateInvitationClaimToken,
+  hashInvitationClaimToken,
+} from "../auth/invitation-claim.js";
 import { createTemporaryDatabase } from "../testing/temporary-database.js";
 
 const testDatabaseUrl = process.env.DATABASE_URL;
@@ -31,6 +35,7 @@ const pnpmExecutable = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const now = new Date("2026-08-31T12:00:00.000Z");
 const input = {
   ownerEmail: "owner@example.ch",
+  invitationClaimToken: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
   organizationName: "Dart Club",
   organizationSlug: "dart-club",
   timezone: "Europe/Zurich",
@@ -174,7 +179,7 @@ async function createCompletedBootstrapFixture(
   );
   await database
     .update(organizationInvitations)
-    .set({ status: "ACCEPTED", updatedAt: now })
+    .set({ status: "ACCEPTED", claimTokenHash: null, updatedAt: now })
     .where(
       and(
         eq(organizationInvitations.email, input.ownerEmail),
@@ -402,6 +407,7 @@ describe("production bootstrap guard", () => {
           DATABASE_URL: temporary.databaseUrl,
           BETTER_AUTH_SECRET: sentinelAuthSecret,
           BOOTSTRAP_OWNER_EMAIL: input.ownerEmail,
+          BOOTSTRAP_INVITATION_CLAIM_TOKEN: input.invitationClaimToken,
           BOOTSTRAP_ORGANIZATION_NAME: input.organizationName,
           BOOTSTRAP_ORGANIZATION_SLUG: input.organizationSlug,
           BOOTSTRAP_TIMEZONE: input.timezone,
@@ -432,6 +438,7 @@ describe("production bootstrap guard", () => {
         );
         expect(result.stdout).not.toContain(temporary.databaseUrl);
         expect(result.stdout).not.toContain(sentinelAuthSecret);
+        expect(result.stdout).not.toContain(input.invitationClaimToken);
       } finally {
         await temporary.cleanup();
       }
@@ -444,11 +451,15 @@ describe("production bootstrap input", () => {
     expect(
       parseProductionBootstrapInput({
         BOOTSTRAP_OWNER_EMAIL: " OWNER@EXAMPLE.CH ",
+        BOOTSTRAP_INVITATION_CLAIM_TOKEN:
+          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         BOOTSTRAP_ORGANIZATION_NAME: " Dart Club ",
         BOOTSTRAP_ORGANIZATION_SLUG: "dart-club",
       }),
     ).toEqual({
       ownerEmail: "owner@example.ch",
+      invitationClaimToken:
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       organizationName: "Dart Club",
       organizationSlug: "dart-club",
       timezone: "Europe/Zurich",
@@ -459,21 +470,25 @@ describe("production bootstrap input", () => {
   it.each([
     {
       BOOTSTRAP_OWNER_EMAIL: "not-an-email",
+      BOOTSTRAP_INVITATION_CLAIM_TOKEN: generateInvitationClaimToken(),
       BOOTSTRAP_ORGANIZATION_NAME: "Dart Club",
       BOOTSTRAP_ORGANIZATION_SLUG: "dart-club",
     },
     {
       BOOTSTRAP_OWNER_EMAIL: "owner@example.ch",
+      BOOTSTRAP_INVITATION_CLAIM_TOKEN: generateInvitationClaimToken(),
       BOOTSTRAP_ORGANIZATION_NAME: "D",
       BOOTSTRAP_ORGANIZATION_SLUG: "dart-club",
     },
     {
       BOOTSTRAP_OWNER_EMAIL: "owner@example.ch",
+      BOOTSTRAP_INVITATION_CLAIM_TOKEN: generateInvitationClaimToken(),
       BOOTSTRAP_ORGANIZATION_NAME: "Dart Club",
       BOOTSTRAP_ORGANIZATION_SLUG: "Dart Club",
     },
     {
       BOOTSTRAP_OWNER_EMAIL: PRODUCTION_BOOTSTRAP_USER_EMAIL,
+      BOOTSTRAP_INVITATION_CLAIM_TOKEN: generateInvitationClaimToken(),
       BOOTSTRAP_ORGANIZATION_NAME: "Dart Club",
       BOOTSTRAP_ORGANIZATION_SLUG: "dart-club",
     },
@@ -686,8 +701,20 @@ describe.skipIf(testDatabaseUrl === undefined)(
             input,
             staleTime,
           );
-          const renewed = await bootstrapProductionOwner(database, input, now);
-          const rerun = await bootstrapProductionOwner(database, input, now);
+          const rotatedInput = {
+            ...input,
+            invitationClaimToken: generateInvitationClaimToken(),
+          };
+          const renewed = await bootstrapProductionOwner(
+            database,
+            rotatedInput,
+            now,
+          );
+          const rerun = await bootstrapProductionOwner(
+            database,
+            rotatedInput,
+            now,
+          );
 
           expect(initial.status).toBe("created");
           expect(renewed).toMatchObject({
@@ -695,6 +722,9 @@ describe.skipIf(testDatabaseUrl === undefined)(
             expiresAt: new Date("2026-09-02T12:00:00.000Z"),
           });
           expect(rerun).toEqual({ ...renewed, status: "pending" });
+          await expect(
+            bootstrapProductionOwner(database, input, now),
+          ).rejects.toThrow(/BOOTSTRAP_STATE_INVALID/u);
           const invitations = await database
             .select()
             .from(organizationInvitations);
@@ -722,7 +752,7 @@ describe.skipIf(testDatabaseUrl === undefined)(
           );
           await database
             .update(organizationInvitations)
-            .set({ status: "ACCEPTED", updatedAt: now })
+            .set({ status: "ACCEPTED", claimTokenHash: null, updatedAt: now })
             .where(eq(organizationInvitations.email, input.ownerEmail));
           await database.insert(memberships).values({
             organizationId: bootstrap.organizationId,
@@ -989,6 +1019,9 @@ describe.skipIf(testDatabaseUrl === undefined)(
             email: input.ownerEmail,
             role: "OWNER",
             status: "PENDING",
+            claimTokenHash: hashInvitationClaimToken(
+              input.invitationClaimToken,
+            ),
             invitedByUserId: bootstrapUser.id,
             expiresAt: new Date("2026-09-03T12:00:00.000Z"),
           });

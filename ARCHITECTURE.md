@@ -329,9 +329,10 @@ eine Bedienhilfe; API-Guard und Organisationszugriff bleiben die verbindliche
 Sicherheitsgrenze.
 
 Neue Konten dürfen nur angelegt werden, wenn für die normalisierte E-Mail-Adresse
-eine offene, noch nicht abgelaufene Organisationseinladung vorliegt. Nach der
-Registrierung nimmt der Benutzer die Einladung an und erhält erst dadurch die
-zugewiesene Organisationsrolle.
+eine offene, noch nicht abgelaufene Organisationseinladung und der passende
+kryptografische Einladungscode vorliegen. Nach der Registrierung nimmt der
+Benutzer die Einladung mit demselben Code atomisch einmalig an und erhält erst
+dadurch die zugewiesene Organisationsrolle.
 
 ### Einmaliger Production-Owner-Bootstrap
 

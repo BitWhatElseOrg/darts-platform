@@ -45,6 +45,11 @@ export const createInvitationSchema = z.object({
   role: invitableOrganizationRoleSchema,
 });
 
+export const invitationClaimTokenSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9_-]{43}$/);
+
 export const invitationSchema = z.object({
   id: z.uuid(),
   organizationId: z.uuid(),
@@ -57,7 +62,17 @@ export const invitationSchema = z.object({
 
 export const invitationListSchema = z.array(invitationSchema);
 
+export const createdInvitationSchema = invitationSchema.extend({
+  claimToken: invitationClaimTokenSchema,
+});
+
+export const acceptInvitationSchema = z.object({
+  claimToken: invitationClaimTokenSchema,
+});
+
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
 export type OrganizationSummary = z.infer<typeof organizationSummarySchema>;
 export type CreateInvitationInput = z.infer<typeof createInvitationSchema>;
 export type Invitation = z.infer<typeof invitationSchema>;
+export type CreatedInvitation = z.infer<typeof createdInvitationSchema>;
+export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;

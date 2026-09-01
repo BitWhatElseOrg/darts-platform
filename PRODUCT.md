@@ -55,7 +55,8 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 
 - Registrierung ausschliesslich für gültig eingeladene E-Mail-Adressen, Login,
   Logout und persistente HttpOnly-Sessions (Better Auth)
-- Organisation erstellen, Mitgliedschaften, zeitlich begrenzte E-Mail-gebundene Einladungen
+- Organisation erstellen, Mitgliedschaften, zeitlich begrenzte Einladungen mit
+  sicherem Einladungscode
 - serverseitige Rollen und Permissions je Tenant
 - Spielerverwaltung inklusive revisionssicherer Archivierung
 - Board- und Matchverwaltung, tenant-sicher

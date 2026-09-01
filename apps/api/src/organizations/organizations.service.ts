@@ -6,12 +6,14 @@ import {
 } from "@nestjs/common";
 
 import {
+  createdInvitationSchema,
   invitationListSchema,
-  invitationSchema,
   organizationListSchema,
   organizationSummarySchema,
+  type AcceptInvitationInput,
   type CreateInvitationInput,
   type CreateOrganizationInput,
+  type CreatedInvitation,
   type Invitation,
   type OrganizationSummary,
 } from "@darts-platform/schemas";
@@ -71,7 +73,7 @@ export class OrganizationsService {
     readonly data: CreateInvitationInput;
     readonly auth: AuthContext;
     readonly audit: AuditContext;
-  }): Promise<Invitation> {
+  }): Promise<CreatedInvitation> {
     await this.organizationAccessService.requirePermission({
       organizationId: input.organizationId,
       userId: input.auth.user.id,
@@ -85,7 +87,7 @@ export class OrganizationsService {
       audit: input.audit,
     });
 
-    return invitationSchema.parse(invitation);
+    return createdInvitationSchema.parse(invitation);
   }
 
   public async listInvitations(auth: AuthContext): Promise<Invitation[]> {
@@ -98,6 +100,7 @@ export class OrganizationsService {
 
   public async acceptInvitation(input: {
     readonly invitationId: string;
+    readonly data: AcceptInvitationInput;
     readonly auth: AuthContext;
     readonly audit: AuditContext;
   }): Promise<{ readonly accepted: true }> {
@@ -105,6 +108,7 @@ export class OrganizationsService {
       invitationId: input.invitationId,
       userId: input.auth.user.id,
       email: input.auth.user.email.toLowerCase(),
+      claimToken: input.data.claimToken,
       audit: input.audit,
     });
 

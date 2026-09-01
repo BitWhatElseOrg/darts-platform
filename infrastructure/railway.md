@@ -164,11 +164,15 @@ node /app/apps/api/dist/operations/bootstrap-production.js
 Der API-Build muss vor der Ausführung erfolgreich gewesen sein. Der rohe Guard
 prüft zuerst `NODE_ENV=production` und exakt `ALLOW_PRODUCTION_BOOTSTRAP=true`;
 erst danach werden Anwendungskonfiguration und Datenbankverbindung aufgebaut.
+Beim ersten Start führt die versionierte Migration 0013 vorhandene tokenlose
+`PENDING`-Einladungen als `EXPIRED`; sie müssen bei Bedarf neu ausgestellt
+werden.
 Die Bootstrap-spezifischen Variablen sind exakt:
 
 ```text
 ALLOW_PRODUCTION_BOOTSTRAP=true
 BOOTSTRAP_OWNER_EMAIL
+BOOTSTRAP_INVITATION_CLAIM_TOKEN (43 Zeichen, mindestens 256 Bit Zufall)
 BOOTSTRAP_ORGANIZATION_NAME
 BOOTSTRAP_ORGANIZATION_SLUG
 BOOTSTRAP_TIMEZONE (optional, Standard: Europe/Zurich)
@@ -222,6 +226,7 @@ railway ssh \
   env \
   ALLOW_PRODUCTION_BOOTSTRAP=true \
   BOOTSTRAP_OWNER_EMAIL="$bootstrap_owner_email" \
+  BOOTSTRAP_INVITATION_CLAIM_TOKEN="$bootstrap_invitation_claim_token" \
   BOOTSTRAP_ORGANIZATION_NAME="$bootstrap_organization_name" \
   BOOTSTRAP_ORGANIZATION_SLUG="$bootstrap_organization_slug" \
   BOOTSTRAP_TIMEZONE=Europe/Zurich \
@@ -248,10 +253,11 @@ railway ssh keys list
 ```
 
 Der temporäre Schlüssel darf in der abschließenden Liste nicht mehr erscheinen.
-Der Operator verarbeitet kein Passwort. Der eingeladene Owner registriert sich
-anschließend selbst mit der exakt eingeladenen E-Mail-Adresse, meldet sich an,
-öffnet die offene Einladung und nimmt sie an. Erst danach existiert die aktive
-OWNER-Membership.
+Der Operator verarbeitet kein Passwort. Der Einladungscode wird nur über einen
+sicheren Kanal an den Owner übermittelt und weder in Logs noch in der URL
+gespeichert. Der eingeladene Owner registriert sich mit exakt dieser E-Mail und
+dem Code, meldet sich an und gibt denselben Code bei der Annahme ein. Erst danach
+existiert die aktive OWNER-Membership.
 
 ## GitHub-CI-Gate
 

@@ -265,6 +265,7 @@ railway ssh \
   env \
   ALLOW_PRODUCTION_BOOTSTRAP=true \
   BOOTSTRAP_OWNER_EMAIL="$bootstrap_owner_email" \
+  BOOTSTRAP_INVITATION_CLAIM_TOKEN="$bootstrap_invitation_claim_token" \
   BOOTSTRAP_ORGANIZATION_NAME="$bootstrap_organization_name" \
   BOOTSTRAP_ORGANIZATION_SLUG="$bootstrap_organization_slug" \
   BOOTSTRAP_TIMEZONE=Europe/Zurich \
@@ -272,7 +273,7 @@ railway ssh \
   pnpm db:bootstrap:production
 ```
 
-Expected JSON event: `production_bootstrap_completed`, status `created` or exact idempotent `pending`, requested slug/email, and a non-null expiry. No password or database URL may appear.
+Expected JSON event: `production_bootstrap_completed`, status `created` or exact idempotent `pending`, requested slug/email, and a non-null expiry. No password, invitation token, or database URL may appear. The owner uses the token during registration and invitation acceptance.
 
 - [ ] **Step 4: Remove the temporary access immediately**
 

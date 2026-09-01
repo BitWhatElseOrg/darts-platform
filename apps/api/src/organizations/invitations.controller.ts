@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   Inject,
@@ -9,11 +10,16 @@ import {
 } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 
-import type { Invitation } from "@darts-platform/schemas";
+import {
+  acceptInvitationSchema,
+  type AcceptInvitationInput,
+  type Invitation,
+} from "@darts-platform/schemas";
 
 import { CurrentAuth } from "../auth/current-auth.decorator.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { getAuditContext } from "../common/audit-context.js";
+import { parseBody } from "../common/parse-body.js";
 import { OrganizationsService } from "./organizations.service.js";
 
 @Controller("invitations")
@@ -31,11 +37,17 @@ export class InvitationsController {
   @Post(":invitationId/accept")
   public async accept(
     @Param("invitationId", ParseUUIDPipe) invitationId: string,
+    @Body() body: unknown,
     @CurrentAuth() auth: AuthContext,
     @Req() request: FastifyRequest,
   ): Promise<{ readonly accepted: true }> {
+    const data: AcceptInvitationInput = parseBody(
+      acceptInvitationSchema,
+      body,
+    );
     return this.organizationsService.acceptInvitation({
       invitationId,
+      data,
       auth,
       audit: getAuditContext(request),
     });

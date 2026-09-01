@@ -50,6 +50,7 @@ Die Bootstrap-spezifischen Variablen sind exakt:
 ```text
 ALLOW_PRODUCTION_BOOTSTRAP=true
 BOOTSTRAP_OWNER_EMAIL
+BOOTSTRAP_INVITATION_CLAIM_TOKEN (43 Zeichen, mindestens 256 Bit Zufall)
 BOOTSTRAP_ORGANIZATION_NAME
 BOOTSTRAP_ORGANIZATION_SLUG
 BOOTSTRAP_TIMEZONE (optional, Standard: Europe/Zurich)
@@ -85,9 +86,13 @@ Der Bootstrap nimmt zuerst einen festen PostgreSQL-Transaktionslock und prüft
 den vollständigen relevanten Zustand. Erst danach werden System-Prinzipal,
 Organisation, Einladung und Audit-Eintrag in derselben Transaktion geschrieben.
 Die OWNER-Rolle wird ausschließlich an dieser internen Datenbankgrenze erzeugt.
-Die Einladung läuft nach 48 Stunden ab. Eine passende noch gültige Einladung
-wird unverändert wiederverwendet; eine passende abgelaufene Einladung wird als
+Die Einladung läuft nach 48 Stunden ab. Ihr Klartext-Code wird nur beim
+Bootstrap-Aufruf verwendet; gespeichert wird ausschließlich der SHA-256-Hash.
+Eine passende noch gültige Einladung wird unverändert wiederverwendet; eine passende abgelaufene Einladung wird als
 `EXPIRED` historisiert und durch eine neue 48-Stunden-Einladung ersetzt.
+Bei dieser Erneuerung darf der Operator einen neuen Claim setzen; ein alter
+Claim wird nicht wiederverwendet. Ein noch gültiger `PENDING`-Rerun muss dagegen
+denselben Claim liefern.
 Die Erzeugung wird als Audit-Aktion
 `PRODUCTION_BOOTSTRAP_INVITATION_CREATED` mit dem System-Prinzipal als Actor
 festgehalten.
@@ -121,8 +126,10 @@ Ereignis, Status,
 Organisations-ID und -Slug, normalisierte Owner-E-Mail sowie `expiresAt` (bei
 `already-complete` `null`). Fehlermeldungen enthalten nur einen stabilen Code
 und eine kontrollierte Nachricht. Datenbank-URLs, Secrets, Passwörter,
-Token, Stacktraces und interne Treiberfehler werden weder ausgegeben noch
-geloggt.
+Token, Hashes, Stacktraces und interne Treiberfehler werden weder ausgegeben
+noch geloggt. Der Owner benötigt den Code sowohl für die Registrierung als auch
+für die anschließende Annahme; der Acceptance-Claim ist transaktional und
+einmalig.
 
 Die Erfolgsform entspricht:
 

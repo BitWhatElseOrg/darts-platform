@@ -32,7 +32,11 @@ async function bootstrap(): Promise<void> {
     origin: environment.WEB_ORIGIN,
     methods: ["GET", "POST", "PATCH", "DELETE", "HEAD", "OPTIONS"],
     credentials: true,
-    allowedHeaders: ["Content-Type", "X-Correlation-Id"],
+    allowedHeaders: [
+      "Content-Type",
+      "X-Correlation-Id",
+      "X-Dartbase-Invitation-Claim",
+    ],
   });
   app.useGlobalFilters(new ApiExceptionFilter());
   app.useGlobalInterceptors(new ApiLoggingInterceptor(new Logger("HTTP")));

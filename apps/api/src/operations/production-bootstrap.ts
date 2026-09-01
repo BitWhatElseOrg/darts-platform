@@ -18,11 +18,14 @@ import {
 } from "@darts-platform/database";
 import { createOrganizationSchema } from "@darts-platform/schemas";
 
+import { hashInvitationClaimToken } from "../auth/invitation-claim.js";
+
 export const PRODUCTION_BOOTSTRAP_USER_EMAIL =
   "production-bootstrap@system.dartbase.invalid";
 
 export interface ProductionBootstrapInput {
   readonly ownerEmail: string;
+  readonly invitationClaimToken: string;
   readonly organizationName: string;
   readonly organizationSlug: string;
   readonly timezone: string;
@@ -63,6 +66,10 @@ const productionBootstrapEnvironmentSchema = z.object({
       message: "The owner email is reserved for the bootstrap system principal.",
     }),
   BOOTSTRAP_ORGANIZATION_NAME: createOrganizationSchema.shape.name,
+  BOOTSTRAP_INVITATION_CLAIM_TOKEN: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9_-]{43}$/),
   BOOTSTRAP_ORGANIZATION_SLUG: createOrganizationSchema.shape.slug,
   BOOTSTRAP_TIMEZONE: createOrganizationSchema.shape.timezone,
   BOOTSTRAP_LOCALE: createOrganizationSchema.shape.locale,
@@ -75,6 +82,7 @@ export function parseProductionBootstrapInput(
 
   return {
     ownerEmail: parsed.BOOTSTRAP_OWNER_EMAIL,
+    invitationClaimToken: parsed.BOOTSTRAP_INVITATION_CLAIM_TOKEN,
     organizationName: parsed.BOOTSTRAP_ORGANIZATION_NAME,
     organizationSlug: parsed.BOOTSTRAP_ORGANIZATION_SLUG,
     timezone: parsed.BOOTSTRAP_TIMEZONE,
@@ -167,6 +175,7 @@ function assertExactInvitationIdentity(
   input: ProductionBootstrapInput,
   organizationId: string,
   bootstrapUserId: string,
+  now: Date,
 ): void {
   if (
     invitations.some(
@@ -174,7 +183,12 @@ function assertExactInvitationIdentity(
         invitation.organizationId !== organizationId ||
         invitation.email !== input.ownerEmail ||
         invitation.role !== "OWNER" ||
-        invitation.invitedByUserId !== bootstrapUserId,
+        invitation.invitedByUserId !== bootstrapUserId ||
+        (invitation.status === "PENDING" &&
+          invitation.expiresAt.getTime() > now.getTime()
+          ? invitation.claimTokenHash !==
+            hashInvitationClaimToken(input.invitationClaimToken)
+          : invitation.status !== "PENDING" && invitation.claimTokenHash !== null),
     )
   ) {
     invalidState("An invitation does not match the bootstrap identity.");
@@ -326,6 +340,7 @@ export async function bootstrapProductionOwner(
         input,
         completedOrganization.id,
         bootstrapUser.id,
+        now,
       );
       assertCompletedInvitationState(state.invitations);
 
@@ -366,6 +381,7 @@ export async function bootstrapProductionOwner(
         input,
         exactOrganization.id,
         bootstrapUser.id,
+        now,
       );
     }
     const pendingInvitation = pendingInvitationFrom(state.invitations);
@@ -421,7 +437,7 @@ export async function bootstrapProductionOwner(
     if (pendingInvitation !== undefined) {
       await transaction
         .update(organizationInvitations)
-        .set({ status: "EXPIRED", updatedAt: now })
+        .set({ status: "EXPIRED", claimTokenHash: null, updatedAt: now })
         .where(sql`${organizationInvitations.id} = ${pendingInvitation.id}`);
     }
 
@@ -433,6 +449,7 @@ export async function bootstrapProductionOwner(
         email: input.ownerEmail,
         role: "OWNER",
         status: "PENDING",
+        claimTokenHash: hashInvitationClaimToken(input.invitationClaimToken),
         invitedByUserId: ensuredBootstrapUser.id,
         expiresAt,
       })

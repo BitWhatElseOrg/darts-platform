@@ -45,6 +45,7 @@ Ein neuer CLI-Befehl `pnpm db:bootstrap:production` wird ausschließlich innerha
 Der Operator übergibt:
 
 - `BOOTSTRAP_OWNER_EMAIL`
+- `BOOTSTRAP_INVITATION_CLAIM_TOKEN` (43 Zeichen, mindestens 256 Bit Zufall)
 - `BOOTSTRAP_ORGANIZATION_NAME`
 - `BOOTSTRAP_ORGANIZATION_SLUG`
 - optional `BOOTSTRAP_TIMEZONE`, Standard `Europe/Zurich`
@@ -161,7 +162,7 @@ Nach Apply und Readback gilt der Release-Ablauf:
 4. Migrationen müssen vor API-Start erfolgreich sein.
 5. API-Health, Web-Root, Domains und Zertifikate prüfen.
 6. Bootstrap-CLI über kurzlebige SSH-Identität ausführen.
-7. Erster Owner registriert sich mit exakt der eingeladenen E-Mail-Adresse und nimmt die Einladung an.
+7. Erster Owner registriert sich mit exakt der eingeladenen E-Mail-Adresse und dem Besitzcode; derselbe Code wird bei der Annahme einmalig geprüft.
 8. Authentifizierten UI-Smoke-Test und Tenant-Isolationsprüfung durchführen.
 9. Erst dann `v0.1.0` taggen und die GitHub Release erzeugen.
 

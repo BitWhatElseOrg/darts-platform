@@ -74,19 +74,20 @@ async function ensureIdentity(databaseService: DatabaseService, environment: App
   if (organization === undefined) throw new Error("Demo organization could not be created.");
 
   if (user === undefined) {
+    const invitationClaimToken = generateInvitationClaimToken();
     const bootstrapUserId = randomUUID();
     await database.insert(users).values({ id: bootstrapUserId, email: `seed-bootstrap-${bootstrapUserId}@example.test`, displayName: "Development Seed Bootstrap" });
-    await database.insert(organizationInvitations).values({ organizationId: organization.id, email: normalizedEmail, role: "ADMIN", invitedByUserId: bootstrapUserId, expiresAt: new Date(Date.now() + 60 * 60 * 1_000) });
+    await database.insert(organizationInvitations).values({ organizationId: organization.id, email: normalizedEmail, role: "ADMIN", claimTokenHash: hashInvitationClaimToken(invitationClaimToken), invitedByUserId: bootstrapUserId, expiresAt: new Date(Date.now() + 60 * 60 * 1_000) });
     const auth = createAuth(database, environment);
     const response = await auth.handler(new Request(`${environment.BETTER_AUTH_URL}/api/v1/auth/sign-up/email`, {
       method: "POST",
-      headers: { "content-type": "application/json", origin: environment.WEB_ORIGIN },
+      headers: { "content-type": "application/json", origin: environment.WEB_ORIGIN, [INVITATION_CLAIM_HEADER]: invitationClaimToken },
       body: JSON.stringify({ name: "Demo Turnierleitung", email: normalizedEmail, password: profile.password }),
     }));
     if (!response.ok) throw new Error(`Demo account registration failed with HTTP ${response.status}.`);
     [user] = await database.select().from(users).where(eq(users.email, normalizedEmail)).limit(1);
     if (user === undefined) throw new Error("Demo user could not be loaded after registration.");
-    await database.update(organizationInvitations).set({ invitedByUserId: user.id, status: "ACCEPTED", updatedAt: new Date() }).where(and(eq(organizationInvitations.organizationId, organization.id), eq(organizationInvitations.email, normalizedEmail)));
+    await database.update(organizationInvitations).set({ invitedByUserId: user.id, status: "ACCEPTED", claimTokenHash: null, updatedAt: new Date() }).where(and(eq(organizationInvitations.organizationId, organization.id), eq(organizationInvitations.email, normalizedEmail)));
     await database.delete(users).where(eq(users.id, bootstrapUserId));
   }
 
@@ -278,6 +279,11 @@ import {
 } from "@darts-platform/database";
 
 import { createAuth } from "../auth/auth.factory.js";
+import {
+  INVITATION_CLAIM_HEADER,
+  generateInvitationClaimToken,
+  hashInvitationClaimToken,
+} from "../auth/invitation-claim.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { DatabaseService } from "../database/database.service.js";

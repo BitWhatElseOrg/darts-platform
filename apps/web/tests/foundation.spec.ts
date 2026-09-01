@@ -94,16 +94,19 @@ test("the tournament administration uses the entry page dark surface", async ({ 
 test("a viewer does not receive tournament administration access", async ({ page }) => {
   const suffix = randomUUID();
   const email = `e2e-viewer-${suffix}@example.test`;
-  registrationSeeds.push(await createRegistrationInvitation(email, "VIEWER"));
+  const invitation = await createRegistrationInvitation(email, "VIEWER");
+  registrationSeeds.push(invitation);
 
   await page.goto("/");
   await page.getByRole("button", { name: "Eingeladen? Konto erstellen" }).click();
   await page.getByLabel("Name").fill("E2E Viewer");
   await page.getByLabel("E-Mail").fill(email);
   await page.getByLabel("Passwort").fill("E2ePassword123!");
+  await page.getByLabel("Einladungscode").fill(invitation.claimToken);
   await page.getByRole("button", { name: "Konto erstellen" }).click();
 
   await expect(page.getByText(email)).toBeVisible();
+  await page.getByLabel("Einladungscode").fill(invitation.claimToken);
   await page.getByRole("button", { name: "Annehmen" }).click();
   await expect(
     page.getByRole("heading", { name: "E2E Invitation Organization" }),
@@ -119,7 +122,8 @@ test("a club can complete a match and start a generated tournament match", async
   const organizationName = `E2E Club ${suffix.slice(0, 8)}`;
   const organizationSlug = `e2e-club-${suffix}`;
 
-  registrationSeeds.push(await createRegistrationInvitation(email));
+  const invitation = await createRegistrationInvitation(email);
+  registrationSeeds.push(invitation);
 
   await page.goto("/");
 
@@ -130,10 +134,12 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByLabel("Name").fill("E2E Owner");
   await page.getByLabel("E-Mail").fill(email);
   await page.getByLabel("Passwort").fill("E2ePassword123!");
+  await page.getByLabel("Einladungscode").fill(invitation.claimToken);
   await page.getByRole("button", { name: "Konto erstellen" }).click();
 
   await expect(page.getByText(email)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Offene Einladungen" })).toBeVisible();
+  await page.getByLabel("Einladungscode").fill(invitation.claimToken);
   await page.getByRole("button", { name: "Annehmen" }).click();
   await expect(page.getByRole("link", { name: "Turnierleitung" })).toBeVisible();
   const organizationForm = page.locator("form").filter({

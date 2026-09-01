@@ -10,10 +10,10 @@ import { z } from "zod";
 import { hasOrganizationPermission } from "@darts-platform/domain";
 import {
   createInvitationSchema,
+  createdInvitationSchema,
   createOrganizationSchema,
   createPlayerSchema,
   invitationListSchema,
-  invitationSchema,
   organizationListSchema,
   organizationSummarySchema,
   playerListSchema,
@@ -64,6 +64,9 @@ export function TenantDashboard({
   const [activeOrganizationId, setActiveOrganizationId] = useState<string | null>(
     null,
   );
+  const [invitationClaims, setInvitationClaims] = useState<
+    Readonly<Record<string, string>>
+  >({});
   const organizationsQuery = useQuery({
     queryKey: ["organizations"],
     queryFn: ({ signal }) =>
@@ -93,10 +96,11 @@ export function TenantDashboard({
         );
 
   const acceptInvitation = useMutation({
-    mutationFn: (invitationId: string) =>
+    mutationFn: (input: { readonly invitationId: string; readonly claimToken: string }) =>
       apiRequest({
-        path: `/invitations/${invitationId}/accept`,
+        path: `/invitations/${input.invitationId}/accept`,
         method: "POST",
+        body: { claimToken: input.claimToken },
         schema: acceptedSchema,
       }),
     onSuccess: async () => {
@@ -135,21 +139,51 @@ export function TenantDashboard({
           <div className="mt-3 space-y-3">
             {invitationsQuery.data.map((invitation) => (
               <div
-                className="flex flex-col gap-3 rounded-xl bg-slate-950/40 p-4 sm:flex-row sm:items-center sm:justify-between"
+                className="grid gap-3 rounded-xl bg-slate-950/40 p-4 sm:grid-cols-[1fr_minmax(16rem,1fr)_auto] sm:items-end"
                 key={invitation.id}
               >
                 <p className="text-sm text-slate-200">
                   {invitation.organizationName ?? "Organisation"} · {roleLabel(invitation.role)}
                 </p>
+                <div className="space-y-2">
+                  <label
+                    className={labelClassName}
+                    htmlFor={`invitation-claim-${invitation.id}`}
+                  >
+                    Einladungscode
+                  </label>
+                  <input
+                    id={`invitation-claim-${invitation.id}`}
+                    className={`${inputClassName} font-mono`}
+                    autoComplete="off"
+                    onChange={(event) =>
+                      setInvitationClaims((current) => ({
+                        ...current,
+                        [invitation.id]: event.target.value,
+                      }))
+                    }
+                    value={invitationClaims[invitation.id] ?? ""}
+                  />
+                </div>
                 <Button
                   disabled={acceptInvitation.isPending}
-                  onClick={() => acceptInvitation.mutate(invitation.id)}
+                  onClick={() =>
+                    acceptInvitation.mutate({
+                      invitationId: invitation.id,
+                      claimToken: invitationClaims[invitation.id] ?? "",
+                    })
+                  }
                 >
                   Annehmen
                 </Button>
               </div>
             ))}
           </div>
+          {acceptInvitation.isError ? (
+            <p role="alert" className="mt-3 text-sm text-rose-200">
+              Einladungscode ungültig oder Einladung nicht mehr verfügbar.
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -300,7 +334,7 @@ function OrganizationWorkspace({
         path: `/organizations/${organization.id}/invitations`,
         method: "POST",
         body: data,
-        schema: invitationSchema,
+        schema: createdInvitationSchema,
       }),
     onSuccess: () => invitationForm.reset(),
   });
@@ -382,7 +416,20 @@ function OrganizationWorkspace({
           </div>
           <Button disabled={inviteMember.isPending} type="submit">Einladen</Button>
           {inviteMember.isSuccess ? (
-            <p className="text-sm text-emerald-300 sm:col-span-3">Einladung erstellt.</p>
+            <div className="space-y-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 sm:col-span-3">
+              <p className="text-sm text-emerald-100">
+                Einladung erstellt. Teile diesen einmal angezeigten Code sicher mit der eingeladenen Person.
+              </p>
+              <label className={labelClassName} htmlFor="created-invitation-claim">
+                Einladungscode
+              </label>
+              <input
+                id="created-invitation-claim"
+                className={`${inputClassName} font-mono`}
+                readOnly
+                value={inviteMember.data.claimToken}
+              />
+            </div>
           ) : null}
           {inviteMember.isError ? (
             <p role="alert" className="text-sm text-rose-300 sm:col-span-3">{messageFrom(inviteMember.error)}</p>

@@ -214,6 +214,7 @@ export const organizationInvitations = pgTable(
     email: varchar("email", { length: 320 }).notNull(),
     role: varchar("role", { length: 50 }).notNull(),
     status: varchar("status", { length: 30 }).default("PENDING").notNull(),
+    claimTokenHash: varchar("claim_token_hash", { length: 64 }),
     invitedByUserId: uuid("invited_by_user_id")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
@@ -235,6 +236,14 @@ export const organizationInvitations = pgTable(
     check(
       "organization_invitations_status_check",
       sql`${table.status} in ('PENDING', 'ACCEPTED', 'CANCELLED', 'EXPIRED')`,
+    ),
+    check(
+      "organization_invitations_pending_claim_check",
+      sql`${table.status} <> 'PENDING' or ${table.claimTokenHash} is not null`,
+    ),
+    check(
+      "organization_invitations_claim_hash_format_check",
+      sql`${table.claimTokenHash} is null or ${table.claimTokenHash} ~ '^[a-f0-9]{64}$'`,
     ),
   ],
 );
