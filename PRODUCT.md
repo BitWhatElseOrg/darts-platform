@@ -98,7 +98,7 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 ## Brand Commitments
 
 - **Produktsprache: Deutsch, Schweizer Rechtschreibung, kein Eszett.** Bestätigt. Die aktuelle englische UI-Copy in [apps/web](apps/web) ist Altlast aus der Aufbauphase und wird bei künftiger Arbeit an der jeweiligen Fläche ersetzt. Dart-Fachbegriffe bleiben englisch (siehe Terminologie).
-- **Produktname: Dart Ost - Turnier Plattform.** Dieser Name wird in UI-Titeln
+- **Produktname: DartBase - Turnier Plattform.** Dieser Name wird in UI-Titeln
   und sichtbaren Produktflächen verwendet.
 - Das Dart-Ost-Logo und die Sutter-Precision-Wortmarken liegen zentral unter
   [`apps/web/src/assets`](apps/web/src/assets). Das invertierte

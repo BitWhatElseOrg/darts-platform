@@ -17,11 +17,11 @@ export default function HomePage() {
             Dartturniere ohne Kompromisse
           </p>
           <h1 className="text-4xl font-bold tracking-tight text-white sm:text-6xl">
-            Dart Ost - Turnier Plattform
+            DartBase - Turnier Plattform
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-slate-400 sm:text-lg">
-            Spiele 501-Double-Out-Matches mit zuverlässiger Erfassung,
-            Konfliktschutz und einem mobilen Scoreboard.
+            Spielt eure Matches in verschiedenen Spielmodi, erfasst Ergebnisse zuverlässig
+            und behaltet den aktuellen Spielstand jederzeit auf dem Scoreboard im Blick.
           </p>
         </header>
 

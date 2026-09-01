@@ -1,5 +1,5 @@
 ---
-name: Dart Ost - Turnier Plattform
+name: DartBase - Turnier Plattform
 description: The board's own graphic apparatus, used as an operating surface for a live tournament.
 colors:
   sisal-50: "#f6f0de"
@@ -176,7 +176,7 @@ components:
     size: "2.75rem"
 ---
 
-# Design System: Dart Ost - Turnier Plattform
+# Design System: DartBase - Turnier Plattform
 
 > **Aktuelle Oberflächenrichtung (26.08.2026):** Einstieg, Organisationsbereich
 > und Turnierverwaltung verwenden gemeinsam die dunkle Slate-, Weiss- und

@@ -64,7 +64,7 @@ test("a club can complete a match and start a generated tournament match", async
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { level: 1, name: "Dart Ost - Turnier Plattform" }),
+    page.getByRole("heading", { level: 1, name: "DartBase - Turnier Plattform" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Eingeladen? Konto erstellen" }).click();
   await page.getByLabel("Name").fill("E2E Owner");
