@@ -129,7 +129,7 @@ test("the public sign-in page links to the branded standalone manual", async ({ 
     page.getByRole("heading", { level: 1, name: "Bedienungsanleitung" }),
   ).toBeVisible();
   const dartBaseMark = page.locator(".brand-logo");
-  await expect(dartBaseMark).toHaveAttribute("src", "/dartbase-monogram.svg");
+  await expect(dartBaseMark).toHaveAttribute("src", "/dartbase-manual-icon.png");
   await expect
     .poll(() =>
       dartBaseMark.evaluate(
