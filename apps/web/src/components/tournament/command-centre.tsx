@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ApiClientError, apiRequest, userFacingErrorMessage } from "@/lib/api-client";
+import { generateId } from "@/lib/id";
 import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
 import { BoardWedge } from "./board-wedge";
 import { DashboardHeader } from "./dashboard-header";
@@ -175,7 +176,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         : (readyQueue[0] ?? null);
       if (board === null || entry === null) return;
       const command: PendingCommand = {
-        commandId: crypto.randomUUID(),
+        commandId: generateId(),
         expectedVersion: dashboard.tournament.version + pending.length,
         matchId: entry.matchId,
         boardId: board.boardId,
@@ -206,7 +207,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         const next = await apiRequest({
           path: `/organizations/${organizationId}/tournaments/${tournamentId}/board-releases`,
           method: "POST",
-          body: { commandId: crypto.randomUUID(), expectedVersion, boardId },
+          body: { commandId: generateId(), expectedVersion, boardId },
           schema: tournamentDashboardSchema,
         });
         queryClient.setQueryData(queryKey, next);
@@ -245,7 +246,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
       const next = await apiRequest({
         path: `/organizations/${organizationId}/tournaments/${tournamentId}/result-corrections`,
         method: "POST",
-        body: { commandId: crypto.randomUUID(), expectedVersion, matchId, reason },
+        body: { commandId: generateId(), expectedVersion, matchId, reason },
         schema: tournamentDashboardSchema,
       });
       queryClient.setQueryData(queryKey, next);
@@ -268,7 +269,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
       const next = await apiRequest({
         path: `/organizations/${organizationId}/tournaments/${tournamentId}/withdrawals`,
         method: "POST",
-        body: { commandId: crypto.randomUUID(), expectedVersion, playerId, reason },
+        body: { commandId: generateId(), expectedVersion, playerId, reason },
         schema: tournamentDashboardSchema,
       });
       queryClient.setQueryData(queryKey, next);

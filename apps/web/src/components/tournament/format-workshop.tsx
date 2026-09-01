@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
+import { generateId } from "@/lib/id";
 import { useTournamentOrganization } from "./use-tournament-organization";
 
 type StageType = AdvancedFormatPreviewInput["stages"][number]["type"];
@@ -27,8 +28,8 @@ export function FormatWorkshop({ requestedOrganizationId }: { readonly requested
   const [bestOfLegs, setBestOfLegs] = useState(3);
   const [bestOfSets, setBestOfSets] = useState(1);
   const [stages, setStages] = useState<readonly WorkshopStage[]>([
-    { id: crypto.randomUUID(), type: "SWISS", rounds: 5, advance: 16 },
-    { id: crypto.randomUUID(), type: "DOUBLE_ELIMINATION", rounds: 1, advance: 1 },
+    { id: generateId(), type: "SWISS", rounds: 5, advance: 16 },
+    { id: generateId(), type: "DOUBLE_ELIMINATION", rounds: 1, advance: 1 },
   ]);
   const preview = useMutation({
     mutationFn: () => apiRequest({
@@ -56,7 +57,7 @@ export function FormatWorkshop({ requestedOrganizationId }: { readonly requested
       </section>
 
       <section className="mt-9">
-        <div className="flex items-center justify-between"><SheetLabel as="h2">Turnierphasen in Reihenfolge</SheetLabel><Control onClick={() => setStages((current) => [...current, { id: crypto.randomUUID(), type: "SINGLE_ELIMINATION", rounds: 1, advance: 1 }])} variant="wire">Turnierphase hinzufügen</Control></div>
+        <div className="flex items-center justify-between"><SheetLabel as="h2">Turnierphasen in Reihenfolge</SheetLabel><Control onClick={() => setStages((current) => [...current, { id: generateId(), type: "SINGLE_ELIMINATION", rounds: 1, advance: 1 }])} variant="wire">Turnierphase hinzufügen</Control></div>
         <Rule className="mt-2" />
         <ol className="mt-4 space-y-3">{stages.map((stage, index) => <li className="grid gap-3 border border-sisal-400 bg-sisal-100 p-4 sm:grid-cols-[3rem_1fr_9rem_9rem_auto]" key={stage.id}>
           <strong className="font-numerals text-2xl">{index + 1}</strong>
