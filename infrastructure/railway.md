@@ -131,6 +131,7 @@ Mindestens diese Shared beziehungsweise Service-Variablen werden benötigt:
 | `BETTER_AUTH_SECRET` | zufälliger Wert mit mindestens 32 Zeichen | Signatur-/Session-Secret, niemals committen |
 | `BETTER_AUTH_URL` | `https://api.dartbase.ch` | öffentliche Basis-URL der API |
 | `WEB_ORIGIN` | `https://dartbase.ch` | exakt erlaubter CORS-Origin |
+| `WEB_ADDITIONAL_ORIGINS` | `https://www.dartbase.ch` | kommaseparierte Liste weiterer explizit erlaubter CORS- und Auth-Origins |
 | `NEXT_PUBLIC_API_URL` | `https://api.dartbase.ch/api/v1` | API-URL im Browser-Bundle |
 | `DATABASE_URL` | Railway-Referenz auf PostgreSQL | persistente Production-Datenbank |
 | `REDIS_URL` | Railway-Referenz auf Redis | Cache, Queue und Realtime |

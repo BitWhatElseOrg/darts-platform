@@ -1,6 +1,16 @@
 import { z } from "zod";
 
 const portSchema = z.coerce.number().int().min(1).max(65_535);
+const urlListSchema = z
+  .string()
+  .default("")
+  .transform((value) =>
+    value
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter((origin) => origin.length > 0),
+  )
+  .pipe(z.array(z.string().url()));
 const logLevelSchema = z.enum([
   "fatal",
   "error",
@@ -20,6 +30,7 @@ export const applicationEnvironmentSchema = z.object({
   API_PORT: portSchema.default(3_001),
   PORT: portSchema.optional(),
   WEB_ORIGIN: z.string().url().default("http://localhost:3000"),
+  WEB_ADDITIONAL_ORIGINS: urlListSchema,
   LOG_LEVEL: logLevelSchema.default("log"),
 });
 

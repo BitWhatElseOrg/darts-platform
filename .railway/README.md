@@ -20,6 +20,7 @@ nicht in Source oder Plan-Ausgaben gelangen. Benötigt werden insbesondere:
 BETTER_AUTH_SECRET
 BETTER_AUTH_URL
 WEB_ORIGIN
+WEB_ADDITIONAL_ORIGINS
 NEXT_PUBLIC_API_URL
 ```
 

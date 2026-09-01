@@ -34,7 +34,13 @@ export class RealtimeService implements OnApplicationShutdown {
   public async attach(httpServer: HttpServer): Promise<void> {
     await Promise.all([this.publisher.connect(), this.subscriber.connect()]);
     this.io = new Server(httpServer, {
-      cors: { origin: this.environment.WEB_ORIGIN, credentials: true },
+      cors: {
+        origin: [
+          this.environment.WEB_ORIGIN,
+          ...this.environment.WEB_ADDITIONAL_ORIGINS,
+        ],
+        credentials: true,
+      },
       transports: ["websocket", "polling"],
     });
     this.io.adapter(createAdapter(this.publisher, this.subscriber));

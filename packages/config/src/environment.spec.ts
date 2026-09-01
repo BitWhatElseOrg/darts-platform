@@ -32,6 +32,19 @@ describe("parseApplicationEnvironment", () => {
     });
   });
 
+  it("parses additional trusted web origins as an explicit URL allowlist", () => {
+    const environment = parseApplicationEnvironment({
+      ...validEnvironment,
+      WEB_ADDITIONAL_ORIGINS:
+        "https://www.dartbase.ch, https://verein.dartbase.ch",
+    });
+
+    expect(environment.WEB_ADDITIONAL_ORIGINS).toEqual([
+      "https://www.dartbase.ch",
+      "https://verein.dartbase.ch",
+    ]);
+  });
+
   it("reports every invalid required value", () => {
     expect(() =>
       parseApplicationEnvironment({

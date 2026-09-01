@@ -73,6 +73,7 @@ export default defineRailway(() => {
       NODE_ENV: preserve(),
       PORT: preserve(),
       REDIS_URL: preserve(),
+      WEB_ADDITIONAL_ORIGINS: preserve(),
       WEB_ORIGIN: preserve(),
     },
   });

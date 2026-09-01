@@ -17,6 +17,10 @@ import { RealtimeService } from "./realtime/realtime.service.js";
 
 async function bootstrap(): Promise<void> {
   const environment = parseApplicationEnvironment(process.env);
+  const trustedWebOrigins = [
+    environment.WEB_ORIGIN,
+    ...environment.WEB_ADDITIONAL_ORIGINS,
+  ];
   const applicationLogger =
     environment.NODE_ENV === "production"
       ? new StructuredLogger("api", environment.LOG_LEVEL)
@@ -29,7 +33,7 @@ async function bootstrap(): Promise<void> {
 
   app.setGlobalPrefix("api/v1");
   app.enableCors({
-    origin: environment.WEB_ORIGIN,
+    origin: trustedWebOrigins,
     methods: ["GET", "POST", "PATCH", "DELETE", "HEAD", "OPTIONS"],
     credentials: true,
     allowedHeaders: [
