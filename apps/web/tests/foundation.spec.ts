@@ -9,9 +9,19 @@ import {
 const registrationSeeds: RegistrationInvitationSeed[] = [];
 
 async function visibleLabeledControl(container: Locator, label: string): Promise<Locator> {
-  await expect(container.getByText(label, { exact: true })).toBeVisible();
+  const visibleLabel = container.getByText(label, { exact: true });
+  await expect(visibleLabel).toBeVisible();
   const control = container.getByLabel(label, { exact: true });
   await expect(control).toBeVisible();
+  const controlId = await control.getAttribute("id");
+  if (controlId === null) throw new Error(`Expected the ${label} control to have an id.`);
+  expect(
+    await visibleLabel.evaluate(
+      (element, id) => element instanceof HTMLLabelElement && element.control?.id === id,
+      controlId,
+    ),
+    `${label} visible label association`,
+  ).toBe(true);
   return control;
 }
 
@@ -45,25 +55,28 @@ test("the sign-in page shows its brand logos", async ({ page }) => {
   await expect(footer).toContainText("powered by");
   await expect(footer.getByRole("img", { name: "Sutter Precision" })).toBeVisible();
   const footerSecondaryText = footer.getByText("powered by", { exact: true });
-  const computedColors = await footerSecondaryText.evaluate((element) => ({
-    background: getComputedStyle(document.documentElement).backgroundColor,
-    foreground: getComputedStyle(element).color,
-  })).then((colors) => page.evaluate(({ background, foreground }) => {
+  const computedColors = await footerSecondaryText.evaluate((element) => {
+    const footerElement = element.closest("footer");
+    if (footerElement === null) throw new Error("Expected secondary text inside a footer.");
     const canvas = document.createElement("canvas");
     canvas.width = 1;
     canvas.height = 1;
     const context = canvas.getContext("2d", { willReadFrequently: true });
     if (context === null) throw new Error("Expected a canvas 2D context for contrast testing.");
-    const toRgb = (color: string): readonly number[] => {
+    const toRgba = (color: string): readonly number[] => {
       context.clearRect(0, 0, 1, 1);
       context.fillStyle = color;
       context.fillRect(0, 0, 1, 1);
-      return Array.from(context.getImageData(0, 0, 1, 1).data.slice(0, 3));
+      return Array.from(context.getImageData(0, 0, 1, 1).data);
     };
-    return { background: toRgb(background), foreground: toRgb(foreground) };
-  }, colors));
+    return {
+      background: toRgba(getComputedStyle(footerElement).backgroundColor),
+      foreground: toRgba(getComputedStyle(element).color),
+    };
+  });
+  expect(computedColors.background[3], "public sign-in footer owns an opaque background").toBe(255);
   expect(
-    contrastRatio(computedColors.foreground, computedColors.background),
+    contrastRatio(computedColors.foreground.slice(0, 3), computedColors.background.slice(0, 3)),
     "public sign-in footer secondary text contrast",
   ).toBeGreaterThanOrEqual(4.5);
   await expect(page.getByRole("link", { name: "Turnierleitung" })).toHaveCount(0);
@@ -123,7 +136,9 @@ test("a club can complete a match and start a generated tournament match", async
   await expect(page.getByRole("heading", { name: "Offene Einladungen" })).toBeVisible();
   await page.getByRole("button", { name: "Annehmen" }).click();
   await expect(page.getByRole("link", { name: "Turnierleitung" })).toBeVisible();
-  const organizationForm = page.getByRole("heading", { name: "Organisation erstellen" }).locator("..");
+  const organizationForm = page.locator("form").filter({
+    has: page.getByRole("heading", { name: "Organisation erstellen" }),
+  });
   await (await visibleLabeledControl(organizationForm, "Organisationsname")).fill(organizationName);
   await (await visibleLabeledControl(organizationForm, "Organisationskürzel")).fill(organizationSlug);
   await page.getByRole("button", { name: "Erstellen", exact: true }).click();
@@ -131,8 +146,12 @@ test("a club can complete a match and start a generated tournament match", async
   await expect(
     page.getByRole("heading", { name: organizationName }),
   ).toBeVisible();
-  const playerForm = page.getByRole("button", { name: "Spieler hinzufügen" }).locator("..");
-  const invitationForm = page.getByRole("button", { name: "Einladen" }).locator("..");
+  const playerForm = page.locator("form").filter({
+    has: page.getByRole("button", { name: "Spieler hinzufügen" }),
+  });
+  const invitationForm = page.locator("form").filter({
+    has: page.getByRole("button", { name: "Einladen" }),
+  });
   await visibleLabeledControl(invitationForm, "E-Mail-Adresse für Einladung");
   await visibleLabeledControl(invitationForm, "Rolle");
   await (await visibleLabeledControl(playerForm, "Anzeigename")).fill("E2E Player One");
