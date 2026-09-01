@@ -108,7 +108,8 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
   liegen zentral unter [`apps/web/src/assets`](apps/web/src/assets) und werden
   nicht als DartBase-Produktlogo bezeichnet. Das Dart-Ost-Logo steht auf der
   Einstiegsseite oberhalb des Produkttitels; die invertierte
-  Sutter-Precision-Wortmarke erscheint dort mit «powered by» im Footer.
+  Sutter-Precision-Wortmarke erscheint dort mit «powered by» im Footer. Das
+  Dart-Ost-Logo und sichtbare Dart-Ost-Verweise führen zu `https://dartost.ch/`.
 - Die öffentliche Bedienungsanleitung ist ohne Anmeldung über die Einstiegsseite
   und direkt unter `/bedienungsanleitung.html` erreichbar.
 - Einstieg, Organisationsverwaltung und Turnierverwaltung verwenden eine

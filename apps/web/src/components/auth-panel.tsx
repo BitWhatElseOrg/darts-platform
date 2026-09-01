@@ -82,7 +82,7 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
         ) : null}
       </div>
 
-      <form className="space-y-4" onSubmit={(event) => void submit(event)}>
+      <form autoComplete="on" className="space-y-4" onSubmit={(event) => void submit(event)}>
         {mode === "register" ? (
           <>
             <label className="block space-y-2 text-sm text-slate-300">
@@ -108,9 +108,10 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
         <label className="block space-y-2 text-sm text-slate-300">
           <span>E-Mail</span>
           <input
+            id="auth-email"
             className={inputClassName}
             type="email"
-            autoComplete="email"
+            autoComplete="username"
             {...form.register("email")}
           />
         </label>
@@ -118,6 +119,7 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
         <label className="block space-y-2 text-sm text-slate-300">
           <span>Passwort</span>
           <input
+            id="auth-password"
             className={inputClassName}
             type="password"
             autoComplete={mode === "register" ? "new-password" : "current-password"}

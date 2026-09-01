@@ -50,7 +50,13 @@ test.afterEach(async () => {
 test("the sign-in page shows its brand logos", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("img", { name: "Dart Ost" })).toBeVisible();
+  const dartOstLink = page.getByRole("link", {
+    name: "Website von Dart Ost öffnen (öffnet in neuem Tab)",
+  });
+  await expect(dartOstLink.getByRole("img", { name: "Dart Ost" })).toBeVisible();
+  await expect(dartOstLink).toHaveAttribute("href", "https://dartost.ch/");
+  await expect(dartOstLink).toHaveAttribute("target", "_blank");
+  await expect(dartOstLink).toHaveAttribute("rel", "noopener noreferrer");
   const footer = page.locator("footer");
   await expect(footer).toContainText("powered by");
   await expect(footer.getByRole("img", { name: "Sutter Precision" })).toBeVisible();
@@ -91,11 +97,31 @@ test("the sign-in page shows its brand logos", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Turnierleitung" })).toHaveCount(0);
 });
 
+test("the sign-in form exposes credentials to password managers", async ({ page }) => {
+  await page.goto("/");
+
+  const email = page.getByLabel("E-Mail");
+  await expect(email).toHaveAttribute("name", "email");
+  await expect(email).toHaveAttribute("type", "email");
+  await expect(email).toHaveAttribute("autocomplete", "username");
+
+  const password = page.getByLabel("Passwort");
+  await expect(password).toHaveAttribute("name", "password");
+  await expect(password).toHaveAttribute("type", "password");
+  await expect(password).toHaveAttribute("autocomplete", "current-password");
+
+  await page.getByRole("button", { name: "Eingeladen? Konto erstellen" }).click();
+  await expect(page.getByLabel("E-Mail")).toHaveAttribute("autocomplete", "username");
+  await expect(page.getByLabel("Passwort")).toHaveAttribute("autocomplete", "new-password");
+});
+
 test("the public sign-in page links to the standalone manual", async ({ page }) => {
   await page.goto("/");
 
   const manualLink = page.getByRole("link", { name: "Bedienungsanleitung" });
   await expect(manualLink).toHaveAttribute("href", "/bedienungsanleitung.html");
+  await expect(page.locator("footer")).toBeVisible();
+  await expect(page.locator("main a").last()).toHaveText("Bedienungsanleitung");
   await manualLink.click();
 
   await expect(page).toHaveURL(/\/bedienungsanleitung\.html$/u);
@@ -106,6 +132,10 @@ test("the public sign-in page links to the standalone manual", async ({ page }) 
   await expect(page.getByRole("link", { name: "Zurück zu DartBase" })).toHaveAttribute(
     "href",
     "/",
+  );
+  await expect(page.getByRole("link", { name: "Dart Ost", exact: true })).toHaveAttribute(
+    "href",
+    "https://dartost.ch/",
   );
 });
 

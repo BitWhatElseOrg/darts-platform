@@ -188,8 +188,9 @@ components:
 
 **Markenassets:** DartBase ist der Produktname; Dart Ost und Sutter Precision
 werden als Sponsoren ausgewiesen. Das Dart-Ost-Logo steht oberhalb des
-Produkttitels und behält deshalb den Alternativtext «Dart Ost». Im Footer der
-Anmeldeseite folgt auf «powered by» die invertierte Sutter-Precision-Wortmarke.
+Produkttitels, behält deshalb den Alternativtext «Dart Ost» und verlinkt auf
+`https://dartost.ch/`. Im Footer der Anmeldeseite folgt auf «powered by» die
+invertierte Sutter-Precision-Wortmarke.
 UI-Code importiert beide Assets ausschliesslich über
 `apps/web/src/assets/index.ts`; neue Logos und Bilder werden in den Unterordnern
 `logos` beziehungsweise `images` abgelegt. Die öffentliche Bedienungsanleitung
