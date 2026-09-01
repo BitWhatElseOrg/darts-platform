@@ -137,11 +137,12 @@ describe("player tenant isolation", () => {
       user: { id: foreignUserId, email: foreignEmail, name: "Foreign User" },
       session: { id: randomUUID(), expiresAt: new Date(Date.now() + 60_000) },
     };
+    const invalidClaimToken = `${invitation.claimToken.startsWith("A") ? "B" : "A"}${invitation.claimToken.slice(1)}`;
 
     await expect(
       organizationsService.acceptInvitation({
         invitationId: invitation.id,
-        data: { claimToken: `${invitation.claimToken.slice(0, -1)}A` },
+        data: { claimToken: invalidClaimToken },
         auth: foreignAuth,
         audit,
       }),
