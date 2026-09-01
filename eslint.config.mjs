@@ -12,6 +12,7 @@ export default tseslint.config(
       "**/.claude/**",
       "**/.agents/**",
       "**/.next/**",
+      "**/.worktrees/**",
       "**/coverage/**",
       "**/dist/**",
       "**/drizzle/**",
