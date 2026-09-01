@@ -3,11 +3,12 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#020617" />
     <meta
       name="description"
-      content="Deutsche Bedienungsanleitung für die Dart Ost Turnier Plattform"
+      content="Öffentliche deutsche Bedienungsanleitung für die DartBase Turnier Plattform"
     />
-    <title>Bedienungsanleitung · Dart Ost – Turnier Plattform</title>
+    <title>Bedienungsanleitung · DartBase – Turnier Plattform</title>
     <style>
       :root {
         color-scheme: dark;
@@ -28,7 +29,12 @@
       }
 
       * { box-sizing: border-box; }
-      html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+      html {
+        scroll-behavior: smooth;
+        scroll-padding-top: 24px;
+        scrollbar-color: var(--accent-deep) var(--surface);
+      }
+      ::selection { background: var(--accent); color: #022c22; }
       body {
         margin: 0;
         background:
@@ -43,6 +49,11 @@
 
       a { color: var(--accent); text-underline-offset: 0.2em; }
       a:hover { color: #6ee7b7; }
+      a:focus-visible {
+        border-radius: 4px;
+        outline: 2px solid var(--accent);
+        outline-offset: 4px;
+      }
       img { max-width: 100%; }
       code, kbd {
         border: 1px solid var(--line);
@@ -70,9 +81,8 @@
 
       .hero {
         border-bottom: 1px solid var(--line);
-        background: rgb(15 23 42 / 0.72);
+        background: var(--surface);
         padding: 3.5rem max(1.25rem, calc((100vw - 1280px) / 2));
-        backdrop-filter: blur(12px);
       }
       .hero-inner {
         display: grid;
@@ -81,6 +91,20 @@
         gap: 2rem;
       }
       .brand-logo { width: 128px; height: auto; }
+      .hero-nav { margin-bottom: 1.25rem; }
+      .home-link {
+        display: inline-flex;
+        min-height: 44px;
+        align-items: center;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.55rem 0.85rem;
+        color: var(--text);
+        font-size: 0.9rem;
+        font-weight: 700;
+        text-decoration: none;
+      }
+      .home-link:hover { border-color: var(--accent); }
       .eyebrow {
         margin: 0 0 0.4rem;
         color: var(--accent);
@@ -89,8 +113,12 @@
         letter-spacing: 0.16em;
         text-transform: uppercase;
       }
-      h1, h2, h3 { line-height: 1.18; text-wrap: balance; }
-      h1 { margin: 0; font-size: clamp(2.2rem, 6vw, 4.8rem); letter-spacing: -0.045em; }
+      h1, h2, h3 {
+        overflow-wrap: anywhere;
+        line-height: 1.18;
+        text-wrap: balance;
+      }
+      h1 { margin: 0; font-size: clamp(2.2rem, 6vw, 4.8rem); letter-spacing: -0.04em; }
       .lead { max-width: 760px; margin: 1rem 0 0; color: var(--muted); font-size: 1.08rem; }
       .meta { margin: 1.2rem 0 0; color: var(--muted); font-size: 0.88rem; }
 
@@ -121,9 +149,14 @@
       .toc a:hover, .toc a:focus-visible { color: var(--accent); }
 
       main { min-width: 0; }
+      main:focus { outline: none; }
       main > section { padding: 1.5rem 0 3rem; border-bottom: 1px solid var(--line); }
       main > section:first-child { padding-top: 0; }
       main > section:last-child { border-bottom: 0; }
+      main > section > p,
+      main > section > ul,
+      main > section > ol,
+      main > section > dl { max-width: 75ch; }
       h2 { margin: 0 0 1rem; font-size: clamp(1.65rem, 3vw, 2.35rem); letter-spacing: -0.025em; }
       h3 { margin: 2rem 0 0.65rem; font-size: 1.15rem; }
       p { margin: 0.7rem 0; }
@@ -189,27 +222,32 @@
       .callout {
         margin: 1.25rem 0;
         border: 1px solid rgb(52 211 153 / 0.45);
-        border-left: 5px solid var(--accent);
         border-radius: 10px;
         background: rgb(16 185 129 / 0.08);
         padding: 1rem 1.1rem;
       }
       .callout.warning {
         border-color: rgb(251 191 36 / 0.45);
-        border-left-color: var(--warning);
         background: rgb(251 191 36 / 0.08);
       }
       .callout.danger {
         border-color: rgb(251 113 133 / 0.45);
-        border-left-color: var(--danger);
         background: rgb(251 113 133 / 0.08);
       }
       .callout strong { display: block; margin-bottom: 0.2rem; }
 
       .table-wrap { overflow-x: auto; margin: 1.2rem 0; border: 1px solid var(--line); border-radius: 12px; }
       table { width: 100%; border-collapse: collapse; min-width: 650px; }
+      caption {
+        background: var(--surface-raised);
+        padding: 0.8rem 0.9rem;
+        color: var(--text);
+        font-weight: 800;
+        text-align: left;
+      }
       th, td { padding: 0.8rem 0.9rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-      th { background: #111d30; color: var(--accent); font-size: 0.76rem; letter-spacing: 0.08em; text-transform: uppercase; }
+      thead th { background: #111d30; color: var(--accent); font-size: 0.76rem; letter-spacing: 0.08em; text-transform: uppercase; }
+      tbody th { background: transparent; color: var(--text); font-size: inherit; letter-spacing: normal; text-transform: none; }
       tr:last-child td { border-bottom: 0; }
       tbody tr:hover { background: rgb(255 255 255 / 0.025); }
       .yes { color: #6ee7b7; font-weight: 800; }
@@ -233,8 +271,7 @@
         color: var(--muted);
         font-size: 0.86rem;
       }
-      .powered { display: flex; align-items: center; gap: 0.7rem; }
-      .powered img { width: 150px; height: auto; }
+      .powered { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
       .back { white-space: nowrap; }
 
       @media (max-width: 850px) {
@@ -247,6 +284,10 @@
       }
       @media (max-width: 560px) {
         .layout { width: min(100% - 1.5rem, 1280px); }
+        h1 {
+          font-size: clamp(1.75rem, 8vw, 2.1rem);
+          letter-spacing: -0.03em;
+        }
         .glossary { grid-template-columns: 1fr; }
         .glossary dd { margin-bottom: 0.6rem; }
         .page-footer { align-items: flex-start; flex-direction: column; }
@@ -258,7 +299,7 @@
         .hero { background: white; border-bottom: 2px solid var(--ink); padding: 1.5cm 0; }
         .hero-inner, .layout, .page-footer { width: 100%; max-width: none; padding-left: 0; padding-right: 0; }
         .layout { display: block; margin: 0; padding-top: 1cm; }
-        .toc, .skip-link, .back, .powered { display: none; }
+        .toc, .skip-link, .back, .powered, .hero-nav { display: none; }
         main > section { break-inside: auto; border-color: #ccd3dc; }
         h2, h3 { break-after: avoid; }
         .card, .callout, .table-wrap { break-inside: avoid; background: white; color: var(--ink); box-shadow: none; border-color: #aab4c1; }
@@ -275,18 +316,23 @@
     <header class="hero">
       <div class="hero-inner">
         <div>
-          <p class="eyebrow">Dartturniere ohne Kompromisse</p>
+          <nav class="hero-nav" aria-label="Seitennavigation">
+            <a class="home-link" href="/">Zurück zu DartBase</a>
+          </nav>
           <h1>Bedienungsanleitung</h1>
           <p class="lead">
-            Dart Ost – Turnier Plattform: von der Einladung über Spieler und Boards
+            DartBase – Turnier Plattform: von der Einladung über Spieler und Boards
             bis zum Live-Turnier, Scoring und zur Ergebniskorrektur.
           </p>
-          <p class="meta">Ausgabe 1.0 · Stand 26. August 2026 · Produktsprache de-CH</p>
+          <p class="meta">Ausgabe 1.1 · Stand 1. September 2026 · Produktsprache de-CH</p>
         </div>
         <img
           class="brand-logo"
-          src="../../apps/web/src/assets/logos/dart-ost-logo.png"
-          alt="Dart Ost"
+          src="/pwa-icon.svg"
+          alt=""
+          aria-hidden="true"
+          width="128"
+          height="128"
         />
       </div>
     </header>
@@ -313,10 +359,10 @@
         </ol>
       </nav>
 
-      <main id="inhalt">
+      <main id="inhalt" tabindex="-1">
         <section id="ueberblick">
           <p class="eyebrow">1 · Überblick</p>
-          <h2>Eine Plattform, drei Arbeitsflächen</h2>
+          <h2>Eine Plattform, vier Arbeitsbereiche</h2>
           <p>
             Die Plattform hält Organisation, Spieler, Turnierplan und Scores in einem
             gemeinsamen Serverzustand. Leitungsgerät, Boardgerät und Publikumsansicht
@@ -364,11 +410,11 @@
 
           <h3>Neues Konto auf Einladung</h3>
           <ol class="steps">
-            <li>Eine Organisation lässt durch einen Owner oder Admin eine Einladung erstellen.</li>
+            <li>Owner oder Admin erstellen eine Einladung und teilen den einmal angezeigten Einladungscode über einen sicheren Kanal.</li>
             <li>Auf der Einstiegsseite <strong>Eingeladen? Konto erstellen</strong> wählen.</li>
-            <li>Name, die exakt eingeladene E-Mail-Adresse und ein Passwort mit mindestens zehn Zeichen eingeben.</li>
+            <li>Name, die exakt eingeladene E-Mail-Adresse, ein Passwort mit mindestens zehn Zeichen und den Einladungscode eingeben.</li>
             <li><strong>Konto erstellen</strong> wählen.</li>
-            <li>Unter <strong>Offene Einladungen</strong> die Einladung mit <strong>Annehmen</strong> bestätigen.</li>
+            <li>Unter <strong>Offene Einladungen</strong> denselben Einladungscode eingeben und mit <strong>Annehmen</strong> bestätigen.</li>
           </ol>
           <div class="callout warning">
             <strong>Keine offene Selbstregistrierung</strong>
@@ -393,16 +439,17 @@
           </p>
           <div class="table-wrap">
             <table>
+              <caption>Berechtigungen nach Organisationsrolle</caption>
               <thead>
-                <tr><th>Rolle</th><th>Typische Möglichkeiten</th><th>Turnierleitung</th></tr>
+                <tr><th scope="col">Rolle</th><th scope="col">Typische Möglichkeiten</th><th scope="col">Turnierleitung</th></tr>
               </thead>
               <tbody>
-                <tr><td><strong>Owner</strong></td><td>Alle Organisations-, Mitglieder-, Spieler-, Board-, Match- und Turnierfunktionen</td><td class="yes">Ja</td></tr>
-                <tr><td><strong>Admin</strong></td><td>Wie Owner, inklusive Einladungen und Rollenverwaltung</td><td class="yes">Ja</td></tr>
-                <tr><td><strong>Turnierleitung</strong></td><td>Spieler bearbeiten, Boards und Matches verwalten, Turniere führen und Resultate korrigieren</td><td class="yes">Ja</td></tr>
-                <tr><td><strong>Scorer</strong></td><td>Daten lesen, Scores erfassen und letzte Aufnahme zurücknehmen</td><td class="limited">Nein</td></tr>
-                <tr><td><strong>Mitglied</strong></td><td>Organisation, Spieler, Boards, Matches, Turniere und Statistik lesen</td><td class="limited">Nein</td></tr>
-                <tr><td><strong>Zuschauer</strong></td><td>Lesender Zugriff innerhalb der Organisation</td><td class="limited">Nein</td></tr>
+                <tr><th scope="row">Owner</th><td>Alle Organisations-, Mitglieder-, Spieler-, Board-, Match- und Turnierfunktionen</td><td class="yes">Ja</td></tr>
+                <tr><th scope="row">Admin</th><td>Wie Owner, inklusive Einladungen und Rollenverwaltung</td><td class="yes">Ja</td></tr>
+                <tr><th scope="row">Turnierleitung</th><td>Spieler bearbeiten, Boards und Matches verwalten, Turniere führen und Resultate korrigieren</td><td class="yes">Ja</td></tr>
+                <tr><th scope="row">Scorer</th><td>Daten lesen, Scores erfassen und letzte Aufnahme zurücknehmen</td><td class="limited">Nein</td></tr>
+                <tr><th scope="row">Mitglied</th><td>Organisation, Spieler, Boards, Matches, Turniere und Statistik lesen</td><td class="limited">Nein</td></tr>
+                <tr><th scope="row">Zuschauer</th><td>Lesender Zugriff innerhalb der Organisation</td><td class="limited">Nein</td></tr>
               </tbody>
             </table>
           </div>
@@ -432,8 +479,8 @@
           </ol>
           <div class="callout warning">
             <strong>Rolle vor dem Absenden prüfen</strong>
-            Owner kann nicht als Einladungsrolle vergeben werden. Für den Turnierbetrieb
-            sollte nur erhalten, wer tatsächlich Turniere ändern muss.
+            Owner kann nicht als Einladungsrolle vergeben werden. Die Rolle
+            Turnierleitung sollte nur erhalten, wer tatsächlich Turniere ändern muss.
           </div>
         </section>
 
@@ -481,9 +528,9 @@
           <ol class="steps">
             <li>Prüfen, welcher Spieler im Scoreboard hervorgehoben ist.</li>
             <li>Gesamtscore der Aufnahme zwischen 0 und 180 eingeben.</li>
-            <li>Bei weniger als drei geworfenen Darts die Dartanzahl anpassen.</li>
-            <li>Bei einem Checkout das getroffene Double und die Anzahl Doppelversuche erfassen.</li>
-            <li><strong>Erfassen</strong> wählen und den neuen Restscore kontrollieren.</li>
+            <li><strong>Erfassen</strong> wählen.</li>
+            <li>Entspricht der Score exakt dem Restscore, im Checkout-Dialog das getroffene Double und die benötigten Darts wählen.</li>
+            <li><strong>Checkout speichern</strong> wählen und anschliessend den Matchstatus kontrollieren.</li>
           </ol>
           <div class="cards">
             <article class="card">
@@ -492,7 +539,7 @@
             </article>
             <article class="card">
               <h3>Checkout</h3>
-              <p>Der Restscore muss exakt 0 werden und der letzte Dart muss das angegebene Double treffen.</p>
+              <p>Der Restscore muss exakt 0 werden. Das gewählte Checkout-Feld bezeichnet das Double des letzten Darts; die Dartanzahl gilt für die gesamte Aufnahme.</p>
             </article>
             <article class="card">
               <h3>Undo</h3>
@@ -528,11 +575,12 @@
           </ol>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Format</th><th>Einsatz</th><th>Zusätzliche Angaben</th></tr></thead>
+              <caption>Verfügbare Turnierformate</caption>
+              <thead><tr><th scope="col">Format</th><th scope="col">Einsatz</th><th scope="col">Zusätzliche Angaben</th></tr></thead>
               <tbody>
-                <tr><td>Gruppen, dann K.-o.</td><td>Vereinsturnier mit Qualifikation</td><td>Gruppen, Qualifikanten je Gruppe, K.-o.-Tableau, Setzung</td></tr>
-                <tr><td>Jeder gegen jeden</td><td>Kleine Teilnehmerfelder oder Liga-ähnlicher Ablauf</td><td>Teilnehmer und Boards</td></tr>
-                <tr><td>Einfach-K.-o.</td><td>Direkte Ausscheidung</td><td>K.-o.-Tableau und Setzung</td></tr>
+                <tr><th scope="row">Gruppen, dann K.-o.</th><td>Vereinsturnier mit Qualifikation</td><td>Gruppen, Qualifikanten je Gruppe, K.-o.-Tableau, Setzung</td></tr>
+                <tr><th scope="row">Jeder gegen jeden</th><td>Kleine Teilnehmerfelder oder Liga-ähnlicher Ablauf</td><td>Teilnehmer und Boards</td></tr>
+                <tr><th scope="row">Einfach-K.-o.</th><td>Direkte Ausscheidung</td><td>K.-o.-Tableau und Setzung</td></tr>
               </tbody>
             </table>
           </div>
@@ -612,7 +660,9 @@
           <div class="callout">
             <strong>Statistiken folgen den Rohdaten</strong>
             Zurückgenommene Visits werden ausgeschlossen. Die Checkout-Quote kann nur
-            korrekt sein, wenn Doppelversuche am Board konsequent erfasst werden.
+            die in den Visits gespeicherten Checkout-Versuche berücksichtigen. Der aktuelle
+            manuelle Checkout-Dialog erfasst den erfolgreichen Abschluss, aber keine zuvor
+            verfehlten Doppelversuche innerhalb derselben Aufnahme.
           </div>
         </section>
 
@@ -649,16 +699,17 @@
           <h2>Häufige Probleme lösen</h2>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>Problem</th><th>Prüfung und Lösung</th></tr></thead>
+              <caption>Fehlerbehebung</caption>
+              <thead><tr><th scope="col">Problem</th><th scope="col">Prüfung und Lösung</th></tr></thead>
               <tbody>
-                <tr><td>Konto kann nicht erstellt werden</td><td>Offene Einladung, Ablaufzeit und exakt verwendete E-Mail-Adresse durch Owner/Admin prüfen lassen.</td></tr>
-                <tr><td>Keine offene Einladung sichtbar</td><td>Mit der eingeladenen Adresse anmelden; Seite aktualisieren. Einladung kann bereits angenommen, abgelaufen oder storniert sein.</td></tr>
-                <tr><td>Link «Turnierleitung» fehlt</td><td>Rolle in der betroffenen Organisation prüfen. Erforderlich sind Owner, Admin oder Turnierleitung.</td></tr>
-                <tr><td>Kein Spieler auswählbar</td><td>Mindestens zwei aktive Spieler anlegen; archivierte Spieler stehen nicht zur Auswahl.</td></tr>
-                <tr><td>Kein Board auswählbar</td><td>Board anlegen und prüfen, ob es frei beziehungsweise verfügbar ist.</td></tr>
-                <tr><td>Score-Eingabe gesperrt</td><td>Offline-Queue, fremde Board-Steuerung, Matchstatus und Verbindungshinweis prüfen.</td></tr>
-                <tr><td>Resultat lässt sich nicht korrigieren</td><td>Korrekturgrund, Boardbelegung und bereits gestartete Folgematches prüfen.</td></tr>
-                <tr><td>Live-Anzeige meldet Reconnect</td><td>Netzwerk prüfen; die Ansicht synchronisiert bis zur Echtzeitverbindung automatisch per HTTP.</td></tr>
+                <tr><th scope="row">Konto kann nicht erstellt werden</th><td>Offene Einladung, Ablaufzeit, Einladungscode und exakt verwendete E-Mail-Adresse durch Owner oder Admin prüfen lassen.</td></tr>
+                <tr><th scope="row">Keine offene Einladung sichtbar</th><td>Mit der eingeladenen Adresse anmelden und die Seite aktualisieren. Die Einladung kann bereits angenommen, abgelaufen oder storniert sein.</td></tr>
+                <tr><th scope="row">Link «Turnierleitung» fehlt</th><td>Rolle in der betroffenen Organisation prüfen. Erforderlich sind Owner, Admin oder Turnierleitung.</td></tr>
+                <tr><th scope="row">Kein Spieler auswählbar</th><td>Mindestens zwei aktive Spieler anlegen; archivierte Spieler stehen nicht zur Auswahl.</td></tr>
+                <tr><th scope="row">Kein Board auswählbar</th><td>Board anlegen und prüfen, ob es frei beziehungsweise verfügbar ist.</td></tr>
+                <tr><th scope="row">Score-Eingabe gesperrt</th><td>Offline-Queue, fremde Board-Steuerung, Matchstatus und Verbindungshinweis prüfen.</td></tr>
+                <tr><th scope="row">Resultat lässt sich nicht korrigieren</th><td>Korrekturgrund, Boardbelegung und bereits gestartete Folgematches prüfen.</td></tr>
+                <tr><th scope="row">Live-Anzeige meldet Reconnect</th><td>Netzwerk prüfen; die Ansicht synchronisiert bis zur Echtzeitverbindung automatisch per HTTP.</td></tr>
               </tbody>
             </table>
           </div>
@@ -706,13 +757,10 @@
     </div>
 
     <footer class="page-footer">
-      <span>Dart Ost – Turnier Plattform · Bedienungsanleitung</span>
+      <span>DartBase – Turnier Plattform · Bedienungsanleitung</span>
       <span class="powered">
-        powered by
-        <img
-          src="../../apps/web/src/assets/logos/sutter-precision-invertiert.svg"
-          alt="Sutter Precision"
-        />
+        Unterstützt von Dart Ost und
+        <a href="https://www.sutter-precision.ch/" rel="noopener noreferrer">Sutter Precision</a>
       </span>
       <a class="back" href="#oben">Nach oben ↑</a>
     </footer>

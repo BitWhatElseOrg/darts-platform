@@ -24,8 +24,8 @@ const archivo = Archivo({
 export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   title: {
-    default: "Dart Ost - Plattform",
-    template: "%s | Dart Ost - Plattform",
+    default: "DartBase - Plattform",
+    template: "%s | DartBase - Plattform",
   },
   description: "Sichere Plattform für Dartturniere, Matches und Vereinsorganisation.",
 };
@@ -37,7 +37,7 @@ THESIS: Entry and tournament administration share one calm dark operating surfac
 OWN-WORLD: Slate ground, raised slate panels, emerald actions, visible focus, rounded controls and high-contrast status signals.
 STORY: The tournament director sees which board is free and which is about to free, and starts the next match in one action.
 FIRST VIEWPORT: Name and match progress on top; eight wedge panels two across, the active player's remaining score at 3.5rem; queue and disruptions in the right column; the group sheet typeset below.
-FORM: Unified Dart Ost dark interface, with the tournament information hierarchy preserved.
+FORM: Unified DartBase dark interface, with the tournament information hierarchy preserved.
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
 -->`;
 

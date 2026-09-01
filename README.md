@@ -250,9 +250,13 @@ Falls Port `5432` lokal bereits belegt ist, kann `POSTGRES_PORT` in der ignorier
 Nach `pnpm infra:up` und `pnpm db:migrate` ergänzt `pnpm db:seed:dev` eine Demo-Organisation mit 32 fiktiven Spielern, acht Boards, zwei abgeschlossenen Turnieren und einem laufenden 32er-Turnier. Der Befehl ist idempotent und löscht oder ersetzt keine bestehenden lokalen Daten.
 
 ```text
-E-Mail: demo@dart-ost.local
-Passwort: DartOstDemo2026!
+E-Mail: demo@dartbase.local
+Passwort: DartBaseDemo2026!
 ```
+
+Bereits vorhandene lokale Demo-Daten mit früheren Kennungen werden nicht
+umbenannt oder gelöscht. Ein erneuter Seed-Lauf ergänzt das aktuelle
+DartBase-Demo-Profil daneben.
 
 Der Seed verweigert Production und standardmässig jede nicht-lokale PostgreSQL-Adresse. Für bewusst isolierte Remote-Entwicklungsdatenbanken ist zusätzlich `ALLOW_REMOTE_DEV_SEED=true` erforderlich.
 
@@ -321,7 +325,7 @@ Verbindliche Architektur- und Arbeitsregeln stehen in [AGENTS.md](./AGENTS.md).
 | [ADR 0010](./docs/adr/0010-invite-only-registration.md) | Einladungsgebundene Registrierung und rollenbasierter Verwaltungszugang |
 | [ADR 0011](./docs/adr/0011-preview-database-strategy.md) | Neon für Development/Preview und Railway PostgreSQL für Production/Staging |
 | [ADR 0012](./docs/adr/0012-production-owner-bootstrap.md) | Einmaliger Production-Owner-Bootstrap über eine interne OWNER-Einladung |
-| [Bedienungsanleitung](./docs/manual/index.html) | Deutsche Anleitung für Administration, Turnierleitung und Scoring |
+| [Bedienungsanleitung](./apps/web/public/bedienungsanleitung.html) | Öffentlich zugängliche deutsche Anleitung für Administration, Turnierleitung und Scoring |
 | [Railway-Runbook](./infrastructure/railway.md) | Deployment, Variablen, Smoke-Test, Diagnose und Rollback |
 | [Neon-Preview-Runbook](./infrastructure/neon-preview.md) | Isolierte Development- und Preview-Datenbanken mit Neon |
 

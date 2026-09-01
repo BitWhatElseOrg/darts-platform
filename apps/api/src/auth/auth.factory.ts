@@ -22,7 +22,7 @@ export function createAuth(
   environment: ApplicationEnvironment,
 ) {
   return betterAuth({
-    appName: "Dart Ost - Plattform",
+    appName: "DartBase - Plattform",
     baseURL: environment.BETTER_AUTH_URL,
     basePath: "/api/v1/auth",
     secret: environment.BETTER_AUTH_SECRET,

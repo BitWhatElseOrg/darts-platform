@@ -1,6 +1,6 @@
-export const DEMO_EMAIL = "demo@dart-ost.local";
-export const DEMO_PASSWORD = "DartOstDemo2026!";
-export const DEMO_ORGANIZATION_SLUG = "dart-ost-demo";
+export const DEMO_EMAIL = "demo@dartbase.local";
+export const DEMO_PASSWORD = "DartBaseDemo2026!";
+export const DEMO_ORGANIZATION_SLUG = "dartbase-demo";
 
 export const DEMO_PLAYER_NAMES = [
   "Alina Frei", "Basil Kern", "Céline Moser", "Dario Bühler",
@@ -47,7 +47,7 @@ export interface SeedSummary {
 const DEFAULT_PROFILE: DevelopmentSeedProfile = {
   email: DEMO_EMAIL,
   password: DEMO_PASSWORD,
-  organizationName: "Dart Ost Demo Club",
+  organizationName: "DartBase Demo Club",
   organizationSlug: DEMO_ORGANIZATION_SLUG,
   tournamentPrefix: "Musterstadt",
 };

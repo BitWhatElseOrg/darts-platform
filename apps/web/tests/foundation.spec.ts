@@ -91,6 +91,24 @@ test("the sign-in page shows its brand logos", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Turnierleitung" })).toHaveCount(0);
 });
 
+test("the public sign-in page links to the standalone manual", async ({ page }) => {
+  await page.goto("/");
+
+  const manualLink = page.getByRole("link", { name: "Bedienungsanleitung" });
+  await expect(manualLink).toHaveAttribute("href", "/bedienungsanleitung.html");
+  await manualLink.click();
+
+  await expect(page).toHaveURL(/\/bedienungsanleitung\.html$/u);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Bedienungsanleitung" }),
+  ).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Inhaltsverzeichnis" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Zurück zu DartBase" })).toHaveAttribute(
+    "href",
+    "/",
+  );
+});
+
 test("the tournament administration uses the entry page dark surface", async ({ page }) => {
   await page.goto("/turniere");
 

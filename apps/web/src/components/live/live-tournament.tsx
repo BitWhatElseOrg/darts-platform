@@ -49,7 +49,7 @@ export function LiveTournament({ tournamentId, mode, boardId }: LiveTournamentPr
     <main className={`min-h-screen bg-slate-950 text-white ${mode === "tv" ? "p-8 xl:p-12" : "p-4 sm:p-7"}`}>
       <header className="mx-auto flex max-w-[1500px] flex-wrap items-end justify-between gap-4 border-b border-emerald-400/40 pb-5">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Dart Ost · Live</p>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">DartBase · Live</p>
           <h1 className={mode === "tv" ? "mt-2 text-5xl font-black" : "mt-2 text-3xl font-black"}>{dashboard.tournament.name}</h1>
           <p className="mt-2 text-slate-400">{dashboard.tournament.stageLabel} · {dashboard.tournament.playedMatches} von {dashboard.tournament.totalMatches} Matches gespielt</p>
         </div>

@@ -91,10 +91,11 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 
 **Ausdrücklich offen**
 
-- Produktname (siehe Brand Commitments)
 - Plan- und Preismodell: `FREE / CLUB / PRO / ENTERPRISE` steht in der Roadmap als Möglichkeit, nicht als Entscheidung. Keine Preise, keine Limits festgelegt.
-- Kundeneigene Organisationsdomains, Organisations-Branding und Sponsor-Assets
-  sind Phase-7-Scope ohne Detailentscheidung. Die bereits eingerichtete
+- Kundeneigene Organisationsdomains sowie organisationsspezifisches Branding
+  und organisationsspezifische Sponsor-Assets sind Phase-7-Scope ohne
+  Detailentscheidung. Die bestehenden DartBase-Sponsoren sind davon unabhängig.
+  Die bereits eingerichtete
   Plattformdomain `dartbase.ch` ist nicht Teil dieses Produktfeatures.
 - Ob Teams und Doppel gleichrangig zum Einzel werden (Phase 4), ist nicht entschieden.
 
@@ -103,9 +104,13 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 - **Produktsprache: Deutsch, Schweizer Rechtschreibung, kein Eszett.** Bestätigt. Die aktuelle englische UI-Copy in [apps/web](apps/web) ist Altlast aus der Aufbauphase und wird bei künftiger Arbeit an der jeweiligen Fläche ersetzt. Dart-Fachbegriffe bleiben englisch (siehe Terminologie).
 - **Produktname: DartBase - Turnier Plattform.** Dieser Name wird in UI-Titeln
   und sichtbaren Produktflächen verwendet.
-- Das Dart-Ost-Logo und die Sutter-Precision-Wortmarken liegen zentral unter
-  [`apps/web/src/assets`](apps/web/src/assets). Das invertierte
-  Sutter-Precision-Logo erscheint mit «powered by» im Footer der Anmeldeseite.
+- Dart Ost und Sutter Precision sind Sponsoren von DartBase. Ihre Markenassets
+  liegen zentral unter [`apps/web/src/assets`](apps/web/src/assets) und werden
+  nicht als DartBase-Produktlogo bezeichnet. Das Dart-Ost-Logo steht auf der
+  Einstiegsseite oberhalb des Produkttitels; die invertierte
+  Sutter-Precision-Wortmarke erscheint dort mit «powered by» im Footer.
+- Die öffentliche Bedienungsanleitung ist ohne Anmeldung über die Einstiegsseite
+  und direkt unter `/bedienungsanleitung.html` erreichbar.
 - Einstieg, Organisationsverwaltung und Turnierverwaltung verwenden eine
   gemeinsame dunkle Slate-/Weiss-/Emerald-Oberfläche. Die ursprüngliche
   Sektorenring-Sprache bleibt als Komponenten- und Informationsmodell erhalten;

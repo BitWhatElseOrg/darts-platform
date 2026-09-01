@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Dart Ost - Plattform",
-    short_name: "Dart Ost",
+    name: "DartBase - Plattform",
+    short_name: "DartBase",
     description: "Turniere und Matches zuverlässig vor Ort durchführen.",
     start_url: "/",
     display: "standalone",

@@ -186,11 +186,14 @@ components:
 > kantige Controls werden durch die Zuordnungen in
 > `apps/web/src/app/globals.css` übersteuert.
 
-**Markenassets:** Das Dart-Ost-Logo steht oberhalb des Produkttitels. Im Footer
-der Anmeldeseite folgt auf «powered by» die invertierte
-Sutter-Precision-Wortmarke. UI-Code importiert beide Assets ausschliesslich über
+**Markenassets:** DartBase ist der Produktname; Dart Ost und Sutter Precision
+werden als Sponsoren ausgewiesen. Das Dart-Ost-Logo steht oberhalb des
+Produkttitels und behält deshalb den Alternativtext «Dart Ost». Im Footer der
+Anmeldeseite folgt auf «powered by» die invertierte Sutter-Precision-Wortmarke.
+UI-Code importiert beide Assets ausschliesslich über
 `apps/web/src/assets/index.ts`; neue Logos und Bilder werden in den Unterordnern
-`logos` beziehungsweise `images` abgelegt.
+`logos` beziehungsweise `images` abgelegt. Die öffentliche Bedienungsanleitung
+übernimmt dieselbe Slate-/Emerald-Richtung und bleibt auch ohne Sitzung lesbar.
 
 ## Overview
 

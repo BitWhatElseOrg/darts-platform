@@ -33,7 +33,7 @@ export function TournamentList({ requestedOrganizationId }: { readonly requested
         <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
           <div>
             <h1 className="font-numerals text-[2.75rem] leading-[0.9] font-bold tracking-[-0.02em] text-wedge-900">Turniere</h1>
-            <p className="mt-1.5 font-plate text-[0.875rem] text-sisal-500">Vereinsmeisterschaften, Cups und Serien von Dart Ost.</p>
+            <p className="mt-1.5 font-plate text-[0.875rem] text-sisal-500">Vereinsmeisterschaften, Cups und Serien von DartBase.</p>
           </div>
           {canCreate ? <div className="flex flex-wrap gap-3">
             <Link className="inline-flex min-h-11 items-center rounded-lg border border-wedge-900 px-5 font-plate text-[0.875rem] font-semibold uppercase tracking-[0.1em] text-wedge-900" href={`/turniere/formate?organisation=${organization.id}`}>Formatwerkstatt</Link>
@@ -96,7 +96,7 @@ export function TournamentList({ requestedOrganizationId }: { readonly requested
         )}
 
         <Rule className="mt-10" />
-        <p className="pt-4 font-plate text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-sisal-500">Dart Ost · Turnier Plattform · Serverdaten</p>
+        <p className="pt-4 font-plate text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-sisal-500">DartBase · Turnier Plattform · Serverdaten</p>
       </div>
     </main>
   );
