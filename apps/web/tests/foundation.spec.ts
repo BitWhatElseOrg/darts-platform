@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -7,6 +7,31 @@ import {
 } from "./registration-invitation";
 
 const registrationSeeds: RegistrationInvitationSeed[] = [];
+
+async function visibleLabeledControl(container: Locator, label: string): Promise<Locator> {
+  await expect(container.getByText(label, { exact: true })).toBeVisible();
+  const control = container.getByLabel(label, { exact: true });
+  await expect(control).toBeVisible();
+  return control;
+}
+
+function relativeLuminance([red, green, blue]: readonly number[]): number {
+  const [linearRed, linearGreen, linearBlue] = [red, green, blue].map((channel) => {
+    const normalized = channel / 255;
+    return normalized <= 0.04045
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * linearRed + 0.7152 * linearGreen + 0.0722 * linearBlue;
+}
+
+function contrastRatio(foreground: readonly number[], background: readonly number[]): number {
+  const foregroundLuminance = relativeLuminance(foreground);
+  const backgroundLuminance = relativeLuminance(background);
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+  const darker = Math.min(foregroundLuminance, backgroundLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
 
 test.afterEach(async () => {
   await Promise.all(registrationSeeds.splice(0).map((seed) => seed.cleanup()));
@@ -19,6 +44,28 @@ test("the sign-in page shows its brand logos", async ({ page }) => {
   const footer = page.locator("footer");
   await expect(footer).toContainText("powered by");
   await expect(footer.getByRole("img", { name: "Sutter Precision" })).toBeVisible();
+  const footerSecondaryText = footer.getByText("powered by", { exact: true });
+  const computedColors = await footerSecondaryText.evaluate((element) => ({
+    background: getComputedStyle(document.documentElement).backgroundColor,
+    foreground: getComputedStyle(element).color,
+  })).then((colors) => page.evaluate(({ background, foreground }) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (context === null) throw new Error("Expected a canvas 2D context for contrast testing.");
+    const toRgb = (color: string): readonly number[] => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = color;
+      context.fillRect(0, 0, 1, 1);
+      return Array.from(context.getImageData(0, 0, 1, 1).data.slice(0, 3));
+    };
+    return { background: toRgb(background), foreground: toRgb(foreground) };
+  }, colors));
+  expect(
+    contrastRatio(computedColors.foreground, computedColors.background),
+    "public sign-in footer secondary text contrast",
+  ).toBeGreaterThanOrEqual(4.5);
   await expect(page.getByRole("link", { name: "Turnierleitung" })).toHaveCount(0);
 });
 
@@ -76,19 +123,24 @@ test("a club can complete a match and start a generated tournament match", async
   await expect(page.getByRole("heading", { name: "Offene Einladungen" })).toBeVisible();
   await page.getByRole("button", { name: "Annehmen" }).click();
   await expect(page.getByRole("link", { name: "Turnierleitung" })).toBeVisible();
-  await page.getByPlaceholder("Vereinsname").fill(organizationName);
-  await page.getByPlaceholder("club-slug").fill(organizationSlug);
+  const organizationForm = page.getByRole("heading", { name: "Organisation erstellen" }).locator("..");
+  await (await visibleLabeledControl(organizationForm, "Organisationsname")).fill(organizationName);
+  await (await visibleLabeledControl(organizationForm, "Organisationskürzel")).fill(organizationSlug);
   await page.getByRole("button", { name: "Erstellen", exact: true }).click();
 
   await expect(
     page.getByRole("heading", { name: organizationName }),
   ).toBeVisible();
-  await page.getByPlaceholder("Anzeigename").fill("E2E Player One");
-  await page.getByPlaceholder("Spitzname (optional)").fill("The Test One");
+  const playerForm = page.getByRole("button", { name: "Spieler hinzufügen" }).locator("..");
+  const invitationForm = page.getByRole("button", { name: "Einladen" }).locator("..");
+  await visibleLabeledControl(invitationForm, "E-Mail-Adresse für Einladung");
+  await visibleLabeledControl(invitationForm, "Rolle");
+  await (await visibleLabeledControl(playerForm, "Anzeigename")).fill("E2E Player One");
+  await (await visibleLabeledControl(playerForm, "Spitzname (optional)")).fill("The Test One");
   await page.getByRole("button", { name: "Spieler hinzufügen" }).click();
   await expect(page.getByText("E2E Player One", { exact: true }).first()).toBeVisible();
-  await page.getByPlaceholder("Anzeigename").fill("E2E Player Two");
-  await page.getByPlaceholder("Spitzname (optional)").fill("The Test Two");
+  await playerForm.getByLabel("Anzeigename", { exact: true }).fill("E2E Player Two");
+  await playerForm.getByLabel("Spitzname (optional)", { exact: true }).fill("The Test Two");
   await page.getByRole("button", { name: "Spieler hinzufügen" }).click();
   await expect(page.getByText("E2E Player Two", { exact: true }).first()).toBeVisible();
 
@@ -179,7 +231,7 @@ test("a club can complete a match and start a generated tournament match", async
   await expect(page.getByText("E2E Player One gewinnt")).toBeVisible();
 
   for (const name of ["E2E Player Three", "E2E Player Four"]) {
-    await page.getByPlaceholder("Anzeigename").fill(name);
+    await page.getByLabel("Anzeigename", { exact: true }).fill(name);
     await page.getByRole("button", { name: "Spieler hinzufügen" }).click();
     await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
   }
