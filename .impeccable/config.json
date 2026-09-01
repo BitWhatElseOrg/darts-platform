@@ -9,6 +9,15 @@
         "value": "arial",
         "createdAt": "2026-08-26T12:49:38.513Z",
         "reason": "Phase-0/1 scaffold body font in apps/web/src/app/globals.css, out of scope for the tournament surface and recorded in DESIGN.md as an anti-reference to be replaced when that surface is redesigned"
+      },
+      {
+        "rule": "gray-on-color",
+        "value": "*",
+        "files": [
+          "apps/web/src/components/match-workspace.tsx"
+        ],
+        "createdAt": "2026-09-01T20:00:44.751Z",
+        "reason": "false positive: text-slate-400 is paired with the ternary's plain border-slate-700 branch (no background color), not with the emerald bg-emerald-400/5 branch on the same line; matches the pre-existing text-slate-400-on-dark pattern used elsewhere in this file"
       }
     ]
   }

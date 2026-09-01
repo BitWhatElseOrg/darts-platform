@@ -9,36 +9,25 @@ import { z } from "zod";
 
 import { hasOrganizationPermission } from "@darts-platform/domain";
 import {
-  createInvitationSchema,
-  createdInvitationSchema,
   createOrganizationSchema,
-  createPlayerSchema,
   invitationListSchema,
+  matchListSchema,
   organizationListSchema,
   organizationSummarySchema,
-  playerListSchema,
-  playerSchema,
   type OrganizationSummary,
-  type PlayerResponse,
 } from "@darts-platform/schemas";
 import { Button, buttonVariants, cn } from "@darts-platform/ui";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
-import { MatchWorkspace } from "./match-workspace";
+import { roleLabel } from "@/lib/roles";
+import { MatchList } from "@/components/match/match-list";
 
 const organizationFormSchema = createOrganizationSchema.pick({
   name: true,
   slug: true,
 });
-const playerFormSchema = createPlayerSchema.pick({
-  displayName: true,
-  nickname: true,
-});
-const invitationFormSchema = createInvitationSchema;
 
 type OrganizationFormData = z.infer<typeof organizationFormSchema>;
-type PlayerFormData = z.infer<typeof playerFormSchema>;
-type InvitationFormData = z.infer<typeof invitationFormSchema>;
 
 const acceptedSchema = z.object({ accepted: z.literal(true) });
 const inputClassName =
@@ -196,10 +185,10 @@ export function TenantDashboard({
 
         {activeOrganization === undefined ? (
           <section className="rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">
-            Erstelle eine Organisation, um Spieler zu verwalten.
+            Erstelle eine Organisation, um Spieler und Matches zu verwalten.
           </section>
         ) : (
-          <OrganizationWorkspace organization={activeOrganization} />
+          <OrganizationOverview organization={activeOrganization} />
         )}
       </div>
     </div>
@@ -281,256 +270,77 @@ function OrganizationsPanel({
   );
 }
 
-function OrganizationWorkspace({
+function OrganizationOverview({
   organization,
 }: {
   readonly organization: OrganizationSummary;
 }) {
-  const queryClient = useQueryClient();
-  const playersQuery = useQuery({
-    queryKey: ["players", organization.id],
+  const matchesQuery = useQuery({
+    queryKey: ["matches", organization.id],
     queryFn: ({ signal }) =>
-      apiRequest({
-        path: `/organizations/${organization.id}/players`,
-        schema: playerListSchema,
-        signal,
-      }),
+      apiRequest({ path: `/organizations/${organization.id}/matches`, schema: matchListSchema, signal }),
+    refetchInterval: 10_000,
   });
-  const playerForm = useForm<PlayerFormData>({
-    resolver: zodResolver(playerFormSchema),
-    defaultValues: { displayName: "", nickname: null },
-  });
-  const invitationForm = useForm<InvitationFormData>({
-    resolver: zodResolver(invitationFormSchema),
-    defaultValues: { email: "", role: "MEMBER" },
-  });
-  const createPlayer = useMutation({
-    mutationFn: (data: PlayerFormData) =>
-      apiRequest({
-        path: `/organizations/${organization.id}/players`,
-        method: "POST",
-        body: data,
-        schema: playerSchema,
-      }),
-    onSuccess: async () => {
-      playerForm.reset();
-      await queryClient.invalidateQueries({ queryKey: ["players", organization.id] });
-    },
-  });
-  const archivePlayer = useMutation({
-    mutationFn: (playerId: string) =>
-      apiRequest({
-        path: `/organizations/${organization.id}/players/${playerId}`,
-        method: "DELETE",
-        schema: playerSchema,
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["players", organization.id] });
-    },
-  });
-  const inviteMember = useMutation({
-    mutationFn: (data: InvitationFormData) =>
-      apiRequest({
-        path: `/organizations/${organization.id}/invitations`,
-        method: "POST",
-        body: data,
-        schema: createdInvitationSchema,
-      }),
-    onSuccess: () => invitationForm.reset(),
-  });
-  const canManageMembers = ["OWNER", "ADMIN"].includes(organization.role);
-  const canCreatePlayers = ["OWNER", "ADMIN", "TOURNAMENT_DIRECTOR"].includes(
-    organization.role,
-  );
-  const canArchivePlayers = ["OWNER", "ADMIN"].includes(organization.role);
+  const organisationParam = `?organisation=${organization.id}`;
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6">
-      <div className="flex flex-col gap-1 border-b border-slate-800 pb-5">
-        <p className="text-xs font-semibold tracking-[0.18em] text-emerald-300 uppercase">
-          {organization.slug}
-        </p>
+    <section className="space-y-6 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6">
+      <div className="border-b border-slate-800 pb-5">
         <h2 className="text-2xl font-semibold text-white">{organization.name}</h2>
+        <p className="mt-1 text-sm text-slate-400">{organization.slug} · {roleLabel(organization.role)}</p>
       </div>
 
-      {canCreatePlayers ? (
-        <form
-          className="mt-5 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
-          onSubmit={(event) => void playerForm.handleSubmit((data) => createPlayer.mutate(data))(event)}
-        >
-          <div className="space-y-2">
-            <label className={labelClassName} htmlFor="player-display-name">Anzeigename</label>
-            <input id="player-display-name" className={inputClassName} placeholder="Anzeigename" {...playerForm.register("displayName")} />
-          </div>
-          <div className="space-y-2">
-            <label className={labelClassName} htmlFor="player-nickname">Spitzname (optional)</label>
-            <input id="player-nickname" className={inputClassName} placeholder="Spitzname (optional)" {...playerForm.register("nickname")} />
-          </div>
-          <Button disabled={createPlayer.isPending} type="submit">Spieler hinzufügen</Button>
-        </form>
-      ) : null}
+      <nav className="grid gap-3 sm:grid-cols-2">
+        <OverviewLink
+          href={`/spieler${organisationParam}`}
+          title="Spieler & Team"
+          description="Kader pflegen, Profile öffnen, Mitglieder einladen"
+        />
+        <OverviewLink
+          href={`/matches${organisationParam}`}
+          title="Matches"
+          description="Boards anlegen, Match starten, Partien verfolgen"
+        />
+      </nav>
 
-      {createPlayer.isError ? (
-        <p role="alert" className="mt-3 text-sm text-rose-300">{messageFrom(createPlayer.error)}</p>
-      ) : null}
-
-      <div className="mt-6 space-y-3">
-        {playersQuery.isPending ? <p className="text-sm text-slate-400">Spieler werden geladen …</p> : null}
-        {playersQuery.data?.map((player) => (
-          <PlayerRow
-            canArchive={canArchivePlayers}
-            canEdit={canCreatePlayers}
-            key={player.id}
-            onArchive={() => archivePlayer.mutate(player.id)}
-            organizationId={organization.id}
-            player={player}
-          />
-        ))}
-        {playersQuery.data?.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">
-            Noch keine Spieler vorhanden.
-          </p>
-        ) : null}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-slate-200">Laufende Matches</h3>
+          <Link
+            className="text-xs font-semibold text-emerald-300 transition hover:text-emerald-200"
+            href={`/matches${organisationParam}`}
+          >
+            Alle Matches
+          </Link>
+        </div>
+        {matchesQuery.isPending ? (
+          <p className="text-sm text-slate-400">Matches werden geladen …</p>
+        ) : matchesQuery.isError ? (
+          <p className="text-sm text-rose-300" role="alert">{messageFrom(matchesQuery.error)}</p>
+        ) : (
+          <MatchList limit={5} matches={matchesQuery.data ?? []} organizationId={organization.id} variant="compact" />
+        )}
       </div>
-
-      <MatchWorkspace organization={organization} players={playersQuery.data ?? []} />
-
-      {canManageMembers ? (
-        <form
-          className="mt-8 grid gap-3 border-t border-slate-800 pt-6 sm:grid-cols-[1fr_auto_auto] sm:items-end"
-          onSubmit={(event) => void invitationForm.handleSubmit((data) => inviteMember.mutate(data))(event)}
-        >
-          <div className="space-y-2">
-            <label className={labelClassName} htmlFor="invitation-email">E-Mail-Adresse für Einladung</label>
-            <input id="invitation-email" className={inputClassName} type="email" placeholder="member@example.com" {...invitationForm.register("email")} />
-          </div>
-          <div className="space-y-2">
-            <label className={labelClassName} htmlFor="invitation-role">Rolle</label>
-            <select id="invitation-role" className={inputClassName} {...invitationForm.register("role")}>
-              <option value="ADMIN">Admin</option>
-              <option value="TOURNAMENT_DIRECTOR">Turnierleitung</option>
-              <option value="SCORER">Scorer</option>
-              <option value="MEMBER">Mitglied</option>
-              <option value="VIEWER">Zuschauer</option>
-            </select>
-          </div>
-          <Button disabled={inviteMember.isPending} type="submit">Einladen</Button>
-          {inviteMember.isSuccess ? (
-            <div className="space-y-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 sm:col-span-3">
-              <p className="text-sm text-emerald-100">
-                Einladung erstellt. Teile diesen einmal angezeigten Code sicher mit der eingeladenen Person.
-              </p>
-              <label className={labelClassName} htmlFor="created-invitation-claim">
-                Einladungscode
-              </label>
-              <input
-                id="created-invitation-claim"
-                className={`${inputClassName} font-mono`}
-                readOnly
-                value={inviteMember.data.claimToken}
-              />
-            </div>
-          ) : null}
-          {inviteMember.isError ? (
-            <p role="alert" className="text-sm text-rose-300 sm:col-span-3">{messageFrom(inviteMember.error)}</p>
-          ) : null}
-        </form>
-      ) : null}
     </section>
   );
 }
 
-function PlayerRow({
-  player,
-  organizationId,
-  canEdit,
-  canArchive,
-  onArchive,
+function OverviewLink({
+  href,
+  title,
+  description,
 }: {
-  readonly player: PlayerResponse;
-  readonly organizationId: string;
-  readonly canEdit: boolean;
-  readonly canArchive: boolean;
-  readonly onArchive: () => void;
+  readonly href: string;
+  readonly title: string;
+  readonly description: string;
 }) {
-  const queryClient = useQueryClient();
-  const [isEditing, setIsEditing] = useState(false);
-  const [displayName, setDisplayName] = useState(player.displayName);
-  const updatePlayer = useMutation({
-    mutationFn: () =>
-      apiRequest({
-        path: `/organizations/${organizationId}/players/${player.id}`,
-        method: "PATCH",
-        body: { displayName },
-        schema: playerSchema,
-      }),
-    onSuccess: async () => {
-      setIsEditing(false);
-      await queryClient.invalidateQueries({ queryKey: ["players", organizationId] });
-    },
-  });
-
   return (
-    <div className="min-h-16 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        {isEditing ? (
-          <input
-            aria-label={`Anzeigename für ${player.displayName}`}
-            className={inputClassName}
-            onChange={(event) => setDisplayName(event.target.value)}
-            value={displayName}
-          />
-        ) : (
-          <div>
-            <p className="font-semibold text-white">{player.displayName}</p>
-            <p className="text-xs text-slate-400">
-              {player.nickname ?? "Kein Spitzname"} · {player.status === "ACTIVE" ? "Aktiv" : "Archiviert"}
-            </p>
-          </div>
-        )}
-        <div className="flex flex-wrap gap-2">
-          {isEditing ? (
-            <>
-              <Button
-                disabled={displayName.trim().length === 0 || updatePlayer.isPending}
-                onClick={() => updatePlayer.mutate()}
-              >
-                Speichern
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setDisplayName(player.displayName);
-                  setIsEditing(false);
-                }}
-              >
-                Abbrechen
-              </Button>
-            </>
-          ) : (
-            <>
-              <Link className="inline-flex min-h-10 items-center rounded-lg border border-slate-700 px-4 text-sm font-medium text-slate-100" href={`/spieler/${player.id}?organisation=${organizationId}`}>Profil</Link>
-              {canEdit ? (
-                <Button variant="outline" onClick={() => setIsEditing(true)}>
-                  Bearbeiten
-                </Button>
-              ) : null}
-              {canArchive && player.status === "ACTIVE" ? (
-                <Button variant="outline" onClick={onArchive}>Archivieren</Button>
-              ) : null}
-            </>
-          )}
-        </div>
-      </div>
-      {updatePlayer.isError ? (
-        <p className="mt-2 text-sm text-rose-300" role="alert">
-          {messageFrom(updatePlayer.error)}
-        </p>
-      ) : null}
-    </div>
+    <Link
+      className="flex min-h-16 flex-col justify-center gap-0.5 rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3 transition hover:border-emerald-400/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+      href={href}
+    >
+      <span className="text-sm font-semibold text-white">{title}</span>
+      <span className="text-xs text-slate-400">{description}</span>
+    </Link>
   );
-}
-
-function roleLabel(role: string): string {
-  return ({ OWNER: "Inhaber", ADMIN: "Administration", TOURNAMENT_DIRECTOR: "Turnierleitung", SCORER: "Scorer", MEMBER: "Mitglied", VIEWER: "Zuschauer" } as Readonly<Record<string, string>>)[role] ?? role;
 }

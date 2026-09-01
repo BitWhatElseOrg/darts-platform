@@ -230,6 +230,12 @@ test("a club can complete a match and start a generated tournament match", async
   await expect(
     page.getByRole("heading", { name: organizationName }),
   ).toBeVisible();
+
+  await page.getByRole("link", { name: /Kader pflegen/u }).click();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Spieler & Team" }),
+  ).toBeVisible();
+  const spielerUrl = page.url();
   const playerForm = page.locator("form").filter({
     has: page.getByRole("button", { name: "Spieler hinzufügen" }),
   });
@@ -247,14 +253,19 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByRole("button", { name: "Spieler hinzufügen" }).click();
   await expect(page.getByText("E2E Player Two", { exact: true }).first()).toBeVisible();
 
-  await page.getByLabel("Boardname").fill("E2E Board");
+  await page.goto("/");
+  await page.getByRole("link", { name: /Boards anlegen/u }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Matches" })).toBeVisible();
+  const matchesUrl = page.url();
+
+  await page.getByLabel("Neues Board").fill("E2E Board");
   await page.getByRole("button", { name: "Hinzufügen", exact: true }).click();
-  await expect(page.getByText(/E2E Board: frei/u)).toBeVisible();
-  await page.getByLabel("Erster Spieler").selectOption({ label: "E2E Player One" });
-  await page.getByLabel("Zweiter Spieler").selectOption({ label: "E2E Player Two" });
-  await page.getByLabel("Startspieler").selectOption({ label: "E2E Player One beginnt" });
-  await page.getByLabel("Best of Legs").selectOption("1");
-  await page.getByLabel("Board", { exact: true }).selectOption({ label: "E2E Board" });
+  await expect(page.locator("li").filter({ hasText: "E2E Board" }).filter({ hasText: "frei" })).toBeVisible();
+  await page.getByLabel("Spieler 1").selectOption({ label: "E2E Player One" });
+  await page.getByLabel("Spieler 2").selectOption({ label: "E2E Player Two" });
+  await page.getByLabel("Wer beginnt?").selectOption({ label: "E2E Player One" });
+  await page.getByLabel("Legs (Best of)").selectOption("1");
+  await page.getByLabel("Board (optional)").selectOption({ label: "E2E Board" });
   await page.getByRole("button", { name: "Match starten" }).click();
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
   await expect(page.getByText("Dieses Gerät steuert das Board · Verbindung aktiv")).toBeVisible();
@@ -271,9 +282,12 @@ test("a club can complete a match and start a generated tournament match", async
   await expect(abortDialog).toContainText("0 lokal gespeicherte Aufnahmen werden verworfen");
   await abortDialog.getByLabel("Abbruchgrund").fill("Board versehentlich falsch zugewiesen");
   await abortDialog.getByRole("button", { name: "Match endgültig abbrechen" }).click();
+  await expect(abortDialog).toHaveCount(0);
+  await page.goto(matchesUrl);
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toHaveCount(0);
-  await expect(page.getByText(/E2E Board: frei/u)).toBeVisible();
-  await page.getByLabel("Board", { exact: true }).selectOption({ label: "E2E Board" });
+  await expect(page.locator("li").filter({ hasText: "E2E Board" }).filter({ hasText: "frei" })).toBeVisible();
+  await page.getByLabel("Legs (Best of)").selectOption("1");
+  await page.getByLabel("Board (optional)").selectOption({ label: "E2E Board" });
   await page.getByRole("button", { name: "Match starten" }).click();
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
   await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("501");
@@ -333,12 +347,14 @@ test("a club can complete a match and start a generated tournament match", async
   await expect(page.getByText("Match beendet")).toBeVisible();
   await expect(page.getByText("E2E Player One gewinnt")).toBeVisible();
 
+  await page.goto(spielerUrl);
   for (const name of ["E2E Player Three", "E2E Player Four"]) {
     await page.getByLabel("Anzeigename", { exact: true }).fill(name);
     await page.getByRole("button", { name: "Spieler hinzufügen" }).click();
     await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
   }
 
+  await page.goto("/");
   await page.getByRole("link", { name: "Turnierleitung" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Turniere" })).toBeVisible();
   await page.getByRole("link", { name: "Turnier anlegen", exact: true }).click();
@@ -357,7 +373,8 @@ test("a club can complete a match and start a generated tournament match", async
   await expect(page.getByText("501").first()).toBeVisible();
   const tournamentUrl = page.url();
 
-  await page.goto("/");
+  await page.goto(matchesUrl);
+  await page.getByRole("link").filter({ hasText: "läuft" }).first().click();
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
   const scoreTournamentVisit = async (score: number, checkoutDouble?: number) => {
     const visitScore = page.getByLabel("Aufnahmescore");
