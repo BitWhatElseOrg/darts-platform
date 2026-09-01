@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const webPort = Number(process.env.WEB_PORT ?? 3_000);
-const apiPort = Number(process.env.API_PORT ?? 3_001);
+const webPort = Number(process.env.PLAYWRIGHT_WEB_PORT ?? 3_100);
+const apiPort = Number(process.env.PLAYWRIGHT_API_PORT ?? 3_101);
 const webOrigin = `http://localhost:${webPort}`;
 const apiOrigin = `http://localhost:${apiPort}`;
 
@@ -26,19 +26,23 @@ export default defineConfig({
       command: "pnpm --filter @darts-platform/api dev",
       url: `http://localhost:${apiPort}/api/v1/health`,
       env: {
+        API_PORT: String(apiPort),
         BETTER_AUTH_URL: apiOrigin,
+        PORT: String(apiPort),
         WEB_ORIGIN: webOrigin,
       },
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 120_000,
     },
     {
       command: "pnpm --filter @darts-platform/web dev",
       url: webOrigin,
       env: {
+        NEXT_DIST_DIR: ".next-e2e",
         NEXT_PUBLIC_API_URL: `${apiOrigin}/api/v1`,
+        WEB_PORT: String(webPort),
       },
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 120_000,
     },
   ],
