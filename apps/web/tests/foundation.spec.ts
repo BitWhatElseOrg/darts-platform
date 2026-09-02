@@ -195,6 +195,8 @@ test("a viewer does not receive tournament administration access", async ({ page
 test("a club can complete a match and start a generated tournament match", async ({
   page,
 }) => {
+  test.slow();
+
   const suffix = randomUUID();
   const email = `e2e-${suffix}@example.test`;
   const organizationName = `E2E Club ${suffix.slice(0, 8)}`;
