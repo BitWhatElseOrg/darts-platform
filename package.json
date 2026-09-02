@@ -20,6 +20,7 @@
     "db:generate": "dotenv -e .env -- pnpm --filter @darts-platform/database db:generate",
     "db:migrate": "dotenv -e .env -- pnpm --filter @darts-platform/database db:migrate",
     "db:bootstrap:production": "pnpm --filter @darts-platform/api bootstrap:production",
+    "db:seed:demo:production": "pnpm --filter @darts-platform/api seed:demo:production",
     "db:seed:dev": "dotenv -e .env -- pnpm --filter @darts-platform/api seed:dev",
     "start:api:deploy": "node scripts/start-api.mjs",
     "start:web:deploy": "pnpm --filter @darts-platform/web start",
