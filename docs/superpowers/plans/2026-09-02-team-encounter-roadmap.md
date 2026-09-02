@@ -82,9 +82,21 @@ interface DecideLegByBullCommand {
   commandId: string;
   winnerSeat: 1 | 2;
 }
+interface DecideLegStartCommand {
+  type: "DECIDE_LEG_START";
+  commandId: string;
+  legNumber: number;
+  startingSeat: 1 | 2;
+}
 ```
 
-Datenbank: `matches.in_rule|out_rule|max_rounds` statt `matches.double_out`.
+Datenbank: `matches.in_rule|out_rule|max_rounds` statt `matches.double_out`,
+dieselben drei Spalten auf `tournaments`.
+
+Die Ablage der beiden neuen Kommandos gehört zu Phase 4. `matches.repository`
+baut die Kommandoliste aus `visits`; ein durch Ausbullen entschiedenes Leg
+erzeugt keine Visit-Zeile. Solange `max_rounds` überall `NULL` ist, kann kein
+Bestandsmatch ein solches Kommando tragen.
 
 ### Phase 3 → 4
 

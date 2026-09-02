@@ -645,6 +645,16 @@ Die Engine bleibt frei von Infrastruktur und deterministisch.
 
 Einzelmatches durchlaufen exakt denselben Pfad mit einer einelementigen Seite.
 
+**Umgesetzt in Phase 2, zwei Präzisierungen.** Master Out wird über die
+Erreichbarkeit des letzten Wurfs geprüft — Doppel, Triple oder Bull —, nicht
+über ein zusätzliches Feld am Visit. Damit bleibt der in Phase 1 festgelegte
+`visits`-Vertrag unverändert; ein festgehaltenes `checkoutDouble` wird
+weiterhin geprüft. Der Legbeginn ab Leg 3 ist ein Kommando
+(`DECIDE_LEG_START` mit `legNumber` und `startingSeat`); fehlt es, wechselt
+der Beginn wie bisher, damit Turniermatches über Best of 5 oder 7 unverändert
+laufen. Die Engine lehnt das Kommando für Leg 1 und 2 mit `LEG_START_FIXED`
+ab, für ein laufendes Leg mit `LEG_ALREADY_STARTED`.
+
 ### scheduling-engine
 
 `evaluateMatchReadiness` wird verallgemeinert, damit Turnier und Begegnung
