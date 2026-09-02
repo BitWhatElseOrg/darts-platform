@@ -7,7 +7,7 @@ import {
   tournaments, tournamentStages,
   visits,
 } from "@darts-platform/database";
-import { ScoringValidationError, createX01Match, executeX01Command, projectX01Match, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
+import { ScoringValidationError, createX01Match, executeX01Command, projectX01Match, type InRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
 import type { AbortMatchInput, AbortMatchResponse, CorrectTournamentResultInput, CreateMatchInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
@@ -71,6 +71,15 @@ interface LoadedSide {
 function playerOfSeat(state: X01MatchState, seat: 1 | 2 | null): string | null {
   if (seat === null) return null;
   return state.sides.find((side) => side.seat === seat)?.playerIds[0] ?? null;
+}
+
+/** Die Regelspalten sind varchar; hier werden sie auf die Union der Engine verengt. */
+function toInRule(value: string): InRule {
+  return value === "DOUBLE" ? "DOUBLE" : "STRAIGHT";
+}
+
+function toOutRule(value: string): OutRule {
+  return value === "SINGLE" ? "SINGLE" : value === "MASTER" ? "MASTER" : "DOUBLE";
 }
 
 @Injectable()
@@ -847,9 +856,9 @@ export class MatchesRepository {
       sides, startingSeat,
       rules: {
         startingScore: match.startingScore,
-        inRule: "STRAIGHT",
-        outRule: match.doubleOut ? "DOUBLE" : "SINGLE",
-        maxRounds: null,
+        inRule: toInRule(match.inRule),
+        outRule: toOutRule(match.outRule),
+        maxRounds: match.maxRounds,
         legsToWinSet: match.legsToWinSet,
         setsToWin: match.setsToWin,
       },

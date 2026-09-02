@@ -520,8 +520,8 @@ export class TournamentsService {
                 ? "Turnier beendet"
                 : "Startbereit",
         startingScore: data.tournament.startingScore,
-        inRule: "STRAIGHT",
-        outRule: data.tournament.doubleOut ? "DOUBLE" : "SINGLE",
+        inRule: data.tournament.inRule,
+        outRule: data.tournament.outRule,
         playedMatches: completedMatches,
         totalMatches: data.matches.length,
         startsAt: data.tournament.startsAt,
