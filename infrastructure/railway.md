@@ -260,6 +260,58 @@ gespeichert. Der eingeladene Owner registriert sich mit exakt dieser E-Mail und
 dem Code, meldet sich an und gibt denselben Code bei der Annahme ein. Erst danach
 existiert die aktive OWNER-Membership.
 
+## Demo-Seed für eine bestehende Organisation
+
+Der Demo-Seed füllt eine **bereits existierende** Organisation mit Testdaten:
+32 Spieler, 8 Boards, zwei abgeschlossene Turniere und ein laufendes Turnier mit
+einem aktiven Scoring-Match. Alle Schreibvorgänge laufen über die Domain-Services,
+sodass Tenant-Scoping, Autorisierung und Versionsprüfung greifen.
+
+Die Operation legt weder Organisation noch Benutzer noch Mitgliedschaft an. Sie
+handelt als der bereits vorhandene aktive OWNER der Zielorganisation und bricht
+ohne Schreibzugriff ab, wenn die Organisations-ID unbekannt ist oder kein aktiver
+Owner existiert. Ein zweiter Lauf erzeugt keine Duplikate.
+
+Voraussetzungen sind ein erfolgreiches API-Deployment und eine registrierte
+Railway-SSH-Identität (siehe oben). Die Service-Umgebung liefert bereits
+`NODE_ENV=production`; nur der Opt-in und die Ziel-ID werden gesetzt:
+
+```bash
+railway ssh \
+  --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+  --environment 94bb1675-f688-40e0-a403-e62807715120 \
+  --service @darts-platform/api \
+  --identity-file "$release_ssh_dir/id_ed25519" \
+  env \
+  ALLOW_DEMO_SEED=true \
+  DEMO_SEED_ORGANIZATION_ID="$demo_seed_organization_id" \
+  node /app/apps/api/dist/operations/seed-demo-organization.js
+```
+
+Übernimmt die CLI die Argumente nicht als Kommando, sondern öffnet eine
+interaktive Sitzung, wird derselbe Aufruf ohne `railway ssh`-Präfix direkt in
+dieser Sitzung ausgeführt.
+
+Vor dem eigentlichen Lauf wird der Guard verifiziert: derselbe Aufruf **ohne**
+`ALLOW_DEMO_SEED=true` muss mit Exit-Code 1 und
+`{"event":"demo_seed_failed","code":"DEMO_SEED_NOT_ALLOWED",…}` scheitern, ohne
+etwas zu schreiben.
+
+Erwartet wird danach genau eine `demo_seed_completed`-JSON-Zeile mit
+`players: 32`, `boards: 8`, `completedTournaments: 2` und
+`runningTournaments: 1`. Fehlerausgaben sind sanitiert; weder `DATABASE_URL` noch
+Stacktraces erscheinen.
+
+Die SSH-Identität wird unmittelbar danach entfernt, wie beim Bootstrap. Registriert
+die CLI beim Verbinden selbst einen Schlüssel, trägt er einen abgeleiteten Namen
+statt des mit `--name` gewünschten; entfernt wird er über seinen Fingerprint:
+
+```bash
+railway ssh keys list
+railway ssh keys remove "$temporary_key_fingerprint"
+railway ssh keys list
+```
+
 ## GitHub-CI-Gate
 
 Der Workflow `.github/workflows/ci.yml` veröffentlicht zwei stabile Checks:
