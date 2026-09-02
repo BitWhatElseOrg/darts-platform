@@ -228,6 +228,22 @@ function finishesOnMasterSegment(points: number, dartsThrown: 1 | 2 | 3): boolea
   );
 }
 
+const doubleValues: readonly number[] = [
+  ...Array.from({ length: 20 }, (_, index) => (index + 1) * 2),
+  50,
+];
+
+/**
+ * Double In eroeffnet auf einem Doppel als erstem Dart des Visits. Ohne
+ * festgehaltenes Segment prueft die Engine, ob der Visit so geworfen werden
+ * konnte.
+ */
+function opensOnDouble(points: number, dartsThrown: 1 | 2 | 3): boolean {
+  return doubleValues.some(
+    (value) => points >= value && attainableTotals(dartsThrown - 1).has(points - value),
+  );
+}
+
 function closesLeg(
   outRule: OutRule,
   command: SubmitVisitCommand,
@@ -327,6 +343,13 @@ export function projectX01Match(match: X01Match): X01MatchState {
     if (command.throwerPlayerId !== expectedThrower) {
       throw new ScoringValidationError("INVALID_THROWER", "The visit does not belong to the person whose turn it is.");
     }
+    if (!side.openedInLeg && command.points > 0 && !opensOnDouble(command.points, command.dartsThrown)) {
+      throw new ScoringValidationError(
+        "DOUBLE_IN_REQUIRED",
+        "The first scoring visit of a leg must start on a double.",
+      );
+    }
+    const openedInLeg = side.openedInLeg || command.points > 0;
     const scoreBefore = side.remaining;
     const tentative = scoreBefore - command.points;
     const doubleValue = command.checkoutDouble === undefined ? null : checkoutValue(command.checkoutDouble);
@@ -360,8 +383,10 @@ export function projectX01Match(match: X01Match): X01MatchState {
       if (matchWon) {
         winnerSeat = side.seat;
       }
-    } else if (!bust) {
-      sides = replaceSide(sides, activeIndex, { ...side, remaining: tentative });
+    } else if (bust) {
+      sides = replaceSide(sides, activeIndex, { ...side, openedInLeg });
+    } else {
+      sides = replaceSide(sides, activeIndex, { ...side, remaining: tentative, openedInLeg });
     }
 
     visits.push({

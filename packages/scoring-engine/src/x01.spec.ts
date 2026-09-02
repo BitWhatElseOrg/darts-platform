@@ -124,6 +124,48 @@ describe("X01 scoring", () => {
     }
   });
 
+  it("requires the opening double and keeps the side closed on a miss", () => {
+    const match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 10, inRule: "DOUBLE" }),
+    });
+    try {
+      executeX01Command(match, visit("no-double", 1, "one", 3, 1));
+      expect.unreachable("a single must not open the leg");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("DOUBLE_IN_REQUIRED");
+    }
+
+    const missed = executeX01Command(match, visit("miss", 1, "one", 0, 3));
+    expect(missed.state.sides[0].openedInLeg).toBe(false);
+    expect(missed.state.sides[0].remaining).toBe(10);
+  });
+
+  it("opens on a double in a 701 double-in double-out leg", () => {
+    let match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 701, inRule: "DOUBLE" }),
+    });
+    match = executeX01Command(match, visit("open", 1, "one", 40, 1, 20)).match;
+    const opened = projectX01Match(match);
+    expect(opened.sides[0].openedInLeg).toBe(true);
+    expect(opened.sides[0].remaining).toBe(661);
+
+    match = executeX01Command(match, visit("guest-miss", 2, "two", 0, 3)).match;
+    expect(projectX01Match(match).sides[1].openedInLeg).toBe(false);
+  });
+
+  it("keeps a side open after a bust in the opening visit", () => {
+    const match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 10, inRule: "DOUBLE" }),
+    });
+    const result = executeX01Command(match, visit("bust-open", 1, "one", 12, 1, 6));
+    expect(result.outcome).toBe("BUST");
+    expect(result.state.sides[0].openedInLeg).toBe(true);
+    expect(result.state.sides[0].remaining).toBe(10);
+  });
+
   it("scores a normal 501 visit and changes the active side", () => {
     const result = executeX01Command(createX01Match({ sides: singles("a", "b") }), visit("1", 1, "a", 100));
     expect(result.state.sides[0].remaining).toBe(401);
