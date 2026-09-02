@@ -348,7 +348,7 @@ export class TournamentsRepository {
           status: initialStatus,
           format: input.data.format,
           startingScore: input.data.startingScore,
-          doubleOut: input.data.doubleOut,
+          doubleOut: input.data.outRule !== "SINGLE",
           bestOfLegs: input.data.bestOfLegs,
           legsToWinSet: Math.floor(input.data.bestOfLegs / 2) + 1,
           setsToWin: Math.floor(input.data.bestOfSets / 2) + 1,
