@@ -6,6 +6,9 @@ import {
   executeX01Command,
   isAttainableScore,
   projectX01Match,
+  type InRule,
+  type OutRule,
+  type X01Rules,
   type X01Side,
 } from "./x01.js";
 
@@ -35,11 +38,23 @@ function singles(one: string, two: string): readonly [X01Side, X01Side] {
   ];
 }
 
+function rules(overrides: Partial<X01Rules> = {}): X01Rules {
+  return {
+    startingScore: 501,
+    inRule: "STRAIGHT",
+    outRule: "DOUBLE",
+    maxRounds: null,
+    legsToWinSet: 1,
+    setsToWin: 1,
+    ...overrides,
+  };
+}
+
 describe("X01 scoring", () => {
   it("supports straight-out checkout when configured", () => {
     const match = createX01Match({
       sides: singles("one", "two"),
-      rules: { startingScore: 10, doubleOut: false, legsToWinSet: 1, setsToWin: 1 },
+      rules: rules({ startingScore: 10, outRule: "SINGLE" }),
     });
     const result = executeX01Command(match, {
       type: "SUBMIT_VISIT",
@@ -52,6 +67,63 @@ describe("X01 scoring", () => {
     expect(result.state.status).toBe("COMPLETED");
     expect(result.state.winnerSeat).toBe(1);
   });
+  it("finishes on a treble under master out but not under double out", () => {
+    const master = executeX01Command(
+      createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 12, outRule: "MASTER" }) }),
+      visit("master", 1, "one", 12, 1),
+    );
+    expect(master.state.status).toBe("COMPLETED");
+    expect(master.state.winnerSeat).toBe(1);
+
+    const double = executeX01Command(
+      createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 12, outRule: "DOUBLE" }) }),
+      visit("double", 1, "one", 12, 1),
+    );
+    expect(double.outcome).toBe("BUST");
+    expect(double.state.sides[0].remaining).toBe(12);
+  });
+
+  it("accepts a recorded double as a master-out checkout", () => {
+    const result = executeX01Command(
+      createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 12, outRule: "MASTER" }) }),
+      visit("d6", 1, "one", 12, 1, 6),
+    );
+    expect(result.state.status).toBe("COMPLETED");
+  });
+
+  it("busts on a remainder of one unless the out rule is single", () => {
+    for (const outRule of ["DOUBLE", "MASTER"] as const satisfies readonly OutRule[]) {
+      const result = executeX01Command(
+        createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 12, outRule }) }),
+        visit(`bust-${outRule}`, 1, "one", 11, 1),
+      );
+      expect(result.outcome).toBe("BUST");
+      expect(result.state.sides[0].remaining).toBe(12);
+    }
+    const single = executeX01Command(
+      createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 12, outRule: "SINGLE" }) }),
+      visit("single", 1, "one", 11, 1),
+    );
+    expect(single.outcome).toBe("SCORED");
+    expect(single.state.sides[0].remaining).toBe(1);
+  });
+
+  it("rejects rules the reglement does not know", () => {
+    const invalid = [
+      { key: "INVALID_IN_RULE", rule: rules({ inRule: "TRIPLE" as InRule }) },
+      { key: "INVALID_OUT_RULE", rule: rules({ outRule: "ANY" as OutRule }) },
+      { key: "INVALID_MAX_ROUNDS", rule: rules({ maxRounds: 0 }) },
+    ] as const;
+    for (const { key, rule } of invalid) {
+      try {
+        createX01Match({ sides: singles("one", "two"), rules: rule });
+        expect.unreachable(`${key} was accepted`);
+      } catch (error: unknown) {
+        expect((error as ScoringValidationError).code).toBe(key);
+      }
+    }
+  });
+
   it("scores a normal 501 visit and changes the active side", () => {
     const result = executeX01Command(createX01Match({ sides: singles("a", "b") }), visit("1", 1, "a", 100));
     expect(result.state.sides[0].remaining).toBe(401);
@@ -64,21 +136,21 @@ describe("X01 scoring", () => {
     ["rest one", 60, 59, undefined],
     ["missing double", 60, 60, undefined],
   ])("detects a bust for %s", (_label, remaining, points, checkoutDouble) => {
-    const match = createX01Match({ sides: singles("a", "b"), rules: { startingScore: remaining as number, doubleOut: true, legsToWinSet: 1, setsToWin: 1 } });
+    const match = createX01Match({ sides: singles("a", "b"), rules: rules({ startingScore: remaining as number }) });
     const result = executeX01Command(match, visit("1", 1, "a", points as number, 3, checkoutDouble));
     expect(result.state.visits[0]?.outcome).toBe("BUST");
     expect(result.state.sides[0].remaining).toBe(remaining);
   });
 
   it("accepts a checkout with fewer than three darts", () => {
-    const match = createX01Match({ sides: singles("a", "b"), rules: { startingScore: 40, doubleOut: true, legsToWinSet: 1, setsToWin: 1 } });
+    const match = createX01Match({ sides: singles("a", "b"), rules: rules({ startingScore: 40 }) });
     const result = executeX01Command(match, visit("1", 1, "a", 40, 1, 20));
     expect(result.state.status).toBe("COMPLETED");
     expect(result.state.visits[0]?.outcome).toBe("MATCH_WON");
   });
 
   it("tracks leg, set and match wins", () => {
-    let match = createX01Match({ sides: singles("a", "b"), rules: { startingScore: 40, doubleOut: true, legsToWinSet: 2, setsToWin: 2 } });
+    let match = createX01Match({ sides: singles("a", "b"), rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 2 }) });
     const commands = [
       visit("1", 1, "a", 40, 1, 20),
       visit("2", 2, "b", 0, 1),
@@ -142,7 +214,7 @@ describe("X01 sides", () => {
         { seat: 1, playerIds: ["a1", "a2"] },
         { seat: 2, playerIds: ["b1", "b2"] },
       ],
-      rules: { startingScore: 40, doubleOut: true, legsToWinSet: 2, setsToWin: 1 },
+      rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1 }),
     });
     // Leg 1: Seite 1 wirft a1, danach a2, ...
     expect(projectX01Match(match).activeThrowerPlayerId).toBe("a1");

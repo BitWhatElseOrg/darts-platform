@@ -7,9 +7,14 @@ const dartValues = [
   50,
 ] as const;
 
+export type InRule = "STRAIGHT" | "DOUBLE";
+export type OutRule = "SINGLE" | "DOUBLE" | "MASTER";
+
 export interface X01Rules {
   readonly startingScore: number;
-  readonly doubleOut: boolean;
+  readonly inRule: InRule;
+  readonly outRule: OutRule;
+  readonly maxRounds: number | null;
   readonly legsToWinSet: number;
   readonly setsToWin: number;
 }
@@ -71,6 +76,7 @@ export interface X01SideState {
   readonly seat: 1 | 2;
   readonly playerIds: readonly string[];
   readonly remaining: number;
+  readonly openedInLeg: boolean;
   readonly legsWonInSet: number;
   readonly totalLegsWon: number;
   readonly setsWon: number;
@@ -106,9 +112,21 @@ export class ScoringValidationError extends Error {
   }
 }
 
+const inRules: readonly InRule[] = ["STRAIGHT", "DOUBLE"];
+const outRules: readonly OutRule[] = ["SINGLE", "DOUBLE", "MASTER"];
+
 function assertRules(rules: X01Rules): void {
   if (!Number.isInteger(rules.startingScore) || rules.startingScore < 2) {
     throw new ScoringValidationError("INVALID_STARTING_SCORE", "Starting score must be an integer of at least 2.");
+  }
+  if (!inRules.includes(rules.inRule)) {
+    throw new ScoringValidationError("INVALID_IN_RULE", "In rule must be STRAIGHT or DOUBLE.");
+  }
+  if (!outRules.includes(rules.outRule)) {
+    throw new ScoringValidationError("INVALID_OUT_RULE", "Out rule must be SINGLE, DOUBLE or MASTER.");
+  }
+  if (rules.maxRounds !== null && (!Number.isInteger(rules.maxRounds) || rules.maxRounds < 1)) {
+    throw new ScoringValidationError("INVALID_MAX_ROUNDS", "The round limit must be a positive integer or null.");
   }
   if (!Number.isInteger(rules.legsToWinSet) || rules.legsToWinSet < 1) {
     throw new ScoringValidationError("INVALID_LEG_TARGET", "Leg target must be a positive integer.");
@@ -150,7 +168,9 @@ export function createX01Match(input: {
   }
   const rules = input.rules ?? {
     startingScore: 501,
-    doubleOut: true,
+    inRule: "STRAIGHT",
+    outRule: "DOUBLE",
+    maxRounds: null,
     legsToWinSet: 1,
     setsToWin: 1,
   };
@@ -190,6 +210,41 @@ function checkoutValue(segment: number): number | null {
   return null;
 }
 
+const masterFinishes: readonly number[] = [
+  ...Array.from({ length: 20 }, (_, index) => (index + 1) * 2),
+  ...Array.from({ length: 20 }, (_, index) => (index + 1) * 3),
+  50,
+];
+
+/**
+ * Master Out schliesst auf einem Doppel oder einem Triple; Bull (50) zaehlt als
+ * Doppel 25, das aeussere Bull (25) ist ein Single und schliesst nicht. Ohne
+ * festgehaltenes Segment prueft die Engine, ob der Visit ueberhaupt so
+ * geworfen werden konnte.
+ */
+function finishesOnMasterSegment(points: number, dartsThrown: 1 | 2 | 3): boolean {
+  return masterFinishes.some(
+    (value) => points >= value && attainableTotals(dartsThrown - 1).has(points - value),
+  );
+}
+
+function closesLeg(
+  outRule: OutRule,
+  command: SubmitVisitCommand,
+  validDoubleCheckout: boolean,
+): boolean {
+  switch (outRule) {
+    case "SINGLE":
+      return true;
+    case "DOUBLE":
+      return validDoubleCheckout;
+    case "MASTER":
+      return command.checkoutDouble === undefined
+        ? finishesOnMasterSegment(command.points, command.dartsThrown)
+        : validDoubleCheckout;
+  }
+}
+
 function validateVisit(command: SubmitVisitCommand): void {
   if (!isAttainableScore(command.points, command.dartsThrown)) {
     throw new ScoringValidationError("INVALID_VISIT_SCORE", `${command.points} cannot be scored with ${command.dartsThrown} dart(s).`);
@@ -202,11 +257,12 @@ function validateVisit(command: SubmitVisitCommand): void {
   }
 }
 
-function initialSide(side: X01Side, startingScore: number): X01SideState {
+function initialSide(side: X01Side, rules: X01Rules): X01SideState {
   return {
     seat: side.seat,
     playerIds: side.playerIds,
-    remaining: startingScore,
+    remaining: rules.startingScore,
+    openedInLeg: rules.inRule === "STRAIGHT",
     legsWonInSet: 0,
     totalLegsWon: 0,
     setsWon: 0,
@@ -247,8 +303,8 @@ export function projectX01Match(match: X01Match): X01MatchState {
   assertRules(match.rules);
   const active = activeCommands(match.commands);
   let sides: [X01SideState, X01SideState] = [
-    initialSide(match.sides[0], match.rules.startingScore),
-    initialSide(match.sides[1], match.rules.startingScore),
+    initialSide(match.sides[0], match.rules),
+    initialSide(match.sides[1], match.rules),
   ];
   let activeIndex: 0 | 1 = indexOfSeat(match.startingSeat);
   let legStartingIndex: 0 | 1 = activeIndex;
@@ -278,11 +334,10 @@ export function projectX01Match(match: X01Match): X01MatchState {
       doubleValue !== null &&
       command.points >= doubleValue &&
       attainableTotals(command.dartsThrown - 1).has(command.points - doubleValue);
-    const validCheckout =
-      tentative === 0 && (!match.rules.doubleOut || validDoubleCheckout);
+    const validCheckout = tentative === 0 && closesLeg(match.rules.outRule, command, validDoubleCheckout);
     const bust =
       tentative < 0 ||
-      (match.rules.doubleOut && tentative === 1) ||
+      (match.rules.outRule !== "SINGLE" && tentative === 1) ||
       (tentative === 0 && !validCheckout);
     let outcome: VisitOutcome = bust ? "BUST" : "SCORED";
     let scoreAfter = bust ? scoreBefore : tentative;
@@ -336,8 +391,8 @@ export function projectX01Match(match: X01Match): X01MatchState {
       activeIndex = legStartingIndex;
       visitsInLeg = [0, 0];
       sides = [
-        { ...sides[0], remaining: match.rules.startingScore },
-        { ...sides[1], remaining: match.rules.startingScore },
+        { ...sides[0], remaining: match.rules.startingScore, openedInLeg: match.rules.inRule === "STRAIGHT" },
+        { ...sides[1], remaining: match.rules.startingScore, openedInLeg: match.rules.inRule === "STRAIGHT" },
       ];
     } else if (!validCheckout) {
       activeIndex = other(activeIndex);

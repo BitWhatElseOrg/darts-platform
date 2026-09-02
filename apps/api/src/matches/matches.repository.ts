@@ -845,7 +845,14 @@ export class MatchesRepository {
     const startingSeat = match.startingSeat === 2 ? 2 : 1;
     const base = createX01Match({
       sides, startingSeat,
-      rules: { startingScore: match.startingScore, doubleOut: match.doubleOut, legsToWinSet: match.legsToWinSet, setsToWin: match.setsToWin },
+      rules: {
+        startingScore: match.startingScore,
+        inRule: "STRAIGHT",
+        outRule: match.doubleOut ? "DOUBLE" : "SINGLE",
+        maxRounds: null,
+        legsToWinSet: match.legsToWinSet,
+        setsToWin: match.setsToWin,
+      },
     });
     const seatOfPlayer = (playerId: string): 1 | 2 => (sides[0].playerIds.includes(playerId) ? 1 : 2);
     return { ...base, commands: payloads.map((payload) => parseStoredCommand(payload, seatOfPlayer)) };

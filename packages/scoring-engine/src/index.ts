@@ -6,6 +6,8 @@ export {
   projectX01Match,
   type AppliedVisit,
   type ExecuteX01Result,
+  type InRule,
+  type OutRule,
   type SubmitVisitCommand,
   type UndoVisitCommand,
   type X01Command,
