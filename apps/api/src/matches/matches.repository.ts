@@ -7,7 +7,7 @@ import {
   tournaments, tournamentStages,
   visits,
 } from "@darts-platform/database";
-import { ScoringValidationError, createX01Match, executeX01Command, projectX01Match, type X01Command, type X01Match } from "@darts-platform/scoring-engine";
+import { ScoringValidationError, createX01Match, executeX01Command, projectX01Match, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
 import type { AbortMatchInput, AbortMatchResponse, CorrectTournamentResultInput, CreateMatchInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
@@ -27,8 +27,12 @@ export type TournamentCorrectionResult =
   | "board-unavailable";
 type ActorInput = { readonly organizationId: string; readonly matchId: string; readonly auth: AuthContext; readonly audit: AuditContext };
 
+const seatSchema = z.union([z.literal(1), z.literal(2)]);
+// `playerId` stammt aus Kommandos, die vor dem Seitenmodell geschrieben wurden;
+// `seat`/`throwerPlayerId` sind die neue Form. Beide müssen lesbar bleiben.
 const storedSubmitSchema = z.object({
-  type: z.literal("SUBMIT_VISIT"), commandId: z.uuid(), playerId: z.uuid(), points: z.number().int(),
+  type: z.literal("SUBMIT_VISIT"), commandId: z.uuid(), playerId: z.uuid().optional(),
+  seat: seatSchema.optional(), throwerPlayerId: z.uuid().optional(), points: z.number().int(),
   dartsThrown: z.union([z.literal(1), z.literal(2), z.literal(3)]), checkoutDouble: z.number().int().optional(), checkoutAttempts: z.number().int().min(0).max(3).default(0),
 });
 const storedUndoSchema = z.object({ type: z.literal("UNDO_LAST_VISIT"), commandId: z.uuid(), targetCommandId: z.uuid() });
@@ -40,11 +44,27 @@ const groupRankReferenceSchema = z.object({
   rank: z.number().int().positive(),
 });
 
-function parseStoredCommand(payload: unknown): X01Command {
+function parseStoredCommand(payload: unknown, seatOfPlayer: (playerId: string) => 1 | 2): X01Command {
   const parsed = storedCommandSchema.parse(payload);
   if (parsed.type === "UNDO_LAST_VISIT") return parsed;
-  const base = { type: parsed.type, commandId: parsed.commandId, playerId: parsed.playerId, points: parsed.points, dartsThrown: parsed.dartsThrown } as const;
+  const throwerPlayerId = parsed.throwerPlayerId ?? parsed.playerId;
+  if (throwerPlayerId === undefined) {
+    throw new ScoringValidationError("INVALID_STORED_COMMAND", "A stored visit needs a thrower.");
+  }
+  const base = {
+    type: parsed.type, commandId: parsed.commandId, seat: parsed.seat ?? seatOfPlayer(throwerPlayerId),
+    throwerPlayerId, points: parsed.points, dartsThrown: parsed.dartsThrown,
+  } as const;
   return { ...base, checkoutAttempts: parsed.checkoutAttempts, ...(parsed.checkoutDouble === undefined ? {} : { checkoutDouble: parsed.checkoutDouble }) };
+}
+
+/**
+ * Löst einen Sitz auf die Person auf, die ihn belegt. In Phase 1 hat jeder Sitz
+ * genau eine Person, weshalb die erste Position genügt.
+ */
+function playerOfSeat(state: X01MatchState, seat: 1 | 2 | null): string | null {
+  if (seat === null) return null;
+  return state.sides.find((side) => side.seat === seat)?.playerIds[0] ?? null;
 }
 
 @Injectable()
@@ -87,13 +107,13 @@ export class MatchesRepository {
       .where(and(eq(visits.organizationId, organizationId), eq(visits.matchId, matchId)))
       .orderBy(desc(visits.sequence));
 
-    const byId = new Map(projection.players.map((player) => [player.id, player]));
+    const bySeat = new Map(projection.sides.map((side) => [side.seat, side]));
     const first = participantRows[0];
     const second = participantRows[1];
     const participantState = (row: typeof first) => {
-      const projected = byId.get(row.participant.playerId);
-      if (projected === undefined) throw new Error("Scoring player invariant violated.");
-      return { playerId: row.participant.playerId, displayName: row.displayName, remaining: projected.remaining, legsWon: projected.totalLegsWon, legsWonInSet: projected.legsWonInSet, setsWon: projected.setsWon, isActive: projection.activePlayerId === row.participant.playerId };
+      const projected = bySeat.get(row.participant.seat === 1 ? 1 : 2);
+      if (projected === undefined) throw new Error("Scoring side invariant violated.");
+      return { playerId: row.participant.playerId, displayName: row.displayName, remaining: projected.remaining, legsWon: projected.totalLegsWon, legsWonInSet: projected.legsWonInSet, setsWon: projected.setsWon, isActive: projection.activeThrowerPlayerId === row.participant.playerId };
     };
     return {
       id: matchRow.match.id, organizationId, boardId: matchRow.match.boardId, boardName: matchRow.boardName,
@@ -101,7 +121,7 @@ export class MatchesRepository {
       bestOfLegs: matchRow.match.bestOfLegs, legsToWin: Math.floor(matchRow.match.bestOfLegs / 2) + 1,
       bestOfSets: matchRow.match.setsToWin * 2 - 1, setsToWin: matchRow.match.setsToWin, currentSetNumber: projection.setNumber,
       currentLegNumber: projection.legNumber, currentLegVersion: legRow.version,
-      currentPlayerId: projection.activePlayerId, winnerPlayerId: projection.winnerPlayerId,
+      currentPlayerId: projection.activeThrowerPlayerId, winnerPlayerId: playerOfSeat(projection, projection.winnerSeat),
       participants: [participantState(first), participantState(second)],
       visits: visitRows.map(({ visit, playerDisplayName, legNumber }) => ({
         id: visit.id, commandId: visit.commandId, playerId: visit.playerId, playerDisplayName,
@@ -228,7 +248,11 @@ export class MatchesRepository {
       const participantRows = await transaction.select().from(matchParticipants).where(and(eq(matchParticipants.organizationId, input.organizationId), eq(matchParticipants.matchId, input.matchId))).orderBy(asc(matchParticipants.seat));
       const commandRows = await transaction.select({ payload: scoreCommands.payload }).from(scoreCommands).where(and(eq(scoreCommands.organizationId, input.organizationId), eq(scoreCommands.matchId, input.matchId))).orderBy(asc(scoreCommands.resultingVersion));
       const aggregate = this.aggregate(match, participantRows, commandRows.map((row) => row.payload));
-      const command: X01Command = { type: "SUBMIT_VISIT", commandId: input.data.commandId, playerId: input.data.playerId, points: input.data.points, dartsThrown: input.data.dartsThrown, checkoutAttempts: input.data.checkoutAttempts ?? 0, ...(input.data.checkoutDouble === undefined || input.data.checkoutDouble === null ? {} : { checkoutDouble: input.data.checkoutDouble }) };
+      const commandSide = aggregate.sides.find((side) => side.playerIds.includes(input.data.playerId));
+      if (commandSide === undefined) {
+        throw new ScoringValidationError("INVALID_MATCH_PARTICIPANTS", "The player does not belong to this match.");
+      }
+      const command: X01Command = { type: "SUBMIT_VISIT", commandId: input.data.commandId, seat: commandSide.seat, throwerPlayerId: input.data.playerId, points: input.data.points, dartsThrown: input.data.dartsThrown, checkoutAttempts: input.data.checkoutAttempts ?? 0, ...(input.data.checkoutDouble === undefined || input.data.checkoutDouble === null ? {} : { checkoutDouble: input.data.checkoutDouble }) };
       const result = executeX01Command(aggregate, command);
       const applied = result.state.visits.at(-1);
       if (applied === undefined) throw new Error("Visit projection did not return an applied visit.");
@@ -236,7 +260,7 @@ export class MatchesRepository {
       if (leg === undefined) throw new Error("Active leg invariant violated.");
       const nextVersion = match.version + 1;
       const [createdVisit] = await transaction.insert(visits).values({
-        organizationId: input.organizationId, matchId: input.matchId, legId: leg.id, playerId: applied.playerId,
+        organizationId: input.organizationId, matchId: input.matchId, legId: leg.id, playerId: applied.throwerPlayerId,
         commandId: input.data.commandId, sequence: nextVersion, points: applied.points, appliedPoints: applied.appliedPoints,
         dartsThrown: applied.dartsThrown, scoreBefore: applied.scoreBefore, scoreAfter: applied.scoreAfter,
         checkoutDouble: applied.checkoutDouble, outcome: applied.outcome,
@@ -244,15 +268,18 @@ export class MatchesRepository {
       }).returning();
       if (createdVisit === undefined) throw new Error("Visit insert did not return a row.");
       const wonLeg = applied.outcome.endsWith("WON");
-      await transaction.update(legs).set({ version: leg.version + 1, ...(wonLeg ? { status: "COMPLETED", winnerPlayerId: applied.playerId, completedAt: new Date() } : {}), updatedAt: new Date() }).where(and(eq(legs.organizationId, input.organizationId), eq(legs.id, leg.id)));
-      if (wonLeg && result.state.status === "IN_PROGRESS") await transaction.insert(legs).values({ organizationId: input.organizationId, matchId: input.matchId, legNumber: result.state.legNumber, startingPlayerId: result.state.legStartingPlayerId });
+      await transaction.update(legs).set({ version: leg.version + 1, ...(wonLeg ? { status: "COMPLETED", winnerPlayerId: applied.throwerPlayerId, completedAt: new Date() } : {}), updatedAt: new Date() }).where(and(eq(legs.organizationId, input.organizationId), eq(legs.id, leg.id)));
+      const legStartingPlayerId = playerOfSeat(result.state, result.state.legStartingSeat);
+      if (legStartingPlayerId === null) throw new Error("Leg starting seat invariant violated.");
+      if (wonLeg && result.state.status === "IN_PROGRESS") await transaction.insert(legs).values({ organizationId: input.organizationId, matchId: input.matchId, legNumber: result.state.legNumber, startingPlayerId: legStartingPlayerId });
       await this.syncProjection(transaction, input, match.boardId, nextVersion, result.state);
-      if (result.state.status === "COMPLETED" && result.state.winnerPlayerId !== null) {
+      const matchWinnerPlayerId = playerOfSeat(result.state, result.state.winnerSeat);
+      if (result.state.status === "COMPLETED" && matchWinnerPlayerId !== null) {
         await this.syncTournamentProgress(
           transaction,
           input.organizationId,
           input.matchId,
-          result.state.winnerPlayerId,
+          matchWinnerPlayerId,
         );
       }
       await transaction.insert(scoreCommands).values({ commandId: input.data.commandId, organizationId: input.organizationId, matchId: input.matchId, type: command.type, payload: command, resultingVersion: nextVersion });
@@ -763,11 +790,16 @@ export class MatchesRepository {
   private aggregate(match: typeof matches.$inferSelect, participantRows: readonly (typeof matchParticipants.$inferSelect)[], payloads: readonly unknown[]): X01Match {
     const first = participantRows[0]; const second = participantRows[1];
     if (first === undefined || second === undefined) throw new Error("Match participant invariant violated.");
+    const sides: readonly [X01Side, X01Side] = [
+      { seat: 1, playerIds: [first.playerId] },
+      { seat: 2, playerIds: [second.playerId] },
+    ];
     const base = createX01Match({
-      playerIds: [first.playerId, second.playerId], startingPlayerIndex: match.startingPlayerId === first.playerId ? 0 : 1,
+      sides, startingSeat: match.startingPlayerId === first.playerId ? 1 : 2,
       rules: { startingScore: match.startingScore, doubleOut: match.doubleOut, legsToWinSet: match.legsToWinSet, setsToWin: match.setsToWin },
     });
-    return { ...base, commands: payloads.map(parseStoredCommand) };
+    const seatOfPlayer = (playerId: string): 1 | 2 => (playerId === first.playerId ? 1 : 2);
+    return { ...base, commands: payloads.map((payload) => parseStoredCommand(payload, seatOfPlayer)) };
   }
 
   private async syncProjection(
@@ -777,8 +809,8 @@ export class MatchesRepository {
     version: number,
     state: ReturnType<typeof projectX01Match>,
   ): Promise<void> {
-    await Promise.all(state.players.map((player) => transaction.update(matchParticipants).set({ legsWon: player.totalLegsWon }).where(and(eq(matchParticipants.organizationId, input.organizationId), eq(matchParticipants.matchId, input.matchId), eq(matchParticipants.playerId, player.id)))));
-    await transaction.update(matches).set({ status: state.status, currentPlayerId: state.activePlayerId, winnerPlayerId: state.winnerPlayerId, version, completedAt: state.status === "COMPLETED" ? new Date() : null, updatedAt: new Date() }).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId)));
+    await Promise.all(state.sides.map((side) => transaction.update(matchParticipants).set({ legsWon: side.totalLegsWon }).where(and(eq(matchParticipants.organizationId, input.organizationId), eq(matchParticipants.matchId, input.matchId), eq(matchParticipants.seat, side.seat)))));
+    await transaction.update(matches).set({ status: state.status, currentPlayerId: state.activeThrowerPlayerId, winnerPlayerId: playerOfSeat(state, state.winnerSeat), version, completedAt: state.status === "COMPLETED" ? new Date() : null, updatedAt: new Date() }).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId)));
     if (boardId !== null) await transaction.update(boards).set({ status: state.status === "COMPLETED" ? "AVAILABLE" : "IN_USE", updatedAt: new Date() }).where(and(eq(boards.organizationId, input.organizationId), eq(boards.id, boardId)));
   }
 

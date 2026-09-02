@@ -11,7 +11,8 @@ export {
   type X01Command,
   type X01Match,
   type X01MatchState,
-  type X01PlayerState,
+  type X01Side,
+  type X01SideState,
   type X01Rules,
   type VisitOutcome,
 } from "./x01.js";
