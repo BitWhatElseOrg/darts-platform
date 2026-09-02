@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { parseApplicationEnvironment } from "@darts-platform/config";
-import { auditEvents, boardControllerLeases, boards, legs, matches, memberships, organizations, outboxEvents, players, scoreCommands, users, visits } from "@darts-platform/database";
+import { auditEvents, boardControllerLeases, boards, legs, matches, matchParticipantPlayers, memberships, organizations, outboxEvents, players, scoreCommands, users, visits } from "@darts-platform/database";
 import type { AuthContext } from "../auth/auth.types.js";
 import { DatabaseService } from "../database/database.service.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
@@ -126,5 +126,39 @@ describe("persistent X01 match", () => {
     expect(persistedVisits).toHaveLength(6);
     const events = await databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.organizationId, organizationId), eq(outboxEvents.aggregateId, state.id)));
     expect(events.some((event) => event.eventType === "MATCH_COMPLETED")).toBe(true);
+  });
+  it("persists seats alongside the legacy player columns", async () => {
+    const state = await service.create({
+      organizationId,
+      data: {
+        playerOneId,
+        playerTwoId,
+        startingPlayerId: playerOneId,
+        boardId: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+      },
+      auth,
+      audit,
+    });
+
+    const [row] = await databaseService.database
+      .select().from(matches).where(eq(matches.id, state.id));
+    expect(row?.startingSeat).toBe(1);
+    expect(row?.currentSeat).toBe(1);
+    expect(row?.startingPlayerId).toBe(playerOneId);
+
+    const [legRow] = await databaseService.database
+      .select().from(legs).where(eq(legs.matchId, state.id));
+    expect(legRow?.startingSeat).toBe(1);
+
+    const sideRows = await databaseService.database
+      .select().from(matchParticipantPlayers)
+      .where(eq(matchParticipantPlayers.matchId, state.id));
+    expect(sideRows).toHaveLength(2);
+    expect(sideRows.every((side) => side.position === 1)).toBe(true);
+    expect(sideRows.map((side) => side.playerId).sort()).toEqual(
+      [playerOneId, playerTwoId].sort(),
+    );
   });
 });

@@ -114,6 +114,8 @@ async function createFixture(database: Database): Promise<{
       bestOfLegs: 1,
       startingPlayerId: playerId,
       currentPlayerId: playerId,
+      startingSeat: 1,
+      currentSeat: 1,
     },
     {
       id: freeScoringMatchId,
@@ -121,6 +123,8 @@ async function createFixture(database: Database): Promise<{
       bestOfLegs: 1,
       startingPlayerId: playerId,
       currentPlayerId: playerId,
+      startingSeat: 1,
+      currentSeat: 1,
     },
   ]);
   await database.insert(tournaments).values({

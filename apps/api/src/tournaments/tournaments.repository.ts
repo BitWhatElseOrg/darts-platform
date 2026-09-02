@@ -7,6 +7,7 @@ import {
   boards,
   legs,
   matches,
+  matchParticipantPlayers,
   matchParticipants,
   outboxEvents,
   players,
@@ -638,18 +639,28 @@ export class TournamentsRepository {
           setsToWin: tournament.setsToWin,
           startingPlayerId: scheduled.participantOneId,
           currentPlayerId: scheduled.participantOneId,
+          startingSeat: 1,
+          currentSeat: 1,
         })
         .returning();
       if (scoringMatch === undefined) throw new Error("Scoring match insert did not return a row.");
-      await transaction.insert(matchParticipants).values([
+      const scoringParticipants = await transaction.insert(matchParticipants).values([
         { organizationId: input.organizationId, matchId: scoringMatch.id, playerId: scheduled.participantOneId, seat: 1 },
         { organizationId: input.organizationId, matchId: scoringMatch.id, playerId: scheduled.participantTwoId, seat: 2 },
-      ]);
+      ]).returning();
+      await transaction.insert(matchParticipantPlayers).values(scoringParticipants.map((participant) => ({
+        organizationId: input.organizationId,
+        matchId: scoringMatch.id,
+        participantId: participant.id,
+        playerId: participant.playerId,
+        position: 1,
+      })));
       await transaction.insert(legs).values({
         organizationId: input.organizationId,
         matchId: scoringMatch.id,
         legNumber: 1,
         startingPlayerId: scheduled.participantOneId,
+        startingSeat: 1,
       });
       const nextVersion = tournament.version + 1;
       await transaction

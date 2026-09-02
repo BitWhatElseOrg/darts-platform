@@ -2,7 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  auditEvents, boardControllerLeases, boards, legs, matches, matchParticipants, outboxEvents, players, scoreCommands,
+  auditEvents, boardControllerLeases, boards, legs, matches, matchParticipantPlayers, matchParticipants, outboxEvents, players, scoreCommands,
   tournamentCommands, tournamentGroups, tournamentMatches,
   tournaments, tournamentStages,
   visits,
@@ -58,6 +58,12 @@ function parseStoredCommand(payload: unknown, seatOfPlayer: (playerId: string) =
   return { ...base, checkoutAttempts: parsed.checkoutAttempts, ...(parsed.checkoutDouble === undefined ? {} : { checkoutDouble: parsed.checkoutDouble }) };
 }
 
+interface LoadedSide {
+  readonly seat: 1 | 2;
+  readonly participantId: string;
+  readonly playerIds: readonly string[];
+}
+
 /**
  * Löst einen Sitz auf die Person auf, die ihn belegt. In Phase 1 hat jeder Sitz
  * genau eine Person, weshalb die erste Position genügt.
@@ -94,7 +100,8 @@ export class MatchesRepository {
     const commandRows = await this.databaseService.database.select().from(scoreCommands)
       .where(and(eq(scoreCommands.organizationId, organizationId), eq(scoreCommands.matchId, matchId)))
       .orderBy(asc(scoreCommands.resultingVersion));
-    const aggregate = this.aggregate(matchRow.match, participantRows.map((row) => row.participant), commandRows.map((row) => row.payload));
+    const loadedSides = await this.loadSides(this.databaseService.database, organizationId, matchId);
+    const aggregate = this.aggregate(matchRow.match, loadedSides, commandRows.map((row) => row.payload));
     const projection = projectX01Match(aggregate);
     const [legRow] = await this.databaseService.database.select().from(legs)
       .where(and(eq(legs.organizationId, organizationId), eq(legs.matchId, matchId), eq(legs.legNumber, projection.legNumber))).limit(1);
@@ -145,17 +152,23 @@ export class MatchesRepository {
         const [board] = await transaction.select().from(boards).where(and(eq(boards.organizationId, input.organizationId), eq(boards.id, input.data.boardId))).for("update").limit(1);
         if (board === undefined || board.status !== "AVAILABLE") throw new ScoringValidationError("BOARD_NOT_AVAILABLE", "Selected board is not available.");
       }
+      const startingSeat = input.data.startingPlayerId === input.data.playerOneId ? 1 : 2;
       const [created] = await transaction.insert(matches).values({
         organizationId: input.organizationId, boardId: input.data.boardId ?? null, bestOfLegs: input.data.bestOfLegs,
         legsToWinSet: Math.floor(input.data.bestOfLegs / 2) + 1, setsToWin: Math.floor(input.data.bestOfSets / 2) + 1,
         startingPlayerId: input.data.startingPlayerId, currentPlayerId: input.data.startingPlayerId,
+        startingSeat, currentSeat: startingSeat,
       }).returning();
       if (created === undefined) throw new Error("Match insert did not return a row.");
-      await transaction.insert(matchParticipants).values([
+      const participantRows = await transaction.insert(matchParticipants).values([
         { organizationId: input.organizationId, matchId: created.id, playerId: input.data.playerOneId, seat: 1 },
         { organizationId: input.organizationId, matchId: created.id, playerId: input.data.playerTwoId, seat: 2 },
-      ]);
-      await transaction.insert(legs).values({ organizationId: input.organizationId, matchId: created.id, legNumber: 1, startingPlayerId: input.data.startingPlayerId });
+      ]).returning();
+      await transaction.insert(matchParticipantPlayers).values(participantRows.map((participant) => ({
+        organizationId: input.organizationId, matchId: created.id, participantId: participant.id,
+        playerId: participant.playerId, position: 1,
+      })));
+      await transaction.insert(legs).values({ organizationId: input.organizationId, matchId: created.id, legNumber: 1, startingPlayerId: input.data.startingPlayerId, startingSeat });
       if (input.data.boardId !== undefined && input.data.boardId !== null) await transaction.update(boards).set({ status: "IN_USE", updatedAt: new Date() }).where(and(eq(boards.organizationId, input.organizationId), eq(boards.id, input.data.boardId)));
       await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Match", aggregateId: created.id, eventType: "MATCH_STARTED", payload: { matchId: created.id } });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: "MATCH_CREATED", entityType: "Match", entityId: created.id, newValue: created, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
@@ -245,9 +258,9 @@ export class MatchesRepository {
           );
         }
       }
-      const participantRows = await transaction.select().from(matchParticipants).where(and(eq(matchParticipants.organizationId, input.organizationId), eq(matchParticipants.matchId, input.matchId))).orderBy(asc(matchParticipants.seat));
+      const loadedSides = await this.loadSides(transaction, input.organizationId, input.matchId);
       const commandRows = await transaction.select({ payload: scoreCommands.payload }).from(scoreCommands).where(and(eq(scoreCommands.organizationId, input.organizationId), eq(scoreCommands.matchId, input.matchId))).orderBy(asc(scoreCommands.resultingVersion));
-      const aggregate = this.aggregate(match, participantRows, commandRows.map((row) => row.payload));
+      const aggregate = this.aggregate(match, loadedSides, commandRows.map((row) => row.payload));
       const commandSide = aggregate.sides.find((side) => side.playerIds.includes(input.data.playerId));
       if (commandSide === undefined) {
         throw new ScoringValidationError("INVALID_MATCH_PARTICIPANTS", "The player does not belong to this match.");
@@ -260,7 +273,7 @@ export class MatchesRepository {
       if (leg === undefined) throw new Error("Active leg invariant violated.");
       const nextVersion = match.version + 1;
       const [createdVisit] = await transaction.insert(visits).values({
-        organizationId: input.organizationId, matchId: input.matchId, legId: leg.id, playerId: applied.throwerPlayerId,
+        organizationId: input.organizationId, matchId: input.matchId, legId: leg.id, playerId: applied.throwerPlayerId, seat: applied.seat,
         commandId: input.data.commandId, sequence: nextVersion, points: applied.points, appliedPoints: applied.appliedPoints,
         dartsThrown: applied.dartsThrown, scoreBefore: applied.scoreBefore, scoreAfter: applied.scoreAfter,
         checkoutDouble: applied.checkoutDouble, outcome: applied.outcome,
@@ -268,10 +281,10 @@ export class MatchesRepository {
       }).returning();
       if (createdVisit === undefined) throw new Error("Visit insert did not return a row.");
       const wonLeg = applied.outcome.endsWith("WON");
-      await transaction.update(legs).set({ version: leg.version + 1, ...(wonLeg ? { status: "COMPLETED", winnerPlayerId: applied.throwerPlayerId, completedAt: new Date() } : {}), updatedAt: new Date() }).where(and(eq(legs.organizationId, input.organizationId), eq(legs.id, leg.id)));
+      await transaction.update(legs).set({ version: leg.version + 1, ...(wonLeg ? { status: "COMPLETED", winnerPlayerId: applied.throwerPlayerId, winnerSeat: applied.seat, completedAt: new Date() } : {}), updatedAt: new Date() }).where(and(eq(legs.organizationId, input.organizationId), eq(legs.id, leg.id)));
       const legStartingPlayerId = playerOfSeat(result.state, result.state.legStartingSeat);
       if (legStartingPlayerId === null) throw new Error("Leg starting seat invariant violated.");
-      if (wonLeg && result.state.status === "IN_PROGRESS") await transaction.insert(legs).values({ organizationId: input.organizationId, matchId: input.matchId, legNumber: result.state.legNumber, startingPlayerId: legStartingPlayerId });
+      if (wonLeg && result.state.status === "IN_PROGRESS") await transaction.insert(legs).values({ organizationId: input.organizationId, matchId: input.matchId, legNumber: result.state.legNumber, startingPlayerId: legStartingPlayerId, startingSeat: result.state.legStartingSeat });
       await this.syncProjection(transaction, input, match.boardId, nextVersion, result.state);
       const matchWinnerPlayerId = playerOfSeat(result.state, result.state.winnerSeat);
       if (result.state.status === "COMPLETED" && matchWinnerPlayerId !== null) {
@@ -425,16 +438,7 @@ export class MatchesRepository {
       if (latest === undefined || !latest.outcome.endsWith("WON")) {
         return "result-not-correctable";
       }
-      const participantRows = await transaction
-        .select()
-        .from(matchParticipants)
-        .where(
-          and(
-            eq(matchParticipants.organizationId, input.organizationId),
-            eq(matchParticipants.matchId, scoringMatch.id),
-          ),
-        )
-        .orderBy(asc(matchParticipants.seat));
+      const loadedSides = await this.loadSides(transaction, input.organizationId, scoringMatch.id);
       const commandRows = await transaction
         .select({ payload: scoreCommands.payload })
         .from(scoreCommands)
@@ -447,7 +451,7 @@ export class MatchesRepository {
         .orderBy(asc(scoreCommands.resultingVersion));
       const aggregate = this.aggregate(
         scoringMatch,
-        participantRows,
+        loadedSides,
         commandRows.map((row) => row.payload),
       );
       const undoCommand: X01Command = {
@@ -695,9 +699,9 @@ export class MatchesRepository {
       }
       const [latest] = await transaction.select().from(visits).where(and(eq(visits.organizationId, input.organizationId), eq(visits.matchId, input.matchId), isNull(visits.revertedAt))).orderBy(desc(visits.sequence)).limit(1);
       if (latest === undefined) throw new ScoringValidationError("NOTHING_TO_UNDO", "There is no visit to undo.");
-      const participantRows = await transaction.select().from(matchParticipants).where(and(eq(matchParticipants.organizationId, input.organizationId), eq(matchParticipants.matchId, input.matchId))).orderBy(asc(matchParticipants.seat));
+      const loadedSides = await this.loadSides(transaction, input.organizationId, input.matchId);
       const commandRows = await transaction.select({ payload: scoreCommands.payload }).from(scoreCommands).where(and(eq(scoreCommands.organizationId, input.organizationId), eq(scoreCommands.matchId, input.matchId))).orderBy(asc(scoreCommands.resultingVersion));
-      const aggregate = this.aggregate(match, participantRows, commandRows.map((row) => row.payload));
+      const aggregate = this.aggregate(match, loadedSides, commandRows.map((row) => row.payload));
       const command: X01Command = { type: "UNDO_LAST_VISIT", commandId: input.data.commandId, targetCommandId: latest.commandId };
       const result = executeX01Command(aggregate, command);
       const nextVersion = match.version + 1;
@@ -705,7 +709,7 @@ export class MatchesRepository {
       await transaction.delete(legs).where(and(eq(legs.organizationId, input.organizationId), eq(legs.matchId, input.matchId), eq(legs.legNumber, result.state.legNumber + 1)));
       const [currentLeg] = await transaction.select().from(legs).where(and(eq(legs.organizationId, input.organizationId), eq(legs.matchId, input.matchId), eq(legs.legNumber, result.state.legNumber))).for("update").limit(1);
       if (currentLeg === undefined) throw new Error("Undo leg invariant violated.");
-      await transaction.update(legs).set({ status: "IN_PROGRESS", winnerPlayerId: null, completedAt: null, version: currentLeg.version + 1, updatedAt: new Date() }).where(eq(legs.id, currentLeg.id));
+      await transaction.update(legs).set({ status: "IN_PROGRESS", winnerPlayerId: null, winnerSeat: null, completedAt: null, version: currentLeg.version + 1, updatedAt: new Date() }).where(eq(legs.id, currentLeg.id));
       await this.syncProjection(transaction, input, match.boardId, nextVersion, result.state);
       await transaction.insert(scoreCommands).values({ commandId: input.data.commandId, organizationId: input.organizationId, matchId: input.matchId, type: command.type, payload: command, resultingVersion: nextVersion });
       await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Match", aggregateId: input.matchId, eventType: "VISIT_REVERTED", payload: { matchId: input.matchId, visitId: latest.id, commandId: input.data.commandId, version: nextVersion } });
@@ -787,18 +791,62 @@ export class MatchesRepository {
       );
   }
 
-  private aggregate(match: typeof matches.$inferSelect, participantRows: readonly (typeof matchParticipants.$inferSelect)[], payloads: readonly unknown[]): X01Match {
-    const first = participantRows[0]; const second = participantRows[1];
+  /**
+   * Laedt die beiden Seiten eines Matches samt ihrer Besetzung, nach Sitz und
+   * innerhalb der Seite nach Position sortiert.
+   */
+  private async loadSides(
+    transaction:
+      | Parameters<Parameters<typeof this.databaseService.database.transaction>[0]>[0]
+      | typeof this.databaseService.database,
+    organizationId: string,
+    matchId: string,
+  ): Promise<readonly [LoadedSide, LoadedSide]> {
+    const rows = await transaction
+      .select({
+        seat: matchParticipants.seat,
+        participantId: matchParticipants.id,
+        playerId: matchParticipantPlayers.playerId,
+        position: matchParticipantPlayers.position,
+      })
+      .from(matchParticipants)
+      .innerJoin(
+        matchParticipantPlayers,
+        and(
+          eq(matchParticipantPlayers.participantId, matchParticipants.id),
+          eq(matchParticipantPlayers.organizationId, organizationId),
+        ),
+      )
+      .where(and(eq(matchParticipants.organizationId, organizationId), eq(matchParticipants.matchId, matchId)))
+      .orderBy(asc(matchParticipants.seat), asc(matchParticipantPlayers.position));
+
+    const bySeat = new Map<1 | 2, { participantId: string; playerIds: string[] }>();
+    for (const row of rows) {
+      if (row.seat !== 1 && row.seat !== 2) throw new Error("Match seat invariant violated.");
+      const existing = bySeat.get(row.seat);
+      if (existing === undefined) bySeat.set(row.seat, { participantId: row.participantId, playerIds: [row.playerId] });
+      else existing.playerIds.push(row.playerId);
+    }
+    const first = bySeat.get(1);
+    const second = bySeat.get(2);
     if (first === undefined || second === undefined) throw new Error("Match participant invariant violated.");
-    const sides: readonly [X01Side, X01Side] = [
-      { seat: 1, playerIds: [first.playerId] },
-      { seat: 2, playerIds: [second.playerId] },
+    return [
+      { seat: 1, participantId: first.participantId, playerIds: first.playerIds },
+      { seat: 2, participantId: second.participantId, playerIds: second.playerIds },
     ];
+  }
+
+  private aggregate(match: typeof matches.$inferSelect, loadedSides: readonly [LoadedSide, LoadedSide], payloads: readonly unknown[]): X01Match {
+    const sides: readonly [X01Side, X01Side] = [
+      { seat: loadedSides[0].seat, playerIds: loadedSides[0].playerIds },
+      { seat: loadedSides[1].seat, playerIds: loadedSides[1].playerIds },
+    ];
+    const startingSeat = match.startingSeat === 2 ? 2 : 1;
     const base = createX01Match({
-      sides, startingSeat: match.startingPlayerId === first.playerId ? 1 : 2,
+      sides, startingSeat,
       rules: { startingScore: match.startingScore, doubleOut: match.doubleOut, legsToWinSet: match.legsToWinSet, setsToWin: match.setsToWin },
     });
-    const seatOfPlayer = (playerId: string): 1 | 2 => (playerId === first.playerId ? 1 : 2);
+    const seatOfPlayer = (playerId: string): 1 | 2 => (sides[0].playerIds.includes(playerId) ? 1 : 2);
     return { ...base, commands: payloads.map((payload) => parseStoredCommand(payload, seatOfPlayer)) };
   }
 
@@ -810,7 +858,7 @@ export class MatchesRepository {
     state: ReturnType<typeof projectX01Match>,
   ): Promise<void> {
     await Promise.all(state.sides.map((side) => transaction.update(matchParticipants).set({ legsWon: side.totalLegsWon }).where(and(eq(matchParticipants.organizationId, input.organizationId), eq(matchParticipants.matchId, input.matchId), eq(matchParticipants.seat, side.seat)))));
-    await transaction.update(matches).set({ status: state.status, currentPlayerId: state.activeThrowerPlayerId, winnerPlayerId: playerOfSeat(state, state.winnerSeat), version, completedAt: state.status === "COMPLETED" ? new Date() : null, updatedAt: new Date() }).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId)));
+    await transaction.update(matches).set({ status: state.status, currentPlayerId: state.activeThrowerPlayerId, winnerPlayerId: playerOfSeat(state, state.winnerSeat), currentSeat: state.activeSeat, winnerSeat: state.winnerSeat, version, completedAt: state.status === "COMPLETED" ? new Date() : null, updatedAt: new Date() }).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId)));
     if (boardId !== null) await transaction.update(boards).set({ status: state.status === "COMPLETED" ? "AVAILABLE" : "IN_USE", updatedAt: new Date() }).where(and(eq(boards.organizationId, input.organizationId), eq(boards.id, boardId)));
   }
 
