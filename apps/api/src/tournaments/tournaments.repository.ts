@@ -637,29 +637,31 @@ export class TournamentsRepository {
           bestOfLegs: tournament.bestOfLegs,
           legsToWinSet: tournament.legsToWinSet,
           setsToWin: tournament.setsToWin,
-          startingPlayerId: scheduled.participantOneId,
-          currentPlayerId: scheduled.participantOneId,
           startingSeat: 1,
           currentSeat: 1,
         })
         .returning();
       if (scoringMatch === undefined) throw new Error("Scoring match insert did not return a row.");
       const scoringParticipants = await transaction.insert(matchParticipants).values([
-        { organizationId: input.organizationId, matchId: scoringMatch.id, playerId: scheduled.participantOneId, seat: 1 },
-        { organizationId: input.organizationId, matchId: scoringMatch.id, playerId: scheduled.participantTwoId, seat: 2 },
+        { organizationId: input.organizationId, matchId: scoringMatch.id, seat: 1 },
+        { organizationId: input.organizationId, matchId: scoringMatch.id, seat: 2 },
       ]).returning();
-      await transaction.insert(matchParticipantPlayers).values(scoringParticipants.map((participant) => ({
-        organizationId: input.organizationId,
-        matchId: scoringMatch.id,
-        participantId: participant.id,
-        playerId: participant.playerId,
-        position: 1,
-      })));
+      const playerOfScoringSeat = new Map([[1, scheduled.participantOneId], [2, scheduled.participantTwoId]]);
+      await transaction.insert(matchParticipantPlayers).values(scoringParticipants.map((participant) => {
+        const playerId = playerOfScoringSeat.get(participant.seat);
+        if (playerId === null || playerId === undefined) throw new Error("Scoring match seat invariant violated.");
+        return {
+          organizationId: input.organizationId,
+          matchId: scoringMatch.id,
+          participantId: participant.id,
+          playerId,
+          position: 1,
+        };
+      }));
       await transaction.insert(legs).values({
         organizationId: input.organizationId,
         matchId: scoringMatch.id,
         legNumber: 1,
-        startingPlayerId: scheduled.participantOneId,
         startingSeat: 1,
       });
       const nextVersion = tournament.version + 1;

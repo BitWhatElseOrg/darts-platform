@@ -111,7 +111,7 @@ export class MatchesRepository {
 
     const visitRows = await this.databaseService.database
       .select({ visit: visits, playerDisplayName: players.displayName, legNumber: legs.legNumber })
-      .from(visits).innerJoin(players, and(eq(players.id, visits.playerId), eq(players.organizationId, organizationId)))
+      .from(visits).innerJoin(players, and(eq(players.id, visits.throwerPlayerId), eq(players.organizationId, organizationId)))
       .innerJoin(legs, and(eq(legs.id, visits.legId), eq(legs.organizationId, organizationId)))
       .where(and(eq(visits.organizationId, organizationId), eq(visits.matchId, matchId)))
       .orderBy(desc(visits.sequence));
@@ -133,7 +133,7 @@ export class MatchesRepository {
       currentPlayerId: projection.activeThrowerPlayerId, winnerPlayerId: playerOfSeat(projection, projection.winnerSeat),
       participants: [participantState(first), participantState(second)],
       visits: visitRows.map(({ visit, playerDisplayName, legNumber }) => ({
-        id: visit.id, commandId: visit.commandId, playerId: visit.playerId, playerDisplayName,
+        id: visit.id, commandId: visit.commandId, playerId: visit.throwerPlayerId, playerDisplayName,
         legNumber,
         points: visit.points, appliedPoints: visit.appliedPoints, dartsThrown: visit.dartsThrown,
         scoreBefore: visit.scoreBefore, scoreAfter: visit.scoreAfter, checkoutDouble: visit.checkoutDouble,
@@ -158,19 +158,20 @@ export class MatchesRepository {
       const [created] = await transaction.insert(matches).values({
         organizationId: input.organizationId, boardId: input.data.boardId ?? null, bestOfLegs: input.data.bestOfLegs,
         legsToWinSet: Math.floor(input.data.bestOfLegs / 2) + 1, setsToWin: Math.floor(input.data.bestOfSets / 2) + 1,
-        startingPlayerId: input.data.startingPlayerId, currentPlayerId: input.data.startingPlayerId,
         startingSeat, currentSeat: startingSeat,
       }).returning();
       if (created === undefined) throw new Error("Match insert did not return a row.");
       const participantRows = await transaction.insert(matchParticipants).values([
-        { organizationId: input.organizationId, matchId: created.id, playerId: input.data.playerOneId, seat: 1 },
-        { organizationId: input.organizationId, matchId: created.id, playerId: input.data.playerTwoId, seat: 2 },
+        { organizationId: input.organizationId, matchId: created.id, seat: 1 },
+        { organizationId: input.organizationId, matchId: created.id, seat: 2 },
       ]).returning();
-      await transaction.insert(matchParticipantPlayers).values(participantRows.map((participant) => ({
-        organizationId: input.organizationId, matchId: created.id, participantId: participant.id,
-        playerId: participant.playerId, position: 1,
-      })));
-      await transaction.insert(legs).values({ organizationId: input.organizationId, matchId: created.id, legNumber: 1, startingPlayerId: input.data.startingPlayerId, startingSeat });
+      const playerOfNewSeat = new Map([[1, input.data.playerOneId], [2, input.data.playerTwoId]]);
+      await transaction.insert(matchParticipantPlayers).values(participantRows.map((participant) => {
+        const playerId = playerOfNewSeat.get(participant.seat);
+        if (playerId === undefined) throw new Error("Match seat invariant violated.");
+        return { organizationId: input.organizationId, matchId: created.id, participantId: participant.id, playerId, position: 1 };
+      }));
+      await transaction.insert(legs).values({ organizationId: input.organizationId, matchId: created.id, legNumber: 1, startingSeat });
       if (input.data.boardId !== undefined && input.data.boardId !== null) await transaction.update(boards).set({ status: "IN_USE", updatedAt: new Date() }).where(and(eq(boards.organizationId, input.organizationId), eq(boards.id, input.data.boardId)));
       await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Match", aggregateId: created.id, eventType: "MATCH_STARTED", payload: { matchId: created.id } });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: "MATCH_CREATED", entityType: "Match", entityId: created.id, newValue: created, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
@@ -275,7 +276,7 @@ export class MatchesRepository {
       if (leg === undefined) throw new Error("Active leg invariant violated.");
       const nextVersion = match.version + 1;
       const [createdVisit] = await transaction.insert(visits).values({
-        organizationId: input.organizationId, matchId: input.matchId, legId: leg.id, playerId: applied.throwerPlayerId, seat: applied.seat,
+        organizationId: input.organizationId, matchId: input.matchId, legId: leg.id, throwerPlayerId: applied.throwerPlayerId, seat: applied.seat,
         commandId: input.data.commandId, sequence: nextVersion, points: applied.points, appliedPoints: applied.appliedPoints,
         dartsThrown: applied.dartsThrown, scoreBefore: applied.scoreBefore, scoreAfter: applied.scoreAfter,
         checkoutDouble: applied.checkoutDouble, outcome: applied.outcome,
@@ -283,10 +284,8 @@ export class MatchesRepository {
       }).returning();
       if (createdVisit === undefined) throw new Error("Visit insert did not return a row.");
       const wonLeg = applied.outcome.endsWith("WON");
-      await transaction.update(legs).set({ version: leg.version + 1, ...(wonLeg ? { status: "COMPLETED", winnerPlayerId: applied.throwerPlayerId, winnerSeat: applied.seat, completedAt: new Date() } : {}), updatedAt: new Date() }).where(and(eq(legs.organizationId, input.organizationId), eq(legs.id, leg.id)));
-      const legStartingPlayerId = playerOfSeat(result.state, result.state.legStartingSeat);
-      if (legStartingPlayerId === null) throw new Error("Leg starting seat invariant violated.");
-      if (wonLeg && result.state.status === "IN_PROGRESS") await transaction.insert(legs).values({ organizationId: input.organizationId, matchId: input.matchId, legNumber: result.state.legNumber, startingPlayerId: legStartingPlayerId, startingSeat: result.state.legStartingSeat });
+      await transaction.update(legs).set({ version: leg.version + 1, ...(wonLeg ? { status: "COMPLETED", winnerSeat: applied.seat, completedAt: new Date() } : {}), updatedAt: new Date() }).where(and(eq(legs.organizationId, input.organizationId), eq(legs.id, leg.id)));
+      if (wonLeg && result.state.status === "IN_PROGRESS") await transaction.insert(legs).values({ organizationId: input.organizationId, matchId: input.matchId, legNumber: result.state.legNumber, startingSeat: result.state.legStartingSeat });
       await this.syncProjection(transaction, input, match.boardId, nextVersion, result.state);
       const matchWinnerPlayerId = playerOfSeat(result.state, result.state.winnerSeat);
       if (result.state.status === "COMPLETED" && matchWinnerPlayerId !== null) {
@@ -501,7 +500,7 @@ export class MatchesRepository {
         .update(legs)
         .set({
           status: "IN_PROGRESS",
-          winnerPlayerId: null,
+          winnerSeat: null,
           completedAt: null,
           version: currentLeg.version + 1,
           updatedAt: new Date(),
@@ -711,7 +710,7 @@ export class MatchesRepository {
       await transaction.delete(legs).where(and(eq(legs.organizationId, input.organizationId), eq(legs.matchId, input.matchId), eq(legs.legNumber, result.state.legNumber + 1)));
       const [currentLeg] = await transaction.select().from(legs).where(and(eq(legs.organizationId, input.organizationId), eq(legs.matchId, input.matchId), eq(legs.legNumber, result.state.legNumber))).for("update").limit(1);
       if (currentLeg === undefined) throw new Error("Undo leg invariant violated.");
-      await transaction.update(legs).set({ status: "IN_PROGRESS", winnerPlayerId: null, winnerSeat: null, completedAt: null, version: currentLeg.version + 1, updatedAt: new Date() }).where(eq(legs.id, currentLeg.id));
+      await transaction.update(legs).set({ status: "IN_PROGRESS", winnerSeat: null, completedAt: null, version: currentLeg.version + 1, updatedAt: new Date() }).where(eq(legs.id, currentLeg.id));
       await this.syncProjection(transaction, input, match.boardId, nextVersion, result.state);
       await transaction.insert(scoreCommands).values({ commandId: input.data.commandId, organizationId: input.organizationId, matchId: input.matchId, type: command.type, payload: command, resultingVersion: nextVersion });
       await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Match", aggregateId: input.matchId, eventType: "VISIT_REVERTED", payload: { matchId: input.matchId, visitId: latest.id, commandId: input.data.commandId, version: nextVersion } });
@@ -860,7 +859,7 @@ export class MatchesRepository {
     state: ReturnType<typeof projectX01Match>,
   ): Promise<void> {
     await Promise.all(state.sides.map((side) => transaction.update(matchParticipants).set({ legsWon: side.totalLegsWon }).where(and(eq(matchParticipants.organizationId, input.organizationId), eq(matchParticipants.matchId, input.matchId), eq(matchParticipants.seat, side.seat)))));
-    await transaction.update(matches).set({ status: state.status, currentPlayerId: state.activeThrowerPlayerId, winnerPlayerId: playerOfSeat(state, state.winnerSeat), currentSeat: state.activeSeat, winnerSeat: state.winnerSeat, version, completedAt: state.status === "COMPLETED" ? new Date() : null, updatedAt: new Date() }).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId)));
+    await transaction.update(matches).set({ status: state.status, currentSeat: state.activeSeat, winnerSeat: state.winnerSeat, version, completedAt: state.status === "COMPLETED" ? new Date() : null, updatedAt: new Date() }).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId)));
     if (boardId !== null) await transaction.update(boards).set({ status: state.status === "COMPLETED" ? "AVAILABLE" : "IN_USE", updatedAt: new Date() }).where(and(eq(boards.organizationId, input.organizationId), eq(boards.id, boardId)));
   }
 

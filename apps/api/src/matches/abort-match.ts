@@ -40,8 +40,6 @@ export async function abortScoringMatch(transaction: Transaction, input: {
   await transaction.update(matches).set({
     status: "ABORTED",
     boardId: null,
-    currentPlayerId: null,
-    winnerPlayerId: null,
     currentSeat: null,
     winnerSeat: null,
     completedAt: null,

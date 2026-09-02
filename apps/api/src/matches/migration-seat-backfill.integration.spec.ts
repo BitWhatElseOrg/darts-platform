@@ -162,4 +162,22 @@ describe("seat model migration", () => {
     )) as unknown as readonly { readonly seat: number }[];
     expect(visitSeats.map((row) => row.seat)).toEqual([1, 2, 1, 2]);
   });
+  it("drops the legacy player columns and renames the visit thrower", async () => {
+    const columns = (await connection.database.execute(
+      sql`select table_name, column_name from information_schema.columns
+          where table_name in ('matches', 'legs', 'visits', 'match_participants')`,
+    )) as unknown as readonly {
+      readonly table_name: string;
+      readonly column_name: string;
+    }[];
+    const names = columns.map((row) => `${row.table_name}.${row.column_name}`);
+    expect(names).toContain("visits.thrower_player_id");
+    expect(names).not.toContain("visits.player_id");
+    expect(names).not.toContain("matches.starting_player_id");
+    expect(names).not.toContain("matches.current_player_id");
+    expect(names).not.toContain("matches.winner_player_id");
+    expect(names).not.toContain("legs.starting_player_id");
+    expect(names).not.toContain("legs.winner_player_id");
+    expect(names).not.toContain("match_participants.player_id");
+  });
 });

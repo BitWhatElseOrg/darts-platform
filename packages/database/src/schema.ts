@@ -314,11 +314,6 @@ export const matches = pgTable(
     legsToWinSet: integer("legs_to_win_set").default(2).notNull(),
     setsToWin: integer("sets_to_win").default(1).notNull(),
     version: integer("version").default(0).notNull(),
-    startingPlayerId: uuid("starting_player_id")
-      .notNull()
-      .references(() => players.id, { onDelete: "restrict" }),
-    currentPlayerId: uuid("current_player_id").references(() => players.id, { onDelete: "restrict" }),
-    winnerPlayerId: uuid("winner_player_id").references(() => players.id, { onDelete: "restrict" }),
     startingSeat: integer("starting_seat").notNull(),
     currentSeat: integer("current_seat"),
     winnerSeat: integer("winner_seat"),
@@ -364,14 +359,10 @@ export const matchParticipants = pgTable(
     matchId: uuid("match_id")
       .notNull()
       .references(() => matches.id, { onDelete: "cascade" }),
-    playerId: uuid("player_id")
-      .notNull()
-      .references(() => players.id, { onDelete: "restrict" }),
     seat: integer("seat").notNull(),
     legsWon: integer("legs_won").default(0).notNull(),
   },
   (table) => [
-    uniqueIndex("match_participants_match_player_unique").on(table.matchId, table.playerId),
     uniqueIndex("match_participants_match_seat_unique").on(table.matchId, table.seat),
     index("match_participants_organization_id_idx").on(table.organizationId),
     check("match_participants_seat_check", sql`${table.seat} in (1, 2)`),
@@ -416,10 +407,6 @@ export const legs = pgTable(
       .notNull()
       .references(() => matches.id, { onDelete: "cascade" }),
     legNumber: integer("leg_number").notNull(),
-    startingPlayerId: uuid("starting_player_id")
-      .notNull()
-      .references(() => players.id, { onDelete: "restrict" }),
-    winnerPlayerId: uuid("winner_player_id").references(() => players.id, { onDelete: "restrict" }),
     startingSeat: integer("starting_seat").notNull(),
     winnerSeat: integer("winner_seat"),
     status: varchar("status", { length: 30 }).default("IN_PROGRESS").notNull(),
@@ -451,7 +438,7 @@ export const visits = pgTable(
     legId: uuid("leg_id")
       .notNull()
       .references(() => legs.id, { onDelete: "cascade" }),
-    playerId: uuid("player_id")
+    throwerPlayerId: uuid("thrower_player_id")
       .notNull()
       .references(() => players.id, { onDelete: "restrict" }),
     seat: integer("seat").notNull(),

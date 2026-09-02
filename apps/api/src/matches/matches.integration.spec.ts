@@ -146,7 +146,6 @@ describe("persistent X01 match", () => {
       .select().from(matches).where(eq(matches.id, state.id));
     expect(row?.startingSeat).toBe(1);
     expect(row?.currentSeat).toBe(1);
-    expect(row?.startingPlayerId).toBe(playerOneId);
 
     const [legRow] = await databaseService.database
       .select().from(legs).where(eq(legs.matchId, state.id));

@@ -36,7 +36,7 @@ async function rebuild(playerId: string, organizationId: string): Promise<void> 
     return [{ id: match.id, completedAt: match.completedAt, winnerPlayerId, participants: [
       { playerId: first.playerId, displayName: first.displayName, legsWon: first.legsWon, setsWon: first.seat === match.winnerSeat ? 1 : 0 },
       { playerId: second.playerId, displayName: second.displayName, legsWon: second.legsWon, setsWon: second.seat === match.winnerSeat ? 1 : 0 },
-    ], legs: legRows.filter((leg) => leg.matchId === match.id).map((leg) => ({ id: leg.id, winnerPlayerId: playerOfSeat(leg.winnerSeat) })), visits: visitRows.filter((visit) => visit.matchId === match.id).map((visit) => ({ legId: visit.legId, playerId: visit.playerId, appliedPoints: visit.appliedPoints, dartsThrown: visit.dartsThrown, checkoutAttempts: visit.checkoutAttempts, outcome: visit.outcome as "SCORED" | "BUST" | "LEG_WON" | "SET_WON" | "MATCH_WON", reverted: visit.revertedAt !== null })) }];
+    ], legs: legRows.filter((leg) => leg.matchId === match.id).map((leg) => ({ id: leg.id, winnerPlayerId: playerOfSeat(leg.winnerSeat) })), visits: visitRows.filter((visit) => visit.matchId === match.id).map((visit) => ({ legId: visit.legId, playerId: visit.throwerPlayerId, appliedPoints: visit.appliedPoints, dartsThrown: visit.dartsThrown, checkoutAttempts: visit.checkoutAttempts, outcome: visit.outcome as "SCORED" | "BUST" | "LEG_WON" | "SET_WON" | "MATCH_WON", reverted: visit.revertedAt !== null })) }];
   });
   const aggregate = calculatePlayerStatistics(playerId, statisticsMatches);
   const now = new Date();
@@ -50,7 +50,7 @@ async function run(): Promise<void> {
   try {
     const events = await connection.database.select().from(outboxEvents).where(and(eq(outboxEvents.eventType, "MATCH_COMPLETED"), isNull(outboxEvents.statisticsProcessedAt))).orderBy(asc(outboxEvents.occurredAt)).limit(20);
     for (const event of events) {
-      const participantRows = await connection.database.select({ playerId: matchParticipants.playerId }).from(matchParticipants).where(and(eq(matchParticipants.organizationId, event.organizationId), eq(matchParticipants.matchId, event.aggregateId)));
+      const participantRows = await connection.database.select({ playerId: matchParticipantPlayers.playerId }).from(matchParticipantPlayers).where(and(eq(matchParticipantPlayers.organizationId, event.organizationId), eq(matchParticipantPlayers.matchId, event.aggregateId)));
       for (const participant of participantRows) await rebuild(participant.playerId, event.organizationId);
       await connection.database.update(outboxEvents).set({ statisticsProcessedAt: new Date() }).where(and(eq(outboxEvents.id, event.id), isNull(outboxEvents.statisticsProcessedAt)));
     }
