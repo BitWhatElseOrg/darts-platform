@@ -8,7 +8,8 @@ const valid = {
   startsAt: new Date("2026-09-12T12:00:00.000Z"),
   format: "GROUPS_THEN_KNOCKOUT" as const,
   startingScore: 501 as const,
-  doubleOut: true,
+  inRule: "STRAIGHT" as const,
+  outRule: "DOUBLE" as const,
   bestOfLegs: 3,
   participantIds: Array.from({ length: 8 }, (_, index) => id(index + 1)),
   groupCount: 2,
@@ -21,6 +22,14 @@ const valid = {
 describe("create tournament contract", () => {
   it("accepts a structurally valid tournament", () => {
     expect(createTournamentSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("rejects an out rule the platform does not know", () => {
+    expect(createTournamentSchema.safeParse({ ...valid, outRule: "TRIPLE" }).success).toBe(false);
+  });
+
+  it("defaults the round limit to null", () => {
+    expect(createTournamentSchema.parse(valid).maxRounds).toBeNull();
   });
 
   it("rejects duplicate participants and boards", () => {
@@ -77,7 +86,7 @@ describe("withdraw tournament participant contract", () => {
 describe("tournament disruption projection", () => {
   it("exposes withdrawn participants and walkover results", () => {
     const parsed = tournamentDashboardSchema.parse({
-      tournament: { id: id(1), organizationId: id(2), name: "Cup", status: "KNOCKOUT", format: "SINGLE_ELIMINATION", version: 4, stageLabel: "K.-o.-Runde", startingScore: 501, doubleOut: true, playedMatches: 1, totalMatches: 3, startsAt: new Date() },
+      tournament: { id: id(1), organizationId: id(2), name: "Cup", status: "KNOCKOUT", format: "SINGLE_ELIMINATION", version: 4, stageLabel: "K.-o.-Runde", startingScore: 501, inRule: "STRAIGHT", outRule: "DOUBLE", playedMatches: 1, totalMatches: 3, startsAt: new Date() },
       participants: [{ playerId: id(3), displayName: "Alex", seed: 1, status: "WITHDRAWN", withdrawnAt: new Date(), withdrawalReason: "Verletzung" }],
       boards: [], queue: [], conflicts: [], groups: [],
       bracket: [{ matchId: id(4), stageLabel: "K.-o. · Runde 1", round: 1, position: 1, status: "COMPLETED", resultType: "WALKOVER", participantNames: ["Alex", "Bea"], winnerDisplayName: "Bea" }],

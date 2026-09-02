@@ -5,6 +5,21 @@ import type { TournamentDashboard } from "@darts-platform/schemas";
 
 import { calendarDate, clockTime, statusLabel } from "@/lib/tournament-format";
 
+function inRuleLabel(rule: "STRAIGHT" | "DOUBLE"): string {
+  return rule === "DOUBLE" ? "Double In" : "Straight In";
+}
+
+function outRuleLabel(rule: "SINGLE" | "DOUBLE" | "MASTER"): string {
+  switch (rule) {
+    case "SINGLE":
+      return "Single Out";
+    case "DOUBLE":
+      return "Double Out";
+    case "MASTER":
+      return "Master Out";
+  }
+}
+
 interface DashboardHeaderProps {
   readonly dashboard: TournamentDashboard;
   readonly connection: "live" | "offline";
@@ -31,7 +46,8 @@ export function DashboardHeader({ connection, dashboard, pendingCount }: Dashboa
           </div>
           <p className="mt-1.5 font-plate text-[0.875rem] text-sisal-500">
             {tournament.stageLabel} · {calendarDate(tournament.startsAt)} ·{" "}
-            {tournament.startingScore} {tournament.doubleOut ? "Double Out" : "Straight Out"}
+            {tournament.startingScore} {inRuleLabel(tournament.inRule)} ·{" "}
+            {outRuleLabel(tournament.outRule)}
           </p>
         </div>
 

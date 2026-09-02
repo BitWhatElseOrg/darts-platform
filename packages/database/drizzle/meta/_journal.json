@@ -113,6 +113,20 @@
       "when": 1788374108812,
       "tag": "0015_square_blazing_skull",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1788376150910,
+      "tag": "0016_petite_thanos",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788376161026,
+      "tag": "0017_public_black_bird",
+      "breakpoints": true
     }
   ]
 }

@@ -19,6 +19,8 @@ import {
   tournamentSummarySchema,
   type BoardResponse,
   type CreateTournamentInput,
+  type InRule,
+  type OutRule,
   type PlayerResponse,
   type SeedingMode,
   type TournamentFormat,
@@ -41,7 +43,8 @@ interface SetupFormValues {
   startsAt: string;
   format: TournamentFormat;
   startingScore: string;
-  doubleOut: boolean;
+  inRule: InRule;
+  outRule: OutRule;
   bestOfLegs: string;
   bestOfSets: string;
   participantIds: string[];
@@ -63,6 +66,8 @@ const MESSAGES: Record<string, string> = {
   boardIds: "Wähle mindestens ein Board, auf dem gespielt wird.",
   bestOfLegs: "Best of Legs muss eine ungerade Zahl sein.",
   bestOfSets: "Best of Sets muss eine ungerade Zahl sein.",
+  inRule: "Wähle, wie ein Leg eröffnet wird.",
+  outRule: "Wähle, wie ein Leg geschlossen wird.",
 };
 
 export function SetupSheet({ organizationId, players, boards }: {
@@ -82,7 +87,8 @@ export function SetupSheet({ organizationId, players, boards }: {
       startsAt: "2026-09-12",
       format: "GROUPS_THEN_KNOCKOUT",
       startingScore: "501",
-      doubleOut: true,
+      inRule: "STRAIGHT",
+      outRule: "DOUBLE",
       bestOfLegs: "3",
       bestOfSets: "1",
       participantIds: players.slice(0, 32).map((player) => player.id),
@@ -153,7 +159,9 @@ export function SetupSheet({ organizationId, players, boards }: {
       startsAt: new Date(`${formValues.startsAt}T18:00:00.000Z`),
       format: formValues.format,
       startingScore: Number(formValues.startingScore),
-      doubleOut: formValues.doubleOut,
+      inRule: formValues.inRule,
+      outRule: formValues.outRule,
+      maxRounds: null,
       bestOfLegs: Number(formValues.bestOfLegs),
       bestOfSets: Number(formValues.bestOfSets),
       participantIds: [...formValues.participantIds],
@@ -296,14 +304,27 @@ export function SetupSheet({ organizationId, players, boards }: {
                     <option value="7">Best of 7</option>
                   </SelectInput>
                 </Field>
-                <label className="flex min-h-11 items-center gap-2.5 self-end font-plate text-[0.875rem] text-wedge-900">
-                  <input
-                    className="size-4 accent-ring-green"
-                    type="checkbox"
-                    {...register("doubleOut")}
-                  />
-                  Double Out
-                </label>
+                <Field error={contractErrors.inRule ?? null} htmlFor="inRule" label="In-Regel">
+                  <SelectInput
+                    aria-describedby={contractErrors.inRule ? "inRule-error" : undefined}
+                    id="inRule"
+                    {...register("inRule")}
+                  >
+                    <option value="STRAIGHT">Straight In</option>
+                    <option value="DOUBLE">Double In</option>
+                  </SelectInput>
+                </Field>
+                <Field error={contractErrors.outRule ?? null} htmlFor="outRule" label="Out-Regel">
+                  <SelectInput
+                    aria-describedby={contractErrors.outRule ? "outRule-error" : undefined}
+                    id="outRule"
+                    {...register("outRule")}
+                  >
+                    <option value="SINGLE">Single Out</option>
+                    <option value="DOUBLE">Double Out</option>
+                    <option value="MASTER">Master Out</option>
+                  </SelectInput>
+                </Field>
               </div>
             </section>
 
