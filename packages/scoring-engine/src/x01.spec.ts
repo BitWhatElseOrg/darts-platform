@@ -166,6 +166,63 @@ describe("X01 scoring", () => {
     expect(result.state.sides[0].remaining).toBe(10);
   });
 
+  it("lets a bull throw decide who starts the third leg", () => {
+    let match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1 }),
+    });
+    match = executeX01Command(match, visit("leg1", 1, "one", 40, 1, 20)).match;
+    match = executeX01Command(match, visit("leg2-guest", 2, "two", 40, 1, 20)).match;
+    expect(projectX01Match(match).legNumber).toBe(3);
+    expect(projectX01Match(match).legStartingSeat).toBe(1);
+
+    match = executeX01Command(match, {
+      type: "DECIDE_LEG_START",
+      commandId: "bull",
+      legNumber: 3,
+      startingSeat: 2,
+    }).match;
+    const state = projectX01Match(match);
+    expect(state.legStartingSeat).toBe(2);
+    expect(state.activeSeat).toBe(2);
+  });
+
+  it("refuses to decide the start of the first two legs", () => {
+    const match = createX01Match({ sides: singles("one", "two") });
+    try {
+      executeX01Command(match, {
+        type: "DECIDE_LEG_START",
+        commandId: "too-early",
+        legNumber: 2,
+        startingSeat: 2,
+      });
+      expect.unreachable("leg two is fixed by the reglement");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("LEG_START_FIXED");
+    }
+  });
+
+  it("refuses to decide the start of a leg that is already running", () => {
+    let match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 40, legsToWinSet: 3, setsToWin: 1 }),
+    });
+    match = executeX01Command(match, visit("leg1", 1, "one", 40, 1, 20)).match;
+    match = executeX01Command(match, visit("leg2", 2, "two", 40, 1, 20)).match;
+    match = executeX01Command(match, visit("leg3-open", 1, "one", 20, 1)).match;
+    try {
+      executeX01Command(match, {
+        type: "DECIDE_LEG_START",
+        commandId: "late",
+        legNumber: 3,
+        startingSeat: 2,
+      });
+      expect.unreachable("the leg is already running");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("LEG_ALREADY_STARTED");
+    }
+  });
+
   it("scores a normal 501 visit and changes the active side", () => {
     const result = executeX01Command(createX01Match({ sides: singles("a", "b") }), visit("1", 1, "a", 100));
     expect(result.state.sides[0].remaining).toBe(401);

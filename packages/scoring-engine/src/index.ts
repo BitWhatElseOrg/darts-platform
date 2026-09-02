@@ -5,6 +5,7 @@ export {
   isAttainableScore,
   projectX01Match,
   type AppliedVisit,
+  type DecideLegStartCommand,
   type ExecuteX01Result,
   type InRule,
   type OutRule,

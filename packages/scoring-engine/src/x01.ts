@@ -41,7 +41,19 @@ export interface UndoVisitCommand {
   readonly targetCommandId: string;
 }
 
-export type X01Command = SubmitVisitCommand | UndoVisitCommand;
+/**
+ * Reglement 2.2.9: Leg 1 beginnt die Heimseite, Leg 2 die Gastseite, ab Leg 3
+ * entscheidet ein Wurf auf Bull. Fehlt das Kommando, wechselt der Legbeginn
+ * wie bisher.
+ */
+export interface DecideLegStartCommand {
+  readonly type: "DECIDE_LEG_START";
+  readonly commandId: string;
+  readonly legNumber: number;
+  readonly startingSeat: 1 | 2;
+}
+
+export type X01Command = SubmitVisitCommand | UndoVisitCommand | DecideLegStartCommand;
 
 export interface X01Match {
   readonly sides: readonly [X01Side, X01Side];
@@ -297,22 +309,52 @@ function other(index: 0 | 1): 0 | 1 {
   return index === 0 ? 1 : 0;
 }
 
-function activeCommands(commands: readonly X01Command[]): {
+interface ActiveCommands {
   readonly submissions: readonly SubmitVisitCommand[];
   readonly reverted: readonly string[];
-} {
+  readonly legStarts: ReadonlyMap<number, 1 | 2>;
+}
+
+function activeCommands(commands: readonly X01Command[]): ActiveCommands {
   const reverted = new Set(
     commands
       .filter((command): command is UndoVisitCommand => command.type === "UNDO_LAST_VISIT")
       .map((command) => command.targetCommandId),
   );
+  const legStarts = new Map<number, 1 | 2>();
+  for (const command of commands) {
+    if (command.type !== "DECIDE_LEG_START") continue;
+    if (!Number.isInteger(command.legNumber) || command.legNumber < 3) {
+      throw new ScoringValidationError(
+        "LEG_START_FIXED",
+        "Leg one belongs to the home side and leg two to the guest side.",
+      );
+    }
+    if (legStarts.has(command.legNumber)) {
+      throw new ScoringValidationError(
+        "LEG_START_ALREADY_SET",
+        "The starting side of that leg is already decided.",
+      );
+    }
+    legStarts.set(command.legNumber, command.startingSeat);
+  }
   return {
     submissions: commands.filter(
       (command): command is SubmitVisitCommand =>
         command.type === "SUBMIT_VISIT" && !reverted.has(command.commandId),
     ),
     reverted: [...reverted],
+    legStarts,
   };
+}
+
+function nextLegStartIndex(
+  legStarts: ReadonlyMap<number, 1 | 2>,
+  nextLegNumber: number,
+  previous: 0 | 1,
+): 0 | 1 {
+  const decided = legStarts.get(nextLegNumber);
+  return decided === undefined ? other(previous) : indexOfSeat(decided);
 }
 
 export function projectX01Match(match: X01Match): X01MatchState {
@@ -412,7 +454,7 @@ export function projectX01Match(match: X01Match): X01MatchState {
     if (validCheckout && winnerSeat === null) {
       legNumber += 1;
       if (outcome === "SET_WON") setNumber += 1;
-      legStartingIndex = other(legStartingIndex);
+      legStartingIndex = nextLegStartIndex(active.legStarts, legNumber, legStartingIndex);
       activeIndex = legStartingIndex;
       visitsInLeg = [0, 0];
       sides = [
@@ -455,12 +497,38 @@ export function executeX01Command(match: X01Match, command: X01Command): Execute
       throw new ScoringValidationError("UNDO_TARGET_NOT_LATEST", "Only the latest active visit can be undone.");
     }
   }
+  if (command.type === "DECIDE_LEG_START") {
+    const current = projectX01Match(match);
+    if (command.legNumber < current.legNumber) {
+      throw new ScoringValidationError("LEG_ALREADY_PLAYED", "That leg is already played.");
+    }
+    if (
+      command.legNumber === current.legNumber &&
+      current.visits.some((applied) => applied.legNumber === current.legNumber)
+    ) {
+      throw new ScoringValidationError("LEG_ALREADY_STARTED", "The leg is already running.");
+    }
+  }
   const nextMatch: X01Match = { ...match, commands: [...match.commands, command] };
   const state = projectX01Match(nextMatch);
   return {
     match: nextMatch,
     state,
     duplicate: false,
-    outcome: command.type === "UNDO_LAST_VISIT" ? "VISIT_UNDONE" : (state.visits.at(-1)?.outcome ?? null),
+    outcome: commandOutcome(command, state),
   };
+}
+
+function commandOutcome(
+  command: X01Command,
+  state: X01MatchState,
+): VisitOutcome | "VISIT_UNDONE" | null {
+  switch (command.type) {
+    case "UNDO_LAST_VISIT":
+      return "VISIT_UNDONE";
+    case "DECIDE_LEG_START":
+      return null;
+    case "SUBMIT_VISIT":
+      return state.visits.at(-1)?.outcome ?? null;
+  }
 }
