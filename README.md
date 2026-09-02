@@ -136,6 +136,7 @@ Weitere Details stehen in der [Zielarchitektur](./ARCHITECTURE.md) und im [Daten
 │   ├── domain/              # Gemeinsame Domain-Bausteine
 │   ├── scoring-engine/       # Deterministische X01-Regeln und Command-Replay
 │   ├── tournament-engine/    # Turnierformate, Setzung und Matchgraphen
+│   ├── league-engine/        # Team-Begegnungen: Vorlage, Aufstellung, Wertung
 │   ├── scheduling-engine/    # nachvollziehbare Matchbereitschaft
 │   ├── statistics/           # reproduzierbare Statistikberechnung
 │   ├── database/            # Drizzle-Schema, Migrationen und DB-Client
