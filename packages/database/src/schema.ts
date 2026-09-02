@@ -494,7 +494,10 @@ export const scoreCommands = pgTable(
   },
   (table) => [
     index("score_commands_organization_match_idx").on(table.organizationId, table.matchId),
-    check("score_commands_type_check", sql`${table.type} in ('SUBMIT_VISIT', 'UNDO_LAST_VISIT', 'ABORT_MATCH')`),
+    check(
+      "score_commands_type_check",
+      sql`${table.type} in ('SUBMIT_VISIT', 'UNDO_LAST_VISIT', 'ABORT_MATCH', 'DECIDE_LEG_START', 'DECIDE_LEG_BY_BULL')`,
+    ),
     check("score_commands_version_check", sql`${table.resultingVersion} >= 0`),
   ],
 );
@@ -860,6 +863,512 @@ export const tournamentCommands = pgTable(
   ],
 );
 
+
+export const teams = pgTable(
+  "teams",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 120 }).notNull(),
+    shortName: varchar("short_name", { length: 20 }),
+    status: varchar("status", { length: 30 }).default("ACTIVE").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("teams_organization_name_unique").on(table.organizationId, table.name),
+    index("teams_organization_status_idx").on(table.organizationId, table.status),
+    check("teams_name_not_empty", sql`length(trim(${table.name})) > 0`),
+    check("teams_status_check", sql`${table.status} in ('ACTIVE', 'ARCHIVED')`),
+  ],
+);
+
+export const teamPlayers = pgTable(
+  "team_players",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    teamId: uuid("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "restrict" }),
+    role: varchar("role", { length: 20 }).default("PLAYER").notNull(),
+    validFrom: timestamp("valid_from", { withTimezone: true }).defaultNow().notNull(),
+    validTo: timestamp("valid_to", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("team_players_team_player_from_unique").on(
+      table.teamId,
+      table.playerId,
+      table.validFrom,
+    ),
+    uniqueIndex("team_players_team_player_active_unique")
+      .on(table.teamId, table.playerId)
+      .where(sql`${table.validTo} is null`),
+    index("team_players_organization_player_idx").on(table.organizationId, table.playerId),
+    check("team_players_role_check", sql`${table.role} in ('PLAYER', 'CAPTAIN')`),
+    check(
+      "team_players_validity_check",
+      sql`${table.validTo} is null or ${table.validTo} > ${table.validFrom}`,
+    ),
+  ],
+);
+
+export const competitions = pgTable(
+  "competitions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    type: varchar("type", { length: 20 }).notNull(),
+    name: varchar("name", { length: 120 }).notNull(),
+    slug: varchar("slug", { length: 120 }).notNull(),
+    status: varchar("status", { length: 30 }).notNull(),
+    pointsWin: integer("points_win").default(3).notNull(),
+    pointsDraw: integer("points_draw").default(1).notNull(),
+    pointsLoss: integer("points_loss").default(0).notNull(),
+    pointsDeciderBonus: integer("points_decider_bonus").default(1).notNull(),
+    deciderRule: varchar("decider_rule", { length: 20 }).default("NONE").notNull(),
+    lineupPositions: integer("lineup_positions").default(4).notNull(),
+    minNominations: integer("min_nominations").default(4).notNull(),
+    minNominationsShorthanded: integer("min_nominations_shorthanded").default(3).notNull(),
+    maxSubstitutionsPerEncounter: integer("max_substitutions_per_encounter").default(4).notNull(),
+    maxDoublesPerPlayer: integer("max_doubles_per_player").default(1).notNull(),
+    version: integer("version").default(0).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("competitions_organization_slug_unique").on(table.organizationId, table.slug),
+    index("competitions_organization_status_idx").on(table.organizationId, table.status),
+    check("competitions_type_check", sql`${table.type} in ('LEAGUE')`),
+    check(
+      "competitions_status_check",
+      sql`${table.status} in ('DRAFT', 'ACTIVE', 'COMPLETED', 'CANCELLED')`,
+    ),
+    check("competitions_decider_rule_check", sql`${table.deciderRule} in ('NONE', 'EXTRA_SLOT')`),
+    check(
+      "competitions_points_order_check",
+      sql`${table.pointsWin} >= ${table.pointsDraw} and ${table.pointsDraw} >= ${table.pointsLoss}`,
+    ),
+    check("competitions_points_loss_check", sql`${table.pointsLoss} >= 0`),
+    check("competitions_decider_bonus_check", sql`${table.pointsDeciderBonus} >= 0`),
+    check(
+      "competitions_decider_bonus_rule_check",
+      sql`${table.pointsDeciderBonus} = 0 or ${table.deciderRule} = 'EXTRA_SLOT'`,
+    ),
+    check("competitions_lineup_positions_check", sql`${table.lineupPositions} > 0`),
+    check(
+      "competitions_min_nominations_check",
+      sql`${table.minNominations} >= ${table.lineupPositions}`,
+    ),
+    check(
+      "competitions_min_nominations_shorthanded_check",
+      sql`${table.minNominationsShorthanded} > 0 and ${table.minNominationsShorthanded} <= ${table.minNominations}`,
+    ),
+    check("competitions_max_substitutions_check", sql`${table.maxSubstitutionsPerEncounter} >= 0`),
+    check("competitions_max_doubles_check", sql`${table.maxDoublesPerPlayer} >= 0`),
+    check("competitions_version_check", sql`${table.version} >= 0`),
+  ],
+);
+
+export const competitionSlots = pgTable(
+  "competition_slots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    competitionId: uuid("competition_id")
+      .notNull()
+      .references(() => competitions.id, { onDelete: "cascade" }),
+    sequence: integer("sequence").notNull(),
+    role: varchar("role", { length: 20 }).default("REGULAR").notNull(),
+    discipline: varchar("discipline", { length: 20 }).notNull(),
+    label: varchar("label", { length: 60 }).notNull(),
+    homePosition: integer("home_position"),
+    awayPosition: integer("away_position"),
+    startingScore: integer("starting_score").notNull(),
+    inRule: varchar("in_rule", { length: 10 }).default("STRAIGHT").notNull(),
+    outRule: varchar("out_rule", { length: 10 }).default("DOUBLE").notNull(),
+    maxRounds: integer("max_rounds"),
+    bestOfLegs: integer("best_of_legs").notNull(),
+    legsToWinSet: integer("legs_to_win_set").default(2).notNull(),
+    setsToWin: integer("sets_to_win").default(1).notNull(),
+  },
+  (table) => [
+    uniqueIndex("competition_slots_competition_sequence_unique").on(
+      table.competitionId,
+      table.sequence,
+    ),
+    uniqueIndex("competition_slots_competition_decider_unique")
+      .on(table.competitionId, table.role)
+      .where(sql`${table.role} = 'DECIDER'`),
+    uniqueIndex("competition_slots_singles_pairing_unique")
+      .on(table.competitionId, table.homePosition, table.awayPosition)
+      .where(sql`${table.discipline} = 'SINGLES'`),
+    index("competition_slots_organization_idx").on(table.organizationId, table.competitionId),
+    check("competition_slots_role_check", sql`${table.role} in ('REGULAR', 'DECIDER')`),
+    check(
+      "competition_slots_discipline_check",
+      sql`${table.discipline} in ('SINGLES', 'DOUBLES')`,
+    ),
+    check("competition_slots_sequence_check", sql`${table.sequence} > 0`),
+    check("competition_slots_starting_score_check", sql`${table.startingScore} in (301, 501, 701)`),
+    check("competition_slots_in_rule_check", sql`${table.inRule} in ('STRAIGHT', 'DOUBLE')`),
+    check("competition_slots_out_rule_check", sql`${table.outRule} in ('SINGLE', 'DOUBLE', 'MASTER')`),
+    check("competition_slots_max_rounds_check", sql`${table.maxRounds} is null or ${table.maxRounds} > 0`),
+    check(
+      "competition_slots_best_of_legs_check",
+      sql`${table.bestOfLegs} > 0 and mod(${table.bestOfLegs}, 2) = 1`,
+    ),
+    check(
+      "competition_slots_distance_check",
+      sql`${table.legsToWinSet} > 0 and ${table.setsToWin} > 0`,
+    ),
+    check(
+      "competition_slots_positions_discipline_check",
+      sql`(${table.discipline} = 'SINGLES') = (${table.homePosition} is not null)`,
+    ),
+    check(
+      "competition_slots_positions_pair_check",
+      sql`(${table.homePosition} is null) = (${table.awayPosition} is null)`,
+    ),
+    check(
+      "competition_slots_home_position_check",
+      sql`${table.homePosition} is null or ${table.homePosition} > 0`,
+    ),
+    check(
+      "competition_slots_away_position_check",
+      sql`${table.awayPosition} is null or ${table.awayPosition} > 0`,
+    ),
+  ],
+);
+
+export const encounters = pgTable(
+  "encounters",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    competitionId: uuid("competition_id")
+      .notNull()
+      .references(() => competitions.id, { onDelete: "cascade" }),
+    publicId: uuid("public_id").defaultRandom().notNull(),
+    matchday: integer("matchday").notNull(),
+    homeTeamId: uuid("home_team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "restrict" }),
+    awayTeamId: uuid("away_team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "restrict" }),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
+    venue: varchar("venue", { length: 120 }),
+    status: varchar("status", { length: 30 }).default("DRAFT").notNull(),
+    version: integer("version").default(0).notNull(),
+    homePoints: integer("home_points").default(0).notNull(),
+    awayPoints: integer("away_points").default(0).notNull(),
+    homeGames: integer("home_games").default(0).notNull(),
+    awayGames: integer("away_games").default(0).notNull(),
+    homeLegs: integer("home_legs").default(0).notNull(),
+    awayLegs: integer("away_legs").default(0).notNull(),
+    result: varchar("result", { length: 20 }),
+    resultType: varchar("result_type", { length: 20 }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("encounters_public_id_unique").on(table.publicId),
+    uniqueIndex("encounters_matchday_home_unique").on(
+      table.competitionId,
+      table.matchday,
+      table.homeTeamId,
+    ),
+    uniqueIndex("encounters_matchday_away_unique").on(
+      table.competitionId,
+      table.matchday,
+      table.awayTeamId,
+    ),
+    index("encounters_organization_competition_status_idx").on(
+      table.organizationId,
+      table.competitionId,
+      table.status,
+    ),
+    index("encounters_organization_scheduled_idx").on(table.organizationId, table.scheduledAt),
+    check("encounters_teams_distinct_check", sql`${table.homeTeamId} <> ${table.awayTeamId}`),
+    check("encounters_matchday_check", sql`${table.matchday} > 0`),
+    check("encounters_version_check", sql`${table.version} >= 0`),
+    check(
+      "encounters_status_check",
+      sql`${table.status} in ('DRAFT', 'LINEUPS_OPEN', 'READY', 'RUNNING', 'COMPLETED', 'CANCELLED')`,
+    ),
+    check(
+      "encounters_result_check",
+      sql`${table.result} is null or ${table.result} in ('HOME_WIN', 'AWAY_WIN', 'DRAW')`,
+    ),
+    check(
+      "encounters_result_type_check",
+      sql`${table.resultType} is null or ${table.resultType} in ('PLAYED', 'DECIDER', 'FORFEIT')`,
+    ),
+    check(
+      "encounters_completed_result_check",
+      sql`(${table.status} = 'COMPLETED') = (${table.result} is not null)`,
+    ),
+    check(
+      "encounters_result_pair_check",
+      sql`(${table.result} is null) = (${table.resultType} is null)`,
+    ),
+    check(
+      "encounters_draw_result_type_check",
+      sql`${table.result} <> 'DRAW' or ${table.resultType} = 'PLAYED'`,
+    ),
+  ],
+);
+
+export const encounterSlots = pgTable(
+  "encounter_slots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    encounterId: uuid("encounter_id")
+      .notNull()
+      .references(() => encounters.id, { onDelete: "cascade" }),
+    sequence: integer("sequence").notNull(),
+    role: varchar("role", { length: 20 }).notNull(),
+    discipline: varchar("discipline", { length: 20 }).notNull(),
+    label: varchar("label", { length: 60 }).notNull(),
+    homePosition: integer("home_position"),
+    awayPosition: integer("away_position"),
+    startingScore: integer("starting_score").notNull(),
+    inRule: varchar("in_rule", { length: 10 }).notNull(),
+    outRule: varchar("out_rule", { length: 10 }).notNull(),
+    maxRounds: integer("max_rounds"),
+    bestOfLegs: integer("best_of_legs").notNull(),
+    legsToWinSet: integer("legs_to_win_set").notNull(),
+    setsToWin: integer("sets_to_win").notNull(),
+    status: varchar("status", { length: 30 }).default("WAITING").notNull(),
+    boardId: uuid("board_id").references(() => boards.id, { onDelete: "set null" }),
+    matchId: uuid("match_id").references(() => matches.id, { onDelete: "set null" }),
+    winnerSide: varchar("winner_side", { length: 10 }),
+    resultType: varchar("result_type", { length: 20 }),
+    homeLegs: integer("home_legs").default(0).notNull(),
+    awayLegs: integer("away_legs").default(0).notNull(),
+    version: integer("version").default(0).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("encounter_slots_encounter_sequence_unique").on(table.encounterId, table.sequence),
+    uniqueIndex("encounter_slots_match_unique").on(table.matchId),
+    uniqueIndex("encounter_slots_board_in_progress_unique")
+      .on(table.boardId)
+      .where(sql`${table.status} = 'IN_PROGRESS'`),
+    index("encounter_slots_organization_encounter_status_idx").on(
+      table.organizationId,
+      table.encounterId,
+      table.status,
+    ),
+    check(
+      "encounter_slots_status_check",
+      sql`${table.status} in ('WAITING', 'READY', 'IN_PROGRESS', 'COMPLETED', 'WALKOVER', 'CANCELLED')`,
+    ),
+    check("encounter_slots_role_check", sql`${table.role} in ('REGULAR', 'DECIDER')`),
+    check("encounter_slots_discipline_check", sql`${table.discipline} in ('SINGLES', 'DOUBLES')`),
+    check("encounter_slots_sequence_check", sql`${table.sequence} > 0`),
+    check("encounter_slots_version_check", sql`${table.version} >= 0`),
+    check(
+      "encounter_slots_winner_side_check",
+      sql`${table.winnerSide} is null or ${table.winnerSide} in ('HOME', 'AWAY')`,
+    ),
+    check(
+      "encounter_slots_result_type_check",
+      sql`${table.resultType} is null or ${table.resultType} in ('PLAYED', 'WALKOVER')`,
+    ),
+    check(
+      "encounter_slots_result_status_check",
+      sql`(${table.status} in ('COMPLETED', 'WALKOVER')) = (${table.resultType} is not null)`,
+    ),
+    check(
+      "encounter_slots_result_winner_check",
+      sql`${table.resultType} is null or ${table.winnerSide} is not null`,
+    ),
+    check(
+      "encounter_slots_walkover_match_check",
+      sql`${table.resultType} <> 'WALKOVER' or ${table.matchId} is null`,
+    ),
+    check(
+      "encounter_slots_positions_discipline_check",
+      sql`(${table.discipline} = 'SINGLES') = (${table.homePosition} is not null)`,
+    ),
+    check(
+      "encounter_slots_positions_pair_check",
+      sql`(${table.homePosition} is null) = (${table.awayPosition} is null)`,
+    ),
+    check("encounter_slots_legs_check", sql`${table.homeLegs} >= 0 and ${table.awayLegs} >= 0`),
+  ],
+);
+
+export const encounterNominations = pgTable(
+  "encounter_nominations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    encounterId: uuid("encounter_id")
+      .notNull()
+      .references(() => encounters.id, { onDelete: "cascade" }),
+    side: varchar("side", { length: 10 }).notNull(),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "restrict" }),
+    position: integer("position"),
+    origin: varchar("origin", { length: 20 }).default("SQUAD").notNull(),
+  },
+  (table) => [
+    uniqueIndex("encounter_nominations_side_player_unique").on(
+      table.encounterId,
+      table.side,
+      table.playerId,
+    ),
+    uniqueIndex("encounter_nominations_side_position_unique").on(
+      table.encounterId,
+      table.side,
+      table.position,
+    ),
+    index("encounter_nominations_organization_encounter_idx").on(
+      table.organizationId,
+      table.encounterId,
+    ),
+    index("encounter_nominations_encounter_player_idx").on(table.encounterId, table.playerId),
+    check("encounter_nominations_side_check", sql`${table.side} in ('HOME', 'AWAY')`),
+    check(
+      "encounter_nominations_position_check",
+      sql`${table.position} is null or ${table.position} > 0`,
+    ),
+    check("encounter_nominations_origin_check", sql`${table.origin} in ('SQUAD', 'GUEST')`),
+  ],
+);
+
+export const encounterLineupEntries = pgTable(
+  "encounter_lineup_entries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    encounterId: uuid("encounter_id")
+      .notNull()
+      .references(() => encounters.id, { onDelete: "cascade" }),
+    slotId: uuid("slot_id")
+      .notNull()
+      .references(() => encounterSlots.id, { onDelete: "cascade" }),
+    side: varchar("side", { length: 10 }).notNull(),
+    position: integer("position").notNull(),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "restrict" }),
+  },
+  (table) => [
+    uniqueIndex("encounter_lineup_entries_slot_side_position_unique").on(
+      table.slotId,
+      table.side,
+      table.position,
+    ),
+    uniqueIndex("encounter_lineup_entries_slot_side_player_unique").on(
+      table.slotId,
+      table.side,
+      table.playerId,
+    ),
+    index("encounter_lineup_entries_organization_encounter_idx").on(
+      table.organizationId,
+      table.encounterId,
+    ),
+    index("encounter_lineup_entries_encounter_player_idx").on(table.encounterId, table.playerId),
+    check("encounter_lineup_entries_side_check", sql`${table.side} in ('HOME', 'AWAY')`),
+    check("encounter_lineup_entries_position_check", sql`${table.position} in (1, 2)`),
+  ],
+);
+
+export const encounterSubstitutions = pgTable(
+  "encounter_substitutions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    encounterId: uuid("encounter_id")
+      .notNull()
+      .references(() => encounters.id, { onDelete: "cascade" }),
+    side: varchar("side", { length: 10 }).notNull(),
+    position: integer("position").notNull(),
+    outPlayerId: uuid("out_player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "restrict" }),
+    inPlayerId: uuid("in_player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "restrict" }),
+    effectiveFromSequence: integer("effective_from_sequence").notNull(),
+    reason: varchar("reason", { length: 200 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("encounter_substitutions_side_position_sequence_unique").on(
+      table.encounterId,
+      table.side,
+      table.position,
+      table.effectiveFromSequence,
+    ),
+    index("encounter_substitutions_organization_encounter_idx").on(
+      table.organizationId,
+      table.encounterId,
+    ),
+    check("encounter_substitutions_side_check", sql`${table.side} in ('HOME', 'AWAY')`),
+    check("encounter_substitutions_position_check", sql`${table.position} > 0`),
+    check("encounter_substitutions_sequence_check", sql`${table.effectiveFromSequence} > 0`),
+    check(
+      "encounter_substitutions_players_distinct_check",
+      sql`${table.outPlayerId} <> ${table.inPlayerId}`,
+    ),
+  ],
+);
+
+export const encounterCommands = pgTable(
+  "encounter_commands",
+  {
+    commandId: uuid("command_id").primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    encounterId: uuid("encounter_id")
+      .notNull()
+      .references(() => encounters.id, { onDelete: "cascade" }),
+    type: varchar("type", { length: 30 }).notNull(),
+    payload: jsonb("payload").notNull(),
+    resultingVersion: integer("resulting_version").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("encounter_commands_organization_encounter_idx").on(
+      table.organizationId,
+      table.encounterId,
+    ),
+    check(
+      "encounter_commands_type_check",
+      sql`${table.type} in ('SUBMIT_NOMINATIONS', 'SUBMIT_DOUBLES', 'SUBSTITUTE_PLAYER', 'START_ENCOUNTER', 'ASSIGN_SLOT', 'RELEASE_BOARD', 'DECLARE_WALKOVER', 'DECLARE_ENCOUNTER_FORFEIT', 'CANCEL_ENCOUNTER')`,
+    ),
+    check("encounter_commands_version_check", sql`${table.resultingVersion} >= 0`),
+  ],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Organization = typeof organizations.$inferSelect;
@@ -895,3 +1404,22 @@ export type TournamentGroup = typeof tournamentGroups.$inferSelect;
 export type TournamentGroupParticipant = typeof tournamentGroupParticipants.$inferSelect;
 export type TournamentMatch = typeof tournamentMatches.$inferSelect;
 export type TournamentCommand = typeof tournamentCommands.$inferSelect;
+export type Team = typeof teams.$inferSelect;
+export type NewTeam = typeof teams.$inferInsert;
+export type TeamPlayer = typeof teamPlayers.$inferSelect;
+export type NewTeamPlayer = typeof teamPlayers.$inferInsert;
+export type Competition = typeof competitions.$inferSelect;
+export type NewCompetition = typeof competitions.$inferInsert;
+export type CompetitionSlot = typeof competitionSlots.$inferSelect;
+export type NewCompetitionSlot = typeof competitionSlots.$inferInsert;
+export type Encounter = typeof encounters.$inferSelect;
+export type NewEncounter = typeof encounters.$inferInsert;
+export type EncounterSlot = typeof encounterSlots.$inferSelect;
+export type NewEncounterSlot = typeof encounterSlots.$inferInsert;
+export type EncounterNomination = typeof encounterNominations.$inferSelect;
+export type NewEncounterNomination = typeof encounterNominations.$inferInsert;
+export type EncounterLineupEntry = typeof encounterLineupEntries.$inferSelect;
+export type NewEncounterLineupEntry = typeof encounterLineupEntries.$inferInsert;
+export type EncounterSubstitution = typeof encounterSubstitutions.$inferSelect;
+export type NewEncounterSubstitution = typeof encounterSubstitutions.$inferInsert;
+export type EncounterCommand = typeof encounterCommands.$inferSelect;

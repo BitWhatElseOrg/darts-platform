@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { ScoringValidationError } from "@darts-platform/scoring-engine";
-import { abortMatchResponseSchema, boardControllerLeaseSchema, matchListSchema, matchStateSchema, type AbortMatchInput, type AbortMatchResponse, type BoardControllerLeaseResponse, type CreateMatchInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput } from "@darts-platform/schemas";
+import { abortMatchResponseSchema, boardControllerLeaseSchema, matchListSchema, matchStateSchema, type AbortMatchInput, type AbortMatchResponse, type BoardControllerLeaseResponse, type CreateMatchInput, type DecideLegByBullInput, type DecideLegStartInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
@@ -53,6 +53,16 @@ export class MatchesService {
     return this.mutate(input, () => this.repository.undo(input));
   }
 
+  public async decideLegStart(input: { readonly organizationId: string; readonly matchId: string; readonly data: DecideLegStartInput; readonly auth: AuthContext; readonly audit: AuditContext }): Promise<MatchStateResponse> {
+    await this.require(input, "match:score");
+    return this.mutate(input, () => this.repository.decideLegStart(input));
+  }
+
+  public async decideLegByBull(input: { readonly organizationId: string; readonly matchId: string; readonly data: DecideLegByBullInput; readonly auth: AuthContext; readonly audit: AuditContext }): Promise<MatchStateResponse> {
+    await this.require(input, "match:score");
+    return this.mutate(input, () => this.repository.decideLegByBull(input));
+  }
+
   public async abort(input: { readonly organizationId: string; readonly matchId: string; readonly data: AbortMatchInput; readonly auth: AuthContext; readonly audit: AuditContext }): Promise<AbortMatchResponse> {
     await this.require(input, "match:abort");
     try {
@@ -97,7 +107,14 @@ export class MatchesService {
   }
 
   private rethrowDomainError(error: unknown): never {
-    if (error instanceof ScoringValidationError) throw new BadRequestException({ code: error.code, message: error.message });
+    if (error instanceof ScoringValidationError) {
+      // Ein zu frühes Ausbullen ist kein Eingabefehler, sondern ein Zustand:
+      // die Rundengrenze ist schlicht noch nicht erreicht.
+      if (error.code === "ROUND_LIMIT_NOT_REACHED") {
+        throw new ConflictException({ code: error.code, message: error.message });
+      }
+      throw new BadRequestException({ code: error.code, message: error.message });
+    }
     throw error;
   }
 }
