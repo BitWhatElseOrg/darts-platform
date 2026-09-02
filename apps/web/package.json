@@ -7,7 +7,7 @@
     "build": "next build --webpack",
     "start": "next start --port ${WEB_PORT:-3000}",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "playwright test"
+    "test:e2e": "node scripts/run-e2e.mjs"
   },
   "dependencies": {
     "@darts-platform/config": "workspace:*",
