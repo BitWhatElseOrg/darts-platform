@@ -66,7 +66,8 @@ Phase 2 (~800 LOC, 1,0–1,5M Token, hängt an Phase 1).
 | `apps/web/src/components/tournament/setup-sheet.tsx` | Turnieranlage | 5 |
 | `apps/web/src/components/tournament/dashboard-header.tsx` | Anzeige der Variante | 5 |
 | `packages/database/src/schema.ts` | Spalten und Check-Constraints | 6 |
-| `packages/database/drizzle/0016_*.sql` | Migration mit Backfill | 6 |
+| `packages/database/drizzle/0016_*.sql` | additive Spalten + Backfill | 6 |
+| `packages/database/drizzle/0017_*.sql` | `double_out` entfernen | 6 |
 | `docs/superpowers/plans/2026-09-02-team-encounter-roadmap.md` | Schnittstelle 2 → 4 | 7 |
 
 ## Nicht in dieser Phase
@@ -115,7 +116,7 @@ validiert, wirkt erst in Task 4.
   ```
   `X01SideState` erhält zusätzlich `readonly openedInLeg: boolean`.
 
-- [ ] **Schritt 1: Fehlschlagende Tests schreiben**
+- [x] **Schritt 1: Fehlschlagende Tests schreiben**
 
 In `packages/scoring-engine/src/x01.spec.ts` den bestehenden Test
 `"supports straight-out checkout when configured"` auf das neue Vokabular
@@ -211,7 +212,7 @@ umstellen und diese Tests anfügen:
 
 `InRule` mit in den Import aufnehmen.
 
-- [ ] **Schritt 2: Tests laufen lassen, Fehlschlag bestätigen**
+- [x] **Schritt 2: Tests laufen lassen, Fehlschlag bestätigen**
 
 ```bash
 pnpm --filter @darts-platform/scoring-engine test -- src/x01.spec.ts
@@ -219,7 +220,7 @@ pnpm --filter @darts-platform/scoring-engine test -- src/x01.spec.ts
 
 Erwartet: Typfehler / Fehlschlag, weil `X01Rules` noch `doubleOut` verlangt.
 
-- [ ] **Schritt 3: Regeln umstellen**
+- [x] **Schritt 3: Regeln umstellen**
 
 In `packages/scoring-engine/src/x01.ts`:
 
@@ -362,7 +363,7 @@ Beim Legwechsel innerhalb der Projektion `openedInLeg` zurücksetzen:
 `packages/scoring-engine/src/index.ts` um `type InRule` und `type OutRule`
 erweitern (alphabetisch einsortiert).
 
-- [ ] **Schritt 4: Tests laufen lassen**
+- [x] **Schritt 4: Tests laufen lassen**
 
 ```bash
 pnpm --filter @darts-platform/scoring-engine test -- src/x01.spec.ts
@@ -371,7 +372,7 @@ pnpm --filter @darts-platform/scoring-engine typecheck
 
 Erwartet: alle grün.
 
-- [ ] **Schritt 5: Aufrufer grün halten**
+- [x] **Schritt 5: Aufrufer grün halten**
 
 `apps/api/src/matches/matches.repository.ts:848` baut die Regeln aus der
 Matchzeile. Die Spalte heisst noch `double_out`; deshalb hier ein Adapter, den
@@ -394,7 +395,7 @@ Prüfen:
 pnpm --filter @darts-platform/api typecheck
 ```
 
-- [ ] **Schritt 6: Commit**
+- [x] **Schritt 6: Commit**
 
 ```bash
 git add packages/scoring-engine apps/api/src/matches/matches.repository.ts
@@ -418,7 +419,7 @@ Punkten lässt die Seite geschlossen.
 - Produziert: Fehlercode `DOUBLE_IN_REQUIRED`; `openedInLeg` wird auf `true`
   gesetzt, sobald eine Seite punktet — auch wenn derselbe Visit bustet.
 
-- [ ] **Schritt 1: Fehlschlagende Tests schreiben**
+- [x] **Schritt 1: Fehlschlagende Tests schreiben**
 
 ```ts
   it("requires the opening double and keeps the side closed on a miss", () => {
@@ -464,7 +465,7 @@ Punkten lässt die Seite geschlossen.
   });
 ```
 
-- [ ] **Schritt 2: Tests laufen lassen, Fehlschlag bestätigen**
+- [x] **Schritt 2: Tests laufen lassen, Fehlschlag bestätigen**
 
 ```bash
 pnpm --filter @darts-platform/scoring-engine test -- src/x01.spec.ts
@@ -472,7 +473,7 @@ pnpm --filter @darts-platform/scoring-engine test -- src/x01.spec.ts
 
 Erwartet: `DOUBLE_IN_REQUIRED` wird nicht geworfen, `openedInLeg` bleibt false.
 
-- [ ] **Schritt 3: Eröffnung umsetzen**
+- [x] **Schritt 3: Eröffnung umsetzen**
 
 In `x01.ts` neben `finishesOnMasterSegment`:
 
@@ -517,14 +518,14 @@ Der bisherige Code hatte keinen expliziten Bust-Zweig — bei einem Bust blieb
 die Seite unverändert. Mit Double In muss auch der Bust die Eröffnung
 festhalten, deshalb der neue Zweig.
 
-- [ ] **Schritt 4: Tests laufen lassen**
+- [x] **Schritt 4: Tests laufen lassen**
 
 ```bash
 pnpm --filter @darts-platform/scoring-engine test -- src/x01.spec.ts
 pnpm --filter @darts-platform/scoring-engine typecheck
 ```
 
-- [ ] **Schritt 5: Commit**
+- [x] **Schritt 5: Commit**
 
 ```bash
 git add packages/scoring-engine
@@ -559,7 +560,7 @@ unverändert weiter.
   Fehlercodes `LEG_START_FIXED` (Leg 1 und 2 stehen fest),
   `LEG_START_ALREADY_SET`, `LEG_ALREADY_PLAYED`, `LEG_ALREADY_STARTED`.
 
-- [ ] **Schritt 1: Fehlschlagende Tests schreiben**
+- [x] **Schritt 1: Fehlschlagende Tests schreiben**
 
 ```ts
   it("lets a bull throw decide who starts the third leg", () => {
@@ -620,7 +621,7 @@ unverändert weiter.
   });
 ```
 
-- [ ] **Schritt 2: Tests laufen lassen, Fehlschlag bestätigen**
+- [x] **Schritt 2: Tests laufen lassen, Fehlschlag bestätigen**
 
 ```bash
 pnpm --filter @darts-platform/scoring-engine test -- src/x01.spec.ts
@@ -628,7 +629,7 @@ pnpm --filter @darts-platform/scoring-engine test -- src/x01.spec.ts
 
 Erwartet: Typfehler, `DECIDE_LEG_START` ist kein `X01Command`.
 
-- [ ] **Schritt 3: Kommando umsetzen**
+- [x] **Schritt 3: Kommando umsetzen**
 
 Typ ergänzen und in die Union aufnehmen:
 
@@ -746,7 +747,7 @@ und der Rückgabewert von `executeX01Command` nutzt
 
 `index.ts` um `type DecideLegStartCommand` erweitern.
 
-- [ ] **Schritt 4: Tests laufen lassen**
+- [x] **Schritt 4: Tests laufen lassen**
 
 ```bash
 pnpm --filter @darts-platform/scoring-engine test -- src/x01.spec.ts
@@ -757,7 +758,7 @@ pnpm --filter @darts-platform/api typecheck
 `parseStoredCommand` in `matches.repository.ts` liest nur `SUBMIT_VISIT` und
 `UNDO_LAST_VISIT` aus `visits`; die erweiterte Union ändert daran nichts.
 
-- [ ] **Schritt 5: Commit**
+- [x] **Schritt 5: Commit**
 
 ```bash
 git add packages/scoring-engine
@@ -798,7 +799,7 @@ gleich viele Visits geworfen haben.
   `readonly legDecisions: readonly LegDecision[]`.
   Fehlercodes `ROUND_LIMIT_REACHED`, `ROUND_LIMIT_NOT_REACHED`.
 
-- [ ] **Schritt 1: Fehlschlagende Tests schreiben**
+- [x] **Schritt 1: Fehlschlagende Tests schreiben**
 
 ```ts
   it("stops the leg at the round limit and decides it by bull", () => {
@@ -874,13 +875,13 @@ gleich viele Visits geworfen haben.
   });
 ```
 
-- [ ] **Schritt 2: Tests laufen lassen, Fehlschlag bestätigen**
+- [x] **Schritt 2: Tests laufen lassen, Fehlschlag bestätigen**
 
 ```bash
 pnpm --filter @darts-platform/scoring-engine test -- src/x01.spec.ts
 ```
 
-- [ ] **Schritt 3: Ausbullen umsetzen**
+- [x] **Schritt 3: Ausbullen umsetzen**
 
 Typen und Union erweitern:
 
@@ -1114,7 +1115,7 @@ Undo darf ein durch Ausbullen entschiedenes Leg nicht aufreissen. In
 
 `index.ts` um `type DecideLegByBullCommand` und `type LegDecision` erweitern.
 
-- [ ] **Schritt 4: Tests laufen lassen**
+- [x] **Schritt 4: Tests laufen lassen**
 
 ```bash
 pnpm --filter @darts-platform/scoring-engine test
@@ -1122,7 +1123,7 @@ pnpm --filter @darts-platform/scoring-engine typecheck
 pnpm --filter @darts-platform/api typecheck
 ```
 
-- [ ] **Schritt 5: Commit**
+- [x] **Schritt 5: Commit**
 
 ```bash
 git add packages/scoring-engine
@@ -1155,7 +1156,7 @@ genau zwei Stellen, was Task 6 wieder entfernt.
 - Produziert: `createTournamentSchema` mit `inRule`, `outRule`, `maxRounds`;
   `tournamentDashboardSchema.tournament` mit `inRule`, `outRule`.
 
-- [ ] **Schritt 1: Fehlschlagenden Vertragstest schreiben**
+- [x] **Schritt 1: Fehlschlagenden Vertragstest schreiben**
 
 In `packages/schemas/src/tournament.spec.ts` das Fixture in Zeile 11 und die
 Dashboard-Zeile 80 auf das neue Vokabular umstellen und einen Test ergänzen:
@@ -1175,13 +1176,13 @@ Dashboard-Zeile 80 auf das neue Vokabular umstellen und einen Test ergänzen:
 `validCreateInput` ist das bestehende Fixture ab Zeile 11; dort
 `doubleOut: true` durch `inRule: "STRAIGHT", outRule: "DOUBLE"` ersetzen.
 
-- [ ] **Schritt 2: Test laufen lassen, Fehlschlag bestätigen**
+- [x] **Schritt 2: Test laufen lassen, Fehlschlag bestätigen**
 
 ```bash
 pnpm --filter @darts-platform/schemas test -- src/tournament.spec.ts
 ```
 
-- [ ] **Schritt 3: Vertrag umstellen**
+- [x] **Schritt 3: Vertrag umstellen**
 
 In `packages/schemas/src/tournament.ts` oben bei den übrigen Enums:
 
@@ -1205,7 +1206,7 @@ In `createTournamentSchema` ebenso, zusätzlich die Rundenbegrenzung:
     maxRounds: z.number().int().min(1).max(99).nullable().default(null),
 ```
 
-- [ ] **Schritt 4: API übersetzen lassen**
+- [x] **Schritt 4: API übersetzen lassen**
 
 `apps/api/src/tournaments/tournaments.repository.ts:351` schreibt weiterhin in
 die Spalte `double_out`, bis Task 6 sie ersetzt:
@@ -1241,7 +1242,7 @@ sed -i 's/^\( *\)doubleOut: false,$/\1inRule: "STRAIGHT",\n\1outRule: "SINGLE",/
 Danach `rg "doubleOut" apps/api/src` prüfen: es dürfen nur noch die beiden
 Adapterzeilen und die Drizzle-Spalte übrig sein.
 
-- [ ] **Schritt 5: Oberfläche umstellen**
+- [x] **Schritt 5: Oberfläche umstellen**
 
 In `apps/web/src/components/tournament/setup-sheet.tsx`:
 
@@ -1317,7 +1318,7 @@ function outRuleLabel(rule: "SINGLE" | "DOUBLE" | "MASTER"): string {
 }
 ```
 
-- [ ] **Schritt 6: Tests und Typen prüfen**
+- [x] **Schritt 6: Tests und Typen prüfen**
 
 ```bash
 pnpm --filter @darts-platform/schemas test
@@ -1326,7 +1327,7 @@ pnpm --filter @darts-platform/api typecheck
 pnpm --filter @darts-platform/web typecheck
 ```
 
-- [ ] **Schritt 7: Commit**
+- [x] **Schritt 7: Commit**
 
 ```bash
 git add packages/schemas apps/api apps/web
@@ -1353,7 +1354,7 @@ Migrationsschritt 6 der Spec: `in_rule`, `out_rule` und `max_rounds` ersetzen
   `tournaments.inRule|outRule|maxRounds`; `matches.doubleOut` und
   `tournaments.doubleOut` entfallen.
 
-- [ ] **Schritt 1: Schema ändern**
+- [x] **Schritt 1: Schema ändern**
 
 In `packages/database/src/schema.ts` bei `matches` `doubleOut` ersetzen:
 
@@ -1374,16 +1375,21 @@ und in der Constraint-Liste ergänzen:
 Bei `tournaments` dieselben drei Spalten und dieselben drei Constraints mit
 dem Präfix `tournaments_`.
 
-- [ ] **Schritt 2: Migration erzeugen**
+- [x] **Schritt 2: Migration erzeugen**
 
 ```bash
 pnpm --filter @darts-platform/database db:generate
 ```
 
-Erwartet: neue Datei `packages/database/drizzle/0016_*.sql`, ein neuer
-Snapshot und ein neuer Journaleintrag.
+**Abweichung bei der Umsetzung:** drizzle-kit fragt interaktiv nach, ob die
+drei neuen Spalten Umbenennungen der entfernten `double_out` sind, und bricht
+ohne TTY ab. Deshalb wurde wie in Phase 1 in zwei Vorwärtsmigrationen geteilt:
+`0016_petite_thanos.sql` legt die Spalten additiv an und backfillt `out_rule`,
+`0017_public_black_bird.sql` entfernt `double_out`. Erzeugt wird das, indem
+`doubleOut` beim ersten `db:generate` noch im Schema steht und erst danach
+entfernt wird. Beide Snapshots bleiben dadurch konsistent.
 
-- [ ] **Schritt 3: Backfill in die Migration einsetzen**
+- [x] **Schritt 3: Backfill in die Migration einsetzen**
 
 drizzle-kit erzeugt `ADD COLUMN` und `DROP COLUMN`, aber keinen Backfill.
 Unmittelbar **nach** den drei `ADD COLUMN`-Anweisungen je Tabelle und **vor**
@@ -1402,7 +1408,7 @@ beiden `UPDATE`, dann `ADD CONSTRAINT`, zuletzt `DROP COLUMN`.
 cat packages/database/drizzle/0016_*.sql
 ```
 
-- [ ] **Schritt 4: Adapter entfernen**
+- [x] **Schritt 4: Adapter entfernen**
 
 `apps/api/src/matches/matches.repository.ts` (Aggregat) liest die Regeln nun
 aus der Zeile. Die Spalten sind `varchar`, also auf die Union verengen:
@@ -1458,7 +1464,7 @@ Turnier anlegen):
 Danach darf `rg "doubleOut|double_out" packages apps --glob '!**/drizzle/**'`
 nichts mehr finden.
 
-- [ ] **Schritt 5: Migration und Integrationstests laufen lassen**
+- [x] **Schritt 5: Migration und Integrationstests laufen lassen**
 
 ```bash
 pnpm --filter @darts-platform/database typecheck
@@ -1471,7 +1477,7 @@ Erwartet: die Testcontainers-Läufe wenden Migration 0016 an und laufen grün.
 Schlägt die Migration fehl, ist die Reihenfolge in der SQL-Datei falsch
 (Schritt 3), nicht das Schema.
 
-- [ ] **Schritt 6: Commit**
+- [x] **Schritt 6: Commit**
 
 ```bash
 git add packages/database apps/api
@@ -1486,7 +1492,7 @@ git commit -m "feat: store the in rule, out rule and round limit"
 - Ändern: `docs/superpowers/plans/2026-09-02-team-encounter-roadmap.md`
 - Ändern: `docs/superpowers/specs/2026-09-02-team-encounter-league-design.md`
 
-- [ ] **Schritt 1: Roadmap-Schnittstelle nachziehen**
+- [x] **Schritt 1: Roadmap-Schnittstelle nachziehen**
 
 Im Abschnitt „Phase 2 → 4" `DecideLegStartCommand` ergänzen und festhalten,
 dass die Ablage der beiden neuen Kommandos zu Phase 4 gehört:
@@ -1503,7 +1509,7 @@ interface DecideLegStartCommand {
 Dazu ein Satz: Phase 4 legt beide Kommandos ab; solange `max_rounds` überall
 `NULL` ist, kann kein Bestandsmatch eines tragen.
 
-- [ ] **Schritt 2: Spec um die getroffenen Entscheidungen ergänzen**
+- [x] **Schritt 2: Spec um die getroffenen Entscheidungen ergänzen**
 
 Im Abschnitt „Engines / scoring-engine" zwei Sätze anfügen: Master Out wird
 über die Erreichbarkeit des letzten Wurfs geprüft, nicht über ein zusätzliches
@@ -1511,7 +1517,7 @@ Feld, damit der `visits`-Vertrag aus Phase 1 unverändert bleibt. Der Legbeginn
 ab Leg 3 ist ein Kommando; fehlt es, wechselt der Beginn wie bisher, damit
 Turniermatches über Best of 5 oder 7 unverändert laufen.
 
-- [ ] **Schritt 3: Vollverifikation**
+- [x] **Schritt 3: Vollverifikation**
 
 ```bash
 pnpm lint
@@ -1522,7 +1528,7 @@ pnpm build
 
 Erwartet: alles grün. Fehlschläge werden behoben, nicht ignoriert.
 
-- [ ] **Schritt 4: Commit**
+- [x] **Schritt 4: Commit**
 
 ```bash
 git add docs
