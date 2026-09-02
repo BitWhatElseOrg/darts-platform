@@ -91,10 +91,12 @@ export class MatchesRepository {
     if (matchRow === undefined) return null;
 
     const participantRows = await this.databaseService.database
-      .select({ participant: matchParticipants, displayName: players.displayName })
-      .from(matchParticipants).innerJoin(players, and(eq(players.id, matchParticipants.playerId), eq(players.organizationId, organizationId)))
+      .select({ seat: matchParticipants.seat, legsWon: matchParticipants.legsWon, playerId: matchParticipantPlayers.playerId, displayName: players.displayName })
+      .from(matchParticipants)
+      .innerJoin(matchParticipantPlayers, and(eq(matchParticipantPlayers.participantId, matchParticipants.id), eq(matchParticipantPlayers.organizationId, organizationId)))
+      .innerJoin(players, and(eq(players.id, matchParticipantPlayers.playerId), eq(players.organizationId, organizationId)))
       .where(and(eq(matchParticipants.organizationId, organizationId), eq(matchParticipants.matchId, matchId)))
-      .orderBy(asc(matchParticipants.seat));
+      .orderBy(asc(matchParticipants.seat), asc(matchParticipantPlayers.position));
     if (participantRows.length !== 2 || participantRows[0] === undefined || participantRows[1] === undefined) throw new Error("Match participant invariant violated.");
 
     const commandRows = await this.databaseService.database.select().from(scoreCommands)
@@ -118,9 +120,9 @@ export class MatchesRepository {
     const first = participantRows[0];
     const second = participantRows[1];
     const participantState = (row: typeof first) => {
-      const projected = bySeat.get(row.participant.seat === 1 ? 1 : 2);
+      const projected = bySeat.get(row.seat === 1 ? 1 : 2);
       if (projected === undefined) throw new Error("Scoring side invariant violated.");
-      return { playerId: row.participant.playerId, displayName: row.displayName, remaining: projected.remaining, legsWon: projected.totalLegsWon, legsWonInSet: projected.legsWonInSet, setsWon: projected.setsWon, isActive: projection.activeThrowerPlayerId === row.participant.playerId };
+      return { playerId: row.playerId, displayName: row.displayName, remaining: projected.remaining, legsWon: projected.totalLegsWon, legsWonInSet: projected.legsWonInSet, setsWon: projected.setsWon, isActive: projection.activeThrowerPlayerId === row.playerId };
     };
     return {
       id: matchRow.match.id, organizationId, boardId: matchRow.match.boardId, boardName: matchRow.boardName,

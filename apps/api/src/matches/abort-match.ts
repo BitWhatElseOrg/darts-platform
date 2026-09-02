@@ -42,6 +42,8 @@ export async function abortScoringMatch(transaction: Transaction, input: {
     boardId: null,
     currentPlayerId: null,
     winnerPlayerId: null,
+    currentSeat: null,
+    winnerSeat: null,
     completedAt: null,
     version: input.match.version + 1,
     updatedAt: new Date(),
