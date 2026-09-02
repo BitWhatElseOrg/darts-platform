@@ -9,7 +9,7 @@ import {
   volume,
 } from "railway/iac";
 
-const repository = "BitWhatElse/darts-platform";
+const repository = "BitWhatElseOrg/darts-platform";
 const region = "europe-west4-drams3a";
 
 export default defineRailway(() => {
