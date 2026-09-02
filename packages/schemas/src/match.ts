@@ -17,6 +17,26 @@ export const submitVisitSchema = z.object({
   controllerId: z.uuid().optional(),
 }).refine((value) => (value.checkoutAttempts ?? 0) <= value.dartsThrown, { message: "Checkout attempts cannot exceed darts thrown.", path: ["checkoutAttempts"] });
 export const undoVisitSchema = z.object({ commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), controllerId: z.uuid().optional() });
+/**
+ * Reglement 2.2.9: ab Leg drei entscheidet ein Wurf auf Bull, wer beginnt.
+ * Legs eins und zwei sind festgelegt und tragen deshalb kein Kommando.
+ */
+export const decideLegStartSchema = z.object({
+  commandId: z.uuid(),
+  expectedVersion: z.number().int().nonnegative(),
+  legNumber: z.number().int().min(3).max(99),
+  startingSeat: z.union([z.literal(1), z.literal(2)]),
+  controllerId: z.uuid().optional(),
+});
+
+/** Anhang 2: ist die Rundengrenze erreicht, entscheidet ein Ausbullen das Leg. */
+export const decideLegByBullSchema = z.object({
+  commandId: z.uuid(),
+  expectedVersion: z.number().int().nonnegative(),
+  winnerSeat: z.union([z.literal(1), z.literal(2)]),
+  controllerId: z.uuid().optional(),
+});
+
 export const abortMatchSchema = z.object({
   commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), controllerId: z.uuid().optional(),
   reason: z.string().trim().min(3).max(500),
@@ -51,6 +71,8 @@ export const matchListSchema = z.array(matchStateSchema);
 export type CreateMatchInput = z.infer<typeof createMatchSchema>;
 export type SubmitVisitInput = z.infer<typeof submitVisitSchema>;
 export type UndoVisitInput = z.infer<typeof undoVisitSchema>;
+export type DecideLegStartInput = z.infer<typeof decideLegStartSchema>;
+export type DecideLegByBullInput = z.infer<typeof decideLegByBullSchema>;
 export type AbortMatchInput = z.infer<typeof abortMatchSchema>;
 export type AbortMatchResponse = z.infer<typeof abortMatchResponseSchema>;
 export type MatchStateResponse = z.infer<typeof matchStateSchema>;

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Post, Req } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
-import { abortMatchSchema, boardControllerLeaseRequestSchema, createMatchSchema, submitVisitSchema, undoVisitSchema, type AbortMatchInput, type AbortMatchResponse, type BoardControllerLeaseRequest, type BoardControllerLeaseResponse, type CreateMatchInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput } from "@darts-platform/schemas";
+import { abortMatchSchema, boardControllerLeaseRequestSchema, createMatchSchema, decideLegByBullSchema, decideLegStartSchema, submitVisitSchema, undoVisitSchema, type AbortMatchInput, type AbortMatchResponse, type BoardControllerLeaseRequest, type BoardControllerLeaseResponse, type CreateMatchInput, type DecideLegByBullInput, type DecideLegStartInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput } from "@darts-platform/schemas";
 import { CurrentAuth } from "../auth/current-auth.decorator.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { getAuditContext } from "../common/audit-context.js";
@@ -23,6 +23,14 @@ export class MatchesController {
   @Post(":matchId/undo") public undo(@Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("matchId", ParseUUIDPipe) matchId: string, @Body() body: unknown, @CurrentAuth() auth: AuthContext, @Req() request: FastifyRequest): Promise<MatchStateResponse> {
     const data: UndoVisitInput = parseBody(undoVisitSchema, body);
     return this.service.undo({ organizationId, matchId, data, auth, audit: getAuditContext(request) });
+  }
+  @Post(":matchId/leg-start") public decideLegStart(@Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("matchId", ParseUUIDPipe) matchId: string, @Body() body: unknown, @CurrentAuth() auth: AuthContext, @Req() request: FastifyRequest): Promise<MatchStateResponse> {
+    const data: DecideLegStartInput = parseBody(decideLegStartSchema, body);
+    return this.service.decideLegStart({ organizationId, matchId, data, auth, audit: getAuditContext(request) });
+  }
+  @Post(":matchId/leg-by-bull") public decideLegByBull(@Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("matchId", ParseUUIDPipe) matchId: string, @Body() body: unknown, @CurrentAuth() auth: AuthContext, @Req() request: FastifyRequest): Promise<MatchStateResponse> {
+    const data: DecideLegByBullInput = parseBody(decideLegByBullSchema, body);
+    return this.service.decideLegByBull({ organizationId, matchId, data, auth, audit: getAuditContext(request) });
   }
   @Post(":matchId/abort") public abort(@Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("matchId", ParseUUIDPipe) matchId: string, @Body() body: unknown, @CurrentAuth() auth: AuthContext, @Req() request: FastifyRequest): Promise<AbortMatchResponse> {
     const data: AbortMatchInput = parseBody(abortMatchSchema, body);

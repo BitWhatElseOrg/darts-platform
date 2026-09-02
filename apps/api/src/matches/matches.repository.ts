@@ -8,13 +8,17 @@ import {
   visits,
 } from "@darts-platform/database";
 import { ScoringValidationError, createX01Match, executeX01Command, projectX01Match, type InRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
-import type { AbortMatchInput, AbortMatchResponse, CorrectTournamentResultInput, CreateMatchInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
+import type { AbortMatchInput, AbortMatchResponse, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { DatabaseService } from "../database/database.service.js";
 import { applyWithdrawalPropagation } from "../tournaments/apply-withdrawal-propagation.js";
 import { resolveCompletedTournamentGroup } from "../tournaments/resolve-completed-group.js";
 import { updateTournamentProgress } from "../tournaments/update-tournament-progress.js";
+import {
+  completeEncounterSlotForMatch,
+  resetEncounterSlotForMatch,
+} from "../encounters/sync-encounter-slot.js";
 import { abortScoringMatch } from "./abort-match.js";
 import { lockTournamentScoringContext } from "./tournament-scoring-lock.js";
 
@@ -231,6 +235,10 @@ export class MatchesRepository {
         await transaction.update(tournaments).set({ version: sql`${tournaments.version} + 1`, updatedAt: new Date() }).where(and(eq(tournaments.organizationId, input.organizationId), eq(tournaments.id, scheduled.tournamentId)));
         await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Tournament", aggregateId: scheduled.tournamentId, eventType: "TOURNAMENT_MATCH_REOPENED", payload: { tournamentId: scheduled.tournamentId, tournamentMatchId: scheduled.id, scoringMatchId: input.matchId } });
       }
+      const reopenedSlot = await resetEncounterSlotForMatch(transaction, { organizationId: input.organizationId, matchId: input.matchId });
+      if (reopenedSlot !== null) {
+        await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Encounter", aggregateId: reopenedSlot.encounterId, eventType: "ENCOUNTER_SLOT_REOPENED", payload: { encounterId: reopenedSlot.encounterId, slotId: reopenedSlot.slotId, sequence: reopenedSlot.sequence, matchId: input.matchId } });
+      }
       await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Match", aggregateId: input.matchId, eventType: "MATCH_ABORTED", payload: { matchId: input.matchId, tournamentMatchId: scheduled?.id ?? null, commandId: input.data.commandId, discardedVisitCount: aborted.discardedVisitCount } });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: "MATCH_ABORTED", entityType: "Match", entityId: input.matchId, oldValue: match, newValue: { status: "ABORTED", reason: input.data.reason ?? null, tournamentMatchId: scheduled?.id ?? null, discardedVisitCount: aborted.discardedVisitCount }, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
       return { matchId: input.matchId, status: "ABORTED", tournamentMatchId: scheduled?.id ?? null };
@@ -304,6 +312,15 @@ export class MatchesRepository {
           input.matchId,
           matchWinnerPlayerId,
         );
+      }
+      if (result.state.status === "COMPLETED" && result.state.winnerSeat !== null) {
+        await completeEncounterSlotForMatch(transaction, {
+          organizationId: input.organizationId,
+          matchId: input.matchId,
+          winnerSeat: result.state.winnerSeat,
+          homeLegs: result.state.sides.find((side) => side.seat === 1)?.totalLegsWon ?? 0,
+          awayLegs: result.state.sides.find((side) => side.seat === 2)?.totalLegsWon ?? 0,
+        });
       }
       await transaction.insert(scoreCommands).values({ commandId: input.data.commandId, organizationId: input.organizationId, matchId: input.matchId, type: command.type, payload: command, resultingVersion: nextVersion });
       await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Match", aggregateId: input.matchId, eventType: result.state.status === "COMPLETED" ? "MATCH_COMPLETED" : "VISIT_RECORDED", payload: { matchId: input.matchId, commandId: input.data.commandId, version: nextVersion } });
@@ -724,6 +741,89 @@ export class MatchesRepository {
       await transaction.insert(scoreCommands).values({ commandId: input.data.commandId, organizationId: input.organizationId, matchId: input.matchId, type: command.type, payload: command, resultingVersion: nextVersion });
       await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Match", aggregateId: input.matchId, eventType: "VISIT_REVERTED", payload: { matchId: input.matchId, visitId: latest.id, commandId: input.data.commandId, version: nextVersion } });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: "SCORE_VISIT_REVERTED", entityType: "Visit", entityId: latest.id, oldValue: latest, newValue: { revertedByCommandId: input.data.commandId }, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
+      return "ok";
+    });
+  }
+
+  /**
+   * Die beiden Kommandos aus dem Reglement, die kein Visit erzeugen: der ab
+   * Leg drei ausgebullte Legbeginn (2.2.9) und das durch Ausbullen
+   * entschiedene Leg an der Rundengrenze (Anhang 2). Sie laufen über
+   * denselben Weg wie ein Visit, nur ohne Zeile in `visits`; die
+   * Kommandoliste in `score_commands` trägt sie.
+   */
+  public decideLegStart(input: ActorInput & { readonly data: DecideLegStartInput }): Promise<MutationResult> {
+    return this.decideLeg(input, input.data, {
+      type: "DECIDE_LEG_START",
+      commandId: input.data.commandId,
+      legNumber: input.data.legNumber,
+      startingSeat: input.data.startingSeat,
+    });
+  }
+
+  public decideLegByBull(input: ActorInput & { readonly data: DecideLegByBullInput }): Promise<MutationResult> {
+    return this.decideLeg(input, input.data, {
+      type: "DECIDE_LEG_BY_BULL",
+      commandId: input.data.commandId,
+      winnerSeat: input.data.winnerSeat,
+    });
+  }
+
+  private decideLeg(
+    input: ActorInput,
+    envelope: { readonly commandId: string; readonly expectedVersion: number; readonly controllerId?: string | undefined },
+    command: X01Command,
+  ): Promise<MutationResult> {
+    return this.databaseService.database.transaction(async (transaction): Promise<MutationResult> => {
+      const [duplicate] = await transaction.select({ organizationId: scoreCommands.organizationId, matchId: scoreCommands.matchId }).from(scoreCommands).where(eq(scoreCommands.commandId, envelope.commandId)).limit(1);
+      if (duplicate !== undefined) {
+        if (duplicate.organizationId === input.organizationId && duplicate.matchId === input.matchId) return "ok";
+        throw new ScoringValidationError("COMMAND_ID_ALREADY_USED", "The command ID has already been used for another match.");
+      }
+      await lockTournamentScoringContext(transaction, input.organizationId, input.matchId);
+      const [match] = await transaction.select().from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
+      if (match === undefined) return "not-found";
+      if (match.version !== envelope.expectedVersion) return "version-conflict";
+      const [lease] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
+      if (lease !== undefined && lease.expiresAt > new Date() && lease.controllerId !== envelope.controllerId) return "controller-conflict";
+
+      const loadedSides = await this.loadSides(transaction, input.organizationId, input.matchId);
+      const commandRows = await transaction.select({ payload: scoreCommands.payload }).from(scoreCommands).where(and(eq(scoreCommands.organizationId, input.organizationId), eq(scoreCommands.matchId, input.matchId))).orderBy(asc(scoreCommands.resultingVersion));
+      const aggregate = this.aggregate(match, loadedSides, commandRows.map((row) => row.payload));
+      const result = executeX01Command(aggregate, command);
+      const nextVersion = match.version + 1;
+      const now = new Date();
+
+      if (command.type === "DECIDE_LEG_START") {
+        await transaction.update(legs).set({ startingSeat: command.startingSeat, updatedAt: now }).where(and(eq(legs.organizationId, input.organizationId), eq(legs.matchId, input.matchId), eq(legs.legNumber, command.legNumber)));
+      } else {
+        const decision = result.state.legDecisions.at(-1);
+        if (decision === undefined) throw new Error("Leg decision projection invariant violated.");
+        const [decided] = await transaction.select().from(legs).where(and(eq(legs.organizationId, input.organizationId), eq(legs.matchId, input.matchId), eq(legs.legNumber, decision.legNumber))).for("update").limit(1);
+        if (decided === undefined) throw new Error("Decided leg invariant violated.");
+        await transaction.update(legs).set({ status: "COMPLETED", winnerSeat: decision.winnerSeat, completedAt: now, version: decided.version + 1, updatedAt: now }).where(eq(legs.id, decided.id));
+        if (result.state.status === "IN_PROGRESS") {
+          await transaction.insert(legs).values({ organizationId: input.organizationId, matchId: input.matchId, legNumber: result.state.legNumber, startingSeat: result.state.legStartingSeat });
+        }
+      }
+
+      await this.syncProjection(transaction, input, match.boardId, nextVersion, result.state);
+      const matchWinnerPlayerId = playerOfSeat(result.state, result.state.winnerSeat);
+      if (result.state.status === "COMPLETED" && matchWinnerPlayerId !== null) {
+        await this.syncTournamentProgress(transaction, input.organizationId, input.matchId, matchWinnerPlayerId);
+      }
+      if (result.state.status === "COMPLETED" && result.state.winnerSeat !== null) {
+        await completeEncounterSlotForMatch(transaction, {
+          organizationId: input.organizationId,
+          matchId: input.matchId,
+          winnerSeat: result.state.winnerSeat,
+          homeLegs: result.state.sides.find((side) => side.seat === 1)?.totalLegsWon ?? 0,
+          awayLegs: result.state.sides.find((side) => side.seat === 2)?.totalLegsWon ?? 0,
+        });
+      }
+      await transaction.insert(scoreCommands).values({ commandId: envelope.commandId, organizationId: input.organizationId, matchId: input.matchId, type: command.type, payload: command, resultingVersion: nextVersion });
+      await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Match", aggregateId: input.matchId, eventType: result.state.status === "COMPLETED" ? "MATCH_COMPLETED" : "LEG_DECIDED", payload: { matchId: input.matchId, commandId: envelope.commandId, type: command.type, version: nextVersion } });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: command.type, entityType: "Match", entityId: input.matchId, oldValue: match, newValue: command, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
       return "ok";
     });
   }
