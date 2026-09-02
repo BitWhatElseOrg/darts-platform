@@ -44,7 +44,20 @@ export const abortMatchSchema = z.object({
 export const abortMatchResponseSchema = z.object({ matchId: z.uuid(), status: z.literal("ABORTED"), tournamentMatchId: z.uuid().nullable() });
 export const boardControllerLeaseRequestSchema = z.object({ controllerId: z.uuid(), force: z.boolean().default(false) });
 export const boardControllerLeaseSchema = z.object({ controllerId: z.uuid(), owned: z.boolean(), expiresAt: z.coerce.date() });
+/**
+ * Eine Seite des Matches. Im Doppel trägt sie zwei Personen; `players` ist
+ * deshalb die Wahrheit, `playerId` und `displayName` benennen weiterhin die
+ * erste Person der Seite. `isActive` heisst „diese Seite ist am Wurf",
+ * `players[].isThrowing` benennt die Person, die tatsächlich wirft.
+ */
+export const matchSidePlayerSchema = z.object({
+  playerId: z.uuid(),
+  displayName: z.string(),
+  isThrowing: z.boolean(),
+});
 export const matchParticipantStateSchema = z.object({
+  seat: z.union([z.literal(1), z.literal(2)]),
+  players: z.array(matchSidePlayerSchema).min(1).max(2),
   playerId: z.uuid(), displayName: z.string(), remaining: z.number().int().nonnegative(),
   legsWon: z.number().int().nonnegative(), legsWonInSet: z.number().int().nonnegative(), setsWon: z.number().int().nonnegative(), isActive: z.boolean(),
 });

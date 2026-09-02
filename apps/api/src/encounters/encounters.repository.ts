@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { aliasedTable, and, asc, eq, inArray, ne, sql } from "drizzle-orm";
+import { aliasedTable, and, asc, eq, gt, inArray, isNull, lte, ne, or } from "drizzle-orm";
 
 import {
   auditEvents,
@@ -904,6 +904,9 @@ export class EncountersRepository {
           awayPoints: result.awayPoints,
           result: result.result,
           resultType: result.resultType,
+          // Status und Ergebnis müssen in einer Anweisung fallen: der
+          // Check-Constraint bindet beide aneinander.
+          status: "COMPLETED",
           completedAt: now,
           updatedAt: now,
         })
@@ -1097,8 +1100,8 @@ export class EncountersRepository {
         and(
           eq(teamPlayers.organizationId, organizationId),
           eq(teamPlayers.teamId, teamId),
-          sql`${teamPlayers.validFrom} <= ${at}`,
-          sql`(${teamPlayers.validTo} is null or ${teamPlayers.validTo} > ${at})`,
+          lte(teamPlayers.validFrom, at),
+          or(isNull(teamPlayers.validTo), gt(teamPlayers.validTo, at)),
         ),
       );
     return rows.map((row) => row.playerId);

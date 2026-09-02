@@ -41,7 +41,16 @@ const storedSubmitSchema = z.object({
 });
 const storedUndoSchema = z.object({ type: z.literal("UNDO_LAST_VISIT"), commandId: z.uuid(), targetCommandId: z.uuid() });
 const storedAbortSchema = z.object({ type: z.literal("ABORT_MATCH"), commandId: z.uuid(), tournamentMatchId: z.uuid().nullable() });
-const storedCommandSchema = z.discriminatedUnion("type", [storedSubmitSchema, storedUndoSchema]);
+const storedLegStartSchema = z.object({
+  type: z.literal("DECIDE_LEG_START"), commandId: z.uuid(),
+  legNumber: z.number().int().positive(), startingSeat: seatSchema,
+});
+const storedLegByBullSchema = z.object({
+  type: z.literal("DECIDE_LEG_BY_BULL"), commandId: z.uuid(), winnerSeat: seatSchema,
+});
+const storedCommandSchema = z.discriminatedUnion("type", [
+  storedSubmitSchema, storedUndoSchema, storedLegStartSchema, storedLegByBullSchema,
+]);
 const groupRankReferenceSchema = z.object({
   type: z.literal("GROUP_RANK"),
   groupKey: z.string(),
@@ -50,7 +59,13 @@ const groupRankReferenceSchema = z.object({
 
 function parseStoredCommand(payload: unknown, seatOfPlayer: (playerId: string) => 1 | 2): X01Command {
   const parsed = storedCommandSchema.parse(payload);
-  if (parsed.type === "UNDO_LAST_VISIT") return parsed;
+  if (
+    parsed.type === "UNDO_LAST_VISIT" ||
+    parsed.type === "DECIDE_LEG_START" ||
+    parsed.type === "DECIDE_LEG_BY_BULL"
+  ) {
+    return parsed;
+  }
   const throwerPlayerId = parsed.throwerPlayerId ?? parsed.playerId;
   if (throwerPlayerId === undefined) {
     throw new ScoringValidationError("INVALID_STORED_COMMAND", "A stored visit needs a thrower.");
@@ -110,7 +125,7 @@ export class MatchesRepository {
       .innerJoin(players, and(eq(players.id, matchParticipantPlayers.playerId), eq(players.organizationId, organizationId)))
       .where(and(eq(matchParticipants.organizationId, organizationId), eq(matchParticipants.matchId, matchId)))
       .orderBy(asc(matchParticipants.seat), asc(matchParticipantPlayers.position));
-    if (participantRows.length !== 2 || participantRows[0] === undefined || participantRows[1] === undefined) throw new Error("Match participant invariant violated.");
+    if (participantRows.length < 2) throw new Error("Match participant invariant violated.");
 
     const commandRows = await this.databaseService.database.select().from(scoreCommands)
       .where(and(eq(scoreCommands.organizationId, organizationId), eq(scoreCommands.matchId, matchId)))
@@ -130,12 +145,18 @@ export class MatchesRepository {
       .orderBy(desc(visits.sequence));
 
     const bySeat = new Map(projection.sides.map((side) => [side.seat, side]));
-    const first = participantRows[0];
-    const second = participantRows[1];
-    const participantState = (row: typeof first) => {
-      const projected = bySeat.get(row.seat === 1 ? 1 : 2);
-      if (projected === undefined) throw new Error("Scoring side invariant violated.");
-      return { playerId: row.playerId, displayName: row.displayName, remaining: projected.remaining, legsWon: projected.totalLegsWon, legsWonInSet: projected.legsWonInSet, setsWon: projected.setsWon, isActive: projection.activeThrowerPlayerId === row.playerId };
+    // Im Doppel trägt ein Sitz zwei Zeilen; die Seite ist die Einheit, nicht die Zeile.
+    const participantState = (seat: 1 | 2) => {
+      const rows = participantRows.filter((row) => row.seat === seat);
+      const lead = rows[0];
+      const projected = bySeat.get(seat);
+      if (lead === undefined || projected === undefined) throw new Error("Scoring side invariant violated.");
+      return {
+        seat,
+        players: rows.map((row) => ({ playerId: row.playerId, displayName: row.displayName, isThrowing: projection.activeThrowerPlayerId === row.playerId })),
+        playerId: lead.playerId, displayName: lead.displayName, remaining: projected.remaining, legsWon: projected.totalLegsWon, legsWonInSet: projected.legsWonInSet, setsWon: projected.setsWon,
+        isActive: rows.some((row) => projection.activeThrowerPlayerId === row.playerId),
+      };
     };
     return {
       id: matchRow.match.id, organizationId, boardId: matchRow.match.boardId, boardName: matchRow.boardName,
@@ -144,7 +165,7 @@ export class MatchesRepository {
       bestOfSets: matchRow.match.setsToWin * 2 - 1, setsToWin: matchRow.match.setsToWin, currentSetNumber: projection.setNumber,
       currentLegNumber: projection.legNumber, currentLegVersion: legRow.version,
       currentPlayerId: projection.activeThrowerPlayerId, winnerPlayerId: playerOfSeat(projection, projection.winnerSeat),
-      participants: [participantState(first), participantState(second)],
+      participants: [participantState(1), participantState(2)],
       visits: visitRows.map(({ visit, playerDisplayName, legNumber }) => ({
         id: visit.id, commandId: visit.commandId, playerId: visit.throwerPlayerId, playerDisplayName,
         legNumber,
