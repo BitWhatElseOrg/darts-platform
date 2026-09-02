@@ -43,4 +43,33 @@ describe("organization permissions", () => {
     expect(hasOrganizationPermission("SCORER", "match:abort")).toBe(false);
     expect(hasOrganizationPermission("SCORER", "match:create")).toBe(false);
   });
+
+  it("gives the league rights to the roles that run the league", () => {
+    for (const role of ["OWNER", "ADMIN", "TOURNAMENT_DIRECTOR"] as const) {
+      expect(hasOrganizationPermission(role, "team:manage")).toBe(true);
+      expect(hasOrganizationPermission(role, "competition:manage")).toBe(true);
+      expect(hasOrganizationPermission(role, "encounter:manage")).toBe(true);
+      expect(hasOrganizationPermission(role, "encounter:lineup")).toBe(true);
+    }
+  });
+
+  it("lets scorers record lineups on site without managing the league", () => {
+    expect(hasOrganizationPermission("SCORER", "encounter:lineup")).toBe(true);
+    expect(hasOrganizationPermission("SCORER", "encounter:read")).toBe(true);
+    expect(hasOrganizationPermission("SCORER", "team:read")).toBe(true);
+    expect(hasOrganizationPermission("SCORER", "competition:read")).toBe(true);
+    expect(hasOrganizationPermission("SCORER", "encounter:manage")).toBe(false);
+    expect(hasOrganizationPermission("SCORER", "team:manage")).toBe(false);
+    expect(hasOrganizationPermission("SCORER", "competition:manage")).toBe(false);
+  });
+
+  it("keeps members and viewers to the three league read rights", () => {
+    for (const role of ["MEMBER", "VIEWER"] as const) {
+      expect(hasOrganizationPermission(role, "team:read")).toBe(true);
+      expect(hasOrganizationPermission(role, "competition:read")).toBe(true);
+      expect(hasOrganizationPermission(role, "encounter:read")).toBe(true);
+      expect(hasOrganizationPermission(role, "encounter:lineup")).toBe(false);
+      expect(hasOrganizationPermission(role, "encounter:manage")).toBe(false);
+    }
+  });
 });
