@@ -317,6 +317,71 @@ Kein `pnpm test` im Root während der Arbeit; einzelne Dateien über
 Bei etwa 60 Prozent Verbrauch: Zwischenstand committen, hier festhalten,
 welche Tasks offen sind, Session beenden.
 
-## Offene Tasks
+## Ausgeführt
 
-_(Wird am Sessionende gepflegt. Stand jetzt: keine, Arbeit beginnt.)_
+Alle elf Tasks sind umgesetzt. Vollverifikation am Ende grün: `pnpm lint`,
+`pnpm typecheck`, `pnpm test` (118 Tests im API-Paket, davon 10 neue
+Integrationstests der Begegnung), `pnpm build`.
+
+Migration `0018_big_zeigeist` legt die zehn Tabellen an und erweitert
+`score_commands_type_check` um die beiden Reglementskommandos.
+
+### Abweichungen vom Plan, mit Begründung
+
+1. **Widerspruch in der Spec zu `competitions`.** Die Spaltendefaults
+   `points_decider_bonus = 1` und `decider_rule = 'NONE'` verletzen den in
+   derselben Spec geforderten Constraint
+   `points_decider_bonus = 0 or decider_rule = 'EXTRA_SLOT'`. Der Constraint
+   ist die inhaltliche Regel und bleibt; `createCompetitionSchema` leitet den
+   Zusatzpunkt aus der Wertungsregel ab (1 bei `EXTRA_SLOT`, sonst 0), statt
+   ihn stur auf 1 zu setzen. Das Repository schreibt beide Spalten immer
+   explizit, die Defaults treffen also ohnehin nie aufeinander.
+
+2. **`evaluateSlotReadiness` in `packages/scheduling-engine`.** Das
+   vorhandene `evaluateMatchReadiness` nimmt genau zwei Teilnehmer; ein
+   Doppelslot trägt vier Personen. Der Spec-Abschnitt „Tests und
+   Abnahmekriterien" verlangt für die scheduling-engine ausdrücklich die
+   Fälle „Seite mit zwei Personen" und „Person in zwei Slots gleichzeitig" —
+   also gehört die Entscheidung dorthin und nicht ins Repository. Sieben neue
+   Engine-Tests.
+
+3. **Fünftes Outbox-Ereignis `ENCOUNTER_SLOT_REOPENED`.** Wird ein Match über
+   `match:abort` beendet, fällt sein Slot auf `WAITING` zurück. Die vier
+   verbindlichen Ereignisse bleiben unverändert; ein „assigned" für eine
+   Rücknahme wäre irreführend. Vorbild ist das bestehende
+   `TOURNAMENT_MATCH_REOPENED`.
+
+4. **`matchParticipantStateSchema` trägt jetzt `seat` und `players`.**
+   `MatchesRepository.getState` warf bei vier Teilnehmerzeilen
+   „Match participant invariant violated" — das Seitenmodell aus Phase 1 war
+   im Lesepfad noch auf eine Person je Sitz verdrahtet. `playerId` und
+   `displayName` benennen weiterhin die erste Person der Seite, damit das
+   bestehende Web unverändert baut.
+
+5. **`storedCommandSchema` liest die beiden neuen Kommandos.** Ohne diese
+   Erweiterung liessen sich `DECIDE_LEG_START` und `DECIDE_LEG_BY_BULL` zwar
+   schreiben, aber beim nächsten Aufbau des Aggregats nicht mehr lesen. Der
+   Integrationstest hat den Fehler gefunden.
+
+6. **Nichtantritt schreibt Status und Ergebnis in einer Anweisung.**
+   `(status = 'COMPLETED') = (result is not null)` ist ein Row-Constraint und
+   greift sofort; die Trennung in zwei Updates war nicht haltbar.
+
+7. **Die Fortschreibung erhöht die Version der Begegnung nicht.** Sie ist
+   kein Kommando. Sonst erzeugte ein nebenan fertig werdender Slot
+   Versionskonflikte in laufenden Meldeformularen. Gleiche Systematik wie
+   `update-tournament-progress.ts`.
+
+8. **Match-Endpunkte für die Reglementskommandos.** Der Spec-Abschnitt „API"
+   führt sie nicht auf, weil sie zum Match gehören und nicht zur Begegnung:
+   `POST /organizations/:organizationId/matches/:matchId/leg-start` und
+   `.../leg-by-bull`. `ROUND_LIMIT_NOT_REACHED` antwortet als einziger
+   Scoring-Fehler mit 409, wie es die Fehlerfälle-Tabelle verlangt.
+
+### Für Phase 5 und 6 offen
+
+- Realtime-Verteilung der fünf Encounter-Ereignisse und die
+  Worker-Fortschreibung (Phase 5).
+- Web-UI (Phase 6), E2E (Phase 7).
+- Saison-Tabellenberechnung und die Kontingente für Aushilfen
+  (`origin = 'GUEST'`) sind weiterhin ausdrücklich nicht im Umfang.
