@@ -53,7 +53,21 @@ export interface DecideLegStartCommand {
   readonly startingSeat: 1 | 2;
 }
 
-export type X01Command = SubmitVisitCommand | UndoVisitCommand | DecideLegStartCommand;
+/**
+ * Anhang 2 begrenzt die Automaten. Ist die Rundengrenze erreicht, endet das Leg
+ * nicht durch Checkout, sondern durch ein Ausbullen.
+ */
+export interface DecideLegByBullCommand {
+  readonly type: "DECIDE_LEG_BY_BULL";
+  readonly commandId: string;
+  readonly winnerSeat: 1 | 2;
+}
+
+export type X01Command =
+  | SubmitVisitCommand
+  | UndoVisitCommand
+  | DecideLegStartCommand
+  | DecideLegByBullCommand;
 
 export interface X01Match {
   readonly sides: readonly [X01Side, X01Side];
@@ -94,6 +108,13 @@ export interface X01SideState {
   readonly setsWon: number;
 }
 
+export interface LegDecision {
+  readonly commandId: string;
+  readonly legNumber: number;
+  readonly winnerSeat: 1 | 2;
+  readonly outcome: "LEG_WON" | "SET_WON" | "MATCH_WON";
+}
+
 export interface X01MatchState {
   readonly status: "IN_PROGRESS" | "COMPLETED";
   readonly winnerSeat: 1 | 2 | null;
@@ -103,7 +124,10 @@ export interface X01MatchState {
   readonly legNumber: number;
   readonly setNumber: number;
   readonly sides: readonly [X01SideState, X01SideState];
+  readonly roundsPlayedInLeg: number;
+  readonly roundLimitReached: boolean;
   readonly visits: readonly AppliedVisit[];
+  readonly legDecisions: readonly LegDecision[];
   readonly revertedCommandIds: readonly string[];
 }
 
@@ -309,7 +333,10 @@ function other(index: 0 | 1): 0 | 1 {
   return index === 0 ? 1 : 0;
 }
 
+type StreamCommand = SubmitVisitCommand | DecideLegByBullCommand;
+
 interface ActiveCommands {
+  readonly stream: readonly StreamCommand[];
   readonly submissions: readonly SubmitVisitCommand[];
   readonly reverted: readonly string[];
   readonly legStarts: ReadonlyMap<number, 1 | 2>;
@@ -339,6 +366,11 @@ function activeCommands(commands: readonly X01Command[]): ActiveCommands {
     legStarts.set(command.legNumber, command.startingSeat);
   }
   return {
+    stream: commands.filter(
+      (command): command is StreamCommand =>
+        (command.type === "SUBMIT_VISIT" && !reverted.has(command.commandId)) ||
+        command.type === "DECIDE_LEG_BY_BULL",
+    ),
     submissions: commands.filter(
       (command): command is SubmitVisitCommand =>
         command.type === "SUBMIT_VISIT" && !reverted.has(command.commandId),
@@ -346,6 +378,60 @@ function activeCommands(commands: readonly X01Command[]): ActiveCommands {
     reverted: [...reverted],
     legStarts,
   };
+}
+
+interface LegWin {
+  readonly sides: [X01SideState, X01SideState];
+  readonly outcome: "LEG_WON" | "SET_WON" | "MATCH_WON";
+  readonly setWon: boolean;
+  readonly matchWon: boolean;
+}
+
+function winLeg(
+  sides: readonly [X01SideState, X01SideState],
+  index: 0 | 1,
+  rules: X01Rules,
+): LegWin {
+  const side = sides[index];
+  const legsWonInSet = side.legsWonInSet + 1;
+  const setWon = legsWonInSet >= rules.legsToWinSet;
+  const setsWon = side.setsWon + (setWon ? 1 : 0);
+  const matchWon = setsWon >= rules.setsToWin;
+  return {
+    sides: replaceSide(sides, index, {
+      ...side,
+      remaining: 0,
+      legsWonInSet: setWon ? 0 : legsWonInSet,
+      totalLegsWon: side.totalLegsWon + 1,
+      setsWon,
+    }),
+    outcome: matchWon ? "MATCH_WON" : setWon ? "SET_WON" : "LEG_WON",
+    setWon,
+    matchWon,
+  };
+}
+
+function resetForNextLeg(
+  sides: readonly [X01SideState, X01SideState],
+  rules: X01Rules,
+): [X01SideState, X01SideState] {
+  const opened = rules.inRule === "STRAIGHT";
+  return [
+    { ...sides[0], remaining: rules.startingScore, openedInLeg: opened },
+    { ...sides[1], remaining: rules.startingScore, openedInLeg: opened },
+  ];
+}
+
+/** Eine Runde ist vollstaendig, wenn beide Seiten im Leg gleich oft geworfen haben. */
+function roundsCompleted(visitsInLeg: readonly [number, number]): number {
+  return Math.min(visitsInLeg[0], visitsInLeg[1]);
+}
+
+function isRoundLimitReached(
+  maxRounds: number | null,
+  visitsInLeg: readonly [number, number],
+): boolean {
+  return maxRounds !== null && roundsCompleted(visitsInLeg) >= maxRounds;
 }
 
 function nextLegStartIndex(
@@ -371,10 +457,46 @@ export function projectX01Match(match: X01Match): X01MatchState {
   let setNumber = 1;
   let winnerSeat: 1 | 2 | null = null;
   const visits: AppliedVisit[] = [];
+  const decisions: LegDecision[] = [];
 
-  for (const command of active.submissions) {
+  for (const command of active.stream) {
     if (winnerSeat !== null) {
-      throw new ScoringValidationError("MATCH_ALREADY_COMPLETED", "No visit can be added to a completed match.");
+      throw new ScoringValidationError("MATCH_ALREADY_COMPLETED", "No command can be added to a completed match.");
+    }
+
+    if (command.type === "DECIDE_LEG_BY_BULL") {
+      if (!isRoundLimitReached(match.rules.maxRounds, visitsInLeg)) {
+        throw new ScoringValidationError(
+          "ROUND_LIMIT_NOT_REACHED",
+          "A leg is only decided by bull once the round limit is reached.",
+        );
+      }
+      const won = winLeg(sides, indexOfSeat(command.winnerSeat), match.rules);
+      sides = won.sides;
+      decisions.push({
+        commandId: command.commandId,
+        legNumber,
+        winnerSeat: command.winnerSeat,
+        outcome: won.outcome,
+      });
+      if (won.matchWon) {
+        winnerSeat = command.winnerSeat;
+        continue;
+      }
+      legNumber += 1;
+      if (won.setWon) setNumber += 1;
+      legStartingIndex = nextLegStartIndex(active.legStarts, legNumber, legStartingIndex);
+      activeIndex = legStartingIndex;
+      visitsInLeg = [0, 0];
+      sides = resetForNextLeg(sides, match.rules);
+      continue;
+    }
+
+    if (isRoundLimitReached(match.rules.maxRounds, visitsInLeg)) {
+      throw new ScoringValidationError(
+        "ROUND_LIMIT_REACHED",
+        "The round limit is reached; the leg is decided by a bull throw.",
+      );
     }
     validateVisit(command);
     const side = sides[activeIndex];
@@ -406,24 +528,16 @@ export function projectX01Match(match: X01Match): X01MatchState {
       (tentative === 0 && !validCheckout);
     let outcome: VisitOutcome = bust ? "BUST" : "SCORED";
     let scoreAfter = bust ? scoreBefore : tentative;
+    let setWonByVisit = false;
 
     if (validCheckout) {
-      const legsWonInSet = side.legsWonInSet + 1;
-      const totalLegsWon = side.totalLegsWon + 1;
-      const setWon = legsWonInSet >= match.rules.legsToWinSet;
-      const setsWon = side.setsWon + (setWon ? 1 : 0);
-      const matchWon = setsWon >= match.rules.setsToWin;
-      outcome = matchWon ? "MATCH_WON" : setWon ? "SET_WON" : "LEG_WON";
-      sides = replaceSide(sides, activeIndex, {
-        ...side,
-        remaining: 0,
-        legsWonInSet: setWon ? 0 : legsWonInSet,
-        totalLegsWon,
-        setsWon,
-      });
+      const won = winLeg(sides, activeIndex, match.rules);
+      sides = won.sides;
+      outcome = won.outcome;
+      setWonByVisit = won.setWon;
       scoreAfter = 0;
-      if (matchWon) {
-        winnerSeat = side.seat;
+      if (won.matchWon) {
+        winnerSeat = seatOf(activeIndex);
       }
     } else if (bust) {
       sides = replaceSide(sides, activeIndex, { ...side, openedInLeg });
@@ -453,14 +567,11 @@ export function projectX01Match(match: X01Match): X01MatchState {
 
     if (validCheckout && winnerSeat === null) {
       legNumber += 1;
-      if (outcome === "SET_WON") setNumber += 1;
+      if (setWonByVisit) setNumber += 1;
       legStartingIndex = nextLegStartIndex(active.legStarts, legNumber, legStartingIndex);
       activeIndex = legStartingIndex;
       visitsInLeg = [0, 0];
-      sides = [
-        { ...sides[0], remaining: match.rules.startingScore, openedInLeg: match.rules.inRule === "STRAIGHT" },
-        { ...sides[1], remaining: match.rules.startingScore, openedInLeg: match.rules.inRule === "STRAIGHT" },
-      ];
+      sides = resetForNextLeg(sides, match.rules);
     } else if (!validCheckout) {
       activeIndex = other(activeIndex);
     }
@@ -478,7 +589,10 @@ export function projectX01Match(match: X01Match): X01MatchState {
     legNumber,
     setNumber,
     sides,
+    roundsPlayedInLeg: roundsCompleted(visitsInLeg),
+    roundLimitReached: isRoundLimitReached(match.rules.maxRounds, visitsInLeg),
     visits,
+    legDecisions: decisions,
     revertedCommandIds: active.reverted,
   };
 }
@@ -488,13 +602,19 @@ export function executeX01Command(match: X01Match, command: X01Command): Execute
     return { match, state: projectX01Match(match), duplicate: true, outcome: null };
   }
   if (command.type === "UNDO_LAST_VISIT") {
-    const active = activeCommands(match.commands).submissions;
-    const latest = active.at(-1);
+    const active = activeCommands(match.commands);
+    const latest = active.submissions.at(-1);
     if (latest === undefined) {
       throw new ScoringValidationError("NOTHING_TO_UNDO", "There is no active visit to undo.");
     }
     if (command.targetCommandId !== latest.commandId) {
       throw new ScoringValidationError("UNDO_TARGET_NOT_LATEST", "Only the latest active visit can be undone.");
+    }
+    if (active.stream.at(-1)?.type === "DECIDE_LEG_BY_BULL") {
+      throw new ScoringValidationError(
+        "UNDO_TARGET_NOT_LATEST",
+        "The leg was decided by a bull throw; the visit before it cannot be undone.",
+      );
     }
   }
   if (command.type === "DECIDE_LEG_START") {
@@ -528,6 +648,8 @@ function commandOutcome(
       return "VISIT_UNDONE";
     case "DECIDE_LEG_START":
       return null;
+    case "DECIDE_LEG_BY_BULL":
+      return state.legDecisions.at(-1)?.outcome ?? null;
     case "SUBMIT_VISIT":
       return state.visits.at(-1)?.outcome ?? null;
   }

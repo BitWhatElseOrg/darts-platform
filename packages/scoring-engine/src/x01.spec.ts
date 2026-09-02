@@ -223,6 +223,78 @@ describe("X01 scoring", () => {
     }
   });
 
+  it("stops the leg at the round limit and decides it by bull", () => {
+    let match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ maxRounds: 2 }),
+    });
+    for (const [index, seat] of ([1, 2, 1, 2] as const).entries()) {
+      match = executeX01Command(
+        match,
+        visit(`v${index}`, seat, seat === 1 ? "one" : "two", 60),
+      ).match;
+    }
+    const limited = projectX01Match(match);
+    expect(limited.roundsPlayedInLeg).toBe(2);
+    expect(limited.roundLimitReached).toBe(true);
+
+    try {
+      executeX01Command(match, visit("too-many", 1, "one", 60));
+      expect.unreachable("the round limit is reached");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("ROUND_LIMIT_REACHED");
+    }
+
+    const decided = executeX01Command(match, {
+      type: "DECIDE_LEG_BY_BULL",
+      commandId: "bull-out",
+      winnerSeat: 2,
+    });
+    expect(decided.outcome).toBe("MATCH_WON");
+    expect(decided.state.winnerSeat).toBe(2);
+    expect(decided.state.sides[1].totalLegsWon).toBe(1);
+    expect(decided.state.legDecisions).toHaveLength(1);
+  });
+
+  it("refuses the bull decision before the round limit and without one", () => {
+    let match = createX01Match({ sides: singles("one", "two"), rules: rules({ maxRounds: 2 }) });
+    match = executeX01Command(match, visit("v0", 1, "one", 60)).match;
+    try {
+      executeX01Command(match, { type: "DECIDE_LEG_BY_BULL", commandId: "early", winnerSeat: 1 });
+      expect.unreachable("the round limit is not reached");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("ROUND_LIMIT_NOT_REACHED");
+    }
+
+    const unlimited = createX01Match({ sides: singles("one", "two") });
+    try {
+      executeX01Command(unlimited, { type: "DECIDE_LEG_BY_BULL", commandId: "no-limit", winnerSeat: 1 });
+      expect.unreachable("a match without a round limit is never decided by bull");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("ROUND_LIMIT_NOT_REACHED");
+    }
+  });
+
+  it("continues with the next leg after a leg decided by bull", () => {
+    let match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ maxRounds: 1, legsToWinSet: 2, setsToWin: 1 }),
+    });
+    match = executeX01Command(match, visit("a", 1, "one", 60)).match;
+    match = executeX01Command(match, visit("b", 2, "two", 60)).match;
+    match = executeX01Command(match, {
+      type: "DECIDE_LEG_BY_BULL",
+      commandId: "bull-1",
+      winnerSeat: 1,
+    }).match;
+    const state = projectX01Match(match);
+    expect(state.status).toBe("IN_PROGRESS");
+    expect(state.legNumber).toBe(2);
+    expect(state.legStartingSeat).toBe(2);
+    expect(state.sides[0].remaining).toBe(501);
+    expect(state.roundsPlayedInLeg).toBe(0);
+  });
+
   it("scores a normal 501 visit and changes the active side", () => {
     const result = executeX01Command(createX01Match({ sides: singles("a", "b") }), visit("1", 1, "a", 100));
     expect(result.state.sides[0].remaining).toBe(401);
