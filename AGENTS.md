@@ -75,6 +75,7 @@ packages/domain
 packages/database
 packages/scoring-engine
 packages/tournament-engine
+packages/league-engine
 packages/scheduling-engine
 packages/ranking-engine
 packages/statistics

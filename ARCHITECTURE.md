@@ -203,6 +203,7 @@ dart-tournament-platform/
 │   ├── auth/
 │   ├── scoring-engine/
 │   ├── tournament-engine/
+│   ├── league-engine/
 │   ├── scheduling-engine/
 │   ├── ranking-engine/
 │   ├── statistics/
