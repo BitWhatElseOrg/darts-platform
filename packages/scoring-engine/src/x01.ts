@@ -14,10 +14,16 @@ export interface X01Rules {
   readonly setsToWin: number;
 }
 
+export interface X01Side {
+  readonly seat: 1 | 2;
+  readonly playerIds: readonly string[];
+}
+
 export interface SubmitVisitCommand {
   readonly type: "SUBMIT_VISIT";
   readonly commandId: string;
-  readonly playerId: string;
+  readonly seat: 1 | 2;
+  readonly throwerPlayerId: string;
   readonly points: number;
   readonly dartsThrown: 1 | 2 | 3;
   readonly checkoutDouble?: number;
@@ -33,8 +39,8 @@ export interface UndoVisitCommand {
 export type X01Command = SubmitVisitCommand | UndoVisitCommand;
 
 export interface X01Match {
-  readonly playerIds: readonly [string, string];
-  readonly startingPlayerIndex: 0 | 1;
+  readonly sides: readonly [X01Side, X01Side];
+  readonly startingSeat: 1 | 2;
   readonly rules: X01Rules;
   readonly commands: readonly X01Command[];
 }
@@ -48,7 +54,8 @@ export type VisitOutcome =
 
 export interface AppliedVisit {
   readonly commandId: string;
-  readonly playerId: string;
+  readonly seat: 1 | 2;
+  readonly throwerPlayerId: string;
   readonly legNumber: number;
   readonly points: number;
   readonly appliedPoints: number;
@@ -60,8 +67,9 @@ export interface AppliedVisit {
   readonly outcome: VisitOutcome;
 }
 
-export interface X01PlayerState {
-  readonly id: string;
+export interface X01SideState {
+  readonly seat: 1 | 2;
+  readonly playerIds: readonly string[];
   readonly remaining: number;
   readonly legsWonInSet: number;
   readonly totalLegsWon: number;
@@ -70,12 +78,13 @@ export interface X01PlayerState {
 
 export interface X01MatchState {
   readonly status: "IN_PROGRESS" | "COMPLETED";
-  readonly winnerPlayerId: string | null;
-  readonly activePlayerId: string | null;
-  readonly legStartingPlayerId: string;
+  readonly winnerSeat: 1 | 2 | null;
+  readonly activeSeat: 1 | 2 | null;
+  readonly activeThrowerPlayerId: string | null;
+  readonly legStartingSeat: 1 | 2;
   readonly legNumber: number;
   readonly setNumber: number;
-  readonly players: readonly [X01PlayerState, X01PlayerState];
+  readonly sides: readonly [X01SideState, X01SideState];
   readonly visits: readonly AppliedVisit[];
   readonly revertedCommandIds: readonly string[];
 }
@@ -109,13 +118,35 @@ function assertRules(rules: X01Rules): void {
   }
 }
 
+function seatOf(index: 0 | 1): 1 | 2 {
+  return index === 0 ? 1 : 2;
+}
+
+function indexOfSeat(seat: 1 | 2): 0 | 1 {
+  return seat === 1 ? 0 : 1;
+}
+
+function throwerFor(side: X01Side, visitsInLeg: number, legNumber: number): string {
+  const position = (visitsInLeg + legNumber - 1) % side.playerIds.length;
+  const playerId = side.playerIds[position];
+  if (playerId === undefined) {
+    throw new ScoringValidationError("EMPTY_SIDE", "A side needs at least one player.");
+  }
+  return playerId;
+}
+
 export function createX01Match(input: {
-  readonly playerIds: readonly [string, string];
-  readonly startingPlayerIndex?: 0 | 1;
+  readonly sides: readonly [X01Side, X01Side];
+  readonly startingSeat?: 1 | 2;
   readonly rules?: X01Rules;
 }): X01Match {
-  if (input.playerIds[0] === input.playerIds[1]) {
-    throw new ScoringValidationError("DUPLICATE_PLAYER", "A match requires two different players.");
+  const [first, second] = input.sides;
+  if (first.playerIds.length === 0 || second.playerIds.length === 0) {
+    throw new ScoringValidationError("EMPTY_SIDE", "A side needs at least one player.");
+  }
+  const all = [...first.playerIds, ...second.playerIds];
+  if (new Set(all).size !== all.length) {
+    throw new ScoringValidationError("DUPLICATE_PLAYER", "A person can only appear once in a match.");
   }
   const rules = input.rules ?? {
     startingScore: 501,
@@ -125,8 +156,8 @@ export function createX01Match(input: {
   };
   assertRules(rules);
   return {
-    playerIds: input.playerIds,
-    startingPlayerIndex: input.startingPlayerIndex ?? 0,
+    sides: input.sides,
+    startingSeat: input.startingSeat ?? 1,
     rules,
     commands: [],
   };
@@ -171,16 +202,23 @@ function validateVisit(command: SubmitVisitCommand): void {
   }
 }
 
-function initialPlayer(id: string, startingScore: number): X01PlayerState {
-  return { id, remaining: startingScore, legsWonInSet: 0, totalLegsWon: 0, setsWon: 0 };
+function initialSide(side: X01Side, startingScore: number): X01SideState {
+  return {
+    seat: side.seat,
+    playerIds: side.playerIds,
+    remaining: startingScore,
+    legsWonInSet: 0,
+    totalLegsWon: 0,
+    setsWon: 0,
+  };
 }
 
-function replacePlayer(
-  players: readonly [X01PlayerState, X01PlayerState],
+function replaceSide(
+  sides: readonly [X01SideState, X01SideState],
   index: 0 | 1,
-  player: X01PlayerState,
-): [X01PlayerState, X01PlayerState] {
-  return index === 0 ? [player, players[1]] : [players[0], player];
+  side: X01SideState,
+): [X01SideState, X01SideState] {
+  return index === 0 ? [side, sides[1]] : [sides[0], side];
 }
 
 function other(index: 0 | 1): 0 | 1 {
@@ -208,27 +246,32 @@ function activeCommands(commands: readonly X01Command[]): {
 export function projectX01Match(match: X01Match): X01MatchState {
   assertRules(match.rules);
   const active = activeCommands(match.commands);
-  let players: [X01PlayerState, X01PlayerState] = [
-    initialPlayer(match.playerIds[0], match.rules.startingScore),
-    initialPlayer(match.playerIds[1], match.rules.startingScore),
+  let sides: [X01SideState, X01SideState] = [
+    initialSide(match.sides[0], match.rules.startingScore),
+    initialSide(match.sides[1], match.rules.startingScore),
   ];
-  let activeIndex: 0 | 1 = match.startingPlayerIndex;
-  let legStartingIndex: 0 | 1 = match.startingPlayerIndex;
+  let activeIndex: 0 | 1 = indexOfSeat(match.startingSeat);
+  let legStartingIndex: 0 | 1 = activeIndex;
+  let visitsInLeg: [number, number] = [0, 0];
   let legNumber = 1;
   let setNumber = 1;
-  let winnerPlayerId: string | null = null;
+  let winnerSeat: 1 | 2 | null = null;
   const visits: AppliedVisit[] = [];
 
   for (const command of active.submissions) {
-    if (winnerPlayerId !== null) {
+    if (winnerSeat !== null) {
       throw new ScoringValidationError("MATCH_ALREADY_COMPLETED", "No visit can be added to a completed match.");
     }
     validateVisit(command);
-    const player = players[activeIndex];
-    if (player.id !== command.playerId) {
-      throw new ScoringValidationError("NOT_ACTIVE_PLAYER", "The visit does not belong to the active player.");
+    const side = sides[activeIndex];
+    if (command.seat !== seatOf(activeIndex)) {
+      throw new ScoringValidationError("NOT_ACTIVE_SEAT", "The visit does not belong to the active side.");
     }
-    const scoreBefore = player.remaining;
+    const expectedThrower = throwerFor(match.sides[activeIndex], visitsInLeg[activeIndex], legNumber);
+    if (command.throwerPlayerId !== expectedThrower) {
+      throw new ScoringValidationError("INVALID_THROWER", "The visit does not belong to the person whose turn it is.");
+    }
+    const scoreBefore = side.remaining;
     const tentative = scoreBefore - command.points;
     const doubleValue = command.checkoutDouble === undefined ? null : checkoutValue(command.checkoutDouble);
     const validDoubleCheckout =
@@ -245,14 +288,14 @@ export function projectX01Match(match: X01Match): X01MatchState {
     let scoreAfter = bust ? scoreBefore : tentative;
 
     if (validCheckout) {
-      const legsWonInSet = player.legsWonInSet + 1;
-      const totalLegsWon = player.totalLegsWon + 1;
+      const legsWonInSet = side.legsWonInSet + 1;
+      const totalLegsWon = side.totalLegsWon + 1;
       const setWon = legsWonInSet >= match.rules.legsToWinSet;
-      const setsWon = player.setsWon + (setWon ? 1 : 0);
+      const setsWon = side.setsWon + (setWon ? 1 : 0);
       const matchWon = setsWon >= match.rules.setsToWin;
       outcome = matchWon ? "MATCH_WON" : setWon ? "SET_WON" : "LEG_WON";
-      players = replacePlayer(players, activeIndex, {
-        ...player,
+      sides = replaceSide(sides, activeIndex, {
+        ...side,
         remaining: 0,
         legsWonInSet: setWon ? 0 : legsWonInSet,
         totalLegsWon,
@@ -260,15 +303,16 @@ export function projectX01Match(match: X01Match): X01MatchState {
       });
       scoreAfter = 0;
       if (matchWon) {
-        winnerPlayerId = player.id;
+        winnerSeat = side.seat;
       }
     } else if (!bust) {
-      players = replacePlayer(players, activeIndex, { ...player, remaining: tentative });
+      sides = replaceSide(sides, activeIndex, { ...side, remaining: tentative });
     }
 
     visits.push({
       commandId: command.commandId,
-      playerId: command.playerId,
+      seat: command.seat,
+      throwerPlayerId: command.throwerPlayerId,
       legNumber,
       points: command.points,
       appliedPoints: bust ? 0 : command.points,
@@ -280,14 +324,20 @@ export function projectX01Match(match: X01Match): X01MatchState {
       outcome,
     });
 
-    if (validCheckout && winnerPlayerId === null) {
+    visitsInLeg =
+      activeIndex === 0
+        ? [visitsInLeg[0] + 1, visitsInLeg[1]]
+        : [visitsInLeg[0], visitsInLeg[1] + 1];
+
+    if (validCheckout && winnerSeat === null) {
       legNumber += 1;
       if (outcome === "SET_WON") setNumber += 1;
       legStartingIndex = other(legStartingIndex);
       activeIndex = legStartingIndex;
-      players = [
-        { ...players[0], remaining: match.rules.startingScore },
-        { ...players[1], remaining: match.rules.startingScore },
+      visitsInLeg = [0, 0];
+      sides = [
+        { ...sides[0], remaining: match.rules.startingScore },
+        { ...sides[1], remaining: match.rules.startingScore },
       ];
     } else if (!validCheckout) {
       activeIndex = other(activeIndex);
@@ -295,13 +345,17 @@ export function projectX01Match(match: X01Match): X01MatchState {
   }
 
   return {
-    status: winnerPlayerId === null ? "IN_PROGRESS" : "COMPLETED",
-    winnerPlayerId,
-    activePlayerId: winnerPlayerId === null ? players[activeIndex].id : null,
-    legStartingPlayerId: players[legStartingIndex].id,
+    status: winnerSeat === null ? "IN_PROGRESS" : "COMPLETED",
+    winnerSeat,
+    activeSeat: winnerSeat === null ? seatOf(activeIndex) : null,
+    activeThrowerPlayerId:
+      winnerSeat === null
+        ? throwerFor(match.sides[activeIndex], visitsInLeg[activeIndex], legNumber)
+        : null,
+    legStartingSeat: seatOf(legStartingIndex),
     legNumber,
     setNumber,
-    players,
+    sides,
     visits,
     revertedCommandIds: active.reverted,
   };

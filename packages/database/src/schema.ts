@@ -314,11 +314,9 @@ export const matches = pgTable(
     legsToWinSet: integer("legs_to_win_set").default(2).notNull(),
     setsToWin: integer("sets_to_win").default(1).notNull(),
     version: integer("version").default(0).notNull(),
-    startingPlayerId: uuid("starting_player_id")
-      .notNull()
-      .references(() => players.id, { onDelete: "restrict" }),
-    currentPlayerId: uuid("current_player_id").references(() => players.id, { onDelete: "restrict" }),
-    winnerPlayerId: uuid("winner_player_id").references(() => players.id, { onDelete: "restrict" }),
+    startingSeat: integer("starting_seat").notNull(),
+    currentSeat: integer("current_seat"),
+    winnerSeat: integer("winner_seat"),
     startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     ...timestamps,
@@ -332,6 +330,9 @@ export const matches = pgTable(
     check("matches_legs_to_win_set_check", sql`${table.legsToWinSet} > 0`),
     check("matches_sets_to_win_check", sql`${table.setsToWin} > 0`),
     check("matches_version_check", sql`${table.version} >= 0`),
+    check("matches_starting_seat_check", sql`${table.startingSeat} in (1, 2)`),
+    check("matches_current_seat_check", sql`${table.currentSeat} is null or ${table.currentSeat} in (1, 2)`),
+    check("matches_winner_seat_check", sql`${table.winnerSeat} is null or ${table.winnerSeat} in (1, 2)`),
   ],
 );
 
@@ -358,18 +359,40 @@ export const matchParticipants = pgTable(
     matchId: uuid("match_id")
       .notNull()
       .references(() => matches.id, { onDelete: "cascade" }),
-    playerId: uuid("player_id")
-      .notNull()
-      .references(() => players.id, { onDelete: "restrict" }),
     seat: integer("seat").notNull(),
     legsWon: integer("legs_won").default(0).notNull(),
   },
   (table) => [
-    uniqueIndex("match_participants_match_player_unique").on(table.matchId, table.playerId),
     uniqueIndex("match_participants_match_seat_unique").on(table.matchId, table.seat),
     index("match_participants_organization_id_idx").on(table.organizationId),
     check("match_participants_seat_check", sql`${table.seat} in (1, 2)`),
     check("match_participants_legs_won_check", sql`${table.legsWon} >= 0`),
+  ],
+);
+
+export const matchParticipantPlayers = pgTable(
+  "match_participant_players",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    matchId: uuid("match_id")
+      .notNull()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    participantId: uuid("participant_id")
+      .notNull()
+      .references(() => matchParticipants.id, { onDelete: "cascade" }),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "restrict" }),
+    position: integer("position").notNull(),
+  },
+  (table) => [
+    uniqueIndex("match_participant_players_participant_position_unique").on(table.participantId, table.position),
+    uniqueIndex("match_participant_players_match_player_unique").on(table.matchId, table.playerId),
+    index("match_participant_players_organization_player_idx").on(table.organizationId, table.playerId),
+    check("match_participant_players_position_check", sql`${table.position} in (1, 2)`),
   ],
 );
 
@@ -384,10 +407,8 @@ export const legs = pgTable(
       .notNull()
       .references(() => matches.id, { onDelete: "cascade" }),
     legNumber: integer("leg_number").notNull(),
-    startingPlayerId: uuid("starting_player_id")
-      .notNull()
-      .references(() => players.id, { onDelete: "restrict" }),
-    winnerPlayerId: uuid("winner_player_id").references(() => players.id, { onDelete: "restrict" }),
+    startingSeat: integer("starting_seat").notNull(),
+    winnerSeat: integer("winner_seat"),
     status: varchar("status", { length: 30 }).default("IN_PROGRESS").notNull(),
     version: integer("version").default(0).notNull(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -399,6 +420,8 @@ export const legs = pgTable(
     check("legs_number_check", sql`${table.legNumber} > 0`),
     check("legs_status_check", sql`${table.status} in ('IN_PROGRESS', 'COMPLETED')`),
     check("legs_version_check", sql`${table.version} >= 0`),
+    check("legs_starting_seat_check", sql`${table.startingSeat} in (1, 2)`),
+    check("legs_winner_seat_check", sql`${table.winnerSeat} is null or ${table.winnerSeat} in (1, 2)`),
   ],
 );
 
@@ -415,9 +438,10 @@ export const visits = pgTable(
     legId: uuid("leg_id")
       .notNull()
       .references(() => legs.id, { onDelete: "cascade" }),
-    playerId: uuid("player_id")
+    throwerPlayerId: uuid("thrower_player_id")
       .notNull()
       .references(() => players.id, { onDelete: "restrict" }),
+    seat: integer("seat").notNull(),
     commandId: uuid("command_id").notNull(),
     sequence: integer("sequence").notNull(),
     points: integer("points").notNull(),
@@ -444,6 +468,7 @@ export const visits = pgTable(
     check("visits_checkout_double_check", sql`${table.checkoutDouble} is null or ${table.checkoutDouble} between 1 and 20 or ${table.checkoutDouble} = 25`),
     check("visits_checkout_attempts_check", sql`${table.checkoutAttempts} between 0 and ${table.dartsThrown}`),
     check("visits_outcome_check", sql`${table.outcome} in ('SCORED', 'BUST', 'LEG_WON', 'SET_WON', 'MATCH_WON')`),
+    check("visits_seat_check", sql`${table.seat} in (1, 2)`),
   ],
 );
 

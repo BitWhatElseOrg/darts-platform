@@ -135,7 +135,7 @@ export function createX01Match(input: {
 `AppliedVisit.playerId` entfällt und wird ersetzt durch
 `readonly seat: 1 | 2` und `readonly throwerPlayerId: string`.
 
-- [ ] **Step 1: Die neuen Tests schreiben**
+- [x] **Step 1: Die neuen Tests schreiben**
 
 An `packages/scoring-engine/src/x01.spec.ts` anhängen. Die bestehende
 Hilfsfunktion `visit(...)` wird ersetzt, weil sich die Kommandoform ändert:
@@ -241,12 +241,12 @@ Alle bestehenden Tests in dieser Datei auf `singles(...)` und die neue
 `visit(...)`-Signatur umschreiben. Ihre Erwartungen bleiben inhaltlich gleich;
 `winnerPlayerId` wird zu `winnerSeat`, `players` zu `sides`.
 
-- [ ] **Step 2: Tests laufen lassen, Fehlschlag prüfen**
+- [x] **Step 2: Tests laufen lassen, Fehlschlag prüfen**
 
 Run: `pnpm --filter @darts-platform/scoring-engine test`
 Expected: FAIL, `X01Side` ist nicht exportiert und `sides` existiert nicht.
 
-- [ ] **Step 3: Engine umbauen**
+- [x] **Step 3: Engine umbauen**
 
 In `packages/scoring-engine/src/x01.ts`:
 
@@ -379,7 +379,7 @@ return {
 `index.ts` exportiert zusätzlich `type X01Side` und `type X01SideState`,
 `X01PlayerState` entfällt.
 
-- [ ] **Step 4: Aufrufstelle im Repository minimal anpassen**
+- [x] **Step 4: Aufrufstelle im Repository minimal anpassen**
 
 Nur damit der Baum grün bleibt; die richtige Umstellung folgt in Task 3. In
 `apps/api/src/matches/matches.repository.ts`, Methode `aggregate`:
@@ -414,7 +414,7 @@ weiterhin `playerId` entgegen. Das Repository leitet Sitz und Werfer daraus ab
 Phase 4 erweitert den Vertrag um `seat` und `throwerPlayerId`. So bleiben
 `apps/web` und die E2E-Tests in dieser Phase unberührt.
 
-- [ ] **Step 5: Tests laufen lassen**
+- [x] **Step 5: Tests laufen lassen**
 
 Run: `pnpm --filter @darts-platform/scoring-engine test`
 Expected: PASS, alle Tests inklusive der neuen Doppeltests.
@@ -422,7 +422,7 @@ Expected: PASS, alle Tests inklusive der neuen Doppeltests.
 Run: `pnpm --filter @darts-platform/api typecheck`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/scoring-engine apps/api/src/matches/matches.repository.ts
@@ -444,7 +444,7 @@ git commit -m "refactor: model match participants as sides in the scoring engine
   `matches.starting_seat|current_seat|winner_seat`,
   `legs.starting_seat|winner_seat`, `visits.seat`.
 
-- [ ] **Step 1: Den Backfill-Test schreiben**
+- [x] **Step 1: Den Backfill-Test schreiben**
 
 Er beweist das Abnahmekriterium der Spec: bestehende Einzelmatches bleiben
 inhaltlich identisch. Dafür wird bis `0013` migriert, Altdaten eingefügt und
@@ -590,12 +590,12 @@ it("keeps existing singles matches intact across the seat backfill", async () =>
 });
 ```
 
-- [ ] **Step 2: Test laufen lassen, Fehlschlag prüfen**
+- [x] **Step 2: Test laufen lassen, Fehlschlag prüfen**
 
 Run: `pnpm infra:up && pnpm --filter @darts-platform/api test -- migration-seat-backfill`
 Expected: FAIL, Spalte `starting_seat` existiert nicht.
 
-- [ ] **Step 3: Schema erweitern**
+- [x] **Step 3: Schema erweitern**
 
 In `packages/database/src/schema.ts`, additiv und zunächst nullable:
 
@@ -635,7 +635,7 @@ export const matchParticipantPlayers = pgTable(
 
 Export in `packages/database/src/index.ts` ergänzen.
 
-- [ ] **Step 4: Migration erzeugen und den Backfill von Hand ergänzen**
+- [x] **Step 4: Migration erzeugen und den Backfill von Hand ergänzen**
 
 Run: `pnpm db:generate`
 
@@ -695,12 +695,12 @@ Die `NOT NULL`- und Check-Zeilen anschliessend auch im Schema nachziehen
 (`.notNull()`, `check(...)`), damit `db:generate` beim nächsten Lauf keine
 Differenz meldet.
 
-- [ ] **Step 5: Test laufen lassen**
+- [x] **Step 5: Test laufen lassen**
 
 Run: `pnpm --filter @darts-platform/api test -- migration-seat-backfill`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/database apps/api/src/matches/migration-seat-backfill.integration.spec.ts
@@ -735,7 +735,7 @@ private async loadSides(
 ): Promise<readonly [LoadedSide, LoadedSide]>;
 ```
 
-- [ ] **Step 1: Test schreiben**
+- [x] **Step 1: Test schreiben**
 
 An `apps/api/src/matches/matches.integration.spec.ts` anhängen:
 
@@ -774,12 +774,12 @@ it("persists seats alongside the legacy player columns", async () => {
 });
 ```
 
-- [ ] **Step 2: Test laufen lassen, Fehlschlag prüfen**
+- [x] **Step 2: Test laufen lassen, Fehlschlag prüfen**
 
 Run: `pnpm --filter @darts-platform/api test -- matches.integration`
 Expected: FAIL, `match_participant_players` ist beim Anlegen leer.
 
-- [ ] **Step 3: Repository umstellen**
+- [x] **Step 3: Repository umstellen**
 
 - `loadSides` ersetzt die bisherigen `select ... from matchParticipants`-Stellen
   (Zeilen 68, 228, 403, 671) und joint `matchParticipantPlayers` nach
@@ -815,12 +815,12 @@ const command: SubmitVisitCommand = {
 Die Altspalten werden bewusst weitergeschrieben. Sie verschwinden erst in
 Task 5.
 
-- [ ] **Step 4: Tests laufen lassen**
+- [x] **Step 4: Tests laufen lassen**
 
 Run: `pnpm --filter @darts-platform/api test -- matches`
 Expected: PASS, alle bestehenden Match-Tests unverändert grün.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api/src/matches
@@ -844,12 +844,12 @@ git commit -m "refactor: read and write match sides in the matches repository"
 - Consumes: `loadSides` aus Task 3.
 - Produces: keine neuen Signaturen; alle Leser gehen über den Sitz.
 
-- [ ] **Step 1: Bestehende Tests als Netz benutzen**
+- [x] **Step 1: Bestehende Tests als Netz benutzen**
 
 Run: `pnpm --filter @darts-platform/api test`
 Expected: PASS vor der Änderung. Dieser Lauf ist die Referenz.
 
-- [ ] **Step 2: Leser umstellen**
+- [x] **Step 2: Leser umstellen**
 
 Jede Stelle, die heute `matchParticipants.playerId` liest, joint stattdessen
 `matchParticipantPlayers` und nimmt bei Einzelmatches `position = 1`. Jede
@@ -867,7 +867,7 @@ const winnerPlayerId =
 `seed-fixtures.ts` schreibt beim Anlegen eines Matches zusätzlich Sitze und
 `match_participant_players`.
 
-- [ ] **Step 3: Tests laufen lassen**
+- [x] **Step 3: Tests laufen lassen**
 
 Run: `pnpm --filter @darts-platform/api test`
 Expected: PASS, identische Anzahl bestandener Tests wie in Step 1.
@@ -875,7 +875,7 @@ Expected: PASS, identische Anzahl bestandener Tests wie in Step 1.
 Run: `pnpm --filter @darts-platform/worker test`
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/api apps/worker
@@ -899,7 +899,7 @@ git commit -m "refactor: resolve match winners through seats across all readers"
 - Consumes: alles aus Tasks 1 bis 4.
 - Produces: Endzustand des Schemas laut Spec-Abschnitt „Seitenmodell im Match".
 
-- [ ] **Step 1: Test schreiben**
+- [x] **Step 1: Test schreiben**
 
 An `migration-seat-backfill.integration.spec.ts` anhängen:
 
@@ -918,12 +918,12 @@ it("drops the legacy player columns and renames the visit thrower", async () => 
 });
 ```
 
-- [ ] **Step 2: Test laufen lassen, Fehlschlag prüfen**
+- [x] **Step 2: Test laufen lassen, Fehlschlag prüfen**
 
 Run: `pnpm --filter @darts-platform/api test -- migration-seat-backfill`
 Expected: FAIL, `visits.player_id` existiert noch.
 
-- [ ] **Step 3: Schema bereinigen und Migration erzeugen**
+- [x] **Step 3: Schema bereinigen und Migration erzeugen**
 
 Aus `schema.ts` entfernen: `matches.startingPlayerId`, `currentPlayerId`,
 `winnerPlayerId`, `legs.startingPlayerId`, `winnerPlayerId`,
@@ -945,7 +945,7 @@ ALTER TABLE "visits" RENAME COLUMN "player_id" TO "thrower_player_id";
 
 Die übrigen `DROP COLUMN`-Anweisungen bleiben, wie erzeugt.
 
-- [ ] **Step 4: Doppelschreiben entfernen**
+- [x] **Step 4: Doppelschreiben entfernen**
 
 Alle in Task 3 bewusst beibehaltenen Schreibzugriffe auf die Altspalten
 entfernen. Jede verbliebene Referenz auf `visits.playerId` auf
@@ -953,7 +953,7 @@ entfernen. Jede verbliebene Referenz auf `visits.playerId` auf
 `statistics.service.ts`, `packages/statistics/src/statistics.ts` und die
 Antwortform in `packages/schemas/src/match.ts`.
 
-- [ ] **Step 5: Tests laufen lassen**
+- [x] **Step 5: Tests laufen lassen**
 
 Run: `pnpm --filter @darts-platform/api test`
 Expected: PASS.
@@ -961,7 +961,7 @@ Expected: PASS.
 Run: `pnpm --filter @darts-platform/statistics test`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages apps
@@ -974,7 +974,7 @@ git commit -m "refactor: drop legacy player columns in favour of seats"
 
 **Files:** keine.
 
-- [ ] **Step 1: Gesamte Prüfkette**
+- [x] **Step 1: Gesamte Prüfkette**
 
 ```bash
 pnpm lint
@@ -985,13 +985,13 @@ pnpm build
 
 Expected: alles grün. Fehlschläge werden behoben, nicht ignoriert.
 
-- [ ] **Step 2: Spec nachziehen**
+- [x] **Step 2: Spec nachziehen**
 
 Wurde die Abweichung mit zwei Migrationen angenommen, den Abschnitt
 „Migration" der Spec auf zwei Migrationen umschreiben und die Schrittfolge
 anpassen.
 
-- [ ] **Step 3: Commit und Session beenden**
+- [x] **Step 3: Commit und Session beenden**
 
 ```bash
 git add docs

@@ -23,6 +23,9 @@ export class StatisticsService {
       if (state === null || state.winnerPlayerId === null) return [];
       const matchLegs = data.legs.filter((leg) => leg.matchId === state.id);
       const [first, second] = state.participants;
+      // state.participants ist nach Sitz sortiert; ein Sitz traegt hier genau eine Person.
+      const playerOfSeat = (seat: number | null): string | null =>
+        seat === null ? null : (seat === 1 ? first.playerId : second.playerId);
       return [{
         id: state.id,
         completedAt: state.updatedAt,
@@ -31,8 +34,8 @@ export class StatisticsService {
           { playerId: first.playerId, displayName: first.displayName, legsWon: first.legsWon, setsWon: first.setsWon },
           { playerId: second.playerId, displayName: second.displayName, legsWon: second.legsWon, setsWon: second.setsWon },
         ],
-        legs: matchLegs.map((leg) => ({ id: leg.id, winnerPlayerId: leg.winnerPlayerId })),
-        visits: data.visits.filter((visit) => visit.matchId === state.id).map((visit) => ({ legId: visit.legId, playerId: visit.playerId, appliedPoints: visit.appliedPoints, dartsThrown: visit.dartsThrown, checkoutAttempts: visit.checkoutAttempts, outcome: visit.outcome as "SCORED" | "BUST" | "LEG_WON" | "SET_WON" | "MATCH_WON", reverted: visit.revertedAt !== null })),
+        legs: matchLegs.map((leg) => ({ id: leg.id, winnerPlayerId: playerOfSeat(leg.winnerSeat) })),
+        visits: data.visits.filter((visit) => visit.matchId === state.id).map((visit) => ({ legId: visit.legId, playerId: visit.throwerPlayerId, appliedPoints: visit.appliedPoints, dartsThrown: visit.dartsThrown, checkoutAttempts: visit.checkoutAttempts, outcome: visit.outcome as "SCORED" | "BUST" | "LEG_WON" | "SET_WON" | "MATCH_WON", reverted: visit.revertedAt !== null })),
       }];
     });
     const aggregate = calculatePlayerStatistics(input.playerId, statisticsMatches);

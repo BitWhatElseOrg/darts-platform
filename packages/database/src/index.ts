@@ -11,6 +11,7 @@ export {
   boardControllerLeases,
   legs,
   matches,
+  matchParticipantPlayers,
   matchParticipants,
   memberships,
   organizationInvitations,

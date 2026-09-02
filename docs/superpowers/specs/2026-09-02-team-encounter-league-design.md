@@ -566,18 +566,37 @@ keinen zweiten Effekt erzeugen.
 
 ## Migration
 
-Eine einzige neue versionierte Drizzle-Migration. Bestehende Migrationen
-werden nicht verändert. Der gesamte Ablauf läuft in einer Transaktion:
+Zwei neue versionierte Drizzle-Migrationen, beide vorwärts gerichtet.
+Bestehende Migrationen werden nicht verändert.
+
+Der Umbau wird bewusst auf zwei Migrationen aufgeteilt statt auf eine. Mit
+einer einzigen Migration müsste der gesamte Code-Umbau in einem einzigen
+Commit landen, weil `pnpm typecheck` zwischen Migration und Codeanpassung
+sonst rot ist. Zwei Vorwärtsmigrationen halten jeden Commit grün und erlauben
+zusätzlich ein Deployment ohne Schreibsperre: zwischen beiden Schritten
+schreibt die Anwendung Sitze und Altspalten parallel.
+
+**Migration A — additiv und Backfill.** Läuft in einer Transaktion:
 
 1. `match_participant_players` anlegen und aus `match_participants` befüllen
    (`position = 1`, `match_id` mitkopiert).
 2. `matches.starting_seat`, `current_seat`, `winner_seat` sowie
-   `legs.starting_seat`, `winner_seat` additiv anlegen und per Join über
-   `match_participants` aus den bestehenden Spieler-Spalten füllen.
+   `legs.starting_seat`, `winner_seat` additiv und zunächst nullable anlegen
+   und per Join über `match_participants` aus den bestehenden Spieler-Spalten
+   füllen.
 3. `visits.seat` additiv anlegen und ebenso füllen.
 4. Die neuen Spalten auf `NOT NULL` setzen, soweit die alten es waren
-   (`winner_seat` bleibt nullable).
-5. `visits.player_id` zu `thrower_player_id` umbenennen.
+   (`current_seat` und `winner_seat` bleiben nullable), und die
+   Check-Constraints auf `in (1, 2)` ergänzen.
+
+Nach Migration A schreibt die Anwendung Sitze und Altspalten gleichzeitig; die
+Leser gehen bereits über den Sitz.
+
+**Migration B — Umbenennung und Bereinigung.**
+
+5. `visits.player_id` zu `thrower_player_id` umbenennen. Zwingend als
+   `ALTER TABLE ... RENAME COLUMN`, nicht als Drop-and-Add, sonst gehen die
+   Werfer verloren.
 6. `matches.in_rule` und `matches.out_rule` anlegen, `out_rule` aus
    `double_out` füllen (`true` → `DOUBLE`, `false` → `SINGLE`), `in_rule` auf
    `STRAIGHT` setzen, `matches.max_rounds` nullable ergänzen und
@@ -589,8 +608,8 @@ werden nicht verändert. Der gesamte Ablauf läuft in einer Transaktion:
 8. Neue Tabellen anlegen.
 
 Der Backfill ist verlustfrei, weil jede bestehende Kombination aus Match und
-Spieler dank `UNIQUE (match_id, player_id)` genau einen Sitz besitzt. Nach der
-Migration existiert kein Datensatz mehr, der den alten Weg benötigt.
+Spieler dank `UNIQUE (match_id, player_id)` genau einen Sitz besitzt. Nach
+Migration B existiert kein Datensatz mehr, der den alten Weg benötigt.
 
 ## Engines
 
