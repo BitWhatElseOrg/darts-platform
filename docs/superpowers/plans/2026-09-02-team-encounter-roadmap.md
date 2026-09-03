@@ -116,7 +116,19 @@ class LeagueValidationError extends Error { readonly code: string; }
 
 REST unter `/api/v1` wie im Spec-Abschnitt „API", Outbox-Ereignisse
 `ENCOUNTER_STARTED`, `ENCOUNTER_SLOT_ASSIGNED`, `ENCOUNTER_SLOT_COMPLETED`,
-`ENCOUNTER_COMPLETED` mit `aggregate_type = 'Encounter'`.
+`ENCOUNTER_SLOT_REOPENED`, `ENCOUNTER_COMPLETED` mit
+`aggregate_type = 'Encounter'`.
+
+`ENCOUNTER_SLOT_REOPENED` kam in Phase 4 dazu: Rücknahme einer
+Board-Zuweisung und Matchabbruch. Es trägt den Abbruch in den
+Begegnungsraum, weil das Match seinen Slotbezug in derselben Transaktion
+verliert und `MATCH_ABORTED` danach keinem Raum mehr zuzuordnen ist.
+
+### Phase 5 → 6
+
+Socket-Kanal `encounter:subscribe` mit `{ encounterId }`, Ereignis
+`encounter:changed` mit `{ eventId, eventType, encounterId, occurredAt }`.
+Turnierräume und `tournament:changed` bleiben unverändert.
 
 ## Sessionregeln
 
