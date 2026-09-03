@@ -130,6 +130,40 @@ Socket-Kanal `encounter:subscribe` mit `{ encounterId }`, Ereignis
 `encounter:changed` mit `{ eventId, eventType, encounterId, occurredAt }`.
 Turnierräume und `tournament:changed` bleiben unverändert.
 
+## Offene Punkte, die eine Phase mitnimmt
+
+Befunde aus einer abgeschlossenen Phase, die dort nicht hingehörten. Wer den
+Plan der genannten Phase schreibt, nimmt sie als Task auf.
+
+### Phase 6: Vorgaben von `competitions` widersprechen einer Constraint
+
+Gefunden in Phase 5 beim Aufbau der Realtime-Integrationstests.
+
+`competitions.points_decider_bonus` hat die Vorgabe `1`,
+`competitions.decider_rule` die Vorgabe `'NONE'`. Zusammen verletzen sie die
+Check-Constraint der eigenen Tabelle:
+
+```sql
+competitions_decider_bonus_rule_check:
+  points_decider_bonus = 0 or decider_rule = 'EXTRA_SLOT'
+```
+
+Ein `INSERT`, der sich allein auf die Vorgaben verlässt, ist damit unmöglich.
+Über die API fällt das nicht auf, weil `competitions.repository` beide Werte
+immer explizit setzt — der Fehler trifft nur, wer direkt in die Tabelle
+schreibt (Tests, Seeds, spätere Migrationen).
+
+Behebung: eine versionierte Migration, die die Vorgabe von
+`points_decider_bonus` auf `0` setzt. Bestandsdaten sind nicht betroffen,
+weil jede vorhandene Zeile die Constraint bereits erfüllt. Nach AGENTS.md §21
+wird keine bestehende Migration umgeschrieben, sondern eine neue ergänzt. Ein
+Test, der eine Wettbewerbszeile allein aus den Vorgaben anlegt, hält den
+Befund fest.
+
+Warum nicht in Phase 5: eine Schemaänderung gehört nicht in eine Phase, deren
+Grenze „Realtime + Fortschreibung" heisst, und Phase 6 fasst die Wettbewerbs-
+oberfläche ohnehin an.
+
 ## Sessionregeln
 
 Diese Regeln halten das Budget ein. Sie sind Teil des Plans, nicht Beiwerk.
