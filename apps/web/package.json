@@ -7,6 +7,7 @@
     "build": "next build --webpack",
     "start": "next start --port ${WEB_PORT:-3000}",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run --dir src",
     "test:e2e": "node scripts/run-e2e.mjs"
   },
   "dependencies": {
@@ -35,6 +36,7 @@
     "@types/react-dom": "catalog:",
     "drizzle-orm": "0.45.2",
     "tailwindcss": "4.3.3",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }
