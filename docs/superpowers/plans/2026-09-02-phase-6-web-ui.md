@@ -2394,3 +2394,102 @@ Nicht nach `origin` pushen — `develop` ist der lokale Integrationsbranch.
 Geschätzt 3,0 bis 5,0 Mio. Token (Roadmap). Bei etwa 60 Prozent Verbrauch:
 Zwischenstand committen und die Session beenden statt in eine Kompaktierung
 zu laufen (Sessionregel 8).
+
+---
+
+## Ergebnis
+
+Umgesetzt am 3. September 2026 auf `feature/phase-6-web-ui`, vierzehn Commits.
+4.633 Zeilen in `apps/web/src`, `apps/api/src` und `packages/database/src`
+(dazu der generierte Drizzle-Snapshot). Die Schätzung der Roadmap lag bei
+~2.500 LOC; der Mehraufwand steckt in den Formularen, die jeden Fehlerfall als
+Text tragen, statt ihn nur farblich zu zeigen.
+
+### Was jetzt geht
+
+- `/teams` — Mannschaften anlegen, archivieren, Kader führen; nur offene
+  Mitgliedschaften (`validTo === null`) gelten als Kader.
+- `/liga` und `/liga/neu` — Wettbewerbe listen und anlegen. Die
+  Begegnungsvorlage wird aus den Eckwerten erzeugt statt getippt; die
+  neunzehn Slots stehen als Tabelle unter dem Formular.
+- `/liga/[id]` — Wertungsregeln in einem Satz, die eingefrorene Vorlage
+  aufklappbar, die Begegnungen als Liste, Ansetzen als Formular.
+- `/liga/begegnungen/[id]` — die Begegnungsleitung: Stand in Punkten, Spielen
+  und Sätzen, die Spiele mit abgeleiteter Besetzung und Grund, wenn eines
+  nicht starten kann, Board zuweisen und freigeben, kampflos werten,
+  Meldung je Seite (verdeckt bis beide gemeldet haben), Doppelpaarungen,
+  Auswechslung, Nichtantritt, Absage, 409-Auflösung, Echtzeitstatus.
+- `/live/begegnungen/[publicId]` — die öffentliche Ansicht ohne Anmeldung.
+- Das Scoreboard zeigt im Doppel beide Namen je Seite und markiert die
+  werfende Person; die Matchliste nennt beide Namen einer Seite.
+- `apps/web` hat ein eigenes Testziel: 29 Vitest-Fälle über die drei reinen
+  Module.
+
+### Abweichungen vom Plan, mit Begründung
+
+1. **`vitest run --dir src` statt `vitest run`.** Ohne die Einschränkung
+   sammelt Vitest auch `apps/web/tests/foundation.spec.ts` ein, die
+   Playwright-Suite. `--dir src` hält beide Läufe getrennt, ohne eine
+   Konfigurationsdatei zu brauchen.
+2. **Formularvalidierung über `schema.safeParse` statt `zodResolver`.**
+   `exactOptionalPropertyTypes: true` und die Defaults der Verträge
+   (`shortName.default(null)`, der Transform in `createCompetitionSchema`)
+   machen Eingabe- und Ausgabetyp verschieden, was `zodResolver` nicht
+   typsicher überbrückt. `apps/web/src/components/tournament/setup-sheet.tsx`
+   löst dasselbe Problem seit Phase 2 mit Zeichenketten im Formular und einem
+   `safeParse` beim Absenden; diese Phase folgt der bestehenden Konvention,
+   statt eine zweite einzuführen.
+3. **`slugFromName` kam dazu.** Der Vertrag verlangt
+   `^[a-z0-9]+(?:-[a-z0-9]+)*$`; einen solchen Wert von Hand zu tippen ist die
+   Stelle, an der das Anlegen scheitert. Umlaute werden ausgeschrieben, nicht
+   verschluckt. Reine Funktion mit Test.
+4. **`components/league/template-table.tsx` kam dazu.** Setup und Detail
+   zeigen dieselbe Tabelle; sie zweimal zu schreiben wäre Drift gewesen.
+5. **Zwei Fehler im Bestand mitgenommen.**
+   `match-scoreboard.tsx` bestimmte die Seite am Oche über
+   `participant.playerId === match.currentPlayerId`. Im Doppel ist
+   `currentPlayerId` die werfende Person, die auch die zweite der Seite sein
+   kann — dann fand der Vergleich niemanden, und der Checkout-Dialog wäre bei
+   einem Finish nicht aufgegangen. Jetzt entscheidet `participant.isActive`.
+   Derselbe Vergleich stand hinter der Gewinnerzeile; sie geht jetzt über
+   `players.some(...)`.
+6. **Kein `TemplateOptions.legsToWinSet`.** Der Generator leitet
+   `legsToWinSet` aus `bestOfLegs` ab (`ceil(bestOfLegs / 2)`), weil zwei
+   widersprechbare Quellen derselben Distanz genau die Art Fehler erzeugen,
+   die `INCONSISTENT_LEG_DISTANCE` meldet.
+7. **Zwei Verträgetests statt nur Engine-Prüfung.** Die erzeugte Vorlage läuft
+   im Test durch `createCompetitionSchema`, zusätzlich wurde sie einmalig
+   gegen `validateEncounterTemplate` der League-Engine geprüft. Beide Wege
+   nehmen sie an.
+
+### Was geprüft ist
+
+```text
+pnpm lint       grün
+pnpm typecheck  grün (23 Tasks)
+pnpm test       grün — 150 API-Tests, 29 Web-Tests, 79 League-Engine-Tests
+pnpm build      grün (13 Tasks, 20 Routen)
+pnpm test:e2e   grün (6 Playwright-Fälle, unverändert)
+```
+
+Zusätzlich gegen die laufende Anwendung: alle sieben neuen Routen antworten
+mit HTTP 200 und ohne Laufzeitfehler im Serverprotokoll.
+
+`pnpm build` braucht `NODE_ENV=production`; ohne die Variable bricht der
+Prerender von `/` mit `Cannot read properties of null (reading 'useState')`
+ab. Das Wurzelskript setzt sie, ein direktes
+`pnpm --filter @darts-platform/web build` nicht — wer so baut, sucht sonst
+lange an der falschen Stelle.
+
+### Für Phase 7 offen
+
+- Die Browser-Tests aus dem Spec-Abschnitt „Browser-Tests": Begegnung
+  ansetzen, beide Meldungen erfassen, zwei Slots parallel auf zwei Boards
+  spielen, Doppelpaarungen vor Slot 9 melden, ein Doppel ausspielen, Ergebnis
+  prüfen. Die Flächen tragen dafür stabile `id`-Attribute an allen
+  Formularfeldern.
+- Ein Impeccable-Audit der Begegnungsleitung. Diese Phase hält sich an
+  DESIGN.md (Typenrampe, Zustandswort neben jeder Farbe, Touch-Ziele), hat
+  aber keine eigene `.impeccable/surfaces`-Datei bekommen.
+- Saison-Tabelle, Doppelstatistik und Self-Service für Team-Captains bleiben
+  ausdrücklich ausserhalb.
