@@ -73,9 +73,9 @@ export function LineupPanel({
     .map((player) => ({ playerId: player.id, displayName: player.displayName }));
 
   return (
-    <Wedge as="section" className="p-4" tone="plate">
+    <Wedge aria-labelledby={`lineup-${side}-heading`} as="section" className="p-4" tone="plate">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <SheetLabel as="h2">
+        <SheetLabel as="h2" id={`lineup-${side}-heading`}>
           Meldung {sideLabel(side)} · {lineup.teamName}
         </SheetLabel>
         <StateTag

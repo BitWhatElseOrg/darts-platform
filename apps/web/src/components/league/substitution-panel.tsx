@@ -45,8 +45,8 @@ export function SubstitutionPanel({
   const editable = canEdit && encounter.status === "RUNNING" && context.remaining > 0;
 
   return (
-    <Wedge as="section" className="p-4" tone="plate">
-      <SheetLabel as="h2">
+    <Wedge aria-labelledby={`substitution-${side}-heading`} as="section" className="p-4" tone="plate">
+      <SheetLabel as="h2" id={`substitution-${side}-heading`}>
         Auswechslung {sideLabel(side)} · {lineup.teamName}
       </SheetLabel>
       <Rule className="mt-2" />
