@@ -195,6 +195,15 @@ export function createX01Match(input: {
   readonly rules?: X01Rules;
 }): X01Match {
   const [first, second] = input.sides;
+  // Die Projektion leitet den Sitz aus der Position im Tupel ab. Traegt eine
+  // Seite einen anderen Sitz als ihre Position, sagen `side.seat` und die
+  // Engine Verschiedenes — und Kommandos landeten bei der falschen Seite.
+  if (first.seat !== 1 || second.seat !== 2) {
+    throw new ScoringValidationError(
+      "INVALID_SEATS",
+      "The first side holds seat 1 and the second seat 2.",
+    );
+  }
   if (first.playerIds.length === 0 || second.playerIds.length === 0) {
     throw new ScoringValidationError("EMPTY_SIDE", "A side needs at least one player.");
   }

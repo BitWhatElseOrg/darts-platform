@@ -489,6 +489,29 @@ describe("X01 sides", () => {
     }
   });
 
+  it("rejects sides whose declared seat does not match their position", () => {
+    // Die Projektion liest den Sitz aus der Position im Tupel. Eine
+    // vertauschte oder doppelte Sitzangabe wuerde stillschweigend zu einer
+    // anderen Seite gehoeren als das Feld behauptet.
+    for (const seats of [
+      [2, 1],
+      [1, 1],
+      [2, 2],
+    ] as const) {
+      try {
+        createX01Match({
+          sides: [
+            { seat: seats[0], playerIds: ["a"] },
+            { seat: seats[1], playerIds: ["b"] },
+          ],
+        });
+        expect.unreachable(`seats ${seats.join("/")} were accepted`);
+      } catch (error: unknown) {
+        expect((error as ScoringValidationError).code).toBe("INVALID_SEATS");
+      }
+    }
+  });
+
   it("rejects an empty side and a person on both sides", () => {
     expect(() =>
       createX01Match({ sides: [{ seat: 1, playerIds: [] }, { seat: 2, playerIds: ["b"] }] }),
