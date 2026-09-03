@@ -403,6 +403,68 @@ describe("X01 sides", () => {
     expect(result.state.activeThrowerPlayerId).toBe("b2");
   });
 
+  it("returns the throw to the same person when a doubles visit is undone mid rotation", () => {
+    let match = createX01Match({
+      sides: [
+        { seat: 1, playerIds: ["a1", "a2"] },
+        { seat: 2, playerIds: ["b1", "b2"] },
+      ],
+    });
+    match = executeX01Command(match, visit("1", 1, "a1", 60)).match;
+    match = executeX01Command(match, visit("2", 2, "b1", 60)).match;
+    const played = executeX01Command(match, visit("3", 1, "a2", 100));
+    match = played.match;
+    // Mitten in der Rotation: Seite 1 hat a1 und a2 geworfen, dran ist b2.
+    expect(played.state.activeSeat).toBe(2);
+    expect(played.state.activeThrowerPlayerId).toBe("b2");
+    expect(played.state.sides[0].remaining).toBe(341);
+
+    const undone = executeX01Command(match, {
+      type: "UNDO_LAST_VISIT",
+      commandId: "u3",
+      targetCommandId: "3",
+    });
+    // Nicht a1: der Wurf gehoert weiter a2, nur eben noch einmal.
+    expect(undone.state.activeSeat).toBe(1);
+    expect(undone.state.activeThrowerPlayerId).toBe("a2");
+    expect(undone.state.sides[0].remaining).toBe(441);
+    expect(undone.state.visits).toHaveLength(2);
+
+    const replayed = executeX01Command(undone.match, visit("3b", 1, "a2", 41));
+    expect(replayed.state.sides[0].remaining).toBe(400);
+    expect(replayed.state.activeThrowerPlayerId).toBe("b2");
+  });
+
+  it("returns a doubles checkout to its thrower when the finished leg is undone", () => {
+    let match = createX01Match({
+      sides: [
+        { seat: 1, playerIds: ["a1", "a2"] },
+        { seat: 2, playerIds: ["b1", "b2"] },
+      ],
+      rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1 }),
+    });
+    match = executeX01Command(match, visit("1", 1, "a1", 0)).match;
+    match = executeX01Command(match, visit("2", 2, "b1", 0)).match;
+    const won = executeX01Command(match, visit("3", 1, "a2", 40, 1, 20));
+    match = won.match;
+    expect(won.outcome).toBe("LEG_WON");
+    expect(won.state.legNumber).toBe(2);
+    expect(won.state.activeThrowerPlayerId).toBe("b2");
+
+    const undone = executeX01Command(match, {
+      type: "UNDO_LAST_VISIT",
+      commandId: "u3",
+      targetCommandId: "3",
+    });
+    // Zurueck in Leg 1: der Legwechsel verschiebt die Reihenfolge nicht.
+    expect(undone.state.legNumber).toBe(1);
+    expect(undone.state.activeSeat).toBe(1);
+    expect(undone.state.activeThrowerPlayerId).toBe("a2");
+    expect(undone.state.sides[0].remaining).toBe(40);
+    expect(undone.state.sides[0].legsWonInSet).toBe(0);
+    expect(undone.state.sides[0].totalLegsWon).toBe(0);
+  });
+
   it("rejects a visit from the wrong person of the active side", () => {
     const match = createX01Match({
       sides: [
