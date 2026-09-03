@@ -1090,34 +1090,20 @@ export class EncountersRepository {
   }
 
   private async mutate(
-    input: ActorInput,
+    input: ActorInput & { readonly slotId?: string },
     data: { readonly commandId: string; readonly expectedVersion: number },
     type: string,
     body: (context: MutationContext) => Promise<EncounterMutationResult>,
   ): Promise<EncounterMutationResult> {
+    // Der Rumpf eines slotbezogenen Kommandos traegt den Slot nicht: er steht
+    // neben `data` im Aufruf. Ohne ihn saehen zwei Zuweisungen an zwei Slots
+    // mit gleichem Rumpf wie dasselbe Kommando aus. Gespeichert und verglichen
+    // wird deshalb die Nutzlast samt Slot.
+    const payload =
+      input.slotId === undefined ? data : { ...data, slotId: input.slotId };
     return this.databaseService.database.transaction(async (transaction) => {
-      const [duplicate] = await transaction
-        .select({
-          organizationId: encounterCommands.organizationId,
-          encounterId: encounterCommands.encounterId,
-          type: encounterCommands.type,
-          payload: encounterCommands.payload,
-        })
-        .from(encounterCommands)
-        .where(eq(encounterCommands.commandId, data.commandId))
-        .limit(1);
-      if (duplicate !== undefined) {
-        // Idempotenz gilt nur für die Wiederholung desselben Kommandos.
-        // Trägt eine andere Mutation dieselbe commandId, ist das ein Fehler
-        // des Clients: sie hier still als "ok" zu quittieren, hiesse dem
-        // Aufrufer einen Vorgang zu bestätigen, der nie stattgefunden hat.
-        return duplicate.organizationId === input.organizationId &&
-          duplicate.encounterId === input.encounterId &&
-          duplicate.type === type &&
-          isSameCommandPayload(duplicate.payload, data)
-          ? "ok"
-          : "command-id-reused";
-      }
+      const seen = await this.findDuplicateCommand(transaction, input, payload, type);
+      if (seen !== null) return seen;
       const [encounter] = await transaction
         .select()
         .from(encounters)
@@ -1129,6 +1115,13 @@ export class EncountersRepository {
         )
         .for("update")
         .limit(1);
+      // Zweite Pruefung, jetzt unter der Sperre: die erste lief davor, und
+      // zwei gleichzeitige Zustellungen desselben Kommandos verfehlen die
+      // Kommandozeile beide. Ohne diese Wiederholung bekaeme die zweite einen
+      // Versionskonflikt statt der idempotenten Bestaetigung — genau in dem
+      // Fall, fuer den die commandId da ist.
+      const seenUnderLock = await this.findDuplicateCommand(transaction, input, payload, type);
+      if (seenUnderLock !== null) return seenUnderLock;
       if (encounter === undefined) return "not-found";
       if (encounter.version !== data.expectedVersion) return "version-conflict";
       const [competition] = await transaction
@@ -1175,7 +1168,7 @@ export class EncountersRepository {
         organizationId: input.organizationId,
         encounterId: input.encounterId,
         type,
-        payload: data,
+        payload,
         resultingVersion: nextVersion,
       });
       if (context.outbox !== null) {
@@ -1222,6 +1215,38 @@ export class EncountersRepository {
    * zweite sieht nach dem Commit der ersten deren laufendes Match und faellt
    * mit `player-busy` durch.
    */
+  /**
+   * Liefert die Antwort auf eine bereits vergebene `commandId`: `ok` fuer die
+   * Wiederholung desselben Kommandos, `command-id-reused`, wenn Typ, Umfang
+   * oder Nutzlast abweichen. Eine andere Mutation still als `ok` zu
+   * quittieren hiesse, dem Aufrufer einen Vorgang zu bestaetigen, der nie
+   * stattgefunden hat.
+   */
+  private async findDuplicateCommand(
+    transaction: DatabaseTransaction,
+    input: ActorInput,
+    payload: { readonly commandId: string },
+    type: string,
+  ): Promise<EncounterMutationResult | null> {
+    const [duplicate] = await transaction
+      .select({
+        organizationId: encounterCommands.organizationId,
+        encounterId: encounterCommands.encounterId,
+        type: encounterCommands.type,
+        payload: encounterCommands.payload,
+      })
+      .from(encounterCommands)
+      .where(eq(encounterCommands.commandId, payload.commandId))
+      .limit(1);
+    if (duplicate === undefined) return null;
+    return duplicate.organizationId === input.organizationId &&
+      duplicate.encounterId === input.encounterId &&
+      duplicate.type === type &&
+      isSameCommandPayload(duplicate.payload, payload)
+      ? "ok"
+      : "command-id-reused";
+  }
+
   private async lockPlayers(
     transaction: DatabaseTransaction,
     organizationId: string,

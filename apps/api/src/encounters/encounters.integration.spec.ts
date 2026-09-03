@@ -827,6 +827,85 @@ describe("team encounter persistence", () => {
     expect(running).toHaveLength(1);
   }, 60_000);
 
+  it("refuses the same commandId for a second slot with an identical body", async () => {
+    const encounter = await openEncounter(await createCompetition());
+    const first = encounter.slots.find((slot) => slot.sequence === 1)!;
+    const second = encounter.slots.find((slot) => slot.sequence === 2)!;
+    const commandId = randomUUID();
+    const body = {
+      commandId,
+      expectedVersion: encounter.version,
+      boardId: boardIds[0]!,
+    };
+    await encountersService.assignSlot({
+      organizationId,
+      encounterId: encounter.id,
+      slotId: first.id,
+      data: body,
+      auth,
+      audit,
+    });
+
+    // Gleicher Rumpf, anderer Slot: der Slot steht nicht in `data`, sondern
+    // daneben im Aufruf. Ohne ihn saehe das wie eine Wiederholung aus.
+    await expect(
+      encountersService.assignSlot({
+        organizationId,
+        encounterId: encounter.id,
+        slotId: second.id,
+        data: body,
+        auth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ response: { code: "COMMAND_ID_ALREADY_USED" } });
+
+    const current = await encountersService.get({
+      organizationId,
+      encounterId: encounter.id,
+      auth,
+    });
+    expect(current.slots.find((slot) => slot.sequence === 1)?.status).toBe("IN_PROGRESS");
+    expect(current.slots.find((slot) => slot.sequence === 2)?.status).not.toBe("IN_PROGRESS");
+  }, 30_000);
+
+  it("answers two concurrent deliveries of one command idempotently", async () => {
+    const encounter = await openEncounter(await createCompetition());
+    const slot = encounter.slots.find((slot) => slot.sequence === 1)!;
+    const body = {
+      commandId: randomUUID(),
+      expectedVersion: encounter.version,
+      boardId: boardIds[0]!,
+    };
+
+    // Beide Zustellungen verfehlen die Kommandozeile; erst unter der Sperre
+    // sieht die zweite das Kommando der ersten.
+    const results = await Promise.allSettled([
+      encountersService.assignSlot({
+        organizationId,
+        encounterId: encounter.id,
+        slotId: slot.id,
+        data: body,
+        auth,
+        audit,
+      }),
+      encountersService.assignSlot({
+        organizationId,
+        encounterId: encounter.id,
+        slotId: slot.id,
+        data: body,
+        auth,
+        audit,
+      }),
+    ]);
+    expect(results.filter((entry) => entry.status === "fulfilled")).toHaveLength(2);
+
+    const commands = await databaseService.database
+      .select({ commandId: encounterCommands.commandId })
+      .from(encounterCommands)
+      .where(eq(encounterCommands.encounterId, encounter.id));
+    expect(commands.filter((row) => row.commandId === body.commandId)).toHaveLength(1);
+  }, 30_000);
+
   it("scores a slot walkover and a whole forfeit by the book", async () => {
     const walkoverCompetition = await createCompetition();
     let encounter = await openEncounter(walkoverCompetition);
