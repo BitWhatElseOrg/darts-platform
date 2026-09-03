@@ -570,6 +570,69 @@ describe("team encounter persistence", () => {
     expect(commands).toHaveLength(1);
   }, 30_000);
 
+  it("refuses a commandId that already belongs to a different command", async () => {
+    const competitionId = await createCompetition();
+    const encounter = await scheduleEncounter(competitionId);
+    const commandId = randomUUID();
+    await encountersService.submitNominations({
+      organizationId,
+      encounterId: encounter.id,
+      data: {
+        commandId,
+        expectedVersion: encounter.version,
+        side: "HOME",
+        nominations: homePlayerIds.slice(0, 4).map((playerId, index) => ({
+          position: index + 1,
+          playerId,
+          origin: "SQUAD" as const,
+        })),
+      },
+      auth,
+      audit,
+    });
+    const stored = await encountersService.get({ organizationId, encounterId: encounter.id, auth });
+
+    // Andere Mutation, dieselbe commandId: still "ok" zu quittieren hiesse,
+    // dem Aufrufer einen Abbruch zu bestaetigen, der nie stattgefunden hat.
+    await expect(
+      encountersService.cancel({
+        organizationId,
+        encounterId: encounter.id,
+        data: {
+          commandId,
+          expectedVersion: stored.version,
+          reason: "Halle nicht verfuegbar.",
+        },
+        auth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ response: { code: "COMMAND_ID_ALREADY_USED" } });
+
+    // Dieselbe Mutation mit anderer Nutzlast faellt genauso durch.
+    await expect(
+      encountersService.submitNominations({
+        organizationId,
+        encounterId: encounter.id,
+        data: {
+          commandId,
+          expectedVersion: stored.version,
+          side: "HOME",
+          nominations: homePlayerIds.slice(0, 3).map((playerId, index) => ({
+            position: index + 1,
+            playerId,
+            origin: "SQUAD" as const,
+          })),
+        },
+        auth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ response: { code: "COMMAND_ID_ALREADY_USED" } });
+
+    const after = await encountersService.get({ organizationId, encounterId: encounter.id, auth });
+    expect(after.status).toBe(stored.status);
+    expect(after.version).toBe(stored.version);
+  }, 30_000);
+
   it("scores a slot walkover and a whole forfeit by the book", async () => {
     const walkoverCompetition = await createCompetition();
     let encounter = await openEncounter(walkoverCompetition);

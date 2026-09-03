@@ -447,7 +447,8 @@ function conflictFor(
     case "command-id-reused":
       return new ConflictException({
         code: "COMMAND_ID_ALREADY_USED",
-        message: "Diese commandId gehört zu einer anderen Begegnung.",
+        message:
+          "Diese commandId gehört bereits zu einem anderen Kommando. Verwende für eine neue Mutation eine neue commandId.",
         details,
       });
     case "encounter-closed":

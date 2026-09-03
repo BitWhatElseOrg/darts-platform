@@ -156,6 +156,27 @@ function derivedCommandId(parentCommandId: string, aggregateId: string): string 
   return `${compact.slice(0, 8)}-${compact.slice(8, 12)}-${compact.slice(12, 16)}-${compact.slice(16, 20)}-${compact.slice(20)}`;
 }
 
+/**
+ * Die gespeicherte Nutzlast kommt als `jsonb` zurück: Postgres normalisiert
+ * dabei die Schlüsselreihenfolge, die Wiederholung des Clients tut das nicht.
+ * Verglichen wird deshalb über eine kanonische Form, nicht über
+ * `JSON.stringify` der beiden Seiten.
+ */
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, entry]) => [key, canonicalize(entry)]),
+  );
+}
+
+function isSameCommandPayload(stored: unknown, incoming: unknown): boolean {
+  return JSON.stringify(canonicalize(stored)) === JSON.stringify(canonicalize(incoming));
+}
+
 function walkoverLegs(slot: SlotRow): number {
   return slot.legsToWinSet * slot.setsToWin;
 }
@@ -925,7 +946,12 @@ export class EncountersRepository {
       if (slots.some((slot) => slot.matchId !== null && slot.status === "IN_PROGRESS")) {
         return "slot-running";
       }
-      for (const slot of slots) {
+      // Nur Slots, die das Board gerade halten. Jeder Übergang aus
+      // IN_PROGRESS setzt `boardId` in derselben Anweisung auf null, die
+      // Schleife soll sich darauf aber nicht verlassen: behielte ein Slot je
+      // seine historische Zuweisung, gäbe sie ein inzwischen weitervergebenes
+      // Board frei.
+      for (const slot of slots.filter((candidate) => candidate.status === "IN_PROGRESS")) {
         await this.freeBoard(transaction, input.organizationId, slot.boardId, now);
       }
       await transaction
@@ -992,7 +1018,12 @@ export class EncountersRepository {
       }
       const slots = await this.loadSlots(transaction, input.organizationId, input.encounterId, true);
       if (slots.some((slot) => slot.status === "IN_PROGRESS")) return "slot-running";
-      for (const slot of slots) {
+      // Nur Slots, die das Board gerade halten. Jeder Übergang aus
+      // IN_PROGRESS setzt `boardId` in derselben Anweisung auf null, die
+      // Schleife soll sich darauf aber nicht verlassen: behielte ein Slot je
+      // seine historische Zuweisung, gäbe sie ein inzwischen weitervergebenes
+      // Board frei.
+      for (const slot of slots.filter((candidate) => candidate.status === "IN_PROGRESS")) {
         await this.freeBoard(transaction, input.organizationId, slot.boardId, now);
       }
       await transaction
@@ -1021,13 +1052,21 @@ export class EncountersRepository {
         .select({
           organizationId: encounterCommands.organizationId,
           encounterId: encounterCommands.encounterId,
+          type: encounterCommands.type,
+          payload: encounterCommands.payload,
         })
         .from(encounterCommands)
         .where(eq(encounterCommands.commandId, data.commandId))
         .limit(1);
       if (duplicate !== undefined) {
+        // Idempotenz gilt nur für die Wiederholung desselben Kommandos.
+        // Trägt eine andere Mutation dieselbe commandId, ist das ein Fehler
+        // des Clients: sie hier still als "ok" zu quittieren, hiesse dem
+        // Aufrufer einen Vorgang zu bestätigen, der nie stattgefunden hat.
         return duplicate.organizationId === input.organizationId &&
-          duplicate.encounterId === input.encounterId
+          duplicate.encounterId === input.encounterId &&
+          duplicate.type === type &&
+          isSameCommandPayload(duplicate.payload, data)
           ? "ok"
           : "command-id-reused";
       }
