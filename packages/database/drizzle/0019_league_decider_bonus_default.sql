@@ -1,0 +1,1 @@
+ALTER TABLE "competitions" ALTER COLUMN "points_decider_bonus" SET DEFAULT 0;

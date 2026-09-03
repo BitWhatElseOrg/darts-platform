@@ -5,6 +5,11 @@ import Link from "next/link";
 import type { MatchStateResponse } from "@darts-platform/schemas";
 import { cn } from "@darts-platform/ui";
 
+/** Eine Seite kann zwei Personen tragen; ihr Name ist beider Name. */
+function sideNames(participant: MatchStateResponse["participants"][number]): string {
+  return participant.players.map((person) => person.displayName).join(" und ");
+}
+
 function byLiveFirst(left: MatchStateResponse, right: MatchStateResponse): number {
   return Number(right.status === "IN_PROGRESS") - Number(left.status === "IN_PROGRESS");
 }
@@ -54,8 +59,8 @@ export function MatchList({
               >
                 <span className="min-w-0 flex-1">
                   <span className="block truncate">
-                    {match.participants[0].displayName} <span className="text-slate-500">–</span>{" "}
-                    {match.participants[1].displayName}
+                    {sideNames(match.participants[0])} <span className="text-slate-500">–</span>{" "}
+                    {sideNames(match.participants[1])}
                   </span>
                   <span className="block truncate text-xs text-slate-500">
                     {match.boardName ?? "Kein Board"}

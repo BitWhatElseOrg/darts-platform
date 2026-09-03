@@ -15,6 +15,13 @@ export const tournamentFormatSchema = z.enum([
 ]);
 
 export const seedingModeSchema = z.enum(["SEEDED", "RANDOM"]);
+
+/**
+ * Die vier Ligavarianten des Reglements (1.1). Master Out schliesst auf einem
+ * Doppel oder einem Triple.
+ */
+export const inRuleSchema = z.enum(["STRAIGHT", "DOUBLE"]);
+export const outRuleSchema = z.enum(["SINGLE", "DOUBLE", "MASTER"]);
 export const tournamentParticipantStatusSchema = z.enum(["ACTIVE", "WITHDRAWN"]);
 export const tournamentMatchResultTypeSchema = z.enum(["PLAYED", "BYE", "WALKOVER"]);
 
@@ -172,7 +179,8 @@ export const tournamentDashboardSchema = z.object({
     version: z.number().int().nonnegative(),
     stageLabel: z.string(),
     startingScore: z.number().int().positive(),
-    doubleOut: z.boolean(),
+    inRule: inRuleSchema,
+    outRule: outRuleSchema,
     playedMatches: z.number().int().nonnegative(),
     totalMatches: z.number().int().nonnegative(),
     startsAt: z.coerce.date(),
@@ -227,7 +235,9 @@ export const createTournamentSchema = z
     startsAt: z.coerce.date(),
     format: tournamentFormatSchema,
     startingScore: z.union([z.literal(301), z.literal(501), z.literal(701)]),
-    doubleOut: z.boolean(),
+    inRule: inRuleSchema,
+    outRule: outRuleSchema,
+    maxRounds: z.number().int().min(1).max(99).nullable().default(null),
     bestOfLegs: z
       .number()
       .int()
@@ -350,6 +360,8 @@ export const withdrawTournamentParticipantSchema = z.object({
 export type TournamentStatus = z.infer<typeof tournamentStatusSchema>;
 export type TournamentFormat = z.infer<typeof tournamentFormatSchema>;
 export type SeedingMode = z.infer<typeof seedingModeSchema>;
+export type InRule = z.infer<typeof inRuleSchema>;
+export type OutRule = z.infer<typeof outRuleSchema>;
 export type TournamentParticipantStatus = z.infer<typeof tournamentParticipantStatusSchema>;
 export type TournamentMatchResultType = z.infer<typeof tournamentMatchResultTypeSchema>;
 export type BoardSlotState = z.infer<typeof boardSlotStateSchema>;

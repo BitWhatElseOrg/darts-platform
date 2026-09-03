@@ -7,6 +7,7 @@ import {
   boards,
   legs,
   matches,
+  matchParticipantPlayers,
   matchParticipants,
   outboxEvents,
   players,
@@ -347,7 +348,9 @@ export class TournamentsRepository {
           status: initialStatus,
           format: input.data.format,
           startingScore: input.data.startingScore,
-          doubleOut: input.data.doubleOut,
+          inRule: input.data.inRule,
+          outRule: input.data.outRule,
+          maxRounds: input.data.maxRounds,
           bestOfLegs: input.data.bestOfLegs,
           legsToWinSet: Math.floor(input.data.bestOfLegs / 2) + 1,
           setsToWin: Math.floor(input.data.bestOfSets / 2) + 1,
@@ -632,24 +635,38 @@ export class TournamentsRepository {
           organizationId: input.organizationId,
           boardId: input.data.boardId,
           startingScore: tournament.startingScore,
-          doubleOut: tournament.doubleOut,
+          inRule: tournament.inRule,
+          outRule: tournament.outRule,
+          maxRounds: tournament.maxRounds,
           bestOfLegs: tournament.bestOfLegs,
           legsToWinSet: tournament.legsToWinSet,
           setsToWin: tournament.setsToWin,
-          startingPlayerId: scheduled.participantOneId,
-          currentPlayerId: scheduled.participantOneId,
+          startingSeat: 1,
+          currentSeat: 1,
         })
         .returning();
       if (scoringMatch === undefined) throw new Error("Scoring match insert did not return a row.");
-      await transaction.insert(matchParticipants).values([
-        { organizationId: input.organizationId, matchId: scoringMatch.id, playerId: scheduled.participantOneId, seat: 1 },
-        { organizationId: input.organizationId, matchId: scoringMatch.id, playerId: scheduled.participantTwoId, seat: 2 },
-      ]);
+      const scoringParticipants = await transaction.insert(matchParticipants).values([
+        { organizationId: input.organizationId, matchId: scoringMatch.id, seat: 1 },
+        { organizationId: input.organizationId, matchId: scoringMatch.id, seat: 2 },
+      ]).returning();
+      const playerOfScoringSeat = new Map([[1, scheduled.participantOneId], [2, scheduled.participantTwoId]]);
+      await transaction.insert(matchParticipantPlayers).values(scoringParticipants.map((participant) => {
+        const playerId = playerOfScoringSeat.get(participant.seat);
+        if (playerId === null || playerId === undefined) throw new Error("Scoring match seat invariant violated.");
+        return {
+          organizationId: input.organizationId,
+          matchId: scoringMatch.id,
+          participantId: participant.id,
+          playerId,
+          position: 1,
+        };
+      }));
       await transaction.insert(legs).values({
         organizationId: input.organizationId,
         matchId: scoringMatch.id,
         legNumber: 1,
-        startingPlayerId: scheduled.participantOneId,
+        startingSeat: 1,
       });
       const nextVersion = tournament.version + 1;
       await transaction

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, eq, inArray } from "drizzle-orm";
-import { legs, matches, matchParticipants, players, visits } from "@darts-platform/database";
+import { legs, matches, matchParticipantPlayers, players, visits } from "@darts-platform/database";
 import { DatabaseService } from "../database/database.service.js";
 
 @Injectable()
@@ -12,9 +12,9 @@ export class StatisticsRepository {
     if (player === undefined) return null;
     const matchRows = await this.database.database
       .select({ id: matches.id })
-      .from(matchParticipants)
-      .innerJoin(matches, and(eq(matches.id, matchParticipants.matchId), eq(matches.organizationId, organizationId)))
-      .where(and(eq(matchParticipants.organizationId, organizationId), eq(matchParticipants.playerId, playerId), eq(matches.status, "COMPLETED")))
+      .from(matchParticipantPlayers)
+      .innerJoin(matches, and(eq(matches.id, matchParticipantPlayers.matchId), eq(matches.organizationId, organizationId)))
+      .where(and(eq(matchParticipantPlayers.organizationId, organizationId), eq(matchParticipantPlayers.playerId, playerId), eq(matches.status, "COMPLETED")))
       .orderBy(asc(matches.completedAt));
     const matchIds = matchRows.map((row) => row.id);
     if (matchIds.length === 0) return { player, matchIds, legs: [], visits: [] };

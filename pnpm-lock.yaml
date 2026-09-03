@@ -77,6 +77,9 @@ importers:
       '@darts-platform/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@darts-platform/league-engine':
+        specifier: workspace:*
+        version: link:../../packages/league-engine
       '@darts-platform/scheduling-engine':
         specifier: workspace:*
         version: link:../../packages/scheduling-engine
@@ -220,6 +223,9 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(@types/node@24.13.3)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12))
 
   apps/worker:
     dependencies:
@@ -291,6 +297,15 @@ importers:
         version: 4.1.11(@types/node@24.13.3)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12))
 
   packages/domain:
+    devDependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(@types/node@24.13.3)(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12))
+
+  packages/league-engine:
     devDependencies:
       typescript:
         specifier: 'catalog:'

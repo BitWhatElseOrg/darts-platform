@@ -21,6 +21,13 @@ export const organizationPermissions = [
   "tournament:update",
   "statistics:read",
   "board:assign",
+  "team:read",
+  "team:manage",
+  "competition:read",
+  "competition:manage",
+  "encounter:read",
+  "encounter:manage",
+  "encounter:lineup",
 ] as const;
 
 export type OrganizationPermission =
@@ -48,6 +55,13 @@ const rolePermissions = {
     "tournament:update",
     "statistics:read",
     "board:assign",
+    "team:read",
+    "team:manage",
+    "competition:read",
+    "competition:manage",
+    "encounter:read",
+    "encounter:manage",
+    "encounter:lineup",
   ]),
   SCORER: new Set<OrganizationPermission>([
     "organization:read",
@@ -58,6 +72,10 @@ const rolePermissions = {
     "match:undo",
     "tournament:read",
     "statistics:read",
+    "team:read",
+    "competition:read",
+    "encounter:read",
+    "encounter:lineup",
   ]),
   MEMBER: new Set<OrganizationPermission>([
     "organization:read",
@@ -66,6 +84,9 @@ const rolePermissions = {
     "match:read",
     "tournament:read",
     "statistics:read",
+    "team:read",
+    "competition:read",
+    "encounter:read",
   ]),
   VIEWER: new Set<OrganizationPermission>([
     "organization:read",
@@ -74,6 +95,9 @@ const rolePermissions = {
     "match:read",
     "tournament:read",
     "statistics:read",
+    "team:read",
+    "competition:read",
+    "encounter:read",
   ]),
 } as const satisfies Record<OrganizationRole, ReadonlySet<OrganizationPermission>>;
 

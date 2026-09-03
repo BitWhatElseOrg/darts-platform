@@ -2,6 +2,7 @@ import { and, eq, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
 import {
+  matchParticipantPlayers,
   matchParticipants,
   tournamentGroupParticipants,
   tournamentGroups,
@@ -66,10 +67,17 @@ export async function resolveCompletedTournamentGroup(
       continue;
     }
     if (match.scoringMatchId === null) throw new Error("Completed tournament match invariant violated.");
-    const participantRows = await transaction.select().from(matchParticipants).where(and(
-      eq(matchParticipants.organizationId, organizationId),
-      eq(matchParticipants.matchId, match.scoringMatchId),
-    ));
+    const participantRows = await transaction
+      .select({ playerId: matchParticipantPlayers.playerId, legsWon: matchParticipants.legsWon })
+      .from(matchParticipants)
+      .innerJoin(matchParticipantPlayers, and(
+        eq(matchParticipantPlayers.participantId, matchParticipants.id),
+        eq(matchParticipantPlayers.organizationId, organizationId),
+      ))
+      .where(and(
+        eq(matchParticipants.organizationId, organizationId),
+        eq(matchParticipants.matchId, match.scoringMatchId),
+      ));
     const first = participantRows.find((participant) => participant.playerId === match.participantOneId);
     const second = participantRows.find((participant) => participant.playerId === match.participantTwoId);
     if (first === undefined || second === undefined) throw new Error("Completed match participant invariant violated.");

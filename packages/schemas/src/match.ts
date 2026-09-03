@@ -17,6 +17,26 @@ export const submitVisitSchema = z.object({
   controllerId: z.uuid().optional(),
 }).refine((value) => (value.checkoutAttempts ?? 0) <= value.dartsThrown, { message: "Checkout attempts cannot exceed darts thrown.", path: ["checkoutAttempts"] });
 export const undoVisitSchema = z.object({ commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), controllerId: z.uuid().optional() });
+/**
+ * Reglement 2.2.9: ab Leg drei entscheidet ein Wurf auf Bull, wer beginnt.
+ * Legs eins und zwei sind festgelegt und tragen deshalb kein Kommando.
+ */
+export const decideLegStartSchema = z.object({
+  commandId: z.uuid(),
+  expectedVersion: z.number().int().nonnegative(),
+  legNumber: z.number().int().min(3).max(99),
+  startingSeat: z.union([z.literal(1), z.literal(2)]),
+  controllerId: z.uuid().optional(),
+});
+
+/** Anhang 2: ist die Rundengrenze erreicht, entscheidet ein Ausbullen das Leg. */
+export const decideLegByBullSchema = z.object({
+  commandId: z.uuid(),
+  expectedVersion: z.number().int().nonnegative(),
+  winnerSeat: z.union([z.literal(1), z.literal(2)]),
+  controllerId: z.uuid().optional(),
+});
+
 export const abortMatchSchema = z.object({
   commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), controllerId: z.uuid().optional(),
   reason: z.string().trim().min(3).max(500),
@@ -24,7 +44,20 @@ export const abortMatchSchema = z.object({
 export const abortMatchResponseSchema = z.object({ matchId: z.uuid(), status: z.literal("ABORTED"), tournamentMatchId: z.uuid().nullable() });
 export const boardControllerLeaseRequestSchema = z.object({ controllerId: z.uuid(), force: z.boolean().default(false) });
 export const boardControllerLeaseSchema = z.object({ controllerId: z.uuid(), owned: z.boolean(), expiresAt: z.coerce.date() });
+/**
+ * Eine Seite des Matches. Im Doppel trägt sie zwei Personen; `players` ist
+ * deshalb die Wahrheit, `playerId` und `displayName` benennen weiterhin die
+ * erste Person der Seite. `isActive` heisst „diese Seite ist am Wurf",
+ * `players[].isThrowing` benennt die Person, die tatsächlich wirft.
+ */
+export const matchSidePlayerSchema = z.object({
+  playerId: z.uuid(),
+  displayName: z.string(),
+  isThrowing: z.boolean(),
+});
 export const matchParticipantStateSchema = z.object({
+  seat: z.union([z.literal(1), z.literal(2)]),
+  players: z.array(matchSidePlayerSchema).min(1).max(2),
   playerId: z.uuid(), displayName: z.string(), remaining: z.number().int().nonnegative(),
   legsWon: z.number().int().nonnegative(), legsWonInSet: z.number().int().nonnegative(), setsWon: z.number().int().nonnegative(), isActive: z.boolean(),
 });
@@ -51,6 +84,8 @@ export const matchListSchema = z.array(matchStateSchema);
 export type CreateMatchInput = z.infer<typeof createMatchSchema>;
 export type SubmitVisitInput = z.infer<typeof submitVisitSchema>;
 export type UndoVisitInput = z.infer<typeof undoVisitSchema>;
+export type DecideLegStartInput = z.infer<typeof decideLegStartSchema>;
+export type DecideLegByBullInput = z.infer<typeof decideLegByBullSchema>;
 export type AbortMatchInput = z.infer<typeof abortMatchSchema>;
 export type AbortMatchResponse = z.infer<typeof abortMatchResponseSchema>;
 export type MatchStateResponse = z.infer<typeof matchStateSchema>;

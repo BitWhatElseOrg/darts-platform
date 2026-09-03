@@ -8,6 +8,13 @@ const apiOrigin = `http://localhost:${apiPort}`;
 export default defineConfig({
   testDir: "./tests",
   fullyParallel: true,
+  // Beide Server laufen im Entwicklungsmodus; `next dev` übersetzt jede Route
+  // beim ersten Aufruf und ist dabei ein einzelner Prozess. Sobald zwei lange
+  // Fälle gleichzeitig Seiten anfordern, wartet einer von beiden in der
+  // Übersetzungswarteschlange, bis sein Zeitbudget reisst — mal beim
+  // Board-Lease, mal beim Laden einer Kaderliste. Ein Worker kostet rund eine
+  // Minute Laufzeit und nimmt der Aussage des Laufs die Zufälligkeit.
+  workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",

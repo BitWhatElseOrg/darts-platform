@@ -1,7 +1,5 @@
 import { Inject, Injectable, Logger, type OnApplicationShutdown } from "@nestjs/common";
 import type { ApplicationEnvironment } from "@darts-platform/config";
-import { outboxEvents, tournamentMatches } from "@darts-platform/database";
-import { and, asc, eq, isNull } from "drizzle-orm";
 import { createClient, type RedisClientType } from "redis";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { Server, type Socket } from "socket.io";
@@ -9,13 +7,16 @@ import type { Server as HttpServer } from "node:http";
 
 import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 import { DatabaseService } from "../database/database.service.js";
+import { parseSubscriptionId } from "./event-routing.js";
+import { publishOutboxBatch, type RealtimeBroadcaster } from "./publish-outbox.js";
 
 interface SubscribePayload {
   readonly tournamentId?: unknown;
+  readonly encounterId?: unknown;
 }
 
 @Injectable()
-export class RealtimeService implements OnApplicationShutdown {
+export class RealtimeService implements OnApplicationShutdown, RealtimeBroadcaster {
   private readonly logger = new Logger(RealtimeService.name);
   private readonly publisher: RedisClientType;
   private readonly subscriber: RedisClientType;
@@ -49,12 +50,20 @@ export class RealtimeService implements OnApplicationShutdown {
     this.timer.unref();
   }
 
+  public emit(room: string, event: string, payload: Readonly<Record<string, string>>): void {
+    this.io?.to(room).emit(event, payload);
+  }
+
   private register(socket: Socket): void {
     socket.on("tournament:subscribe", (payload: SubscribePayload) => {
-      if (typeof payload.tournamentId !== "string" || !/^[0-9a-f-]{36}$/iu.test(payload.tournamentId)) {
-        return;
-      }
-      void socket.join(`tournament:${payload.tournamentId}`);
+      const tournamentId = parseSubscriptionId(payload?.tournamentId);
+      if (tournamentId === null) return;
+      void socket.join(`tournament:${tournamentId}`);
+    });
+    socket.on("encounter:subscribe", (payload: SubscribePayload) => {
+      const encounterId = parseSubscriptionId(payload?.encounterId);
+      if (encounterId === null) return;
+      void socket.join(`encounter:${encounterId}`);
     });
   }
 
@@ -62,43 +71,12 @@ export class RealtimeService implements OnApplicationShutdown {
     if (this.publishing || this.io === null) return;
     this.publishing = true;
     try {
-      const events = await this.database.database
-        .select()
-        .from(outboxEvents)
-        .where(isNull(outboxEvents.publishedAt))
-        .orderBy(asc(outboxEvents.occurredAt))
-        .limit(100);
-      for (const event of events) {
-        const tournamentId = await this.resolveTournamentId(event.aggregateType, event.aggregateId);
-        if (tournamentId !== null) {
-          this.io.to(`tournament:${tournamentId}`).emit("tournament:changed", {
-            eventId: event.id,
-            eventType: event.eventType,
-            tournamentId,
-            occurredAt: event.occurredAt.toISOString(),
-          });
-        }
-        await this.database.database
-          .update(outboxEvents)
-          .set({ publishedAt: new Date() })
-          .where(and(eq(outboxEvents.id, event.id), isNull(outboxEvents.publishedAt)));
-      }
+      await publishOutboxBatch(this.database.database, this);
     } catch (error) {
       this.logger.error("Outbox konnte nicht publiziert werden", error);
     } finally {
       this.publishing = false;
     }
-  }
-
-  private async resolveTournamentId(aggregateType: string, aggregateId: string): Promise<string | null> {
-    if (aggregateType === "Tournament") return aggregateId;
-    if (aggregateType !== "Match") return null;
-    const [match] = await this.database.database
-      .select({ tournamentId: tournamentMatches.tournamentId })
-      .from(tournamentMatches)
-      .where(eq(tournamentMatches.scoringMatchId, aggregateId))
-      .limit(1);
-    return match?.tournamentId ?? null;
   }
 
   public async onApplicationShutdown(): Promise<void> {
