@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
-import { memberships, organizations, players, teams, users } from "@darts-platform/database";
+import { competitions, memberships, organizations, players, teams, users } from "@darts-platform/database";
 import type { CompetitionSlotInput } from "@darts-platform/schemas";
 
 import type { AuthContext } from "../auth/auth.types.js";
@@ -260,5 +260,27 @@ describe("competitions and their encounter template", () => {
       audit,
     });
     expect(renamed.status).toBe("COMPLETED");
+  }, 30_000);
+
+  /**
+   * Befund aus Phase 5: die Vorgaben von `points_decider_bonus` und
+   * `decider_rule` widersprachen der eigenen Check-Constraint, sodass ein
+   * INSERT allein aus den Vorgaben unmöglich war. Über die API fiel das nie
+   * auf, weil das Repository beide Werte immer explizit setzt.
+   */
+  it("inserts a competition row from the table defaults alone", async () => {
+    const inserted = await databaseService.database
+      .insert(competitions)
+      .values({
+        organizationId,
+        type: "LEAGUE",
+        name: "Nur Vorgaben",
+        slug: `nur-vorgaben-${randomUUID()}`,
+        status: "DRAFT",
+      })
+      .returning({ id: competitions.id, pointsDeciderBonus: competitions.pointsDeciderBonus });
+
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]?.pointsDeciderBonus).toBe(0);
   }, 30_000);
 });

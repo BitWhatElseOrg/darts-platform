@@ -933,7 +933,7 @@ export const competitions = pgTable(
     pointsWin: integer("points_win").default(3).notNull(),
     pointsDraw: integer("points_draw").default(1).notNull(),
     pointsLoss: integer("points_loss").default(0).notNull(),
-    pointsDeciderBonus: integer("points_decider_bonus").default(1).notNull(),
+    pointsDeciderBonus: integer("points_decider_bonus").default(0).notNull(),
     deciderRule: varchar("decider_rule", { length: 20 }).default("NONE").notNull(),
     lineupPositions: integer("lineup_positions").default(4).notNull(),
     minNominations: integer("min_nominations").default(4).notNull(),

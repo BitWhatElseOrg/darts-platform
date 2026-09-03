@@ -301,6 +301,16 @@ function OrganizationOverview({
           title="Matches"
           description="Boards anlegen, Match starten, Partien verfolgen"
         />
+        <OverviewLink
+          href={`/liga${organisationParam}`}
+          title="Liga"
+          description="Wettbewerbe, Begegnungen und Spielrapporte"
+        />
+        <OverviewLink
+          href={`/teams${organisationParam}`}
+          title="Teams"
+          description="Mannschaften und Kader für den Ligabetrieb"
+        />
       </nav>
 
       <div className="space-y-3">

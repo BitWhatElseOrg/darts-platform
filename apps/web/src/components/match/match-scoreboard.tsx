@@ -12,6 +12,18 @@ import { listOfflineCommands, markOfflineCommandConflict, removeOfflineCommand, 
 import { useBoardControllerLock } from "@/lib/use-board-controller-lock";
 
 const inputClassName = "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
+
+/** Eine Seite kann zwei Personen tragen; ihr Name ist beider Name. */
+function sideNames(participant: MatchStateResponse["participants"][number]): string {
+  return participant.players.map((person) => person.displayName).join(" und ");
+}
+
+function winnerName(match: MatchStateResponse): string {
+  const side = match.participants.find((participant) =>
+    participant.players.some((person) => person.playerId === match.winnerPlayerId),
+  );
+  return side === undefined ? "" : sideNames(side);
+}
 const mutationMessage = (error: unknown) => userFacingErrorMessage(error);
 
 export function MatchScoreboard({ organizationId, match, canAbort, canScore }: { readonly organizationId: string; readonly match: MatchStateResponse; readonly canAbort: boolean; readonly canScore: boolean }) {
@@ -140,7 +152,9 @@ export function MatchScoreboard({ organizationId, match, canAbort, canScore }: {
   const error = submit.error ?? undo.error ?? abort.error;
   const hasPending = queued.length > 0;
   const mayControl = canScore && match.status === "IN_PROGRESS" && lock.state === "EIGEN" && !hasPending;
-  const activeParticipant = match.participants.find((participant) => participant.playerId === match.currentPlayerId);
+  // Im Doppel ist `currentPlayerId` die werfende Person, nicht die erste der
+  // Seite. Am Oche steht die Seite mit `isActive`.
+  const activeParticipant = match.participants.find((participant) => participant.isActive);
   const openCheckoutOrSubmit = () => {
     const visitPoints = Number(points);
     if (activeParticipant !== undefined && visitPoints === activeParticipant.remaining) {
@@ -158,15 +172,25 @@ export function MatchScoreboard({ organizationId, match, canAbort, canScore }: {
       <div className="grid grid-cols-2 divide-x divide-slate-800">
         {match.participants.map((participant) => (
           <div className={cn("p-4 text-center sm:p-7", participant.isActive && match.status === "IN_PROGRESS" ? "bg-emerald-400/10" : "")} key={participant.playerId}>
-            <p className="truncate text-sm font-semibold text-slate-300">{participant.displayName}</p>
-            <p aria-label={`${participant.displayName}, Restscore`} className="mt-2 text-5xl font-black tabular-nums text-white sm:text-7xl">{participant.remaining}</p>
+            <p className="truncate text-sm font-semibold text-slate-300">
+              {participant.players.map((person, index) => (
+                <span key={person.playerId}>
+                  {index > 0 ? <span aria-hidden="true"> · </span> : null}
+                  <span className={person.isThrowing ? "text-white underline decoration-emerald-400 decoration-2 underline-offset-4" : ""}>
+                    {person.displayName}
+                    {person.isThrowing ? <span className="sr-only"> (am Wurf)</span> : null}
+                  </span>
+                </span>
+              ))}
+            </p>
+            <p aria-label={`${sideNames(participant)}, Restscore`} className="mt-2 text-5xl font-black tabular-nums text-white sm:text-7xl">{participant.remaining}</p>
             <p className="mt-2 text-sm text-slate-400">{participant.legsWonInSet} / {match.legsToWin} Legs · {participant.setsWon} / {match.setsToWin} Sets</p>
           </div>
         ))}
       </div>
       {canScore && match.status === "IN_PROGRESS" ? <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-900 px-4 py-3 text-sm"><span>{lock.state === "EIGEN" ? "Dieses Gerät steuert das Board · Verbindung aktiv" : lock.state === "FREMD" ? "Ein anderes Gerät steuert dieses Board" : "Board-Steuerung wird übernommen …"}</span>{lock.state === "FREMD" ? <Button onClick={lock.takeOver} variant="outline">Steuerung übernehmen</Button> : null}</div> : null}
       {hasPending ? <div className="border-t border-amber-400/40 bg-amber-300/10 p-4" role="status"><p className="font-semibold text-amber-100">{queued.length} Aufnahme wartet dauerhaft gespeichert auf die Übertragung.</p>{queued.map((command) => <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-sm text-amber-100" key={command.commandId}><span>{command.label} · {command.status === "CONFLICT" ? command.error : online ? "Wiederholung läuft" : "Offline"}</span>{command.status === "CONFLICT" ? <Button onClick={() => void removeOfflineCommand(command.commandId).then(refreshQueue).then(refresh)} variant="outline">Verwerfen und synchronisieren</Button> : <Button disabled={!online || replaying} onClick={() => void replay()} variant="outline">Jetzt übertragen</Button>}</div>)}</div> : null}
-      {match.status === "COMPLETED" ? <div className="border-t border-emerald-400/30 bg-emerald-400/10 p-5 text-center"><p className="text-sm uppercase tracking-widest text-emerald-300">Match beendet</p><p className="mt-1 text-2xl font-bold text-white">{match.participants.find((player) => player.playerId === match.winnerPlayerId)?.displayName} gewinnt</p></div> : canScore ? (
+      {match.status === "COMPLETED" ? <div className="border-t border-emerald-400/30 bg-emerald-400/10 p-5 text-center"><p className="text-sm uppercase tracking-widest text-emerald-300">Match beendet</p><p className="mt-1 text-2xl font-bold text-white">{winnerName(match)} gewinnt</p></div> : canScore ? (
         <form className="grid gap-3 border-t border-slate-800 p-4 sm:grid-cols-[1fr_auto]" onSubmit={(event) => { event.preventDefault(); openCheckoutOrSubmit(); }}>
           <input aria-label="Aufnahmescore" autoFocus className={inputClassName} disabled={!mayControl} inputMode="numeric" min="0" max="180" placeholder="Score" required type="number" value={points} onChange={(event) => setPoints(event.target.value)} />
           <Button disabled={submit.isPending || !mayControl || checkoutOpen} type="submit">Erfassen</Button>

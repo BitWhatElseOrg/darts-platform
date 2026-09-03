@@ -137,6 +137,13 @@ Plan der genannten Phase schreibt, nimmt sie als Task auf.
 
 ### Phase 6: Vorgaben von `competitions` widersprechen einer Constraint
 
+**Erledigt in Phase 6** durch die Migration
+`0019_league_decider_bonus_default`, die die Vorgabe von
+`points_decider_bonus` auf `0` setzt. Ein Test in
+`apps/api/src/competitions/competitions.integration.spec.ts` legt eine
+Wettbewerbszeile allein aus den Vorgaben an und hält den Befund fest. Der
+Rest dieses Abschnitts bleibt als Herkunft stehen.
+
 Gefunden in Phase 5 beim Aufbau der Realtime-Integrationstests.
 
 `competitions.points_decider_bonus` hat die Vorgabe `1`,
