@@ -134,6 +134,13 @@
       "when": 1788380437124,
       "tag": "0018_big_zeigeist",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788438726175,
+      "tag": "0019_league_decider_bonus_default",
+      "breakpoints": true
     }
   ]
 }
