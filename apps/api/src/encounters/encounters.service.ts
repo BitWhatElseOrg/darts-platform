@@ -318,6 +318,12 @@ export class EncountersService {
         message: "Der Wettbewerb trägt keine Begegnungsvorlage.",
       });
     }
+    if (created.status === "team-already-scheduled") {
+      throw new ConflictException({
+        code: "TEAM_ALREADY_SCHEDULED",
+        message: "Eine der Mannschaften hat an diesem Spieltag bereits eine Begegnung.",
+      });
+    }
     if (created.status !== "ok") {
       throw new NotFoundException({
         code: "NOT_FOUND",

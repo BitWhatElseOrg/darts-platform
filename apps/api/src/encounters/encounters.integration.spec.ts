@@ -745,6 +745,88 @@ describe("team encounter persistence", () => {
     expect(cancelled.slots.find((slot) => slot.sequence === 2)?.status).toBe("CANCELLED");
   }, 60_000);
 
+  it("refuses a second encounter for a team on the same matchday", async () => {
+    const competitionId = await createCompetition();
+    await scheduleEncounter(competitionId);
+
+    // Dieselbe Mannschaft in der anderen Rolle: die beiden Unique-Indexe
+    // fassen je eine Rolle und liessen das durch.
+    await expect(
+      encountersService.schedule({
+        organizationId,
+        competitionId,
+        data: {
+          matchday: 1,
+          homeTeamId: awayTeamId,
+          awayTeamId: homeTeamId,
+          scheduledAt: new Date("2026-09-11T21:00:00.000Z"),
+          venue: "Clublokal",
+        },
+        auth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ response: { code: "TEAM_ALREADY_SCHEDULED" } });
+
+    // Ein anderer Spieltag bleibt erlaubt.
+    const later = await encountersService.schedule({
+      organizationId,
+      competitionId,
+      data: {
+        matchday: 2,
+        homeTeamId: awayTeamId,
+        awayTeamId: homeTeamId,
+        scheduledAt: new Date("2026-09-18T19:30:00.000Z"),
+        venue: "Clublokal",
+      },
+      auth,
+      audit,
+    });
+    expect(later.matchday).toBe(2);
+  }, 30_000);
+
+  it("lets only one of two concurrent assignments claim a shared player", async () => {
+    // Beide Begegnungen laufen gleichzeitig und teilen sich die Besetzung:
+    // die Sperre auf der jeweiligen Begegnungszeile greift hier nicht.
+    const first = await openEncounter(await createCompetition());
+    const second = await openEncounter(await createCompetition());
+    const firstSlot = first.slots.find((slot) => slot.sequence === 1)!;
+    const secondSlot = second.slots.find((slot) => slot.sequence === 1)!;
+
+    const results = await Promise.allSettled([
+      encountersService.assignSlot({
+        organizationId,
+        encounterId: first.id,
+        slotId: firstSlot.id,
+        data: { commandId: randomUUID(), expectedVersion: first.version, boardId: boardIds[0]! },
+        auth,
+        audit,
+      }),
+      encountersService.assignSlot({
+        organizationId,
+        encounterId: second.id,
+        slotId: secondSlot.id,
+        data: { commandId: randomUUID(), expectedVersion: second.version, boardId: boardIds[1]! },
+        auth,
+        audit,
+      }),
+    ]);
+
+    // Genau eine Zuweisung kommt durch; die andere sieht die Person besetzt.
+    const fulfilled = results.filter((entry) => entry.status === "fulfilled");
+    expect(fulfilled).toHaveLength(1);
+
+    const running = await databaseService.database
+      .select({ id: matchesTable.id })
+      .from(matchesTable)
+      .where(
+        and(
+          eq(matchesTable.organizationId, organizationId),
+          eq(matchesTable.status, "IN_PROGRESS"),
+        ),
+      );
+    expect(running).toHaveLength(1);
+  }, 60_000);
+
   it("scores a slot walkover and a whole forfeit by the book", async () => {
     const walkoverCompetition = await createCompetition();
     let encounter = await openEncounter(walkoverCompetition);

@@ -72,7 +72,8 @@ export type EncounterCreateResult =
   | { readonly status: "ok"; readonly encounterId: string }
   | { readonly status: "team-not-found" }
   | { readonly status: "competition-not-found" }
-  | { readonly status: "template-empty" };
+  | { readonly status: "template-empty" }
+  | { readonly status: "team-already-scheduled" };
 
 type EncounterRow = typeof encounters.$inferSelect;
 type CompetitionRow = typeof competitions.$inferSelect;
@@ -240,6 +241,7 @@ export class EncountersRepository {
             eq(competitions.id, input.competitionId),
           ),
         )
+        .for("update")
         .limit(1);
       if (competition === undefined) return { status: "competition-not-found" };
       const teamRows = await transaction
@@ -263,6 +265,30 @@ export class EncountersRepository {
         )
         .orderBy(asc(competitionSlots.sequence));
       if (template.length === 0) return { status: "template-empty" };
+
+      // Eine Mannschaft spielt an einem Spieltag eine Begegnung. Die beiden
+      // Unique-Indexe fassen je eine Rolle und lassen deshalb `A gegen B`
+      // neben `C gegen A` zu — dieselbe Mannschaft zweimal am selben Abend.
+      // Die Sperre auf der Wettbewerbszeile serialisiert die Ansetzungen
+      // dieses Wettbewerbs, damit die Pruefung nicht an zwei gleichzeitigen
+      // Einfuegungen vorbeilaeuft.
+      const teamIds = [input.data.homeTeamId, input.data.awayTeamId];
+      const [clash] = await transaction
+        .select({ id: encounters.id })
+        .from(encounters)
+        .where(
+          and(
+            eq(encounters.organizationId, input.organizationId),
+            eq(encounters.competitionId, input.competitionId),
+            eq(encounters.matchday, input.data.matchday),
+            or(
+              inArray(encounters.homeTeamId, teamIds),
+              inArray(encounters.awayTeamId, teamIds),
+            ),
+          ),
+        )
+        .limit(1);
+      if (clash !== undefined) return { status: "team-already-scheduled" };
 
       const [created] = await transaction
         .insert(encounters)
@@ -699,6 +725,16 @@ export class EncountersRepository {
         input.encounterId,
         slot,
       );
+      // Die Sperre auf der Begegnungszeile serialisiert nur diese Begegnung.
+      // Eine Person kann aber in zwei Begegnungen desselben Vereins gemeldet
+      // sein; ohne Sperre saehen zwei gleichzeitige Zuweisungen sie beide als
+      // frei und stellten sie an zwei Scheiben. Gesperrt wird deshalb ueber
+      // die beteiligten Personen, und zwar in fester Reihenfolge, damit sich
+      // zwei Zuweisungen nicht gegenseitig blockieren.
+      await this.lockPlayers(transaction, input.organizationId, [
+        ...occupancy.home.playerIds,
+        ...occupancy.away.playerIds,
+      ]);
       const activePlayerIds = await this.loadActivePlayerIds(transaction, input.organizationId);
       const decision = evaluateSlotReadiness({
         sidePlayerIds: [occupancy.home.playerIds, occupancy.away.playerIds],
@@ -1179,6 +1215,28 @@ export class EncountersRepository {
    * bleibt damit ohne Besetzung und ist nicht zuweisbar, bis die Begegnungs-
    * leitung neu paart; der Ausfall ist sichtbar statt still.
    */
+  /**
+   * Sperrt die Personenzeilen einer Zuweisung. Die Reihenfolge ist sortiert:
+   * zwei Zuweisungen mit ueberlappender Besetzung greifen damit in derselben
+   * Reihenfolge zu und laufen nacheinander statt in einen Deadlock. Die
+   * zweite sieht nach dem Commit der ersten deren laufendes Match und faellt
+   * mit `player-busy` durch.
+   */
+  private async lockPlayers(
+    transaction: DatabaseTransaction,
+    organizationId: string,
+    playerIds: readonly string[],
+  ): Promise<void> {
+    const ids = [...new Set(playerIds)].sort();
+    if (ids.length === 0) return;
+    await transaction
+      .select({ id: players.id })
+      .from(players)
+      .where(and(eq(players.organizationId, organizationId), inArray(players.id, ids)))
+      .orderBy(asc(players.id))
+      .for("update");
+  }
+
   private async dropStalePairings(
     transaction: DatabaseTransaction,
     organizationId: string,
