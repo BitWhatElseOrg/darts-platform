@@ -1327,3 +1327,62 @@ Nicht nach `origin` pushen — `develop` ist der lokale Integrationsbranch.
 - Eine Doppelstatistik mit Disziplin-Dimension (Spec „Statistik" nennt sie
   ausdrücklich als eigene Arbeit).
 - Saison-Tabellenberechnung.
+
+---
+
+## Ergebnis
+
+Umgesetzt am 2026-09-03 auf `feature/phase-5-realtime-progression`, gemergt
+nach `develop`. Alle sieben Tasks wie geplant, `pnpm lint`, `pnpm typecheck`,
+`pnpm test` (149 API-Tests, 21 Testdateien) und `pnpm build` grün.
+
+### Was jetzt anders ist
+
+- Die fünf Encounter-Ereignisse erreichen `encounter:<id>` als
+  `encounter:changed`. Vorher landeten sie in `return null` und wurden ohne
+  einen einzigen Empfänger gestempelt.
+- Das Scoring eines Ligaspiels (`VISIT_RECORDED`, `MATCH_COMPLETED`) erreicht
+  denselben Raum. Ein Begegnungsmatch steht nicht in `tournament_matches` und
+  war deshalb bisher live unsichtbar.
+- Ein Doppel verändert `player_statistic_aggregates` nicht mehr. Die alte
+  Auswahl der ersten beiden Teilnehmerzeilen hätte bei einem Doppel zwei
+  Personen **derselben Seite** als Gegner gewertet.
+
+### Abweichungen vom Plan
+
+1. **Kein Payload-Rückfall für `MATCH_ABORTED`.** Der Plan erwog, den
+   `encounterId` in die Nutzlast zu legen. Phase 4 schreibt in derselben
+   Transaktion bereits `ENCOUNTER_SLOT_REOPENED` mit
+   `aggregate_type = 'Encounter'`; der Begegnungsraum erfährt den Abbruch also
+   ohnehin. Der Rückfall entfiel als überflüssig.
+2. **Testaufbau brauchte vier Korrekturen gegenüber dem Plan.** `organizations`
+   verlangt `timezone` und `locale` (keine DB-Vorgabe), `tournament_stages.status`
+   kennt nur `OPEN|WAITING|COMPLETED` (nicht `READY`), ein `SINGLES`-Slot
+   verlangt `home_position`/`away_position`, und `competitions` siehe Punkt 3.
+3. **Fund am Rand: die Vorgaben von `competitions` widersprechen einer eigenen
+   Check-Constraint.** `points_decider_bonus` hat die Vorgabe 1,
+   `decider_rule` die Vorgabe `'NONE'`; zusammen verletzen sie
+   `competitions_decider_bonus_rule_check`
+   (`points_decider_bonus = 0 or decider_rule = 'EXTRA_SLOT'`). Ein Insert, der
+   sich nur auf die Vorgaben verlässt, ist unmöglich. Über die API fällt das
+   nicht auf, weil das Repository beide Werte immer setzt. Die Behebung wäre
+   eine Migration (Vorgabe auf 0) und gehört nicht in Phase 5 —
+   **offen für die Turnierleitung zu entscheiden**.
+4. **Der Test in `encounters.integration.spec.ts` leert die Outbox in einer
+   Schleife.** Ein einzelner Stapel liegt bei 100 Ereignissen; die vorherigen
+   Tests der Datei füllen ihn vollständig. Der echte Poller läuft alle 500 ms
+   und arbeitet sich genauso durch.
+5. **Beide Integrationstests prüfen nur die eigenen Räume.** `publishOutboxBatch`
+   arbeitet global, und Vitest fährt Testdateien parallel — eine Prüfung auf
+   „nichts gesendet" wäre sonst geflackert.
+6. **Kein `pnpm --filter <paket> lint`.** Es gibt kein Lint-Skript je Paket,
+   Lint läuft nur im Root. Die Planschritte, die es je Paket vorsahen, liefen
+   stattdessen am Phasenende.
+
+### Für Phase 6 offen
+
+- Web-Client für `encounter:subscribe` und die Live-Ansicht der Begegnung.
+  `apps/web/src/lib/realtime.ts` kennt bislang nur den Turnierraum.
+- E2E (Phase 7).
+- Doppelstatistik mit Disziplin-Dimension und Saison-Tabelle bleiben
+  ausdrücklich ausserhalb.
