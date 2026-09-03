@@ -248,7 +248,7 @@ describe("publishOutboxBatch", () => {
 
     await publishOutboxBatch(database, broadcaster);
 
-    expect(broadcaster.sent).toEqual([]);
+    expect(broadcaster.sent.filter((entry) => entry.payload.eventId === event?.id)).toEqual([]);
     const [stored] = await database
       .select()
       .from(outboxEvents)
@@ -270,7 +270,11 @@ describe("publishOutboxBatch", () => {
 
     await publishOutboxBatch(database, second);
 
-    expect(first.sent.length).toBeGreaterThan(0);
-    expect(second.sent).toEqual([]);
+    // Nur die eigenen Raeume pruefen: der Poller arbeitet global, und
+    // parallel laufende Testdateien schreiben in dieselbe Outbox.
+    const ownRooms = (entries: readonly Recorded[]): readonly Recorded[] =>
+      entries.filter((entry) => entry.room === `encounter:${encounterId}`);
+    expect(ownRooms(first.sent).length).toBeGreaterThan(0);
+    expect(ownRooms(second.sent)).toEqual([]);
   });
 });

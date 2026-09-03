@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
@@ -41,6 +41,7 @@ import { TeamsRepository } from "../teams/teams.repository.js";
 import { TeamsService } from "../teams/teams.service.js";
 import { TournamentsRepository } from "../tournaments/tournaments.repository.js";
 import { TournamentsService } from "../tournaments/tournaments.service.js";
+import { publishOutboxBatch } from "../realtime/publish-outbox.js";
 import { EncountersRepository } from "./encounters.repository.js";
 import { EncountersService } from "./encounters.service.js";
 
@@ -1133,6 +1134,41 @@ describe("team encounter persistence", () => {
       }),
     ).rejects.toMatchObject({ response: { code: "ENCOUNTER_CLOSED" } });
   }, 30_000);
+
+  it("verteilt die Ereignisse eines gespielten Slots in den Begegnungsraum", async () => {
+    const competitionId = await createCompetition();
+    let encounter = await openEncounter(competitionId);
+    encounter = await playSlot(encounter, 1, boardIds[0]!, "HOME");
+
+    const sent: { readonly room: string; readonly event: string }[] = [];
+    const broadcaster = {
+      emit(room: string, event: string) {
+        sent.push({ room, event });
+      },
+    };
+    // Die Outbox traegt die Ereignisse der vorherigen Tests dieser Datei; der
+    // echte Poller arbeitet sie in Stapeln ab, also hier bis zum Ende leeren.
+    while ((await publishOutboxBatch(databaseService.database, broadcaster)) > 0) {
+      // weiterleeren
+    }
+
+    // Der Poller arbeitet global; geprueft wird nur der eigene Raum.
+    const ownRoom = sent.filter((entry) => entry.room === `encounter:${encounter.id}`);
+    expect(ownRoom.length).toBeGreaterThan(0);
+    expect(ownRoom.every((entry) => entry.event === "encounter:changed")).toBe(true);
+
+    const unpublished = await databaseService.database
+      .select({ id: outboxEvents.id })
+      .from(outboxEvents)
+      .where(
+        and(
+          eq(outboxEvents.organizationId, organizationId),
+          eq(outboxEvents.aggregateId, encounter.id),
+          isNull(outboxEvents.publishedAt),
+        ),
+      );
+    expect(unpublished).toEqual([]);
+  }, 60_000);
 
   it("answers a foreign organization with 404 for teams, competitions and encounters", async () => {
     const competitionId = await createCompetition();
