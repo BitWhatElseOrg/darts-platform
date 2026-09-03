@@ -97,6 +97,22 @@ describe("league schemas", () => {
     expect(createCompetitionSchema.safeParse(invalid).success).toBe(false);
   });
 
+  it("rejects a shorthanded minimum above the lineup positions", () => {
+    // Die Meldepruefung zaehlt besetzte Positionen; mehr als vier kann es bei
+    // vier Positionen nicht geben. Der Wettbewerb waere nie bespielbar.
+    const invalid = competition({
+      lineupPositions: 4,
+      minNominations: 5,
+      minNominationsShorthanded: 5,
+    });
+    expect(createCompetitionSchema.safeParse(invalid).success).toBe(false);
+    expect(
+      createCompetitionSchema.safeParse(
+        competition({ lineupPositions: 4, minNominations: 5, minNominationsShorthanded: 4 }),
+      ).success,
+    ).toBe(true);
+  });
+
   it("rejects a decider bonus without the decider rule", () => {
     const invalid = competition({ deciderRule: "NONE", pointsDeciderBonus: 1 });
     expect(createCompetitionSchema.safeParse(invalid).success).toBe(false);

@@ -906,6 +906,35 @@ describe("team encounter persistence", () => {
     expect(commands.filter((row) => row.commandId === body.commandId)).toHaveLength(1);
   }, 30_000);
 
+  it("answers a commandId raced across two encounters without a database error", async () => {
+    const first = await openEncounter(await createCompetition());
+    const second = await openEncounter(await createCompetition());
+    const commandId = randomUUID();
+
+    // Verschiedene Begegnungen, verschiedene Sperren: beide verfehlen die
+    // Kommandozeile. Der Primaerschluessel faengt die zweite ab, und das muss
+    // als command-id-reused herauskommen, nicht als 500er.
+    const results = await Promise.allSettled([
+      encountersService.cancel({
+        organizationId,
+        encounterId: first.id,
+        data: { commandId, expectedVersion: first.version, reason: "Halle belegt." },
+        auth,
+        audit,
+      }),
+      encountersService.cancel({
+        organizationId,
+        encounterId: second.id,
+        data: { commandId, expectedVersion: second.version, reason: "Halle belegt." },
+        auth,
+        audit,
+      }),
+    ]);
+    expect(results.filter((entry) => entry.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((entry) => entry.status === "rejected");
+    expect(rejected?.reason).toMatchObject({ response: { code: "COMMAND_ID_ALREADY_USED" } });
+  }, 30_000);
+
   it("scores a slot walkover and a whole forfeit by the book", async () => {
     const walkoverCompetition = await createCompetition();
     let encounter = await openEncounter(walkoverCompetition);

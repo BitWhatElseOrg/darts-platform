@@ -350,6 +350,13 @@ export const createCompetitionSchema = z
     message: "minNominationsShorthanded must not exceed minNominations.",
     path: ["minNominationsShorthanded"],
   })
+  // Die Meldepruefung zaehlt besetzte Aufstellungspositionen; mehr als
+  // `lineupPositions` kann es davon nicht geben. Eine hoehere Untergrenze
+  // liesse den Wettbewerb anlegen, aber nie eine Begegnung melden.
+  .refine((value) => value.minNominationsShorthanded <= value.lineupPositions, {
+    message: "minNominationsShorthanded must not exceed lineupPositions.",
+    path: ["minNominationsShorthanded"],
+  })
   .refine((value) => value.pointsWin >= value.pointsDraw && value.pointsDraw >= value.pointsLoss, {
     message: "Points must be ordered win >= draw >= loss.",
     path: ["pointsWin"],

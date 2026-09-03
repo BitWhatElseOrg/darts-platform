@@ -178,6 +178,25 @@ function isSameCommandPayload(stored: unknown, incoming: unknown): boolean {
   return JSON.stringify(canonicalize(stored)) === JSON.stringify(canonicalize(incoming));
 }
 
+/**
+ * Der Primaerschluessel von `encounter_commands` ist die letzte Instanz gegen
+ * eine doppelt vergebene `commandId`. Postgres meldet den Verstoss als 23505.
+ */
+function isDuplicateCommandIdError(error: unknown): boolean {
+  // Drizzle verpackt den Treiberfehler; die Kennung steht erst in `cause`.
+  for (let candidate = error, depth = 0; depth < 5; depth += 1) {
+    if (typeof candidate !== "object" || candidate === null) return false;
+    const row = candidate as {
+      readonly code?: unknown;
+      readonly constraint_name?: unknown;
+      readonly cause?: unknown;
+    };
+    if (row.code === "23505" && row.constraint_name === "encounter_commands_pkey") return true;
+    candidate = row.cause;
+  }
+  return false;
+}
+
 function walkoverLegs(slot: SlotRow): number {
   return slot.legsToWinSet * slot.setsToWin;
 }
@@ -1101,6 +1120,27 @@ export class EncountersRepository {
     // wird deshalb die Nutzlast samt Slot.
     const payload =
       input.slotId === undefined ? data : { ...data, slotId: input.slotId };
+    try {
+      return await this.runMutation(input, payload, type, body);
+    } catch (error: unknown) {
+      // Zwei gleichzeitige Zustellungen derselben commandId an zwei
+      // verschiedene Begegnungen sperren einander nicht: sie halten
+      // verschiedene Begegnungszeilen und verfehlen die Kommandozeile beide.
+      // Der Primaerschluessel faengt die zweite ab. Das ist derselbe Befund
+      // wie im sequentiellen Fall und gehoert als solcher beantwortet, nicht
+      // als Datenbankfehler.
+      if (isDuplicateCommandIdError(error)) return "command-id-reused";
+      throw error;
+    }
+  }
+
+  private runMutation(
+    input: ActorInput & { readonly slotId?: string },
+    payload: { readonly commandId: string; readonly expectedVersion: number },
+    type: string,
+    body: (context: MutationContext) => Promise<EncounterMutationResult>,
+  ): Promise<EncounterMutationResult> {
+    const data = payload;
     return this.databaseService.database.transaction(async (transaction) => {
       const seen = await this.findDuplicateCommand(transaction, input, payload, type);
       if (seen !== null) return seen;
@@ -1200,22 +1240,6 @@ export class EncountersRepository {
   }
 
   /**
-   * Eine Doppelpaarung darf nur gemeldete Personen tragen — `submitDoubles`
-   * setzt das durch. Wird die Meldung danach ersetzt, muss dieselbe Regel auf
-   * dem zweiten Schreibweg gelten: fällt eine gepaarte Person aus der Meldung,
-   * verliert ihre Paarung die Grundlage. Gelöscht wird die ganze Paarung, nicht
-   * nur die eine Zeile — ein halbes Doppel wäre schlechter als keines. Der Slot
-   * bleibt damit ohne Besetzung und ist nicht zuweisbar, bis die Begegnungs-
-   * leitung neu paart; der Ausfall ist sichtbar statt still.
-   */
-  /**
-   * Sperrt die Personenzeilen einer Zuweisung. Die Reihenfolge ist sortiert:
-   * zwei Zuweisungen mit ueberlappender Besetzung greifen damit in derselben
-   * Reihenfolge zu und laufen nacheinander statt in einen Deadlock. Die
-   * zweite sieht nach dem Commit der ersten deren laufendes Match und faellt
-   * mit `player-busy` durch.
-   */
-  /**
    * Liefert die Antwort auf eine bereits vergebene `commandId`: `ok` fuer die
    * Wiederholung desselben Kommandos, `command-id-reused`, wenn Typ, Umfang
    * oder Nutzlast abweichen. Eine andere Mutation still als `ok` zu
@@ -1247,6 +1271,13 @@ export class EncountersRepository {
       : "command-id-reused";
   }
 
+  /**
+   * Sperrt die Personenzeilen einer Zuweisung. Die Reihenfolge ist sortiert:
+   * zwei Zuweisungen mit ueberlappender Besetzung greifen damit in derselben
+   * Reihenfolge zu und laufen nacheinander statt in einen Deadlock. Die
+   * zweite sieht nach dem Commit der ersten deren laufendes Match und faellt
+   * mit `player-busy` durch.
+   */
   private async lockPlayers(
     transaction: DatabaseTransaction,
     organizationId: string,
@@ -1262,6 +1293,15 @@ export class EncountersRepository {
       .for("update");
   }
 
+  /**
+   * Eine Doppelpaarung darf nur gemeldete Personen tragen — `submitDoubles`
+   * setzt das durch. Wird die Meldung danach ersetzt, muss dieselbe Regel auf
+   * dem zweiten Schreibweg gelten: fällt eine gepaarte Person aus der Meldung,
+   * verliert ihre Paarung die Grundlage. Gelöscht wird die ganze Paarung, nicht
+   * nur die eine Zeile — ein halbes Doppel wäre schlechter als keines. Der Slot
+   * bleibt damit ohne Besetzung und ist nicht zuweisbar, bis die Begegnungs-
+   * leitung neu paart; der Ausfall ist sichtbar statt still.
+   */
   private async dropStalePairings(
     transaction: DatabaseTransaction,
     organizationId: string,
