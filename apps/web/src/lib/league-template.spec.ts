@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildEncounterTemplate, vfcTemplateOptions } from "./league-template";
+import { buildEncounterTemplate, slugFromName, vfcTemplateOptions } from "./league-template";
 
 describe("buildEncounterTemplate", () => {
   const slots = buildEncounterTemplate(vfcTemplateOptions);
@@ -74,5 +74,22 @@ describe("buildEncounterTemplate", () => {
     expect(small.filter((slot) => slot.discipline === "SINGLES")).toHaveLength(4);
     expect(small.filter((slot) => slot.role === "DECIDER")).toHaveLength(0);
     expect(small.map((slot) => slot.sequence)).toEqual([1, 2, 3, 4, 5]);
+  });
+});
+
+describe("slugFromName", () => {
+  it("schreibt Umlaute aus, statt sie zu verschlucken", () => {
+    expect(slugFromName("Gruppe Süd 2")).toBe("gruppe-sued-2");
+    expect(slugFromName("Öffnungsrunde")).toBe("oeffnungsrunde");
+  });
+
+  it("liefert einen Wert, den der Vertrag annimmt", () => {
+    const pattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+    expect(pattern.test(slugFromName("  STSO S 2 — Saison 2026/27  "))).toBe(true);
+    expect(slugFromName("  STSO S 2 — Saison 2026/27  ")).toBe("stso-s-2-saison-2026-27");
+  });
+
+  it("liefert bei einem Namen ohne brauchbare Zeichen eine leere Zeichenkette", () => {
+    expect(slugFromName("///")).toBe("");
   });
 });
