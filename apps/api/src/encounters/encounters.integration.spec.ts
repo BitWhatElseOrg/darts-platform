@@ -633,6 +633,118 @@ describe("team encounter persistence", () => {
     expect(after.version).toBe(stored.version);
   }, 30_000);
 
+  it("drops a doubles pairing whose player leaves the nomination", async () => {
+    const competitionId = await createCompetition();
+    let encounter = await scheduleEncounter(competitionId);
+    encounter = await nominate(encounter, "HOME", homePlayerIds.slice(0, 4), [homePlayerIds[4]!]);
+    encounter = await nominate(encounter, "AWAY", awayPlayerIds.slice(0, 4), [awayPlayerIds[4]!]);
+    // Doppel 1 mit Position 1 und 2, Doppel 2 mit Position 3 und 4.
+    encounter = await submitDoubles(encounter, "HOME", [
+      { sequence: 17, playerIds: [homePlayerIds[0]!, homePlayerIds[1]!] },
+      { sequence: 18, playerIds: [homePlayerIds[2]!, homePlayerIds[3]!] },
+    ]);
+    expect(
+      encounter.slots
+        .find((slot) => slot.sequence === 17)
+        ?.home.players.map((entry) => entry.playerId),
+    ).toEqual([homePlayerIds[0]!, homePlayerIds[1]!]);
+
+    // Position 1 faellt aus und wird ersetzt. Die Paarung von Doppel 1 traegt
+    // damit eine Person, die nicht mehr gemeldet ist; Doppel 2 ist unberuehrt.
+    encounter = await nominate(
+      encounter,
+      "HOME",
+      [homePlayerIds[4]!, homePlayerIds[1]!, homePlayerIds[2]!, homePlayerIds[3]!],
+      [homePlayerIds[5]!],
+    );
+
+    const first = encounter.slots.find((slot) => slot.sequence === 17);
+    const second = encounter.slots.find((slot) => slot.sequence === 18);
+    expect(first?.home.players ?? []).toHaveLength(0);
+    expect(first?.home.complete).toBe(false);
+    expect(second?.home.players.map((entry) => entry.playerId)).toEqual([
+      homePlayerIds[2]!,
+      homePlayerIds[3]!,
+    ]);
+
+    // Ohne Paarung ist das Doppel nicht zuweisbar — der Ausfall ist sichtbar,
+    // nicht still.
+    const started = await encountersService.start({
+      organizationId,
+      encounterId: encounter.id,
+      data: { commandId: randomUUID(), expectedVersion: encounter.version },
+      auth,
+      audit,
+    });
+    await expect(
+      encountersService.assignSlot({
+        organizationId,
+        encounterId: started.id,
+        slotId: first!.id,
+        data: { commandId: randomUUID(), expectedVersion: started.version, boardId: boardIds[0]! },
+        auth,
+        audit,
+      }),
+    ).rejects.toThrow();
+  }, 30_000);
+
+  it("keeps a played slot when the encounter is forfeited or cancelled afterwards", async () => {
+    const competitionId = await createCompetition();
+    let encounter = await openEncounter(competitionId);
+    encounter = await playSlot(encounter, 1, boardIds[0]!, "HOME");
+    encounter = await walkover(encounter, 2, "AWAY");
+
+    // Der Check-Constraint bindet Status und Ergebnis aneinander: ein
+    // gespielter Slot darf nicht auf CANCELLED fallen und sein resultType
+    // behalten.
+    const forfeited = await encountersService.declareForfeit({
+      organizationId,
+      encounterId: encounter.id,
+      data: {
+        commandId: randomUUID(),
+        expectedVersion: encounter.version,
+        forfeitSide: "AWAY",
+        reason: "Mannschaft nicht angetreten.",
+      },
+      auth,
+      audit,
+    });
+    expect(forfeited.status).toBe("COMPLETED");
+    expect(forfeited.slots.find((slot) => slot.sequence === 1)).toMatchObject({
+      status: "COMPLETED",
+      resultType: "PLAYED",
+      winnerSide: "HOME",
+    });
+    expect(forfeited.slots.find((slot) => slot.sequence === 2)).toMatchObject({
+      status: "WALKOVER",
+      resultType: "WALKOVER",
+      winnerSide: "AWAY",
+    });
+    expect(forfeited.slots.find((slot) => slot.sequence === 3)?.status).toBe("CANCELLED");
+
+    // Dasselbe fuer den Abbruch, dort blieb bisher nur COMPLETED verschont.
+    // Eigener Wettbewerb: (Wettbewerb, Spieltag, Heimmannschaft) ist eindeutig.
+    let other = await openEncounter(await createCompetition());
+    other = await walkover(other, 1, "HOME");
+    const cancelled = await encountersService.cancel({
+      organizationId,
+      encounterId: other.id,
+      data: {
+        commandId: randomUUID(),
+        expectedVersion: other.version,
+        reason: "Halle nicht verfuegbar.",
+      },
+      auth,
+      audit,
+    });
+    expect(cancelled.status).toBe("CANCELLED");
+    expect(cancelled.slots.find((slot) => slot.sequence === 1)).toMatchObject({
+      status: "WALKOVER",
+      resultType: "WALKOVER",
+    });
+    expect(cancelled.slots.find((slot) => slot.sequence === 2)?.status).toBe("CANCELLED");
+  }, 60_000);
+
   it("scores a slot walkover and a whole forfeit by the book", async () => {
     const walkoverCompetition = await createCompetition();
     let encounter = await openEncounter(walkoverCompetition);

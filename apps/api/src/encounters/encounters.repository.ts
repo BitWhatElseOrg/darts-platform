@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import { aliasedTable, and, asc, eq, gt, inArray, isNull, lte, ne, or } from "drizzle-orm";
+import { aliasedTable, and, asc, eq, gt, inArray, isNull, lte, notInArray, or } from "drizzle-orm";
 
 import {
   auditEvents,
@@ -382,6 +382,14 @@ export class EncountersRepository {
           position: entry.position,
           origin: entry.origin,
         })),
+      );
+
+      await this.dropStalePairings(
+        transaction,
+        input.organizationId,
+        input.encounterId,
+        side,
+        input.data.nominations.map((entry) => entry.playerId),
       );
 
       const otherSide: Side = side === "HOME" ? "AWAY" : "HOME";
@@ -954,6 +962,9 @@ export class EncountersRepository {
       for (const slot of slots.filter((candidate) => candidate.status === "IN_PROGRESS")) {
         await this.freeBoard(transaction, input.organizationId, slot.boardId, now);
       }
+      // Gespielte und kampflos gewertete Slots behalten ihren Ausgang: der
+      // Check-Constraint bindet Status und `resultType` aneinander, und ein
+      // Ergebnis, das auf der Scheibe zustande kam, gehört ins Protokoll.
       await transaction
         .update(encounterSlots)
         .set({ status: "CANCELLED", boardId: null, updatedAt: now })
@@ -961,6 +972,7 @@ export class EncountersRepository {
           and(
             eq(encounterSlots.organizationId, input.organizationId),
             eq(encounterSlots.encounterId, input.encounterId),
+            notInArray(encounterSlots.status, ["COMPLETED", "WALKOVER"]),
           ),
         );
       const result = calculateForfeit(competition, slots, input.data.forfeitSide);
@@ -1033,7 +1045,7 @@ export class EncountersRepository {
           and(
             eq(encounterSlots.organizationId, input.organizationId),
             eq(encounterSlots.encounterId, input.encounterId),
-            ne(encounterSlots.status, "COMPLETED"),
+            notInArray(encounterSlots.status, ["COMPLETED", "WALKOVER"]),
           ),
         );
       context.statusAfter = "CANCELLED";
@@ -1156,6 +1168,45 @@ export class EncountersRepository {
       }
       return "ok";
     });
+  }
+
+  /**
+   * Eine Doppelpaarung darf nur gemeldete Personen tragen — `submitDoubles`
+   * setzt das durch. Wird die Meldung danach ersetzt, muss dieselbe Regel auf
+   * dem zweiten Schreibweg gelten: fällt eine gepaarte Person aus der Meldung,
+   * verliert ihre Paarung die Grundlage. Gelöscht wird die ganze Paarung, nicht
+   * nur die eine Zeile — ein halbes Doppel wäre schlechter als keines. Der Slot
+   * bleibt damit ohne Besetzung und ist nicht zuweisbar, bis die Begegnungs-
+   * leitung neu paart; der Ausfall ist sichtbar statt still.
+   */
+  private async dropStalePairings(
+    transaction: DatabaseTransaction,
+    organizationId: string,
+    encounterId: string,
+    side: Side,
+    nominatedPlayerIds: readonly string[],
+  ): Promise<void> {
+    const stale = await transaction
+      .select({ slotId: encounterLineupEntries.slotId })
+      .from(encounterLineupEntries)
+      .where(
+        and(
+          eq(encounterLineupEntries.organizationId, organizationId),
+          eq(encounterLineupEntries.encounterId, encounterId),
+          eq(encounterLineupEntries.side, side),
+          notInArray(encounterLineupEntries.playerId, [...nominatedPlayerIds]),
+        ),
+      );
+    const slotIds = [...new Set(stale.map((row) => row.slotId))];
+    if (slotIds.length === 0) return;
+    await transaction.delete(encounterLineupEntries).where(
+      and(
+        eq(encounterLineupEntries.organizationId, organizationId),
+        eq(encounterLineupEntries.encounterId, encounterId),
+        eq(encounterLineupEntries.side, side),
+        inArray(encounterLineupEntries.slotId, slotIds),
+      ),
+    );
   }
 
   private async freeBoard(
