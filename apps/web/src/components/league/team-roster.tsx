@@ -325,10 +325,13 @@ function TeamCard({
   const error = addMember.error ?? removeMember.error ?? archiveTeam.error;
 
   return (
-    <Wedge as="article" className="p-5" tone="plate">
+    <Wedge aria-labelledby={`team-${team.id}-heading`} as="article" className="p-5" tone="plate">
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
-          <h3 className="font-numerals text-[1.5rem] leading-tight font-bold tracking-[-0.01em] text-wedge-900">
+          <h3
+            className="font-numerals text-[1.5rem] leading-tight font-bold tracking-[-0.01em] text-wedge-900"
+            id={`team-${team.id}-heading`}
+          >
             {team.name}
           </h3>
           <p className="mt-0.5 font-plate text-[0.875rem] text-sisal-500">

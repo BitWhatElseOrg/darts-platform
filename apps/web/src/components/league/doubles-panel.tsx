@@ -48,8 +48,10 @@ export function DoublesPanel({
 
   if (!lineup.revealed && lineup.submitted) {
     return (
-      <Wedge as="section" className="p-4" tone="plate">
-        <SheetLabel as="h2">Doppel {sideLabel(side)}</SheetLabel>
+      <Wedge aria-labelledby={`doubles-${side}-heading`} as="section" className="p-4" tone="plate">
+        <SheetLabel as="h2" id={`doubles-${side}-heading`}>
+          Doppel {sideLabel(side)}
+        </SheetLabel>
         <Rule className="mt-2" />
         <p className="mt-3 font-plate text-[0.875rem] text-wedge-900">
           Die Paarungen werden sichtbar, sobald beide Seiten gemeldet haben.
@@ -59,8 +61,8 @@ export function DoublesPanel({
   }
 
   return (
-    <Wedge as="section" className="p-4" tone="plate">
-      <SheetLabel as="h2">
+    <Wedge aria-labelledby={`doubles-${side}-heading`} as="section" className="p-4" tone="plate">
+      <SheetLabel as="h2" id={`doubles-${side}-heading`}>
         Doppel {sideLabel(side)} · {lineup.teamName}
       </SheetLabel>
       <Rule className="mt-2" />
