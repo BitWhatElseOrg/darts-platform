@@ -19,15 +19,23 @@ Reserve.
 
 ## Phasen
 
-| # | Deliverable | Kern-Dateien | LOC | Tokens | hängt ab von |
-| --- | --- | --- | --- | --- | --- |
-| 1 | Seitenmodell im Match + Migration | `scoring-engine`, `schema.ts`, `matches.repository.ts` | ~1.800 | 2,5–4,5M | — |
-| 2 | Scoring-Regeln des Reglements | `scoring-engine` | ~800 | 1,0–1,5M | 1 |
-| 3 | `packages/league-engine` | neues Paket | ~1.500 | 1,5–2,5M | — |
-| 4 | Persistenz + API | `apps/api/src/{teams,competitions,encounters}` | ~4.000 | 4,0–7,0M | 1, 2, 3 |
-| 5 | Realtime + Fortschreibung | `encounters`, `apps/worker` | ~400 | 0,5–1,0M | 4 |
-| 6 | Web-UI | `apps/web` | ~2.500 | 3,0–5,0M | 4, 5 |
-| 7 | E2E + Abnahme | `apps/web/e2e` | ~400 | 1,0–2,0M | 6 |
+**Stand 3. September 2026: Phase 1 bis 6 sind umgesetzt und auf `develop`
+gemergt. Offen ist nur Phase 7.**
+
+| # | Deliverable | Kern-Dateien | LOC | Tokens | hängt ab von | Stand |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | Seitenmodell im Match + Migration | `scoring-engine`, `schema.ts`, `matches.repository.ts` | ~1.800 | 2,5–4,5M | — | fertig |
+| 2 | Scoring-Regeln des Reglements | `scoring-engine` | ~800 | 1,0–1,5M | 1 | fertig |
+| 3 | `packages/league-engine` | neues Paket | ~1.500 | 1,5–2,5M | — | fertig |
+| 4 | Persistenz + API | `apps/api/src/{teams,competitions,encounters}` | ~4.000 | 4,0–7,0M | 1, 2, 3 | fertig |
+| 5 | Realtime + Fortschreibung | `encounters`, `apps/worker` | ~400 | 0,5–1,0M | 4 | fertig |
+| 6 | Web-UI | `apps/web` | ~2.500 | 3,0–5,0M | 4, 5 | fertig |
+| 7 | E2E + Abnahme | `apps/web/tests` | ~400 | 1,0–2,0M | 6 | offen |
+
+Für Phase 7 liegt die Aufklärung bereits vor:
+`docs/superpowers/plans/2026-09-02-phase-7-vorbereitung.md`. Der Arbeitsplan
+selbst wird nach Sessionregel 2 erst zu Beginn der Phase-7-Session
+geschrieben.
 
 Phase 3 hat keine Abhängigkeit und könnte vor Phase 1 laufen. Empfohlen ist
 trotzdem die Reihenfolge 1 → 2 → 3 → 4 → 5 → 6 → 7, weil Phase 1 die riskante

@@ -2483,6 +2483,11 @@ lange an der falschen Stelle.
 
 ### Für Phase 7 offen
 
+Die Aufklärung dazu steht ausformuliert in
+`docs/superpowers/plans/2026-09-02-phase-7-vorbereitung.md` — Namen der
+Bedienelemente, die E2E-Maschinerie, die vier offenen Entscheidungen und die
+bekannten Fallen.
+
 - Die Browser-Tests aus dem Spec-Abschnitt „Browser-Tests": Begegnung
   ansetzen, beide Meldungen erfassen, zwei Slots parallel auf zwei Boards
   spielen, Doppelpaarungen vor Slot 9 melden, ein Doppel ausspielen, Ergebnis
@@ -2493,3 +2498,12 @@ lange an der falschen Stelle.
   aber keine eigene `.impeccable/surfaces`-Datei bekommen.
 - Saison-Tabelle, Doppelstatistik und Self-Service für Team-Captains bleiben
   ausdrücklich ausserhalb.
+
+### Nachgetragen beim Phasenabschluss
+
+Die Seitenpanels der Begegnungsleitung (`Meldung`, `Doppel`, `Auswechslung`)
+waren `<section>`-Elemente ohne zugänglichen Namen und wurden dadurch nicht
+als Region ausgewiesen; dasselbe galt für die Teamkarten auf `/teams`. Sie
+tragen jetzt `aria-labelledby` auf ihre eigene Überschrift. Damit lassen sich
+Heim und Gast auseinanderhalten — als Bedienhilfe wie als Testanker, denn
+„Position 1", „Person 1" und „Begründung" kommen je Seite und je Spiel vor.
