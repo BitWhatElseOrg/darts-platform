@@ -66,6 +66,7 @@ const userId = randomUUID();
 const foreignUserId = randomUUID();
 const homePlayerIds = Array.from({ length: 6 }, () => randomUUID());
 const awayPlayerIds = Array.from({ length: 6 }, () => randomUUID());
+const guestPlayerId = randomUUID();
 const boardIds = [randomUUID(), randomUUID()];
 const homeTeamId = randomUUID();
 const awayTeamId = randomUUID();
@@ -342,6 +343,7 @@ beforeAll(async () => {
   await databaseService.database.insert(players).values([
     ...homePlayerIds.map((id, index) => ({ id, organizationId, displayName: `Heim ${index + 1}`, status: "ACTIVE" })),
     ...awayPlayerIds.map((id, index) => ({ id, organizationId, displayName: `Gast ${index + 1}`, status: "ACTIVE" })),
+    { id: guestPlayerId, organizationId, displayName: "Aushilfe", status: "ACTIVE" },
   ]);
   await databaseService.database.insert(boards).values(
     boardIds.map((id, index) => ({ id, organizationId, name: `League Board ${index + 1}` })),
@@ -897,6 +899,240 @@ describe("team encounter persistence", () => {
       awayLegs: 0,
     });
   }, 60_000);
+
+  /** Reglement 2.1.1: der Heim-Captain darf verdeckt melden. */
+  it("hides the opposing lineup until both sides have submitted", async () => {
+    const competitionId = await createCompetition();
+    let encounter = await scheduleEncounter(competitionId);
+    encounter = await nominate(encounter, "HOME", homePlayerIds.slice(0, 4));
+    expect(encounter.status).toBe("LINEUPS_OPEN");
+    expect(encounter.home).toMatchObject({ submitted: true, revealed: false, nominations: [] });
+    expect(encounter.away).toMatchObject({ submitted: false, revealed: false, nominations: [] });
+
+    encounter = await nominate(encounter, "AWAY", awayPlayerIds.slice(0, 4));
+    expect(encounter.status).toBe("READY");
+    expect(encounter.home.revealed).toBe(true);
+    expect(encounter.home.nominations).toHaveLength(4);
+    expect(encounter.away.nominations).toHaveLength(4);
+  }, 30_000);
+
+  it("accepts a guest but refuses a stranger claimed as squad", async () => {
+    const competitionId = await createCompetition();
+    const encounter = await scheduleEncounter(competitionId);
+    await expect(
+      encountersService.submitNominations({
+        organizationId,
+        encounterId: encounter.id,
+        data: {
+          commandId: randomUUID(),
+          expectedVersion: encounter.version,
+          side: "HOME",
+          nominations: [
+            ...homePlayerIds.slice(0, 3).map((playerId, index) => ({
+              position: index + 1,
+              playerId,
+              origin: "SQUAD" as const,
+            })),
+            { position: 4, playerId: guestPlayerId, origin: "SQUAD" as const },
+          ],
+        },
+        auth,
+        audit,
+      }),
+    ).rejects.toMatchObject({
+      response: { code: "NOMINATION_PLAYER_NOT_IN_SQUAD" },
+      status: 422,
+    });
+
+    // Dieselbe Person als Aushilfe nach Reglement 1.2.3 ist zulässig.
+    const withGuest = await encountersService.submitNominations({
+      organizationId,
+      encounterId: encounter.id,
+      data: {
+        commandId: randomUUID(),
+        expectedVersion: encounter.version,
+        side: "HOME",
+        nominations: [
+          ...homePlayerIds.slice(0, 3).map((playerId, index) => ({
+            position: index + 1,
+            playerId,
+            origin: "SQUAD" as const,
+          })),
+          { position: 4, playerId: guestPlayerId, origin: "GUEST" as const },
+        ],
+      },
+      auth,
+      audit,
+    });
+    // Sichtbar wird die Meldung erst, wenn beide Seiten gemeldet haben.
+    expect(withGuest.home).toMatchObject({ submitted: true, revealed: false });
+    const complete = await nominate(withGuest, "AWAY", awayPlayerIds.slice(0, 4));
+    expect(
+      complete.home.nominations.find((entry) => entry.playerId === guestPlayerId),
+    ).toMatchObject({ origin: "GUEST", position: 4 });
+  }, 30_000);
+
+  /**
+   * Reglement 2.2.5: eine Mannschaft darf ausnahmsweise zu dritt antreten. Die
+   * Einzel der fehlenden Position und eines der beiden Doppel gehen dann
+   * kampflos an die Gegenseite.
+   */
+  it("scores the missing position and one double against a three-person side", async () => {
+    const competitionId = await createCompetition();
+    let encounter = await scheduleEncounter(competitionId);
+    encounter = await nominate(encounter, "HOME", homePlayerIds.slice(0, 3));
+    encounter = await nominate(encounter, "AWAY", awayPlayerIds.slice(0, 4));
+    encounter = await encountersService.start({
+      organizationId,
+      encounterId: encounter.id,
+      data: { commandId: randomUUID(), expectedVersion: encounter.version },
+      auth,
+      audit,
+    });
+
+    expect(encounter.status).toBe("RUNNING");
+    const walkovers = encounter.slots.filter((slot) => slot.status === "WALKOVER");
+    // Vier Einzel der vierten Heimposition plus ein reguläres Doppel.
+    expect(walkovers).toHaveLength(5);
+    expect(walkovers.every((slot) => slot.winnerSide === "AWAY")).toBe(true);
+    expect(
+      walkovers.filter((slot) => slot.discipline === "SINGLES").map((slot) => slot.homePosition),
+    ).toEqual([4, 4, 4, 4]);
+    expect(walkovers.filter((slot) => slot.discipline === "DOUBLES")).toHaveLength(1);
+    expect(encounter.awayGames).toBe(5);
+    expect(encounter.homeGames).toBe(0);
+    expect(encounter.awayLegs).toBe(5);
+    expect(encounter.status).toBe("RUNNING");
+  }, 30_000);
+
+  it("refuses a person in both regular doubles", async () => {
+    const competitionId = await createCompetition();
+    const encounter = await openEncounter(competitionId);
+    await expect(
+      submitDoubles(encounter, "HOME", [
+        { sequence: 17, playerIds: [homePlayerIds[0]!, homePlayerIds[1]!] },
+        { sequence: 18, playerIds: [homePlayerIds[0]!, homePlayerIds[2]!] },
+      ]),
+    ).rejects.toMatchObject({
+      response: { code: "DOUBLES_PLAYER_LIMIT_EXCEEDED" },
+      status: 422,
+    });
+  }, 30_000);
+
+  it("takes back a board assignment as long as nobody has thrown", async () => {
+    const competitionId = await createCompetition();
+    let encounter = await openEncounter(competitionId);
+    const slot = encounter.slots.find((entry) => entry.sequence === 1);
+    if (slot === undefined) throw new Error("Expected the first slot.");
+    encounter = await encountersService.assignSlot({
+      organizationId,
+      encounterId: encounter.id,
+      slotId: slot.id,
+      data: { commandId: randomUUID(), expectedVersion: encounter.version, boardId: boardIds[0]! },
+      auth,
+      audit,
+    });
+    encounter = await encountersService.releaseSlot({
+      organizationId,
+      encounterId: encounter.id,
+      slotId: slot.id,
+      data: { commandId: randomUUID(), expectedVersion: encounter.version },
+      auth,
+      audit,
+    });
+    expect(encounter.slots.find((entry) => entry.sequence === 1)).toMatchObject({
+      status: "WAITING",
+      boardId: null,
+      matchId: null,
+    });
+    const board = await databaseService.database
+      .select({ status: boards.status })
+      .from(boards)
+      .where(eq(boards.id, boardIds[0]!));
+    expect(board[0]?.status).toBe("AVAILABLE");
+    const reopened = await databaseService.database
+      .select({ eventType: outboxEvents.eventType })
+      .from(outboxEvents)
+      .where(
+        and(
+          eq(outboxEvents.aggregateId, encounter.id),
+          eq(outboxEvents.eventType, "ENCOUNTER_SLOT_REOPENED"),
+        ),
+      );
+    expect(reopened).toHaveLength(1);
+
+    // Nach dem ersten Wurf ist die Rücknahme kein Weg mehr.
+    encounter = await encountersService.assignSlot({
+      organizationId,
+      encounterId: encounter.id,
+      slotId: slot.id,
+      data: { commandId: randomUUID(), expectedVersion: encounter.version, boardId: boardIds[0]! },
+      auth,
+      audit,
+    });
+    const matchId = encounter.slots.find((entry) => entry.sequence === 1)?.matchId;
+    if (matchId === null || matchId === undefined) throw new Error("Expected a scoring match.");
+    const state = await matchesService.get({ organizationId, matchId, auth });
+    const thrower = state.participants
+      .find((participant) => participant.isActive)
+      ?.players.find((player) => player.isThrowing);
+    if (thrower === undefined) throw new Error("Expected an active thrower.");
+    await matchesService.submitVisit({
+      organizationId,
+      matchId,
+      data: {
+        commandId: randomUUID(),
+        expectedVersion: state.version,
+        playerId: thrower.playerId,
+        points: 60,
+        dartsThrown: 3,
+      },
+      auth,
+      audit,
+    });
+    const current = await encountersService.get({
+      organizationId,
+      encounterId: encounter.id,
+      auth,
+    });
+    await expect(
+      encountersService.releaseSlot({
+        organizationId,
+        encounterId: encounter.id,
+        slotId: slot.id,
+        data: { commandId: randomUUID(), expectedVersion: current.version },
+        auth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ response: { code: "ENCOUNTER_SLOT_RUNNING" } });
+  }, 60_000);
+
+  it("cancels an encounter that has not started a slot", async () => {
+    const competitionId = await createCompetition();
+    const encounter = await openEncounter(competitionId);
+    const cancelled = await encountersService.cancel({
+      organizationId,
+      encounterId: encounter.id,
+      data: {
+        commandId: randomUUID(),
+        expectedVersion: encounter.version,
+        reason: "Spielabend abgesagt.",
+      },
+      auth,
+      audit,
+    });
+    expect(cancelled.status).toBe("CANCELLED");
+    expect(cancelled.slots.every((slot) => slot.status === "CANCELLED")).toBe(true);
+    await expect(
+      encountersService.start({
+        organizationId,
+        encounterId: encounter.id,
+        data: { commandId: randomUUID(), expectedVersion: cancelled.version },
+        auth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ response: { code: "ENCOUNTER_CLOSED" } });
+  }, 30_000);
 
   it("answers a foreign organization with 404 for teams, competitions and encounters", async () => {
     const competitionId = await createCompetition();

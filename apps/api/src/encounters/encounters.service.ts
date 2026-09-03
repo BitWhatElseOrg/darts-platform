@@ -475,8 +475,10 @@ function conflictFor(
         details,
       });
     case "slot-running":
+      // `SUBSTITUTION_SLOT_RUNNING` gehört der Auswechslung und kommt aus der
+      // Engine; hier geht es um Doppelmeldung, Rücknahme, Walkover und Abbruch.
       return new ConflictException({
-        code: "SUBSTITUTION_SLOT_RUNNING",
+        code: "ENCOUNTER_SLOT_RUNNING",
         message: "Der Slot läuft bereits.",
         details,
       });

@@ -378,6 +378,41 @@ Migration `0018_big_zeigeist` legt die zehn Tabellen an und erweitert
    `.../leg-by-bull`. `ROUND_LIMIT_NOT_REACHED` antwortet als einziger
    Scoring-Fehler mit 409, wie es die Fehlerfälle-Tabelle verlangt.
 
+### Nachgezogen am 2026-09-03
+
+Beim Prüfen der Definition of Done („Tests vorhanden", „Fehlerfälle
+behandelt") fielen drei Lücken auf, die zu Phase 4 gehören:
+
+9. **`releaseSlot` war unerreichbar.** Nach `assign` läuft immer ein Match,
+   und der einzige andere Weg — `match:abort` — setzt den Slot bereits selbst
+   zurück; die Bedingung „Match nicht mehr `IN_PROGRESS`" konnte nie eintreten.
+   Der Endpunkt hat jetzt die Bedeutung, die der Spielabend braucht: eine
+   Board-Zuweisung zurücknehmen, **solange niemand geworfen hat**. Das leere
+   Match wird über `abortScoringMatch` mit abgeleiteter `commandId` beendet
+   (Vorbild `TournamentsRepository.withdrawParticipant`), das Board wird frei,
+   der Slot geht auf `WAITING`. Sobald eine Visit-Zeile existiert, bleibt
+   `match:abort` der Weg.
+
+10. **`releaseSlot` sendete kein Outbox-Ereignis.** Der Abbruchpfad schickte
+    bereits `ENCOUNTER_SLOT_REOPENED`; eine Rücknahme der Board-Zuweisung
+    blieb für Phase 5 unsichtbar. Beide Wege senden es jetzt.
+
+11. **`SUBSTITUTION_SLOT_RUNNING` stand am falschen Ort.** Der Code der Spec
+    gehört der Auswechslung und kommt aus der Engine. Doppelmeldung,
+    Rücknahme, Walkover und Abbruch auf einem laufenden Slot antworten jetzt
+    mit `ENCOUNTER_SLOT_RUNNING` (409) statt einen Auswechselcode für einen
+    fremden Vorgang zu borgen.
+
+Dazu zwanzig neue Integrationstests: `teams.integration.spec.ts` (Kader mit
+`valid_to` statt Löschen, doppelte Mitgliedschaft, fremde Person, Rolle
+`SCORER` liest aber verwaltet nicht), `competitions.integration.spec.ts`
+(Vorlagenfehler mit den Codes der Spec, Versionskonflikt, gesperrte Vorlage
+nach der ersten gespielten Begegnung) und in
+`encounters.integration.spec.ts` die bislang ungetesteten Reglementspfade:
+verdeckte Meldung (2.1.1), Aushilfe `origin = 'GUEST'` (1.2.3), Antritt zu
+dritt mit vier Einzel- und einem Doppelwalkover (2.2.5), Doppelkontingent,
+Rücknahme einer Board-Zuweisung und Absage einer Begegnung.
+
 ### Für Phase 5 und 6 offen
 
 - Realtime-Verteilung der fünf Encounter-Ereignisse und die

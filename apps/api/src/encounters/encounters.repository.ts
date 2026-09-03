@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { aliasedTable, and, asc, eq, gt, inArray, isNull, lte, ne, or } from "drizzle-orm";
 
@@ -21,6 +22,7 @@ import {
   teamPlayers,
   teams,
   tournamentMatches,
+  visits,
 } from "@darts-platform/database";
 import { evaluateSlotReadiness } from "@darts-platform/scheduling-engine";
 import {
@@ -49,6 +51,7 @@ import type {
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { DatabaseService } from "../database/database.service.js";
+import { abortScoringMatch } from "../matches/abort-match.js";
 import { toResultInput, updateEncounterProgress } from "./update-encounter-progress.js";
 
 export type EncounterMutationResult =
@@ -139,6 +142,18 @@ function toSubstitutionRecord(row: SubstitutionRow): SubstitutionRecord {
     inPlayerId: row.inPlayerId,
     effectiveFromSequence: row.effectiveFromSequence,
   };
+}
+
+/**
+ * Ein abgeleitetes Kommando trägt eine aus dem Elternkommando gebildete id.
+ * Dieselbe Rücknahme erzeugt damit denselben Abbruch, auch bei Wiederholung.
+ */
+function derivedCommandId(parentCommandId: string, aggregateId: string): string {
+  const hex = createHash("sha256").update(`${parentCommandId}:${aggregateId}`).digest("hex").slice(0, 32).split("");
+  hex[12] = "5";
+  hex[16] = "8";
+  const compact = hex.join("");
+  return `${compact.slice(0, 8)}-${compact.slice(8, 12)}-${compact.slice(12, 16)}-${compact.slice(16, 20)}-${compact.slice(20)}`;
 }
 
 function walkoverLegs(slot: SlotRow): number {
@@ -771,7 +786,7 @@ export class EncountersRepository {
       if (slot.status !== "IN_PROGRESS") return "slot-not-ready";
       if (slot.matchId !== null) {
         const [scoringMatch] = await transaction
-          .select({ status: matches.status })
+          .select()
           .from(matches)
           .where(
             and(
@@ -781,10 +796,40 @@ export class EncountersRepository {
           )
           .for("update")
           .limit(1);
-        // Ein laufendes Match wird über `match:abort` beendet, nicht hier.
-        if (scoringMatch?.status === "IN_PROGRESS") return "slot-running";
+        if (scoringMatch !== undefined && scoringMatch.status === "IN_PROGRESS") {
+          const [thrown] = await transaction
+            .select({ id: visits.id })
+            .from(visits)
+            .where(
+              and(
+                eq(visits.organizationId, input.organizationId),
+                eq(visits.matchId, slot.matchId),
+              ),
+            )
+            .limit(1);
+          // Sobald geworfen wurde, ist `match:abort` der Weg, nicht die
+          // Rücknahme einer Board-Zuweisung.
+          if (thrown !== undefined) return "slot-running";
+          await abortScoringMatch(transaction, {
+            organizationId: input.organizationId,
+            match: scoringMatch,
+            commandId: derivedCommandId(input.data.commandId, slot.id),
+            tournamentMatchId: null,
+            reason: "Board-Zuweisung zurückgenommen.",
+            source: "ENCOUNTER_BOARD_RELEASE",
+          });
+        }
       }
       await this.freeBoard(transaction, input.organizationId, slot.boardId, now);
+      context.outbox = {
+        eventType: "ENCOUNTER_SLOT_REOPENED",
+        payload: {
+          encounterId: input.encounterId,
+          slotId: slot.id,
+          sequence: slot.sequence,
+          boardId: slot.boardId,
+        },
+      };
       await transaction
         .update(encounterSlots)
         .set({
