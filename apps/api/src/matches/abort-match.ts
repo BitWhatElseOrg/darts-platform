@@ -27,7 +27,7 @@ export async function abortScoringMatch(transaction: Transaction, input: {
   readonly commandId: string;
   readonly tournamentMatchId: string | null;
   readonly reason?: string;
-  readonly source: "DIRECT" | "TOURNAMENT_WITHDRAWAL";
+  readonly source: "DIRECT" | "TOURNAMENT_WITHDRAWAL" | "ENCOUNTER_BOARD_RELEASE";
 }): Promise<AbortedScoringMatch> {
   const discarded = await transaction
     .select({ id: visits.id })
