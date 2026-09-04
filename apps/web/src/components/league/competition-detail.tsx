@@ -12,7 +12,7 @@ import {
   type OrganizationSummary,
 } from "@darts-platform/schemas";
 import { hasOrganizationPermission } from "@darts-platform/domain";
-import { Control, Field, Rule, SelectInput, SheetLabel, StateTag, TextInput, Wedge } from "@darts-platform/ui";
+import { Control, Field, FieldRow, Rule, SelectInput, SheetLabel, StateTag, TextInput, Wedge } from "@darts-platform/ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -320,8 +320,10 @@ function ScheduleSection({
           </Link>
         </p>
       ) : (
-        <form
-          className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-[6rem_1fr_1fr_1fr_1fr_auto] lg:items-end"
+        <FieldRow
+          as="form"
+          className="mt-4 sm:grid-cols-2 lg:grid-cols-[6rem_1fr_1fr_1fr_1fr_auto]"
+          from="lg"
           onSubmit={handleSubmit(onSubmit)}
         >
           <Field error={formErrors.matchday ?? null} htmlFor="encounter-matchday" label="Spieltag">
@@ -366,7 +368,7 @@ function ScheduleSection({
           <Control disabled={schedule.isPending} type="submit" variant="go">
             {schedule.isPending ? "Setzt an …" : "Ansetzen"}
           </Control>
-        </form>
+        </FieldRow>
       )}
 
       {schedule.error ? (

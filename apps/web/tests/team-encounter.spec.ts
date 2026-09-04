@@ -39,6 +39,23 @@ test.afterEach(async () => {
   await Promise.all(registrationSeeds.splice(0).map((seed) => seed.cleanup()));
 });
 
+/**
+ * Zwei Eingaben derselben Formularzeile stehen auf einer Linie, auch wenn nur
+ * eine von beiden einen Hinweis oder eine Fehlermeldung unter sich trägt.
+ *
+ * Ohne `FieldRow` richtet das Raster die Kästen aus statt der Eingaben: das
+ * Feld mit der Notiz ist höher, seine Eingabe rutschte deshalb auf «Team
+ * anlegen» dauerhaft eine Zeile über den Namen.
+ */
+async function expectAlignedRow(page: Page, first: string, second: string): Promise<void> {
+  const firstBox = await page.getByLabel(first, { exact: true }).boundingBox();
+  const secondBox = await page.getByLabel(second, { exact: true }).boundingBox();
+  if (firstBox === null || secondBox === null) {
+    throw new Error(`Expected both ${first} and ${second} to be laid out.`);
+  }
+  expect(secondBox.y, `${first} und ${second} auf einer Linie`).toBeCloseTo(firstBox.y, 0);
+}
+
 function slotRow(page: Page, label: string): Locator {
   return page
     .getByRole("region", { name: "Spiele der Begegnung" })
@@ -238,6 +255,7 @@ test("a club plays a team encounter from the fixture to the result", async ({ br
 
   await page.goto(`/teams?organisation=${organizationId}`);
   await expect(page.getByRole("heading", { level: 1, name: "Teams" })).toBeVisible();
+  await expectAlignedRow(page, "Name", "Kurzname");
   await createTeam(page, { name: homeTeam, shortName: "EHE", members: HOME_PLAYERS });
   await createTeam(page, { name: awayTeam, shortName: "EGA", members: AWAY_PLAYERS });
 

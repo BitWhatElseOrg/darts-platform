@@ -13,7 +13,7 @@ import {
   type TeamResponse,
 } from "@darts-platform/schemas";
 import { hasOrganizationPermission } from "@darts-platform/domain";
-import { Control, Field, Rule, SelectInput, SheetLabel, StateTag, TextInput, Wedge } from "@darts-platform/ui";
+import { Control, Field, FieldRow, Rule, SelectInput, SheetLabel, StateTag, TextInput, Wedge } from "@darts-platform/ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -187,8 +187,9 @@ function TeamList({ organization }: { readonly organization: OrganizationSummary
             Team anlegen
           </SheetLabel>
           <Rule className="mt-2" />
-          <form
-            className="mt-4 grid gap-4 sm:grid-cols-[1fr_14rem_auto] sm:items-end"
+          <FieldRow
+            as="form"
+            className="mt-4 sm:grid-cols-[1fr_14rem_auto]"
             onSubmit={form.handleSubmit(submitTeam)}
           >
             <Field error={formErrors.name ?? null} htmlFor="team-name" label="Name">
@@ -210,7 +211,7 @@ function TeamList({ organization }: { readonly organization: OrganizationSummary
             <Control disabled={createTeam.isPending} type="submit" variant="go">
               {createTeam.isPending ? "Legt an …" : "Team anlegen"}
             </Control>
-          </form>
+          </FieldRow>
           {createTeam.error ? (
             <Wedge className="mt-4 p-4" tone="alarm">
               <SheetLabel as="h3" tone="alarm">
@@ -392,8 +393,9 @@ function TeamCard({
       )}
 
       {canManage && team.status === "ACTIVE" ? (
-        <form
-          className="mt-4 grid gap-4 sm:grid-cols-[1fr_14rem_auto] sm:items-end"
+        <FieldRow
+          as="form"
+          className="mt-4 sm:grid-cols-[1fr_14rem_auto]"
           onSubmit={(event) => {
             event.preventDefault();
             if (playerId === "") return;
@@ -434,7 +436,7 @@ function TeamCard({
           <Control disabled={busy || playerId === ""} type="submit" variant="plate">
             Aufnehmen
           </Control>
-        </form>
+        </FieldRow>
       ) : null}
 
       {error ? (
