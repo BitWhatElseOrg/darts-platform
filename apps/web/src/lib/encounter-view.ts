@@ -181,3 +181,27 @@ export function preStartHint(encounter: EncounterDetail): string {
   if (missing !== null) return `Es fehlt noch die Meldung ${missing}.`;
   return `Meldet eine Seite weniger als ${encounter.lineupPositions} Positionen, gelten deren Einzel und ein Doppel beim Start sofort als kampflos verloren.`;
 }
+
+/**
+ * `PLAYER_BUSY` trägt die betroffenen Personen mit. Ohne Namen sucht die
+ * Spielleitung den Grund am falschen Ende — die Absage nennt sie deshalb.
+ */
+export function busyPlayersMessage(details: unknown): string | null {
+  if (typeof details !== "object" || details === null) return null;
+  const busy = (details as { readonly busyPlayers?: unknown }).busyPlayers;
+  if (!Array.isArray(busy)) return null;
+  const names = busy
+    .map((entry) =>
+      typeof entry === "object" && entry !== null
+        ? (entry as { readonly displayName?: unknown }).displayName
+        : null,
+    )
+    .filter((name): name is string => typeof name === "string" && name.length > 0);
+  if (names.length === 0) return null;
+  const list =
+    names.length === 1
+      ? names[0]
+      : `${names.slice(0, -1).join(", ")} und ${names[names.length - 1]}`;
+  const verb = names.length === 1 ? "spielt" : "spielen";
+  return `${list} ${verb} bereits an einem anderen Board. Das Spiel startet, sobald die andere Partie beendet ist.`;
+}

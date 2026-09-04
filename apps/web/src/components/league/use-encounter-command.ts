@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ApiClientError, apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { generateId } from "@/lib/id";
+import { busyPlayersMessage } from "@/lib/encounter-view";
 import { connectEncounterRealtime, type RealtimeConnection } from "@/lib/realtime";
 
 export interface EncounterConflict {
@@ -113,7 +114,11 @@ export function useEncounterCommand(input: {
       } catch (thrown) {
         const versionConflict = conflictFrom(thrown, expectedVersion);
         if (versionConflict !== null) setConflict(versionConflict);
-        setError(userFacingErrorMessage(thrown, "Der Befehl wurde nicht ausgeführt."));
+        const named =
+          thrown instanceof ApiClientError && thrown.code === "PLAYER_BUSY"
+            ? busyPlayersMessage(thrown.details)
+            : null;
+        setError(named ?? userFacingErrorMessage(thrown, "Der Befehl wurde nicht ausgeführt."));
         return false;
       } finally {
         setBusy(false);

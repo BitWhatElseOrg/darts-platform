@@ -1278,6 +1278,46 @@ export class EncountersRepository {
    * zweite sieht nach dem Commit der ersten deren laufendes Match und faellt
    * mit `player-busy` durch.
    */
+  /**
+   * Wer aus diesem Spiel bereits an einer anderen Scheibe steht. Nur für die
+   * Fehlermeldung: die Prüfung selbst passiert unter Sperre in `assignSlot`.
+   */
+  public async busyPlayersOfSlot(input: {
+    readonly organizationId: string;
+    readonly encounterId: string;
+    readonly slotId: string;
+  }): Promise<{ readonly playerId: string; readonly displayName: string }[]> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [slot] = await transaction
+        .select()
+        .from(encounterSlots)
+        .where(
+          and(
+            eq(encounterSlots.organizationId, input.organizationId),
+            eq(encounterSlots.encounterId, input.encounterId),
+            eq(encounterSlots.id, input.slotId),
+          ),
+        )
+        .limit(1);
+      if (slot === undefined) return [];
+      const occupancy = await this.resolveOccupancy(
+        transaction,
+        input.organizationId,
+        input.encounterId,
+        slot,
+      );
+      const involved = [...occupancy.home.playerIds, ...occupancy.away.playerIds];
+      if (involved.length === 0) return [];
+      const active = await this.loadActivePlayerIds(transaction, input.organizationId);
+      const busy = involved.filter((playerId) => active.has(playerId));
+      if (busy.length === 0) return [];
+      return transaction
+        .select({ playerId: players.id, displayName: players.displayName })
+        .from(players)
+        .where(and(eq(players.organizationId, input.organizationId), inArray(players.id, busy)));
+    });
+  }
+
   private async lockPlayers(
     transaction: DatabaseTransaction,
     organizationId: string,

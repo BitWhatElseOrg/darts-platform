@@ -3,6 +3,7 @@ import type { EncounterDetail, EncounterSlotView } from "@darts-platform/schemas
 
 import {
   deciderNotice,
+  busyPlayersMessage,
   encounterTally,
   preStartHint,
   openDoublesSlots,
@@ -345,5 +346,29 @@ describe("preStartHint", () => {
     expect(hint).toBe(
       "Die Begegnung läuft. Weise Spiele einem Board zu, sobald beide Seiten besetzt sind.",
     );
+  });
+});
+
+describe("busyPlayersMessage", () => {
+  it("names the one person who is already at a board", () => {
+    expect(busyPlayersMessage({ busyPlayers: [{ displayName: "Alina Frei" }] })).toBe(
+      "Alina Frei spielt bereits an einem anderen Board. Das Spiel startet, sobald die andere Partie beendet ist.",
+    );
+  });
+
+  it("names several people", () => {
+    expect(
+      busyPlayersMessage({
+        busyPlayers: [{ displayName: "Alina Frei" }, { displayName: "Basil Kern" }],
+      }),
+    ).toBe(
+      "Alina Frei und Basil Kern spielen bereits an einem anderen Board. Das Spiel startet, sobald die andere Partie beendet ist.",
+    );
+  });
+
+  it("gives up quietly when the server sent no names", () => {
+    expect(busyPlayersMessage({ busyPlayers: [] })).toBe(null);
+    expect(busyPlayersMessage(undefined)).toBe(null);
+    expect(busyPlayersMessage({ busyPlayers: "kaputt" })).toBe(null);
   });
 });

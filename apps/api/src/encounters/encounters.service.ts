@@ -408,7 +408,17 @@ export class EncountersService {
     }
     const current = await this.get(input);
     if (result === "ok") return current;
-    throw conflictFor(result, current);
+    const details: Record<string, unknown> & { currentState: EncounterDetail } = {
+      currentState: current,
+    };
+    if (result === "player-busy" && input.slotId !== undefined) {
+      details.busyPlayers = await this.repository.busyPlayersOfSlot({
+        organizationId: input.organizationId,
+        encounterId: input.encounterId,
+        slotId: input.slotId,
+      });
+    }
+    throw conflictFor(result, details);
   }
 
   private async load(input: {
@@ -440,16 +450,17 @@ interface EncounterCommandInput<T> {
   readonly data: T;
   readonly auth: AuthContext;
   readonly audit: AuditContext;
+  /** Nur Slot-Befehle tragen ihn; er reichert die Konfliktantwort an. */
+  readonly slotId?: string;
 }
 
 function conflictFor(
   result: Exclude<EncounterMutationResult, "ok" | "not-found" | "slot-not-found">,
-  currentState: EncounterDetail,
+  details: Readonly<Record<string, unknown>> & { readonly currentState: EncounterDetail },
 ): ConflictException | UnprocessableEntityException {
-  const details = { currentState };
   switch (result) {
     case "version-conflict":
-      return new EncounterVersionConflictException(currentState);
+      return new EncounterVersionConflictException(details.currentState);
     case "command-id-reused":
       return new ConflictException({
         code: "COMMAND_ID_ALREADY_USED",
@@ -498,7 +509,7 @@ function conflictFor(
     case "player-busy":
       return new ConflictException({
         code: "PLAYER_BUSY",
-        message: "Mindestens eine Person spielt bereits.",
+        message: "Mindestens eine Person spielt bereits an einem anderen Board.",
         details,
       });
   }
