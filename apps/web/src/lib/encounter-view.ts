@@ -160,3 +160,24 @@ export function deciderNotice(encounter: EncounterDetail): string | null {
       return null;
   }
 }
+
+/**
+ * Der Satz über der Schaltfläche „Begegnung starten". Er nennt die fehlende
+ * Meldung oder die Ausnahmemeldung dieses Wettbewerbs — die Zahl stand früher
+ * fest im Text und widersprach jeder anderen Aufstellungsgrösse.
+ */
+export function preStartHint(encounter: EncounterDetail): string {
+  if (encounter.status === "RUNNING") {
+    return "Die Begegnung läuft. Weise Spiele einem Board zu, sobald beide Seiten besetzt sind.";
+  }
+  const missing =
+    !encounter.home.submitted && !encounter.away.submitted
+      ? "beider Mannschaften"
+      : !encounter.home.submitted
+        ? "der Heimmannschaft"
+        : !encounter.away.submitted
+          ? "der Gastmannschaft"
+          : null;
+  if (missing !== null) return `Es fehlt noch die Meldung ${missing}.`;
+  return `Meldet eine Seite weniger als ${encounter.lineupPositions} Positionen, gelten deren Einzel und ein Doppel beim Start sofort als kampflos verloren.`;
+}

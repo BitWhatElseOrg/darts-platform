@@ -6,7 +6,7 @@ import { Control, Field, MarkCross, Rule, SelectInput, SheetLabel, TextInput, We
 import { useCallback, useState } from "react";
 
 import { apiRequest } from "@/lib/api-client";
-import { deciderNotice } from "@/lib/encounter-view";
+import { deciderNotice, preStartHint } from "@/lib/encounter-view";
 import { sideLabel } from "@/lib/league-format";
 import { NavLink, PageNav } from "@/components/page-nav";
 import { DoublesPanel } from "./doubles-panel";
@@ -111,14 +111,6 @@ export function EncounterCommandCentre({
   }
 
   const notice = deciderNotice(encounter);
-  const missingSide =
-    !encounter.home.submitted && !encounter.away.submitted
-      ? "beider Mannschaften"
-      : !encounter.home.submitted
-        ? "der Heimmannschaft"
-        : !encounter.away.submitted
-          ? "der Gastmannschaft"
-          : null;
 
   return (
     <div className="sektorenring min-h-screen">
@@ -178,11 +170,7 @@ export function EncounterCommandCentre({
               Begegnung starten
             </Control>
             <p className="min-w-0 flex-1 basis-full font-plate text-body text-wedge-900 prose-de sm:basis-0">
-              {encounter.status === "RUNNING"
-                ? "Die Begegnung läuft. Weise Spiele einem Board zu, sobald beide Seiten besetzt sind."
-                : missingSide !== null
-                  ? `Es fehlt noch die Meldung ${missingSide}.`
-                  : "Meldet eine Seite nur drei Positionen, gelten deren Einzel und ein Doppel beim Start sofort als kampflos verloren."}
+              {preStartHint(encounter)}
             </p>
           </Wedge>
         ) : null}

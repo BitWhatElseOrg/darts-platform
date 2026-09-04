@@ -4,6 +4,7 @@ import type { EncounterDetail, EncounterSlotView } from "@darts-platform/schemas
 import {
   deciderNotice,
   encounterTally,
+  preStartHint,
   openDoublesSlots,
   slotAvailability,
   substitutionContext,
@@ -298,5 +299,51 @@ describe("encounterTally und deciderNotice", () => {
         encounter({ decider: { status: "NOT_REQUIRED", required: false, slotSequence: 19 } }),
       ),
     ).toBe("Das Entscheidungsdoppel wird nicht gebraucht.");
+  });
+});
+
+describe("preStartHint", () => {
+  it("names the side whose nomination is missing", () => {
+    const hint = preStartHint(
+      encounter({
+        status: "LINEUPS_OPEN",
+        home: { ...encounter().home, submitted: true },
+        away: { ...encounter().away, submitted: false },
+      }),
+    );
+
+    expect(hint).toBe("Es fehlt noch die Meldung der Gastmannschaft.");
+  });
+
+  it("explains the shorthanded rule with the numbers of this competition", () => {
+    // Der Hinweis stand fest auf drei Positionen und log bei jeder anderen
+    // Aufstellungsgrösse.
+    const hint = preStartHint(
+      encounter({
+        status: "READY",
+        lineupPositions: 2,
+        minNominationsShorthanded: 2,
+        home: { ...encounter().home, submitted: true },
+        away: { ...encounter().away, submitted: true },
+      }),
+    );
+
+    expect(hint).toBe(
+      "Meldet eine Seite weniger als 2 Positionen, gelten deren Einzel und ein Doppel beim Start sofort als kampflos verloren.",
+    );
+  });
+
+  it("says that the encounter runs once it has started", () => {
+    const hint = preStartHint(
+      encounter({
+        status: "RUNNING",
+        home: { ...encounter().home, submitted: true },
+        away: { ...encounter().away, submitted: true },
+      }),
+    );
+
+    expect(hint).toBe(
+      "Die Begegnung läuft. Weise Spiele einem Board zu, sobald beide Seiten besetzt sind.",
+    );
   });
 });
