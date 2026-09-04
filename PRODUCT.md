@@ -91,7 +91,7 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 
 **Ausdrücklich offen**
 
-- Plan- und Preismodell: `FREE / CLUB / PRO / ENTERPRISE` steht in der Roadmap als Möglichkeit, nicht als Entscheidung. Keine Preise, keine Limits festgelegt.
+- Plan- und Preismodell: `FREE / TEAM / CLUB / LIGA` steht in der Roadmap als Möglichkeit, nicht als Entscheidung. Keine Preise, keine Limits festgelegt.
 - Kundeneigene Organisationsdomains sowie organisationsspezifisches Branding
   und organisationsspezifische Sponsor-Assets sind Phase-7-Scope ohne
   Detailentscheidung. Die bestehenden DartBase-Sponsoren sind davon unabhängig.

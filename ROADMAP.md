@@ -354,9 +354,9 @@ Mehrere Vereine / Veranstalter professionell betreiben.
 
 ```text
 FREE
+TEAM
 CLUB
-PRO
-ENTERPRISE
+LIGA
 ```
 
 ---
