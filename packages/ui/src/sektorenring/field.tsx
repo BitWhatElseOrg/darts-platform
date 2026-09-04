@@ -5,7 +5,7 @@ import { MarkChevron, MarkCross } from "./marks";
 import { SheetLabel } from "./typography";
 
 const inputBase = [
-  "min-h-11 w-full rounded-lg border bg-sisal-50 px-3 font-plate text-[0.9375rem] text-wedge-900",
+  "min-h-11 w-full rounded-lg border bg-sisal-50 px-3 font-plate text-field text-wedge-900",
   "placeholder:text-sisal-500",
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green",
   "disabled:cursor-not-allowed disabled:bg-sisal-100 disabled:text-sisal-500",
@@ -35,14 +35,14 @@ export function Field({ children, className, error, hint, htmlFor, label }: Fiel
       {children}
       {error ? (
         <p
-          className="flex items-start gap-1.5 font-plate text-[0.75rem] text-ring-red-deep"
+          className="flex items-start gap-1.5 font-plate text-caption text-ring-red-deep prose-de"
           id={`${htmlFor}-error`}
         >
           <MarkCross className="mt-px shrink-0" size={12} />
           {error}
         </p>
       ) : hint ? (
-        <p className="font-plate text-[0.75rem] text-sisal-500" id={`${htmlFor}-hint`}>
+        <p className="font-plate text-caption text-sisal-500 prose-de" id={`${htmlFor}-hint`}>
           {hint}
         </p>
       ) : null}

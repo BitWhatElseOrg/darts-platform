@@ -51,7 +51,7 @@ export function SubstitutionPanel({
       </SheetLabel>
       <Rule className="mt-2" />
 
-      <p className="mt-3 font-plate text-[0.875rem] text-wedge-900">
+      <p className="mt-3 font-plate text-body text-wedge-900">
         {context.used} von {encounter.maxSubstitutionsPerEncounter} Auswechslungen verbraucht.
       </p>
 
@@ -60,7 +60,7 @@ export function SubstitutionPanel({
           {[...lineup.substitutions]
             .sort((first, second) => first.effectiveFromSequence - second.effectiveFromSequence)
             .map((substitution) => (
-              <li className="font-plate text-[0.875rem] text-sisal-500" key={substitution.id}>
+              <li className="font-plate text-body text-sisal-500" key={substitution.id}>
                 {substitution.outDisplayName} → {substitution.inDisplayName}, Position{" "}
                 {substitution.position}, ab Spiel {substitution.effectiveFromSequence}
                 {substitution.reason === null ? "" : ` · ${substitution.reason}`}
@@ -70,15 +70,15 @@ export function SubstitutionPanel({
       ) : null}
 
       {!canEdit ? null : encounter.status !== "RUNNING" ? (
-        <p className="mt-3 font-plate text-[0.875rem] text-sisal-500">
+        <p className="mt-3 font-plate text-body text-sisal-500">
           Ausgewechselt wird erst, wenn die Begegnung läuft.
         </p>
       ) : context.remaining === 0 ? (
-        <p className="mt-3 font-plate text-[0.875rem] text-sisal-500">
+        <p className="mt-3 font-plate text-body text-sisal-500">
           Das Kontingent dieser Begegnung ist erschöpft.
         </p>
       ) : context.available.length === 0 ? (
-        <p className="mt-3 font-plate text-[0.875rem] text-sisal-500">
+        <p className="mt-3 font-plate text-body text-sisal-500">
           Für diese Seite ist keine weitere Person gemeldet. Nur gemeldete Personen dürfen
           eingewechselt werden.
         </p>
@@ -172,12 +172,12 @@ export function SubstitutionPanel({
           </Control>
 
           {formError === null ? null : (
-            <p className="mt-2 font-plate text-[0.875rem] text-ring-red-deep" role="alert">
+            <p className="mt-2 font-plate text-body text-ring-red-deep" role="alert">
               {formError}
             </p>
           )}
 
-          <p className="mt-2 font-plate text-[0.75rem] text-sisal-500">
+          <p className="mt-2 font-plate text-caption text-sisal-500">
             Eine ausgewechselte Person bestreitet an diesem Abend kein weiteres Einzel, bleibt für
             die Doppel aber spielberechtigt (Reglement 2.2.4).
           </p>

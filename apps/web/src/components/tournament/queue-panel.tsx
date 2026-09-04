@@ -1,6 +1,6 @@
 "use client";
 
-import { Control, MarkFlight, Rule, SheetLabel, StateTag } from "@darts-platform/ui";
+import { Control, MarkFlight, Name, Rule, SheetLabel, StateTag } from "@darts-platform/ui";
 import type { QueueEntry } from "@darts-platform/schemas";
 
 import { readinessLabel } from "@/lib/tournament-format";
@@ -19,13 +19,13 @@ export function QueuePanel({ onAssign, openBoardName, queue }: QueuePanelProps) 
         <SheetLabel as="h2" id="queue-heading">
           Warteschlange
         </SheetLabel>
-        <span className="font-numerals text-[1rem] font-bold tabular text-sisal-500">
+        <span className="shrink-0 font-numerals text-counter font-bold tabular text-sisal-500">
           {queue.length}
         </span>
       </div>
       <Rule />
       {queue.length === 0 ? (
-        <p className="py-4 font-plate text-[0.875rem] text-sisal-500">
+        <p className="py-4 font-plate text-body text-sisal-500">
           Kein Match wartet. Alles Spielbare ist auf einem Board.
         </p>
       ) : (
@@ -34,25 +34,25 @@ export function QueuePanel({ onAssign, openBoardName, queue }: QueuePanelProps) 
             const ready = entry.readiness === "READY";
             return (
               <li className="border-b border-sisal-300 py-2.5" key={entry.matchId}>
-                <div className="flex items-baseline gap-2.5">
-                  <span className="w-4 shrink-0 font-numerals text-[1rem] font-bold tabular text-sisal-500">
+                <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+                  <span className="w-4 shrink-0 font-numerals text-counter font-bold tabular text-sisal-500">
                     {entry.position}
                   </span>
-                  <span className="flex-1 font-plate text-[0.75rem] font-semibold uppercase tracking-[0.12em] text-sisal-500">
+                  <SheetLabel as="span" className="min-w-0 flex-1 basis-24 truncate" title={entry.stageLabel}>
                     {entry.stageLabel}
-                  </span>
+                  </SheetLabel>
                   <StateTag
                     label={readinessLabel(entry.readiness)}
                     tone={ready ? "free" : entry.readiness === "BLOCKED_NO_BOARD" ? "waiting" : "blocked"}
                   />
                 </div>
-                <p className="mt-0.5 pl-6.5 font-plate text-[0.875rem] font-semibold text-wedge-900">
-                  {entry.participants[0].displayName}
-                  <span className="px-1.5 font-normal text-sisal-500">–</span>
-                  {entry.participants[1].displayName}
+                <p className="mt-0.5 pl-6.5">
+                  <Name>{entry.participants[0].displayName}</Name>
+                  <span className="px-1.5 font-plate text-body text-sisal-500">–</span>
+                  <Name>{entry.participants[1].displayName}</Name>
                 </p>
                 {entry.blockedReason ? (
-                  <p className="mt-0.5 pl-6.5 font-plate text-[0.75rem] text-sisal-500">
+                  <p className="mt-0.5 pl-6.5 font-plate text-caption text-sisal-500 prose-de">
                     {entry.blockedReason}
                   </p>
                 ) : null}

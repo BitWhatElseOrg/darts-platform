@@ -31,8 +31,8 @@ type OrganizationFormData = z.infer<typeof organizationFormSchema>;
 
 const acceptedSchema = z.object({ accepted: z.literal(true) });
 const inputClassName =
-  "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
-const labelClassName = "block text-sm font-medium text-slate-300";
+  "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
+const labelClassName = "block text-body font-medium text-slate-300";
 
 function messageFrom(error: unknown): string {
   return userFacingErrorMessage(error);
@@ -104,8 +104,8 @@ export function TenantDashboard({
     <div className="w-full space-y-6">
       <section className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-semibold text-white">{userName}</p>
-          <p className="text-sm text-slate-400">{userEmail}</p>
+          <p className="text-body font-semibold text-white">{userName}</p>
+          <p className="text-body text-slate-400">{userEmail}</p>
         </div>
         <div className="flex flex-wrap gap-3">
           {tournamentOrganization !== undefined ? (
@@ -131,7 +131,7 @@ export function TenantDashboard({
                 className="grid gap-3 rounded-xl bg-slate-950/40 p-4 sm:grid-cols-[1fr_minmax(16rem,1fr)_auto] sm:items-end"
                 key={invitation.id}
               >
-                <p className="text-sm text-slate-200">
+                <p className="text-body text-slate-200">
                   {invitation.organizationName ?? "Organisation"} · {roleLabel(invitation.role)}
                 </p>
                 <div className="space-y-2">
@@ -169,7 +169,7 @@ export function TenantDashboard({
             ))}
           </div>
           {acceptInvitation.isError ? (
-            <p role="alert" className="mt-3 text-sm text-rose-200">
+            <p role="alert" className="mt-3 text-body text-rose-200">
               Einladungscode ungültig oder Einladung nicht mehr verfügbar.
             </p>
           ) : null}
@@ -227,12 +227,12 @@ function OrganizationsPanel({
 
   return (
     <section className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
-      <h2 className="text-lg font-semibold text-white">Organisationen</h2>
+      <h2 className="font-numerals text-title-sm font-bold text-white">Organisationen</h2>
       <div className="mt-4 space-y-2">
         {organizations.map((organization) => (
           <button
             className={cn(
-              "min-h-12 w-full rounded-xl border px-4 text-left text-sm transition",
+              "min-h-12 w-full rounded-xl border px-4 text-left text-body transition",
               organization.id === activeOrganizationId
                 ? "border-emerald-400 bg-emerald-400/10 text-white"
                 : "border-slate-800 text-slate-300 hover:border-slate-600",
@@ -242,13 +242,13 @@ function OrganizationsPanel({
             type="button"
           >
             <span className="block font-semibold">{organization.name}</span>
-            <span className="text-xs text-slate-400">{roleLabel(organization.role)}</span>
+            <span className="text-caption text-slate-400">{roleLabel(organization.role)}</span>
           </button>
         ))}
       </div>
 
       <form className="mt-6 space-y-3 border-t border-slate-800 pt-5" onSubmit={(event) => void submit(event)}>
-        <h3 className="text-sm font-semibold text-slate-200">Organisation erstellen</h3>
+        <h3 className="text-body font-semibold text-slate-200">Organisation erstellen</h3>
         <div className="space-y-2">
           <label className={labelClassName} htmlFor="organization-name">Organisationsname</label>
           <input id="organization-name" className={inputClassName} placeholder="Vereinsname" {...form.register("name")} />
@@ -258,7 +258,7 @@ function OrganizationsPanel({
           <input id="organization-slug" className={inputClassName} placeholder="club-slug" {...form.register("slug")} />
         </div>
         {createOrganization.isError ? (
-          <p role="alert" className="text-sm text-rose-300">
+          <p role="alert" className="text-body text-rose-300">
             {messageFrom(createOrganization.error)}
           </p>
         ) : null}
@@ -286,8 +286,8 @@ function OrganizationOverview({
   return (
     <section className="space-y-6 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6">
       <div className="border-b border-slate-800 pb-5">
-        <h2 className="text-2xl font-semibold text-white">{organization.name}</h2>
-        <p className="mt-1 text-sm text-slate-400">{organization.slug} · {roleLabel(organization.role)}</p>
+        <h2 className="font-numerals text-title font-bold text-white">{organization.name}</h2>
+        <p className="mt-1 text-body text-slate-400">{organization.slug} · {roleLabel(organization.role)}</p>
       </div>
 
       <nav className="grid gap-3 sm:grid-cols-2">
@@ -315,18 +315,18 @@ function OrganizationOverview({
 
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-slate-200">Laufende Matches</h3>
+          <h3 className="text-body font-semibold text-slate-200">Laufende Matches</h3>
           <Link
-            className="text-xs font-semibold text-emerald-300 transition hover:text-emerald-200"
+            className="text-caption font-semibold text-emerald-300 transition hover:text-emerald-200"
             href={`/matches${organisationParam}`}
           >
             Alle Matches
           </Link>
         </div>
         {matchesQuery.isPending ? (
-          <p className="text-sm text-slate-400">Matches werden geladen …</p>
+          <p className="text-body text-slate-400">Matches werden geladen …</p>
         ) : matchesQuery.isError ? (
-          <p className="text-sm text-rose-300" role="alert">{messageFrom(matchesQuery.error)}</p>
+          <p className="text-body text-rose-300" role="alert">{messageFrom(matchesQuery.error)}</p>
         ) : (
           <MatchList limit={5} matches={matchesQuery.data ?? []} organizationId={organization.id} variant="compact" />
         )}
@@ -349,8 +349,8 @@ function OverviewLink({
       className="flex min-h-16 flex-col justify-center gap-0.5 rounded-xl border border-slate-800 bg-slate-950/50 px-4 py-3 transition hover:border-emerald-400/60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
       href={href}
     >
-      <span className="text-sm font-semibold text-white">{title}</span>
-      <span className="text-xs text-slate-400">{description}</span>
+      <span className="text-body font-semibold text-white">{title}</span>
+      <span className="text-caption text-slate-400">{description}</span>
     </Link>
   );
 }

@@ -22,10 +22,10 @@ const statusLabels = {
 function StatusRow({ label, status }: StatusRowProps) {
   return (
     <div className="flex min-h-14 items-center justify-between gap-6 border-b border-slate-800 py-3 last:border-0">
-      <dt className="text-sm font-medium text-slate-300">{label}</dt>
+      <dt className="text-body font-medium text-slate-300">{label}</dt>
       <dd
         className={cn(
-          "inline-flex items-center gap-2 text-sm font-semibold",
+          "inline-flex items-center gap-2 text-body font-semibold",
           status === "ok" && "text-emerald-300",
           status === "error" && "text-rose-300",
           status === "pending" && "text-amber-200",
@@ -76,10 +76,7 @@ export function HealthDashboard() {
     >
       <div className="mb-5 flex flex-col gap-4 border-b border-slate-800 pb-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="mb-1 text-xs font-semibold tracking-[0.2em] text-emerald-300 uppercase">
-            Systemstatus
-          </p>
-          <h2 id="services-title" className="text-xl font-semibold text-white">
+          <h2 id="services-title" className="font-numerals text-title font-bold text-white">
             DartBase-Dienste
           </h2>
         </div>
@@ -101,7 +98,7 @@ export function HealthDashboard() {
       </dl>
 
       {healthQuery.isError ? (
-        <p className="mt-5 rounded-lg border border-rose-400/30 bg-rose-400/10 p-3 text-sm text-rose-200">
+        <p className="mt-5 rounded-lg border border-rose-400/30 bg-rose-400/10 p-3 text-body text-rose-200">
           Der Systemstatus ist aktuell nicht erreichbar. Versuche es in Kürze erneut.
         </p>
       ) : null}

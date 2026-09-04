@@ -53,7 +53,7 @@ export function DoublesPanel({
           Doppel {sideLabel(side)}
         </SheetLabel>
         <Rule className="mt-2" />
-        <p className="mt-3 font-plate text-[0.875rem] text-wedge-900">
+        <p className="mt-3 font-plate text-body text-wedge-900">
           Die Paarungen werden sichtbar, sobald beide Seiten gemeldet haben.
         </p>
       </Wedge>
@@ -68,7 +68,7 @@ export function DoublesPanel({
       <Rule className="mt-2" />
 
       {doublesSlots.length === 0 ? (
-        <p className="mt-3 font-plate text-[0.875rem] text-sisal-500">
+        <p className="mt-3 font-plate text-body text-sisal-500">
           Dieser Wettbewerb kennt keine Doppel.
         </p>
       ) : (
@@ -76,7 +76,7 @@ export function DoublesPanel({
           {doublesSlots.map((slot) => {
             const occupancy = side === "HOME" ? slot.home : slot.away;
             return (
-              <li className="font-plate text-[0.875rem] text-wedge-900" key={slot.id}>
+              <li className="font-plate text-body text-wedge-900" key={slot.id}>
                 {slot.label}:{" "}
                 {occupancy.complete
                   ? occupancy.players.map((player) => player.displayName).join(" und ")
@@ -122,10 +122,10 @@ export function DoublesPanel({
             });
             return (
               <fieldset className="mb-4" key={slot.id}>
-                <legend className="font-plate text-[0.875rem] font-semibold text-wedge-900">
+                <legend className="font-plate text-body font-semibold text-wedge-900">
                   {slot.label}
                 </legend>
-                <p className="mt-1 font-plate text-[0.75rem] text-sisal-500">
+                <p className="mt-1 font-plate text-caption text-sisal-500">
                   {isDecider
                     ? "Im Entscheidungsdoppel darf jede gemeldete Person erneut antreten (Reglement 2.2.1)."
                     : `Jede Person spielt höchstens ${encounter.maxDoublesPerPlayer} reguläres Doppel.`}
@@ -174,13 +174,13 @@ export function DoublesPanel({
           </Control>
 
           {formError === null ? null : (
-            <p className="mt-2 font-plate text-[0.875rem] text-ring-red-deep" role="alert">
+            <p className="mt-2 font-plate text-body text-ring-red-deep" role="alert">
               {formError}
             </p>
           )}
         </form>
       ) : canEdit && doublesSlots.length > 0 ? (
-        <p className="mt-3 font-plate text-[0.875rem] text-sisal-500">
+        <p className="mt-3 font-plate text-body text-sisal-500">
           Für diese Seite ist nichts offen.
         </p>
       ) : null}

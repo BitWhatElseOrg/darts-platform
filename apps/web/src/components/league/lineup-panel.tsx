@@ -86,12 +86,12 @@ export function LineupPanel({
       <Rule className="mt-2" />
 
       {lineup.submitted && !lineup.revealed ? (
-        <p className="mt-3 font-plate text-[0.875rem] text-wedge-900">
+        <p className="mt-3 font-plate text-body text-wedge-900">
           Gemeldet. Die Aufstellung wird sichtbar, sobald beide Seiten gemeldet haben
           (Reglement 2.1.1).
         </p>
       ) : lineup.nominations.length === 0 ? (
-        <p className="mt-3 font-plate text-[0.875rem] text-sisal-500">
+        <p className="mt-3 font-plate text-body text-sisal-500">
           Noch keine Meldung erfasst.
         </p>
       ) : (
@@ -139,14 +139,14 @@ function Roster({
               className="flex items-baseline gap-3 border-b border-sisal-300 py-1.5"
               key={position}
             >
-              <span className="w-6 font-numerals text-[1rem] font-bold tabular text-sisal-500">
+              <span className="w-6 font-numerals text-counter font-bold tabular text-sisal-500">
                 {position}
               </span>
-              <span className="min-w-0 flex-1 font-plate text-[0.9375rem] text-wedge-900">
+              <span className="min-w-0 flex-1 font-plate text-field text-wedge-900">
                 {entry?.displayName ?? "nicht besetzt"}
               </span>
               {entry?.origin === "GUEST" ? (
-                <span className="font-plate text-[0.625rem] tracking-[0.14em] text-sisal-500 uppercase">
+                <span className="font-plate text-label tracking-[0.14em] text-sisal-500 uppercase">
                   {originLabel("GUEST")}
                 </span>
               ) : null}
@@ -155,7 +155,7 @@ function Roster({
         })}
       </ol>
       {spares.length === 0 ? null : (
-        <p className="mt-2 font-plate text-[0.875rem] text-sisal-500">
+        <p className="mt-2 font-plate text-body text-sisal-500">
           Ersatz:{" "}
           {spares
             .map((entry) =>
@@ -309,18 +309,18 @@ function NominationForm({
       </div>
 
       {formError === null ? null : (
-        <p className="mt-2 font-plate text-[0.875rem] text-ring-red-deep" role="alert">
+        <p className="mt-2 font-plate text-body text-ring-red-deep" role="alert">
           {formError}
         </p>
       )}
       {formError === null && shorthanded ? (
-        <p className="mt-2 font-plate text-[0.875rem] text-sisal-500">
+        <p className="mt-2 font-plate text-body text-sisal-500">
           Mit {covered} Personen gelten die Einzel der fehlenden Position und ein Doppel als
           kampflos verloren (Reglement 2.2.5).
         </p>
       ) : null}
       {formError === null && duplicate ? (
-        <p className="mt-2 font-plate text-[0.875rem] text-ring-red-deep" role="alert">
+        <p className="mt-2 font-plate text-body text-ring-red-deep" role="alert">
           Eine Person ist mehrfach gewählt.
         </p>
       ) : null}

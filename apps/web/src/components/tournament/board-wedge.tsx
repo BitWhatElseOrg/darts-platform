@@ -4,6 +4,7 @@ import {
   BoardPlate,
   Control,
   MarkFlight,
+  Name,
   Rule,
   Score,
   SheetLabel,
@@ -56,17 +57,18 @@ export function BoardWedge({
           <h3
             className={
               slot.state === "FREE"
-                ? "truncate font-plate text-[0.9375rem] font-semibold text-wedge-900"
-                : "truncate font-plate text-[0.9375rem] font-semibold text-chalk"
+                ? "truncate font-plate text-field font-semibold text-wedge-900"
+                : "truncate font-plate text-field font-semibold text-chalk"
             }
+            title={slot.boardName}
           >
             {slot.boardName}
           </h3>
           <p
             className={
               slot.state === "FREE"
-                ? "truncate font-plate text-[0.75rem] text-sisal-500"
-                : "truncate font-plate text-[0.75rem] text-spider/80"
+                ? "truncate font-plate text-caption text-sisal-500"
+                : "truncate font-plate text-caption text-spider/80"
             }
           >
             {slot.match
@@ -94,8 +96,8 @@ export function BoardWedge({
             <span
               className={
                 slot.match.overrunning
-                  ? "font-numerals text-[1rem] font-bold tabular text-ring-red-lit"
-                  : "font-numerals text-[1rem] font-bold tabular text-spider/75"
+                  ? "font-numerals text-counter font-bold tabular text-ring-red-lit"
+                  : "font-numerals text-counter font-bold tabular text-spider/75"
               }
             >
               {runtimeLabel(minutesBetween(slot.match.startedAt, now))}
@@ -118,26 +120,20 @@ export function BoardWedge({
                   {participant.isActive ? (
                     <MarkFlight className="shrink-0 text-chalk" size={12} />
                   ) : null}
-                  <span
-                    className={
-                      participant.isActive
-                        ? "truncate font-plate text-[0.9375rem] font-semibold text-chalk"
-                        : "truncate font-plate text-[0.875rem] text-spider/85"
-                    }
-                  >
+                  <Name className="truncate" title={participant.displayName} tone={participant.isActive ? "chalk" : "dim"}>
                     {participant.displayName}
-                  </span>
+                  </Name>
                 </p>
                 {participant.onFinish && participant.checkoutRoute ? (
                   <p className="mt-1 flex items-center gap-1.5">
                     <StateTag label="Finish" on="ink" tone="finish" />
-                    <span className="font-numerals text-[1rem] font-bold tabular text-ring-green-lit">
+                    <span className="font-numerals text-counter font-bold tabular text-ring-green-lit">
                       {participant.checkoutRoute}
                     </span>
                   </p>
                 ) : null}
               </div>
-              <span className="font-numerals text-[1rem] font-bold tabular text-spider/60">
+              <span className="font-numerals text-counter font-bold tabular text-spider/60">
                 {participant.legsWon}
               </span>
               <Score
@@ -151,7 +147,7 @@ export function BoardWedge({
         </div>
       ) : slot.state === "BLOCKED" ? (
         <div className="flex flex-col gap-3 px-4 py-4">
-          <p className="font-plate text-[0.875rem] text-sisal-300">
+          <p className="font-plate text-body text-sisal-300">
             {slot.blockedReason ?? "Grund nicht erfasst."}
           </p>
           <Control className="self-start" density="tight" onClick={onRelease} variant="wireInk">
@@ -162,12 +158,12 @@ export function BoardWedge({
         <div className="flex flex-col gap-3 px-4 py-4">
           <div>
             <SheetLabel>Nächstes Match</SheetLabel>
-            <p className="mt-1 font-plate text-[0.9375rem] font-semibold text-wedge-900">
+            <p className="mt-1 font-plate text-field font-semibold text-wedge-900">
               {nextUp.participants[0].displayName}
               <span className="px-1.5 text-sisal-500">–</span>
               {nextUp.participants[1].displayName}
             </p>
-            <p className="font-plate text-[0.75rem] text-sisal-500">{nextUp.stageLabel}</p>
+            <p className="font-plate text-caption text-sisal-500">{nextUp.stageLabel}</p>
           </div>
           <Control
             className="self-start"
@@ -181,10 +177,10 @@ export function BoardWedge({
         </div>
       ) : (
         <div className="flex flex-col gap-2 px-4 py-4">
-          <p className="font-plate text-[0.875rem] text-sisal-500">
+          <p className="font-plate text-body text-sisal-500">
             Kein Match ist startbereit.
           </p>
-          <p className="font-plate text-[0.75rem] text-sisal-500">
+          <p className="font-plate text-caption text-sisal-500">
             Die Warteschlange wartet auf Ergebnisse oder eine offene Phase.
           </p>
         </div>

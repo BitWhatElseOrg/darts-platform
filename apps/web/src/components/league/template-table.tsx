@@ -26,7 +26,7 @@ export function TemplateTable({ slots }: { readonly slots: readonly TemplateRow[
 
   return (
     <div>
-      <p className="font-plate text-[0.875rem] text-sisal-500">
+      <p className="font-plate text-body text-sisal-500">
         {slots.length} Spiele je Begegnung · {singles} Einzel · {doubles} Doppel
         {slots.some((slot) => slot.role === "DECIDER")
           ? ", davon ein Entscheidungsdoppel bei Gleichstand"
@@ -52,7 +52,7 @@ export function TemplateTable({ slots }: { readonly slots: readonly TemplateRow[
                 <Td className="text-wedge-900">
                   {slot.label}
                   {slot.role === "DECIDER" ? (
-                    <span className="ml-2 font-plate text-[0.625rem] tracking-[0.12em] text-sisal-500 uppercase">
+                    <span className="ml-2 font-plate text-label tracking-[0.12em] text-sisal-500 uppercase">
                       nur bei Gleichstand
                     </span>
                   ) : null}

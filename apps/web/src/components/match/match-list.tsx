@@ -32,7 +32,7 @@ export function MatchList({
 
   if (pool.length === 0) {
     return (
-      <p className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">
+      <p className="rounded-xl border border-dashed border-slate-700 p-5 text-body text-slate-400">
         {variant === "compact"
           ? "Gerade läuft kein Match."
           : "Noch kein Match gespielt. Starte oben das erste."}
@@ -50,7 +50,7 @@ export function MatchList({
             <li className="min-w-0" key={match.id}>
               <Link
                 className={cn(
-                  "flex min-h-12 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm transition",
+                  "flex min-h-12 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-body transition",
                   isLive
                     ? "border-emerald-400/60 bg-emerald-400/5 text-white hover:border-emerald-400"
                     : "border-slate-800 text-slate-400 hover:border-slate-600",
@@ -58,18 +58,21 @@ export function MatchList({
                 href={`/matches/${match.id}?organisation=${organizationId}`}
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate">
+                  <span
+                    className="block truncate"
+                    title={`${sideNames(match.participants[0])} – ${sideNames(match.participants[1])}`}
+                  >
                     {sideNames(match.participants[0])} <span className="text-slate-500">–</span>{" "}
                     {sideNames(match.participants[1])}
                   </span>
-                  <span className="block truncate text-xs text-slate-500">
+                  <span className="block truncate text-caption text-slate-500" title={match.boardName ?? "Kein Board"}>
                     {match.boardName ?? "Kein Board"}
                     {score === "0:0" ? "" : <span className="tabular"> · {score}</span>}
                   </span>
                 </span>
                 <span
                   className={cn(
-                    "shrink-0 text-xs font-semibold tracking-wider uppercase",
+                    "shrink-0 text-caption font-semibold tracking-[0.12em] uppercase",
                     isLive ? "text-emerald-300" : "text-slate-500",
                   )}
                 >
@@ -81,7 +84,7 @@ export function MatchList({
         })}
       </ul>
       {hidden > 0 ? (
-        <p className="text-xs text-slate-500">und {hidden} weitere</p>
+        <p className="text-caption text-slate-500">und {hidden} weitere</p>
       ) : null}
     </div>
   );

@@ -11,7 +11,7 @@ import { generateId } from "@/lib/id";
 import { listOfflineCommands, markOfflineCommandConflict, removeOfflineCommand, removeOfflineCommandsForScope, saveOfflineCommand, type OfflineCommand } from "@/lib/offline-command-queue";
 import { useBoardControllerLock } from "@/lib/use-board-controller-lock";
 
-const inputClassName = "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
+const inputClassName = "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
 
 /** Eine Seite kann zwei Personen tragen; ihr Name ist beider Name. */
 function sideNames(participant: MatchStateResponse["participants"][number]): string {
@@ -168,11 +168,11 @@ export function MatchScoreboard({ organizationId, match, canAbort, canScore }: {
   };
   return (
     <section aria-label="Match-Scoreboard" className="overflow-hidden rounded-2xl border border-emerald-400/30 bg-slate-950 shadow-2xl shadow-emerald-950/20">
-      <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 text-xs font-semibold tracking-wider text-slate-400 uppercase"><span>Set {match.currentSetNumber} · Leg {match.currentLegNumber} · Best of {match.bestOfLegs}</span><span>{match.boardName ?? "Nicht zugewiesen"} · v{match.version}</span></div>
+      <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 text-caption font-semibold tracking-[0.12em] text-slate-400 uppercase"><span>Set {match.currentSetNumber} · Leg {match.currentLegNumber} · Best of {match.bestOfLegs}</span><span>{match.boardName ?? "Nicht zugewiesen"} · v{match.version}</span></div>
       <div className="grid grid-cols-2 divide-x divide-slate-800">
         {match.participants.map((participant) => (
           <div className={cn("p-4 text-center sm:p-7", participant.isActive && match.status === "IN_PROGRESS" ? "bg-emerald-400/10" : "")} key={participant.playerId}>
-            <p className="truncate text-sm font-semibold text-slate-300">
+            <p className="truncate text-body font-semibold text-slate-300" title={sideNames(participant)}>
               {participant.players.map((person, index) => (
                 <span key={person.playerId}>
                   {index > 0 ? <span aria-hidden="true"> · </span> : null}
@@ -183,14 +183,24 @@ export function MatchScoreboard({ organizationId, match, canAbort, canScore }: {
                 </span>
               ))}
             </p>
-            <p aria-label={`${sideNames(participant)}, Restscore`} className="mt-2 text-5xl font-black tabular-nums text-white sm:text-7xl">{participant.remaining}</p>
-            <p className="mt-2 text-sm text-slate-400">{participant.legsWonInSet} / {match.legsToWin} Legs · {participant.setsWon} / {match.setsToWin} Sets</p>
+            <p
+              aria-label={`${sideNames(participant)}, Restscore`}
+              className={cn(
+                "mt-2 font-numerals font-bold tabular",
+                participant.isActive && match.status === "IN_PROGRESS"
+                  ? "text-display text-white"
+                  : "text-data text-slate-400",
+              )}
+            >
+              {participant.remaining}
+            </p>
+            <p className="mt-2 text-body text-slate-400">{participant.legsWonInSet} / {match.legsToWin} Legs · {participant.setsWon} / {match.setsToWin} Sets</p>
           </div>
         ))}
       </div>
-      {canScore && match.status === "IN_PROGRESS" ? <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-900 px-4 py-3 text-sm"><span>{lock.state === "EIGEN" ? "Dieses Gerät steuert das Board · Verbindung aktiv" : lock.state === "FREMD" ? "Ein anderes Gerät steuert dieses Board" : "Board-Steuerung wird übernommen …"}</span>{lock.state === "FREMD" ? <Button onClick={lock.takeOver} variant="outline">Steuerung übernehmen</Button> : null}</div> : null}
-      {hasPending ? <div className="border-t border-amber-400/40 bg-amber-300/10 p-4" role="status"><p className="font-semibold text-amber-100">{queued.length} Aufnahme wartet dauerhaft gespeichert auf die Übertragung.</p>{queued.map((command) => <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-sm text-amber-100" key={command.commandId}><span>{command.label} · {command.status === "CONFLICT" ? command.error : online ? "Wiederholung läuft" : "Offline"}</span>{command.status === "CONFLICT" ? <Button onClick={() => void removeOfflineCommand(command.commandId).then(refreshQueue).then(refresh)} variant="outline">Verwerfen und synchronisieren</Button> : <Button disabled={!online || replaying} onClick={() => void replay()} variant="outline">Jetzt übertragen</Button>}</div>)}</div> : null}
-      {match.status === "COMPLETED" ? <div className="border-t border-emerald-400/30 bg-emerald-400/10 p-5 text-center"><p className="text-sm uppercase tracking-widest text-emerald-300">Match beendet</p><p className="mt-1 text-2xl font-bold text-white">{winnerName(match)} gewinnt</p></div> : canScore ? (
+      {canScore && match.status === "IN_PROGRESS" ? <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-900 px-4 py-3 text-body"><span>{lock.state === "EIGEN" ? "Dieses Gerät steuert das Board · Verbindung aktiv" : lock.state === "FREMD" ? "Ein anderes Gerät steuert dieses Board" : "Board-Steuerung wird übernommen …"}</span>{lock.state === "FREMD" ? <Button onClick={lock.takeOver} variant="outline">Steuerung übernehmen</Button> : null}</div> : null}
+      {hasPending ? <div className="border-t border-amber-400/40 bg-amber-300/10 p-4" role="status"><p className="font-semibold text-amber-100">{queued.length} Aufnahme wartet dauerhaft gespeichert auf die Übertragung.</p>{queued.map((command) => <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-body text-amber-100" key={command.commandId}><span>{command.label} · {command.status === "CONFLICT" ? command.error : online ? "Wiederholung läuft" : "Offline"}</span>{command.status === "CONFLICT" ? <Button onClick={() => void removeOfflineCommand(command.commandId).then(refreshQueue).then(refresh)} variant="outline">Verwerfen und synchronisieren</Button> : <Button disabled={!online || replaying} onClick={() => void replay()} variant="outline">Jetzt übertragen</Button>}</div>)}</div> : null}
+      {match.status === "COMPLETED" ? <div className="border-t border-emerald-400/30 bg-emerald-400/10 p-5 text-center"><p className="text-body uppercase tracking-[0.12em] text-emerald-300">Match beendet</p><p className="mt-1 font-numerals text-title font-bold text-white">{winnerName(match)} gewinnt</p></div> : canScore ? (
         <form className="grid gap-3 border-t border-slate-800 p-4 sm:grid-cols-[1fr_auto]" onSubmit={(event) => { event.preventDefault(); openCheckoutOrSubmit(); }}>
           <input aria-label="Aufnahmescore" autoFocus className={inputClassName} disabled={!mayControl} inputMode="numeric" min="0" max="180" placeholder="Score" required type="number" value={points} onChange={(event) => setPoints(event.target.value)} />
           <Button disabled={submit.isPending || !mayControl || checkoutOpen} type="submit">Erfassen</Button>
@@ -211,14 +221,14 @@ export function MatchScoreboard({ organizationId, match, canAbort, canScore }: {
       <AbortMatchDialog error={abort.isError ? mutationMessage(abort.error) : null} onCancel={() => { abort.reset(); setAbortOpen(false); }} onSubmit={(reason) => abort.mutate(reason)} open={abortOpen} pending={abort.isPending} queuedCount={queued.length} />
       <div className="border-t border-slate-800 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-slate-200">Letzte Aufnahmen</h4>
+          <h4 className="font-numerals text-title-sm font-bold text-slate-200">Letzte Aufnahmen</h4>
           <div className="flex flex-wrap gap-2">
             {mayControl && match.visits.some((visit) => !visit.reverted) ? <Button disabled={undo.isPending || !online} onClick={() => undo.mutate()} variant="outline">Letzte Aufnahme zurücknehmen</Button> : null}
             {canAbort && match.status === "IN_PROGRESS" ? <Button className="border border-rose-500/60 bg-rose-600 text-white hover:bg-rose-500" disabled={!online || lock.state !== "EIGEN" || abort.isPending} onClick={() => { abort.reset(); setAbortOpen(true); }}>Match abbrechen</Button> : null}
           </div>
         </div>
-        {error && !checkoutOpen ? <p className="mt-3 text-sm text-rose-300" role="alert">{mutationMessage(error)}</p> : null}
-        <div className="mt-3 space-y-2">{match.visits.slice(0, 8).map((visit) => <div className={cn("flex min-h-11 items-center justify-between rounded-lg bg-slate-900 px-3 text-sm", visit.reverted && "opacity-40 line-through")} key={visit.id}><span className="text-slate-300">{visit.playerDisplayName} · {visit.dartsThrown} Darts</span><span className="font-bold text-white">{visit.outcome === "BUST" ? `BUST (${visit.points})` : `${visit.appliedPoints} → ${visit.scoreAfter}`}</span></div>)}</div>
+        {error && !checkoutOpen ? <p className="mt-3 text-body text-rose-300" role="alert">{mutationMessage(error)}</p> : null}
+        <div className="mt-3 space-y-2">{match.visits.slice(0, 8).map((visit) => <div className={cn("flex min-h-11 items-center justify-between rounded-lg bg-slate-900 px-3 text-body", visit.reverted && "opacity-40 line-through")} key={visit.id}><span className="text-slate-300">{visit.playerDisplayName} · {visit.dartsThrown} Darts</span><span className="font-bold text-white">{visit.outcome === "BUST" ? `BUST (${visit.points})` : `${visit.appliedPoints} → ${visit.scoreAfter}`}</span></div>)}</div>
       </div>
     </section>
   );
@@ -251,14 +261,14 @@ function AbortMatchDialog({ error, onCancel, onSubmit, open, pending, queuedCoun
     <dialog aria-describedby="abort-match-description" aria-labelledby="abort-match-title" className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-rose-500/50 bg-slate-950 p-0 text-white shadow-2xl backdrop:bg-slate-950/80" onCancel={(event) => { event.preventDefault(); onCancel(); }} ref={dialogRef}>
       <form className="space-y-5 p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); onSubmit(reason.trim()); }}>
         <div>
-          <h4 className="text-xl font-semibold" id="abort-match-title">Match abbrechen</h4>
-          <p className="mt-2 text-sm leading-6 text-slate-300" id="abort-match-description">Alle Aufnahmen und Legs dieses Matches werden unwiderruflich verworfen. {queuedCount} lokal gespeicherte {queuedCount === 1 ? "Aufnahme wird" : "Aufnahmen werden"} verworfen. Das Board wird freigegeben; eine Turnierpaarung wechselt zurück auf READY.</p>
+          <h4 className="font-numerals text-title font-bold" id="abort-match-title">Match abbrechen</h4>
+          <p className="mt-2 text-body text-slate-300" id="abort-match-description">Alle Aufnahmen und Legs dieses Matches werden unwiderruflich verworfen. {queuedCount} lokal gespeicherte {queuedCount === 1 ? "Aufnahme wird" : "Aufnahmen werden"} verworfen. Das Board wird freigegeben; eine Turnierpaarung wechselt zurück auf READY.</p>
         </div>
-        <label className="block space-y-2 text-sm font-semibold text-slate-200">
+        <label className="block space-y-2 text-body font-semibold text-slate-200">
           <span>Abbruchgrund</span>
           <textarea autoFocus className="min-h-24 w-full rounded-lg border border-slate-700 bg-slate-950 p-3 text-base text-white outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-400/30" maxLength={500} onChange={(event) => setReason(event.target.value)} placeholder="z. B. falsche Board-Zuweisung" required value={reason} />
         </label>
-        {error ? <p className="text-sm text-rose-300" role="alert">{error}</p> : null}
+        {error ? <p className="text-body text-rose-300" role="alert">{error}</p> : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <Button disabled={pending} onClick={onCancel} type="button" variant="outline">Zurück zum Match</Button>
           <Button className="bg-rose-600 text-white hover:bg-rose-500" disabled={pending || reason.trim().length < 3} type="submit">Match endgültig abbrechen</Button>
@@ -314,10 +324,10 @@ function CheckoutDialog({
     >
       <form className="space-y-5 p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
         <div>
-          <h4 className="text-xl font-semibold" id="checkout-dialog-title">Checkout erfassen</h4>
-          <p className="mt-2 text-sm text-slate-300">{points} Punkte auf 0. Wähle das letzte Doppel und die benötigten Darts.</p>
+          <h4 className="font-numerals text-title font-bold" id="checkout-dialog-title">Checkout erfassen</h4>
+          <p className="mt-2 text-body text-slate-300">{points} Punkte auf 0. Wähle das letzte Doppel und die benötigten Darts.</p>
         </div>
-        <label className="block space-y-2 text-sm font-semibold text-slate-200">
+        <label className="block space-y-2 text-body font-semibold text-slate-200">
           <span>Checkout-Feld</span>
           <select autoFocus className={inputClassName} required value={field} onChange={(event) => onFieldChange(event.target.value)}>
             <option value="">Doppel wählen</option>
@@ -325,7 +335,7 @@ function CheckoutDialog({
             <option value={25}>Bull (Double 25)</option>
           </select>
         </label>
-        <label className="block space-y-2 text-sm font-semibold text-slate-200">
+        <label className="block space-y-2 text-body font-semibold text-slate-200">
           <span>Benötigte Darts</span>
           <select className={inputClassName} value={darts} onChange={(event) => onDartsChange(Number(event.target.value) as 1 | 2 | 3)}>
             <option value={1}>1 Dart</option>
@@ -333,7 +343,7 @@ function CheckoutDialog({
             <option value={3}>3 Darts</option>
           </select>
         </label>
-        {error ? <p className="text-sm text-rose-300" role="alert">{error}</p> : null}
+        {error ? <p className="text-body text-rose-300" role="alert">{error}</p> : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <Button disabled={pending} onClick={onCancel} type="button" variant="outline">Abbrechen</Button>
           <Button disabled={pending || field === ""} type="submit">Checkout speichern</Button>

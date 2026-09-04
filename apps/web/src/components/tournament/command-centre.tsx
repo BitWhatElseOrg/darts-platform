@@ -314,8 +314,8 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
       <div className="mx-auto max-w-[1600px] px-5 py-6 xl:px-9">
         <nav className="mb-5">
           <div className="flex flex-wrap gap-5">
-            <Link className="font-plate text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900" href={`/turniere?organisation=${organizationId}`}>Alle Turniere</Link>
-            <Link className="font-plate text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900" href={`/live/${tournamentId}`}>Öffentliche Live-Ansicht</Link>
+            <Link className="font-plate text-caption font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900" href={`/turniere?organisation=${organizationId}`}>Alle Turniere</Link>
+            <Link className="font-plate text-caption font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900" href={`/live/${tournamentId}`}>Öffentliche Live-Ansicht</Link>
           </div>
         </nav>
 
@@ -330,7 +330,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
             <MarkCross className="mt-0.5 shrink-0 text-ring-red" size={16} />
             <div className="min-w-0 flex-1">
               <SheetLabel as="h2" tone="alarm">Versionskonflikt · HTTP 409</SheetLabel>
-              <p className="mt-1.5 font-plate text-[0.875rem] leading-snug text-wedge-900">
+              <p className="mt-1.5 font-plate text-body text-wedge-900">
                 Deine Zuweisung ging von Version {conflict.expected} aus, der Server steht auf {conflict.server}. Übernimm den aktuellen Serverzustand und prüfe die Disposition erneut.
               </p>
             </div>
@@ -346,7 +346,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         {commandError !== null && conflict === null ? (
           <Wedge className="mt-5 p-4" tone="alarm">
             <SheetLabel as="h2" tone="alarm">Befehl nicht ausgeführt</SheetLabel>
-            <p className="mt-1.5 font-plate text-[0.875rem] text-wedge-900">{commandError}</p>
+            <p className="mt-1.5 font-plate text-body text-wedge-900">{commandError}</p>
           </Wedge>
         ) : null}
 
@@ -355,7 +355,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
             <div className="min-w-0 flex-1">
               <SheetLabel as="h2">{pending.length} Befehl{pending.length === 1 ? "" : "e"} in der Warteschlange</SheetLabel>
               <ul className="mt-1.5 flex flex-col gap-0.5">
-                {pending.map((command) => <li className="font-plate text-[0.875rem] text-wedge-900" key={command.commandId}>{command.label}</li>)}
+                {pending.map((command) => <li className="font-plate text-body text-wedge-900" key={command.commandId}>{command.label}</li>)}
               </ul>
             </div>
             <Control disabled={commandBusy || connection === "offline"} onClick={() => void flushPending()} variant="plate">Jetzt übertragen</Control>
@@ -366,7 +366,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
           <section aria-labelledby="boards-heading">
             <div className="flex items-baseline justify-between gap-3 pb-2">
               <SheetLabel as="h2" id="boards-heading">Boards · Zifferntaste weist zu</SheetLabel>
-              <span className="font-numerals text-[1rem] font-bold tabular text-sisal-500">{dashboard.boards.length}</span>
+              <span className="shrink-0 font-numerals text-counter font-bold tabular text-sisal-500">{dashboard.boards.length}</span>
             </div>
             <Rule />
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -396,7 +396,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
 
         <div className="mt-9"><StandingsSheet groups={dashboard.groups} /></div>
         <Rule className="mt-10" />
-        <p className="pt-4 font-plate text-[0.75rem] text-sisal-500">Serverstand · Echtzeit {realtimeConnection}</p>
+        <p className="pt-4 font-plate text-caption text-sisal-500">Serverstand · Echtzeit {realtimeConnection}</p>
       </div>
       <p aria-live="polite" className="sr-only" role="status">{announcement}</p>
     </div>

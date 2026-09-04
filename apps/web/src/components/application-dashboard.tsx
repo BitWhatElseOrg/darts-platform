@@ -11,7 +11,7 @@ export function ApplicationDashboard() {
 
   if (session.isPending) {
     return (
-      <p className="min-h-24 text-center text-sm text-slate-400" role="status">
+      <p className="min-h-24 text-center text-body text-slate-400" role="status">
         Sitzung wird geladen …
       </p>
     );

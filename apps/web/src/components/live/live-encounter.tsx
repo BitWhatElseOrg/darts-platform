@@ -43,19 +43,16 @@ export function LiveEncounter({ publicId }: { readonly publicId: string }) {
     <main className="min-h-screen bg-slate-950 p-4 text-white sm:p-7">
       <header className="mx-auto flex max-w-[1100px] flex-wrap items-end justify-between gap-4 border-b border-emerald-400/40 pb-5">
         <div>
-          <p className="text-xs font-bold tracking-[0.2em] text-emerald-300 uppercase">
-            DartBase · Liga live
-          </p>
-          <h1 className="mt-2 text-3xl font-black">
+          <h1 className="font-numerals text-headline font-bold">
             {encounter.homeTeamName} gegen {encounter.awayTeamName}
           </h1>
-          <p className="mt-2 text-slate-400">
+          <p className="mt-2 text-body text-slate-400">
             {encounter.competitionName} · Spieltag {encounter.matchday} ·{" "}
             {calendarDate(encounter.scheduledAt)} · {clockTime(encounter.scheduledAt)} Uhr
             {encounter.venue === null ? "" : ` · ${encounter.venue}`}
           </p>
         </div>
-        <div className="flex items-center gap-3 text-sm">
+        <div className="flex items-center gap-3 text-body">
           <span
             aria-hidden="true"
             className={`h-3 w-3 rounded-full ${
@@ -80,7 +77,7 @@ export function LiveEncounter({ publicId }: { readonly publicId: string }) {
           <Tally away={encounter.awayLegs} home={encounter.homeLegs} label="Sätze" />
         </dl>
         {encounter.result === null ? null : (
-          <p className="mt-5 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-5 py-4 text-xl font-bold">
+          <p className="mt-5 rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-5 py-4 font-numerals text-title font-bold">
             {encounterOutcomeLabel({
               result: encounter.result,
               resultType: encounter.resultType,
@@ -91,7 +88,7 @@ export function LiveEncounter({ publicId }: { readonly publicId: string }) {
 
       <section aria-labelledby="public-slots" className="mx-auto mt-9 max-w-[1100px]">
         <h2
-          className="mb-3 text-sm font-bold tracking-widest text-slate-400 uppercase"
+          className="mb-3 text-caption font-semibold tracking-[0.12em] text-slate-400 uppercase"
           id="public-slots"
         >
           Spiele
@@ -121,8 +118,8 @@ function Tally({
 }) {
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900 px-5 py-4">
-      <dt className="text-xs font-bold tracking-widest text-slate-400 uppercase">{label}</dt>
-      <dd className={`mt-1 font-black tabular-nums ${prominent ? "text-5xl" : "text-3xl"}`}>
+      <dt className="text-label font-semibold text-slate-400 uppercase">{label}</dt>
+      <dd className={`mt-1 font-numerals font-bold tabular ${prominent ? "text-display" : "text-data"}`}>
         {home}:{away}
       </dd>
     </div>
@@ -132,21 +129,21 @@ function Tally({
 function SlotRow({ slot }: { readonly slot: PublicSlot }) {
   return (
     <li className="grid gap-2 border-t border-slate-800 px-4 py-3 first:border-t-0 sm:grid-cols-[2.5rem_1fr_5rem_11rem] sm:items-center sm:gap-4">
-      <span className="text-sm font-bold tabular-nums text-slate-400">{slot.sequence}</span>
+      <span className="text-body font-bold tabular-nums text-slate-400">{slot.sequence}</span>
       <span className="min-w-0">
-        <span className="block text-sm font-semibold">
+        <span className="block text-body font-semibold">
           {names(slot.home.players)} <span className="text-slate-500">gegen</span>{" "}
           {names(slot.away.players)}
         </span>
-        <span className="block text-xs text-slate-500">
+        <span className="block text-caption text-slate-500">
           {slot.label} · {disciplineLabel(slot.discipline)}
           {slot.boardName === null ? "" : ` · ${slot.boardName}`}
         </span>
       </span>
-      <span className="text-sm font-bold tabular-nums">
+      <span className="text-body font-bold tabular-nums">
         {slot.homeLegs}:{slot.awayLegs}
       </span>
-      <span className="text-xs text-slate-400">
+      <span className="text-caption text-slate-400">
         {slotStatusLabel(slot.status)}
         {slot.winnerSide === null
           ? ""

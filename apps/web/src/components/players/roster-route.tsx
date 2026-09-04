@@ -28,8 +28,8 @@ type PlayerFormData = z.infer<typeof playerFormSchema>;
 type InvitationFormData = z.infer<typeof invitationFormSchema>;
 
 const inputClassName =
-  "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
-const labelClassName = "block text-sm font-medium text-slate-300";
+  "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
+const labelClassName = "block text-body font-medium text-slate-300";
 
 function messageFrom(error: unknown): string {
   return userFacingErrorMessage(error);
@@ -103,7 +103,7 @@ function Roster({ organization }: { readonly organization: OrganizationSummary }
   return (
     <div className="space-y-10">
       <section className="space-y-5">
-        <h2 className="text-xl font-semibold text-white">Spieler</h2>
+        <h2 className="font-numerals text-title font-bold text-white">Spieler</h2>
 
         {canCreatePlayers ? (
           <form
@@ -123,11 +123,11 @@ function Roster({ organization }: { readonly organization: OrganizationSummary }
         ) : null}
 
         {createPlayer.isError ? (
-          <p role="alert" className="text-sm text-rose-300">{messageFrom(createPlayer.error)}</p>
+          <p role="alert" className="text-body text-rose-300">{messageFrom(createPlayer.error)}</p>
         ) : null}
 
         <div className="space-y-3">
-          {playersQuery.isPending ? <p className="text-sm text-slate-400">Spieler werden geladen …</p> : null}
+          {playersQuery.isPending ? <p className="text-body text-slate-400">Spieler werden geladen …</p> : null}
           {playersQuery.data?.map((player) => (
             <PlayerRow
               canArchive={canArchivePlayers}
@@ -139,7 +139,7 @@ function Roster({ organization }: { readonly organization: OrganizationSummary }
             />
           ))}
           {playersQuery.data?.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-slate-700 p-5 text-sm text-slate-400">
+            <p className="rounded-xl border border-dashed border-slate-700 p-5 text-body text-slate-400">
               Noch keine Spieler vorhanden.
             </p>
           ) : null}
@@ -149,8 +149,8 @@ function Roster({ organization }: { readonly organization: OrganizationSummary }
       {canManageMembers ? (
         <section className="space-y-4 border-t border-slate-800 pt-8">
           <div>
-            <h2 className="text-xl font-semibold text-white">Team</h2>
-            <p className="mt-1 text-sm text-slate-400">
+            <h2 className="font-numerals text-title font-bold text-white">Team</h2>
+            <p className="mt-1 text-body text-slate-400">
               Lade Personen mit einer Rolle ein. Der Einladungscode wird nur einmal angezeigt.
             </p>
           </div>
@@ -175,7 +175,7 @@ function Roster({ organization }: { readonly organization: OrganizationSummary }
             <Button disabled={inviteMember.isPending} type="submit">Einladen</Button>
             {inviteMember.isSuccess ? (
               <div className="space-y-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 sm:col-span-3">
-                <p className="text-sm text-emerald-100">
+                <p className="text-body text-emerald-100">
                   Einladung erstellt. Teile diesen einmal angezeigten Code sicher mit der eingeladenen Person.
                 </p>
                 <label className={labelClassName} htmlFor="created-invitation-claim">Einladungscode</label>
@@ -188,7 +188,7 @@ function Roster({ organization }: { readonly organization: OrganizationSummary }
               </div>
             ) : null}
             {inviteMember.isError ? (
-              <p role="alert" className="text-sm text-rose-300 sm:col-span-3">{messageFrom(inviteMember.error)}</p>
+              <p role="alert" className="text-body text-rose-300 sm:col-span-3">{messageFrom(inviteMember.error)}</p>
             ) : null}
           </form>
         </section>
@@ -240,7 +240,7 @@ function PlayerRow({
         ) : (
           <div>
             <p className="font-semibold text-white">{player.displayName}</p>
-            <p className="text-xs text-slate-400">
+            <p className="text-caption text-slate-400">
               {player.nickname ?? "Kein Spitzname"} · {player.status === "ACTIVE" ? "Aktiv" : "Archiviert"}
             </p>
           </div>
@@ -266,7 +266,7 @@ function PlayerRow({
             </>
           ) : (
             <>
-              <Link className="inline-flex min-h-10 items-center rounded-lg border border-slate-700 px-4 text-sm font-medium text-slate-100" href={`/spieler/${player.id}?organisation=${organizationId}`}>Profil</Link>
+              <Link className="inline-flex min-h-10 items-center rounded-lg border border-slate-700 px-4 text-body font-medium text-slate-100" href={`/spieler/${player.id}?organisation=${organizationId}`}>Profil</Link>
               {canEdit ? (
                 <Button variant="outline" onClick={() => setIsEditing(true)}>
                   Bearbeiten
@@ -280,7 +280,7 @@ function PlayerRow({
         </div>
       </div>
       {updatePlayer.isError ? (
-        <p className="mt-2 text-sm text-rose-300" role="alert">
+        <p className="mt-2 text-body text-rose-300" role="alert">
           {messageFrom(updatePlayer.error)}
         </p>
       ) : null}

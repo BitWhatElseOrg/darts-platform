@@ -144,7 +144,7 @@ export function EncounterCommandCentre({
               <SheetLabel as="h2" tone="alarm">
                 Versionskonflikt · HTTP 409
               </SheetLabel>
-              <p className="mt-1.5 font-plate text-[0.875rem] leading-snug text-wedge-900">
+              <p className="mt-1.5 font-plate text-body text-wedge-900">
                 Deine Eingabe ging von Version {commands.conflict.expected} aus, der Server steht auf{" "}
                 {commands.conflict.server}. Übernimm den aktuellen Serverzustand und prüfe erneut.
               </p>
@@ -160,14 +160,14 @@ export function EncounterCommandCentre({
             <SheetLabel as="h2" tone="alarm">
               Befehl nicht ausgeführt
             </SheetLabel>
-            <p className="mt-1.5 font-plate text-[0.875rem] text-wedge-900">{commands.error}</p>
+            <p className="mt-1.5 font-plate text-body text-wedge-900">{commands.error}</p>
           </Wedge>
         ) : null}
 
         {notice === null ? null : (
           <Wedge className="mt-5 p-4" tone="plate">
             <SheetLabel as="h2">Entscheidungsdoppel</SheetLabel>
-            <p className="mt-1.5 font-plate text-[0.875rem] text-wedge-900">{notice}</p>
+            <p className="mt-1.5 font-plate text-body text-wedge-900">{notice}</p>
           </Wedge>
         )}
 
@@ -180,7 +180,7 @@ export function EncounterCommandCentre({
             >
               Begegnung starten
             </Control>
-            <p className="min-w-0 flex-1 font-plate text-[0.875rem] text-wedge-900">
+            <p className="min-w-0 flex-1 basis-full font-plate text-body text-wedge-900 prose-de sm:basis-0">
               {encounter.status === "RUNNING"
                 ? "Die Begegnung läuft. Weise Spiele einem Board zu, sobald beide Seiten besetzt sind."
                 : missingSide !== null
@@ -243,7 +243,7 @@ export function EncounterCommandCentre({
         ) : null}
 
         <Rule className="mt-10" />
-        <p className="pt-4 font-plate text-[0.75rem] text-sisal-500">
+        <p className="pt-4 font-plate text-caption text-sisal-500">
           Serverstand · Echtzeit {commands.realtime}
         </p>
       </div>
@@ -272,10 +272,10 @@ function ClosingActions({
   return (
     <div className="mt-9 grid gap-5 lg:grid-cols-2">
       <details className="border border-sisal-400 bg-sisal-100 p-4">
-        <summary className="cursor-pointer font-plate text-[0.75rem] font-semibold tracking-[0.12em] text-sisal-500 uppercase">
+        <summary className="cursor-pointer font-plate text-caption font-semibold tracking-[0.12em] text-sisal-500 uppercase">
           Nichtantritt werten
         </summary>
-        <p className="mt-3 font-plate text-[0.875rem] text-wedge-900">
+        <p className="mt-3 font-plate text-body text-wedge-900">
           Ein Nichtantritt wertet die ganze Begegnung: 0:3 Punkte, 0:18 Spiele, 0:36 Sätze für die
           nicht angetretene Mannschaft (Reglement 2.1.1 und 2.5.1). Alle Spiele entfallen.
         </p>
@@ -291,7 +291,7 @@ function ClosingActions({
             onForfeit(forfeitSide, forfeitReason.trim());
           }}
         >
-          <Field className="min-w-[10rem]" htmlFor="forfeit-side" label="Nicht angetreten">
+          <Field className="sm:min-w-[10rem]" htmlFor="forfeit-side" label="Nicht angetreten">
             <SelectInput
               id="forfeit-side"
               onChange={(event) => setForfeitSide(event.target.value === "HOME" ? "HOME" : "AWAY")}
@@ -302,7 +302,7 @@ function ClosingActions({
             </SelectInput>
           </Field>
           <Field
-            className="min-w-[16rem] flex-1"
+            className="min-w-0 flex-1 basis-full sm:basis-0 sm:min-w-[16rem]"
             error={forfeitError}
             htmlFor="forfeit-reason"
             label="Begründung"
@@ -321,10 +321,10 @@ function ClosingActions({
       </details>
 
       <details className="border border-sisal-400 bg-sisal-100 p-4">
-        <summary className="cursor-pointer font-plate text-[0.75rem] font-semibold tracking-[0.12em] text-sisal-500 uppercase">
+        <summary className="cursor-pointer font-plate text-caption font-semibold tracking-[0.12em] text-sisal-500 uppercase">
           Begegnung absagen
         </summary>
-        <p className="mt-3 font-plate text-[0.875rem] text-wedge-900">
+        <p className="mt-3 font-plate text-body text-wedge-900">
           Eine abgesagte Begegnung wird nicht gewertet und lässt sich nicht mehr starten. Für eine
           Verschiebung ist sie neu anzusetzen.
         </p>
@@ -341,7 +341,7 @@ function ClosingActions({
           }}
         >
           <Field
-            className="min-w-[16rem] flex-1"
+            className="min-w-0 flex-1 basis-full sm:basis-0 sm:min-w-[16rem]"
             error={cancelError}
             htmlFor="cancel-reason"
             label="Begründung"
@@ -363,12 +363,12 @@ function ClosingActions({
 }
 
 const navLinkClassName =
-  "font-plate text-[0.75rem] font-semibold tracking-[0.14em] text-sisal-500 uppercase underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900";
+  "font-plate text-caption font-semibold tracking-[0.14em] text-sisal-500 uppercase underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900";
 
 function RouteNotice({ message }: { readonly message: string }) {
   return (
     <main className="sektorenring min-h-screen px-5 py-12">
-      <div className="mx-auto max-w-2xl border border-sisal-400 bg-sisal-100 p-6 font-plate text-wedge-900">
+      <div className="mx-auto max-w-[65ch] prose-de border border-sisal-400 bg-sisal-100 p-6 font-plate text-wedge-900">
         {message}
       </div>
     </main>

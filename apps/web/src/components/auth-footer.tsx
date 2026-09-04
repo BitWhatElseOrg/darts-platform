@@ -4,7 +4,7 @@ import { sutterPrecisionInvertedLogo } from "@/assets";
 
 export function AuthFooter() {
   return (
-    <footer className="mt-8 flex min-h-11 w-full items-center justify-center gap-3 border-t border-slate-800/80 bg-slate-950 pt-6 text-sm text-slate-400">
+    <footer className="mt-8 flex min-h-11 w-full items-center justify-center gap-3 border-t border-slate-800/80 bg-slate-950 pt-6 text-body text-slate-400">
       <span>powered by</span>
       <a
         aria-label="Website von Sutter Precision öffnen (öffnet in neuem Tab)"

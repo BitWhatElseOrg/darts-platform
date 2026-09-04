@@ -123,10 +123,10 @@ function CompetitionBody({
     <div>
       <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
         <div className="min-w-0">
-          <h1 className="font-numerals text-[2.75rem] leading-[0.9] font-bold tracking-[-0.02em] text-wedge-900">
+          <h1 className="font-numerals text-headline font-bold text-wedge-900">
             {competition.name}
           </h1>
-          <p className="mt-1.5 font-plate text-[0.875rem] text-sisal-500">
+          <p className="mt-1.5 font-plate text-body text-sisal-500">
             {competition.slug} · {competition.slotCount} Spiele je Begegnung
           </p>
         </div>
@@ -138,7 +138,7 @@ function CompetitionBody({
 
       <Rule className="mt-6" />
 
-      <p className="mt-4 max-w-3xl font-plate text-[0.875rem] leading-relaxed text-wedge-900">
+      <p className="mt-4 max-w-[65ch] prose-de font-plate text-body text-wedge-900">
         {competition.pointsWin} Punkte für den Sieg, bei Gleichstand je {competition.pointsDraw}
         {competition.deciderRule === "EXTRA_SLOT"
           ? ` und ${competition.pointsDeciderBonus} Zusatzpunkt für den Sieger des Entscheidungsdoppels`
@@ -149,7 +149,7 @@ function CompetitionBody({
       </p>
 
       <details className="mt-6 border border-sisal-400 bg-sisal-100 p-4">
-        <summary className="cursor-pointer font-plate text-[0.875rem] font-semibold text-wedge-900">
+        <summary className="cursor-pointer font-plate text-body font-semibold text-wedge-900">
           Begegnungsvorlage · {competition.slots.length} Spiele
         </summary>
         <div className="mt-4">
@@ -166,7 +166,7 @@ function CompetitionBody({
           <SheetLabel as="h2" id="encounters-heading">
             Begegnungen
           </SheetLabel>
-          <span className="font-numerals text-[1rem] font-bold tabular text-sisal-500">
+          <span className="shrink-0 font-numerals text-counter font-bold tabular text-sisal-500">
             {encounters.length}
           </span>
         </div>
@@ -176,10 +176,10 @@ function CompetitionBody({
           <Notice>Begegnungen werden geladen …</Notice>
         ) : encounters.length === 0 ? (
           <div className="mt-6 border border-sisal-400 bg-sisal-100 px-6 py-12 text-center">
-            <p className="font-numerals text-[1.5rem] leading-tight font-bold text-wedge-900">
+            <p className="font-numerals text-title font-bold text-wedge-900">
               Noch keine Begegnung angesetzt
             </p>
-            <p className="mx-auto mt-2 max-w-md font-plate text-[0.875rem] leading-relaxed text-sisal-500">
+            <p className="mx-auto mt-2 max-w-md font-plate text-body text-sisal-500">
               Der Ablauf eines Spieltags: Begegnung ansetzen, beide Meldungen erfassen, starten. Die
               Doppelpaarungen folgen erst am Abend.
             </p>
@@ -194,22 +194,22 @@ function CompetitionBody({
                 >
                   <div className="w-20">
                     <SheetLabel>Spieltag</SheetLabel>
-                    <p className="mt-1 font-numerals text-[1.5rem] leading-tight font-bold tabular text-wedge-900">
+                    <p className="mt-1 font-numerals text-title font-bold tabular text-wedge-900">
                       {encounter.matchday}
                     </p>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h3 className="font-numerals text-[1.5rem] leading-tight font-bold tracking-[-0.01em] text-wedge-900 group-hover:underline group-hover:decoration-1 group-hover:underline-offset-4">
+                    <h3 className="font-numerals text-title font-bold text-wedge-900 group-hover:underline group-hover:decoration-1 group-hover:underline-offset-4">
                       {encounter.homeTeamName} gegen {encounter.awayTeamName}
                     </h3>
-                    <p className="mt-0.5 font-plate text-[0.875rem] text-sisal-500">
+                    <p className="mt-0.5 font-plate text-body text-sisal-500">
                       {calendarDate(encounter.scheduledAt)} · {clockTime(encounter.scheduledAt)} Uhr
                       {encounter.venue === null ? "" : ` · ${encounter.venue}`}
                     </p>
                   </div>
                   <div className="w-52">
                     <SheetLabel>Stand</SheetLabel>
-                    <p className="mt-1 font-plate text-[0.875rem] tabular text-wedge-900">
+                    <p className="mt-1 font-plate text-body tabular text-wedge-900">
                       {encounter.homePoints}:{encounter.awayPoints} Punkte · {encounter.homeGames}:
                       {encounter.awayGames} Spiele · {encounter.homeLegs}:{encounter.awayLegs} Sätze
                     </p>
@@ -223,7 +223,7 @@ function CompetitionBody({
                       />
                     </p>
                     {encounter.result === null ? null : (
-                      <p className="mt-1 font-plate text-[0.75rem] text-sisal-500">
+                      <p className="mt-1 font-plate text-caption text-sisal-500">
                         {encounterOutcomeLabel({
                           result: encounter.result,
                           resultType: encounter.resultType,
@@ -239,7 +239,7 @@ function CompetitionBody({
       </section>
 
       <Rule className="mt-10" />
-      <p className="pt-4 font-plate text-[0.75rem] font-semibold tracking-[0.14em] text-sisal-500 uppercase">
+      <p className="pt-4 font-plate text-caption font-semibold tracking-[0.14em] text-sisal-500 uppercase">
         DartBase · Ligabetrieb · Serverdaten
       </p>
     </div>
@@ -317,7 +317,7 @@ function ScheduleSection({
       <Rule className="mt-2" />
 
       {teams.length < 2 ? (
-        <p className="mt-4 font-plate text-[0.875rem] text-sisal-500">
+        <p className="mt-4 font-plate text-body text-sisal-500">
           Eine Begegnung braucht zwei aktive Mannschaften.{" "}
           <Link className="underline underline-offset-4" href={`/teams?organisation=${organization.id}`}>
             Teams anlegen
@@ -378,7 +378,7 @@ function ScheduleSection({
           <SheetLabel as="h3" tone="alarm">
             Begegnung nicht angesetzt
           </SheetLabel>
-          <p className="mt-1.5 font-plate text-[0.875rem] text-wedge-900">
+          <p className="mt-1.5 font-plate text-body text-wedge-900">
             {userFacingErrorMessage(schedule.error)}
           </p>
         </Wedge>
@@ -388,11 +388,11 @@ function ScheduleSection({
 }
 
 const navLinkClassName =
-  "font-plate text-[0.75rem] font-semibold tracking-[0.14em] text-sisal-500 uppercase underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900";
+  "font-plate text-caption font-semibold tracking-[0.14em] text-sisal-500 uppercase underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900";
 
 function Notice({ children }: { readonly children: ReactNode }) {
   return (
-    <div className="mt-6 border border-sisal-400 bg-sisal-100 px-6 py-10 text-center font-plate text-[0.875rem] text-wedge-900">
+    <div className="mt-6 border border-sisal-400 bg-sisal-100 px-6 py-10 text-center font-plate text-body text-wedge-900">
       {children}
     </div>
   );

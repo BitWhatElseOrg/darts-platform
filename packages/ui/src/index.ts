@@ -38,8 +38,10 @@ export { StateTag, type StateTagProps, type StateTone } from "./sektorenring/sta
 export { Rule, Wedge, type RuleProps, type WedgeProps } from "./sektorenring/surface";
 export { Table, Td, Th, Tr, type TrProps } from "./sektorenring/table";
 export {
+  Name,
   Score,
   SheetLabel,
+  type NameProps,
   type ScoreProps,
   type SheetLabelProps,
 } from "./sektorenring/typography";

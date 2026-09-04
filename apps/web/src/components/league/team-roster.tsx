@@ -74,10 +74,10 @@ export function TeamRoster({
         </nav>
 
         <div>
-          <h1 className="font-numerals text-[2.75rem] leading-[0.9] font-bold tracking-[-0.02em] text-wedge-900">
+          <h1 className="font-numerals text-headline font-bold text-wedge-900">
             Teams
           </h1>
-          <p className="mt-1.5 font-plate text-[0.875rem] text-sisal-500">
+          <p className="mt-1.5 max-w-[65ch] prose-de font-plate text-body text-sisal-500">
             Mannschaften und ihre Kader. Eine Meldung wird gegen den Kader zum Ansetzungszeitpunkt
             der Begegnung geprüft.
           </p>
@@ -114,7 +114,7 @@ export function TeamRoster({
         )}
 
         <Rule className="mt-10" />
-        <p className="pt-4 font-plate text-[0.75rem] font-semibold tracking-[0.14em] text-sisal-500 uppercase">
+        <p className="pt-4 font-plate text-caption font-semibold tracking-[0.14em] text-sisal-500 uppercase">
           DartBase · Ligabetrieb · Serverdaten
         </p>
       </div>
@@ -219,7 +219,7 @@ function TeamList({ organization }: { readonly organization: OrganizationSummary
               <SheetLabel as="h3" tone="alarm">
                 Team nicht angelegt
               </SheetLabel>
-              <p className="mt-1.5 font-plate text-[0.875rem] text-wedge-900">
+              <p className="mt-1.5 font-plate text-body text-wedge-900">
                 {userFacingErrorMessage(createTeam.error)}
               </p>
             </Wedge>
@@ -232,7 +232,7 @@ function TeamList({ organization }: { readonly organization: OrganizationSummary
           <SheetLabel as="h2" id="team-list-heading">
             Mannschaften
           </SheetLabel>
-          <span className="font-numerals text-[1rem] font-bold tabular text-sisal-500">
+          <span className="shrink-0 font-numerals text-counter font-bold tabular text-sisal-500">
             {teams.length}
           </span>
         </div>
@@ -240,10 +240,10 @@ function TeamList({ organization }: { readonly organization: OrganizationSummary
 
         {teams.length === 0 ? (
           <div className="mt-6 border border-sisal-400 bg-sisal-100 px-6 py-12 text-center">
-            <p className="font-numerals text-[1.5rem] leading-tight font-bold text-wedge-900">
+            <p className="font-numerals text-title font-bold text-wedge-900">
               Noch kein Team angelegt
             </p>
-            <p className="mx-auto mt-2 max-w-md font-plate text-[0.875rem] leading-relaxed text-sisal-500">
+            <p className="mx-auto mt-2 max-w-md font-plate text-body text-sisal-500">
               Ein Team führt einen Kader. Aus dem Kader wird am Spielabend die Aufstellung gemeldet;
               wer nicht im Kader steht, wird als Aushilfe erfasst.
             </p>
@@ -329,12 +329,12 @@ function TeamCard({
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
           <h3
-            className="font-numerals text-[1.5rem] leading-tight font-bold tracking-[-0.01em] text-wedge-900"
+            className="font-numerals text-title font-bold text-wedge-900"
             id={`team-${team.id}-heading`}
           >
             {team.name}
           </h3>
-          <p className="mt-0.5 font-plate text-[0.875rem] text-sisal-500">
+          <p className="mt-0.5 font-plate text-body text-sisal-500">
             {team.shortName ?? "ohne Kurzname"} · {members.length}{" "}
             {members.length === 1 ? "Person" : "Personen"} im Kader
           </p>
@@ -360,7 +360,7 @@ function TeamCard({
       <Rule className="mt-4" />
 
       {members.length === 0 ? (
-        <p className="mt-4 font-plate text-[0.875rem] text-sisal-500">
+        <p className="mt-4 font-plate text-body text-sisal-500">
           Der Kader ist leer. Ohne Kader kann für dieses Team nur mit Aushilfen gemeldet werden.
         </p>
       ) : (
@@ -370,13 +370,13 @@ function TeamCard({
               className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-sisal-300 py-3"
               key={member.playerId}
             >
-              <span className="min-w-0 flex-1 font-plate text-[0.9375rem] text-wedge-900">
+              <span className="min-w-0 flex-1 font-plate text-field text-wedge-900">
                 {member.displayName}
               </span>
-              <span className="font-plate text-[0.75rem] tracking-[0.1em] text-sisal-500 uppercase">
+              <span className="font-plate text-caption tracking-[0.1em] text-sisal-500 uppercase">
                 {roleLabel(member.role)}
               </span>
-              <span className="font-plate text-[0.75rem] text-sisal-500">
+              <span className="font-plate text-caption text-sisal-500">
                 seit {calendarDate(member.validFrom)}
               </span>
               {canManage ? (
@@ -441,13 +441,13 @@ function TeamCard({
       ) : null}
 
       {error ? (
-        <p className="mt-3 font-plate text-[0.875rem] text-ring-red-deep" role="alert">
+        <p className="mt-3 font-plate text-body text-ring-red-deep" role="alert">
           {userFacingErrorMessage(error)}
         </p>
       ) : null}
 
       {players.length === 0 ? (
-        <p className="mt-3 font-plate text-[0.875rem] text-sisal-500">
+        <p className="mt-3 font-plate text-body text-sisal-500">
           Diese Organisation führt noch keine Spieler.{" "}
           <Link className="underline underline-offset-4" href={`/spieler?organisation=${organizationId}`}>
             Spieler anlegen
@@ -459,11 +459,11 @@ function TeamCard({
 }
 
 const navLinkClassName =
-  "font-plate text-[0.75rem] font-semibold tracking-[0.14em] text-sisal-500 uppercase underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900";
+  "font-plate text-caption font-semibold tracking-[0.14em] text-sisal-500 uppercase underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900";
 
 function Notice({ children }: { readonly children: ReactNode }) {
   return (
-    <div className="mt-6 border border-sisal-400 bg-sisal-100 px-6 py-10 text-center font-plate text-[0.875rem] text-wedge-900">
+    <div className="mt-6 border border-sisal-400 bg-sisal-100 px-6 py-10 text-center font-plate text-body text-wedge-900">
       {children}
     </div>
   );

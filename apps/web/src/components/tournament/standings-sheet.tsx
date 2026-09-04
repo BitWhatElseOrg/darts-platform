@@ -1,6 +1,7 @@
 import {
   MarkCheck,
   MarkDoubleRing,
+  Name,
   Rule,
   SheetLabel,
   Table,
@@ -25,7 +26,7 @@ export function StandingsSheet({ groups }: StandingsSheetProps) {
         <SheetLabel as="h2" id="standings-heading">
           Gruppenstand
         </SheetLabel>
-        <span className="font-plate text-[0.75rem] text-sisal-500">
+        <span className="font-plate text-caption text-sisal-500">
           {groups.length} Gruppen
         </span>
       </div>
@@ -36,56 +37,74 @@ export function StandingsSheet({ groups }: StandingsSheetProps) {
           return (
             <article key={group.groupLabel}>
               <div className="flex items-baseline justify-between gap-2 pb-1">
-                <h3 className="font-numerals text-[1.125rem] font-bold tracking-[-0.01em] text-wedge-900">
+                <h3 className="font-numerals text-title-sm font-bold text-wedge-900">
                   Gruppe {group.groupLabel}
                 </h3>
-                <span className="flex items-center gap-1.5 font-numerals text-[1rem] font-bold tabular text-sisal-500">
-                  {complete ? <MarkCheck className="text-ring-green" size={11} /> : null}
+                <span className="shrink-0 flex items-center gap-1.5 font-numerals text-counter font-bold tabular text-sisal-500">
+                  {complete ? (
+                    <MarkCheck className="text-ring-green" size={11} />
+                  ) : null}
                   {group.playedMatches}/{group.totalMatches}
                 </span>
               </div>
-              <Table>
-                <caption className="sr-only">
-                  Tabelle der Gruppe {group.groupLabel}. Die ersten {group.qualifyCount} Plätze
-                  qualifizieren sich.
-                </caption>
-                <thead>
-                  <tr>
-                    <Th className="w-6">Pl</Th>
-                    <Th>Spieler</Th>
-                    <Th className="w-7 text-right">S</Th>
-                    <Th className="w-10 text-right">Legs</Th>
-                    <Th className="w-8 text-right">Diff</Th>
-                    <Th className="w-7 text-right">Pkt</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {group.rows.map((row) => (
-                    <Tr key={row.playerId} qualified={row.qualified}>
-                      <Td className="pl-0.5">
-                        <span className="flex items-center gap-1">
+              <div className="overflow-x-auto">
+                <Table>
+                  <caption className="sr-only">
+                    Tabelle der Gruppe {group.groupLabel}. Die ersten{" "}
+                    {group.qualifyCount} Plätze qualifizieren sich.
+                  </caption>
+                  <thead>
+                    <tr>
+                      <Th className="w-6">Pl</Th>
+                      <Th>Spieler</Th>
+                      <Th className="w-7 text-right">S</Th>
+                      <Th className="w-10 text-right">Legs</Th>
+                      <Th className="w-8 text-right">Diff</Th>
+                      <Th className="w-7 text-right">Pkt</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.rows.map((row) => (
+                      <Tr key={row.playerId} qualified={row.qualified}>
+                        <Td className="pl-0.5">
+                          <span className="flex items-center gap-1">
+                            {row.qualified ? (
+                              <MarkDoubleRing
+                                className="text-ring-green"
+                                size={10}
+                              />
+                            ) : null}
+                            <span className="font-numerals font-bold">
+                              {row.position}
+                            </span>
+                          </span>
+                        </Td>
+                        <Td className="max-w-0 truncate pr-2">
+                          <Name title={row.displayName}>
+                            {row.displayName}
+                            {row.withdrawn ? " · Ausgefallen" : ""}
+                          </Name>
                           {row.qualified ? (
-                            <MarkDoubleRing className="text-ring-green" size={10} />
+                            <span className="sr-only"> (qualifiziert)</span>
                           ) : null}
-                          <span className="font-numerals font-bold">{row.position}</span>
-                        </span>
-                      </Td>
-                      <Td className="max-w-0 truncate pr-2 font-medium">
-                        {row.displayName}{row.withdrawn ? " · Ausgefallen" : ""}
-                        {row.qualified ? <span className="sr-only"> (qualifiziert)</span> : null}
-                      </Td>
-                      <Td className="text-right">{row.won}</Td>
-                      <Td className="text-right text-sisal-500">
-                        {row.legsFor}:{row.legsAgainst}
-                      </Td>
-                      <Td className="text-right">
-                        {row.legDifference > 0 ? `+${row.legDifference}` : row.legDifference}
-                      </Td>
-                      <Td className="pr-0.5 text-right font-numerals font-bold">{row.points}</Td>
-                    </Tr>
-                  ))}
-                </tbody>
-              </Table>
+                        </Td>
+                        <Td className="text-right">{row.won}</Td>
+                        <Td className="text-right text-sisal-500">
+                          {row.legsFor}:{row.legsAgainst}
+                        </Td>
+                        <Td className="text-right">
+                          {row.legDifference > 0
+                            ? `+${row.legDifference}`
+                            : row.legDifference}
+                        </Td>
+                        <Td className="pr-0.5 text-right font-numerals font-bold">
+                          {row.points}
+                        </Td>
+                      </Tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
             </article>
           );
         })}

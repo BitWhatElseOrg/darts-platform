@@ -9,7 +9,7 @@ import "./globals.css";
 /** Enamel numerals off the number ring; squared terminals, condensed width. */
 const sairaCondensed = Saira_Condensed({
   subsets: ["latin"],
-  weight: ["600", "700"],
+  weight: ["700"],
   variable: "--font-saira-condensed",
   display: "swap",
 });

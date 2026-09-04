@@ -1,282 +1,280 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-26T00:00:00.000Z",
-  "title": "Design System: Dart Tournament Platform",
+  "generatedAt": "2026-09-04T00:00:00.000Z",
+  "title": "Design System: DartBase - Turnier Plattform",
   "extensions": {
     "colorMeta": {
-      "sisal-200": {
+      "slate-950": {
         "role": "neutral",
-        "displayName": "Sisal",
-        "canonical": "#e1d3ae",
-        "tonalRamp": ["#655638", "#a08e69", "#cdbc93", "#e1d3ae", "#ede3c6", "#f6f0de"]
+        "displayName": "Night Slate",
+        "canonical": "#020617",
+        "tonalRamp": ["#020617", "#0f172a", "#1e293b", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1"]
       },
-      "wedge-900": {
+      "slate-900": {
         "role": "neutral",
-        "displayName": "Wedge Black",
-        "canonical": "#15130f",
-        "tonalRamp": ["#15130f", "#221f19", "#35301f"]
+        "displayName": "Panel Slate",
+        "canonical": "#0f172a",
+        "tonalRamp": ["#020617", "#0f172a", "#1e293b", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1"]
       },
-      "ring-green": {
-        "role": "primary",
-        "displayName": "Ring Green",
-        "canonical": "#1e7443",
-        "tonalRamp": ["#124327", "#1e7443", "#4cb277"]
-      },
-      "ring-red": {
-        "role": "secondary",
-        "displayName": "Ring Red",
-        "canonical": "#b4232a",
-        "tonalRamp": ["#7c161c", "#b4232a", "#e2646a"]
-      },
-      "spider": {
+      "slate-800": {
         "role": "neutral",
-        "displayName": "Spider Steel",
-        "canonical": "#c9ccc8",
-        "tonalRamp": ["#6d716c", "#c9ccc8"]
+        "displayName": "Field Slate",
+        "canonical": "#1e293b",
+        "tonalRamp": ["#020617", "#0f172a", "#1e293b", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1"]
+      },
+      "slate-700": {
+        "role": "neutral",
+        "displayName": "Faint Seam",
+        "canonical": "#334155",
+        "tonalRamp": ["#020617", "#0f172a", "#1e293b", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1"]
+      },
+      "slate-600": {
+        "role": "neutral",
+        "displayName": "Seam Slate",
+        "canonical": "#475569",
+        "tonalRamp": ["#020617", "#0f172a", "#1e293b", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1"]
+      },
+      "slate-400": {
+        "role": "neutral",
+        "displayName": "Steel Caption",
+        "canonical": "#94a3b8",
+        "tonalRamp": ["#020617", "#0f172a", "#1e293b", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1"]
+      },
+      "slate-300": {
+        "role": "neutral",
+        "displayName": "Steel",
+        "canonical": "#cbd5e1",
+        "tonalRamp": ["#020617", "#0f172a", "#1e293b", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1"]
       },
       "chalk": {
         "role": "neutral",
         "displayName": "Chalk",
-        "canonical": "#f9f5e9",
-        "tonalRamp": ["#f9f5e9"]
+        "canonical": "#f8fafc",
+        "tonalRamp": ["#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1", "#e2e8f0", "#f1f5f9", "#f8fafc"]
+      },
+      "ring-green": {
+        "role": "primary",
+        "displayName": "Ring Green",
+        "canonical": "#34d399",
+        "tonalRamp": ["#022c22", "#064e3b", "#065f46", "#047857", "#059669", "#10b981", "#34d399", "#6ee7b7"]
+      },
+      "ring-green-deep": {
+        "role": "primary",
+        "displayName": "Ring Green Deep",
+        "canonical": "#6ee7b7",
+        "tonalRamp": ["#022c22", "#064e3b", "#065f46", "#047857", "#059669", "#10b981", "#34d399", "#6ee7b7"]
+      },
+      "ring-green-filled": {
+        "role": "primary",
+        "displayName": "Ring Green Filled",
+        "canonical": "#047857",
+        "tonalRamp": ["#022c22", "#064e3b", "#065f46", "#047857", "#059669", "#10b981", "#34d399", "#6ee7b7"]
+      },
+      "ring-green-filled-hover": {
+        "role": "primary",
+        "displayName": "Ring Green Filled Pressed",
+        "canonical": "#065f46",
+        "tonalRamp": ["#022c22", "#064e3b", "#065f46", "#047857", "#059669", "#10b981", "#34d399", "#6ee7b7"]
+      },
+      "ring-red": {
+        "role": "secondary",
+        "displayName": "Ring Red",
+        "canonical": "#fb7185",
+        "tonalRamp": ["#4c0519", "#881337", "#9f1239", "#be123c", "#e11d48", "#f43f5e", "#fb7185", "#fda4af"]
+      },
+      "ring-red-deep": {
+        "role": "secondary",
+        "displayName": "Ring Red Deep",
+        "canonical": "#fda4af",
+        "tonalRamp": ["#4c0519", "#881337", "#9f1239", "#be123c", "#e11d48", "#f43f5e", "#fb7185", "#fda4af"]
+      },
+      "ring-red-filled": {
+        "role": "secondary",
+        "displayName": "Ring Red Filled",
+        "canonical": "#be123c",
+        "tonalRamp": ["#4c0519", "#881337", "#9f1239", "#be123c", "#e11d48", "#f43f5e", "#fb7185", "#fda4af"]
+      },
+      "ring-red-filled-hover": {
+        "role": "secondary",
+        "displayName": "Ring Red Filled Pressed",
+        "canonical": "#9f1239",
+        "tonalRamp": ["#4c0519", "#881337", "#9f1239", "#be123c", "#e11d48", "#f43f5e", "#fb7185", "#fda4af"]
       }
     },
     "typographyMeta": {
-      "display": {
-        "displayName": "Oche Score",
-        "purpose": "The remaining score of the player at the oche. Nothing else uses this size."
-      },
-      "headline": { "displayName": "Page Title", "purpose": "The single h1 per surface." },
-      "data": {
-        "displayName": "Opponent Score",
-        "purpose": "The waiting player's remaining score, setup totals, the large plate numeral. Always tabular."
-      },
-      "title": {
-        "displayName": "List Title",
-        "purpose": "Tournament names in a list, preview counters, the medium plate numeral, empty-state statements."
-      },
-      "title-sm": {
-        "displayName": "Group Title",
-        "purpose": "Group headings, header values, the quiet score step."
-      },
-      "counter": {
-        "displayName": "Inline Counter",
-        "purpose": "Legs won and zone counts — numerals that sit inline with text."
-      },
-      "field": {
-        "displayName": "Field Value",
-        "purpose": "Input values, board names, the active player's name. The one step where a name must not shrink."
-      },
-      "body": {
-        "displayName": "Plate Text",
-        "purpose": "Prose, reasons, table cells, control labels, runtimes. Under 70ch."
-      },
-      "caption": {
-        "displayName": "Meta Caption",
-        "purpose": "Meta lines, stage labels, state words, shortcut keys, step labels."
-      },
-      "label": {
-        "displayName": "Sheet Caption",
-        "purpose": "Zone captions, table headers, state words. Doubles as the group heading."
-      }
+      "display": { "displayName": "Display", "purpose": "The remaining score of the player at the oche. Nothing else uses this size." },
+      "headline": { "displayName": "Headline", "purpose": "The page's one h1." },
+      "data": { "displayName": "Data", "purpose": "Opponent's remaining score, encounter match totals, the large board plate." },
+      "title": { "displayName": "Title", "purpose": "Names in a list, structure counters, the medium board plate, empty-state statements." },
+      "title-sm": { "displayName": "Title Small", "purpose": "The quiet score step, group headings, header values." },
+      "counter": { "displayName": "Counter", "purpose": "Legs won, zone counts, slot sequence numbers — numerals inline with text." },
+      "field": { "displayName": "Field", "purpose": "Input values, player names, board names. A name must not shrink below this." },
+      "body": { "displayName": "Body", "purpose": "Prose, reasons, table cells, control labels. Measure under 70ch." },
+      "caption": { "displayName": "Caption", "purpose": "Meta lines, state words, hints, shortcut keys." },
+      "label": { "displayName": "Label", "purpose": "Sheet captions and table headers — the ruled caption that is itself the group heading." }
     },
     "shadows": [
       {
-        "name": "mounted-plate",
-        "value": "0 1px 0 #cdbc93, 0 10px 20px -14px rgba(21,19,15,0.55)",
-        "purpose": "The only shadow in the system. A panel screwed to a wall: one seam, one soft offset shadow."
+        "name": "mounted-panel",
+        "value": "0 25px 50px -12px rgb(0 0 0 / 0.2)",
+        "purpose": "Every Wedge unless lift is turned off. The only component shadow in the system."
+      },
+      {
+        "name": "page-wash",
+        "value": "radial-gradient(circle at top, rgb(16 185 129 / 0.12), transparent 36rem)",
+        "purpose": "Background wash on body and .sektorenring. Belongs to the ground, never to an element."
       }
     ],
     "motion": [
       {
         "name": "land",
-        "value": "translateY(-11px) to translateY(2px) to translateY(0) over 240ms cubic-bezier(0.16, 1, 0.3, 1)",
-        "purpose": "The one authored motion: a match landing on a freed board. Reused for result and release."
+        "value": "land 240ms cubic-bezier(0.16, 1, 0.3, 1) both",
+        "purpose": "A match landing on a board: assignment, result and release. Silenced under prefers-reduced-motion."
       },
       {
-        "name": "chalk-flash",
-        "value": "inset 0 0 0 2px rgba(249,245,233,0.55) to transparent over 700ms cubic-bezier(0.16, 1, 0.3, 1)",
-        "purpose": "Confirms the landing without moving anything a second time."
+        "name": "chalk",
+        "value": "chalk 700ms cubic-bezier(0.16, 1, 0.3, 1) both",
+        "purpose": "An inset chalk rim fading off a surface that just changed. Silenced under prefers-reduced-motion."
       },
       {
-        "name": "state-shift",
-        "value": "150ms linear",
-        "purpose": "Control background steps one tone on hover. The only other transition permitted."
+        "name": "state-transition",
+        "value": "150ms",
+        "purpose": "Control hover and focus colour steps. The only other timing in the system."
       }
     ],
     "breakpoints": [
       { "name": "sm", "value": "640px" },
-      { "name": "md", "value": "768px" },
-      { "name": "xl", "value": "1280px" },
-      { "name": "container", "value": "1600px" }
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
     ]
   },
   "components": [
     {
-      "name": "Primary Action",
+      "name": "Control · go",
       "kind": "button",
       "refersTo": "control-go",
-      "description": "Starts a match on a free board. One per board, never two competing on screen.",
-      "html": "<button class=\"ds-control-go\"><svg viewBox=\"0 0 16 16\" width=\"13\" height=\"13\" aria-hidden=\"true\"><path d=\"M1.5 8h9\" stroke=\"currentColor\" stroke-width=\"1.75\"/><path d=\"M9 3.5 14.5 8 9 12.5Z\" fill=\"currentColor\"/></svg>Auf Board 3 starten<kbd class=\"ds-control-kbd\">3</kbd></button>",
-      "css": ".ds-control-go { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; padding: 0 1.25rem; background: #1e7443; color: #f9f5e9; border: none; border-radius: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.8125rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: background-color 150ms linear; } .ds-control-go:hover { background: #124327; } .ds-control-go:focus-visible { outline: 2px solid #1e7443; outline-offset: 2px; } .ds-control-kbd { display: grid; place-items: center; min-width: 1.25rem; margin-left: 0.25rem; padding: 1px 0.25rem; border: 1px solid rgba(249,245,233,0.4); font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 0.6875rem; font-weight: 700; font-variant-numeric: tabular-nums; }"
+      "description": "The action that starts a match. One per slot, never two competing on screen.",
+      "html": "<button class=\"ds-control ds-control-go\">Auf Board starten</button>",
+      "css": ".ds-control { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 2.75rem; padding: 0 1.25rem; border: none; border-radius: 0.5rem; font-family: Archivo, system-ui, sans-serif; font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: background-color 150ms; } .ds-control:focus-visible { outline: 2px solid #34d399; outline-offset: 2px; } .ds-control-go { background: #047857; color: #f8fafc; } .ds-control-go:hover { background: #065f46; }"
     },
     {
-      "name": "Wire Control",
+      "name": "Control · plate",
+      "kind": "button",
+      "refersTo": "control-plate",
+      "description": "The ordinary committing action: submit a lineup, accept server state.",
+      "html": "<button class=\"ds-control ds-control-plate\">Meldung erfassen</button>",
+      "css": ".ds-control { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 2.75rem; padding: 0 1.25rem; border: none; border-radius: 0.5rem; font-family: Archivo, system-ui, sans-serif; font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: background-color 150ms; } .ds-control:focus-visible { outline: 2px solid #34d399; outline-offset: 2px; } .ds-control-plate { background: #1e293b; color: #f8fafc; } .ds-control-plate:hover { background: #334155; }"
+    },
+    {
+      "name": "Control · wire",
       "kind": "button",
       "refersTo": "control-wire",
-      "description": "Secondary, reversible actions. A wire outline on the sisal ground.",
-      "html": "<button class=\"ds-control-wire\">Board freigeben</button>",
-      "css": ".ds-control-wire { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; padding: 0 1.25rem; background: transparent; color: #15130f; border: 1px solid #a08e69; border-radius: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.8125rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: background-color 150ms linear; } .ds-control-wire:hover { background: #ede3c6; } .ds-control-wire:focus-visible { outline: 2px solid #1e7443; outline-offset: 2px; }"
+      "description": "Reversible and secondary actions. One-pixel outline, no fill.",
+      "html": "<button class=\"ds-control ds-control-wire\">Board freigeben</button>",
+      "css": ".ds-control { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 2.75rem; padding: 0 1.25rem; border-radius: 0.5rem; font-family: Archivo, system-ui, sans-serif; font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: background-color 150ms; } .ds-control:focus-visible { outline: 2px solid #34d399; outline-offset: 2px; } .ds-control-wire { border: 1px solid #475569; background: transparent; color: #f8fafc; } .ds-control-wire:hover { background: #0f172a; }"
+    },
+    {
+      "name": "Control · danger",
+      "kind": "button",
+      "refersTo": "control-danger",
+      "description": "Destructive or blocking actions: walkover, forfeit, cancellation.",
+      "html": "<button class=\"ds-control ds-control-danger\">Nichtantritt werten</button>",
+      "css": ".ds-control { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 2.75rem; padding: 0 1.25rem; border: none; border-radius: 0.5rem; font-family: Archivo, system-ui, sans-serif; font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: background-color 150ms; } .ds-control:focus-visible { outline: 2px solid #34d399; outline-offset: 2px; } .ds-control-danger { background: #be123c; color: #f8fafc; } .ds-control-danger:hover { background: #9f1239; }"
     },
     {
       "name": "Text Field",
       "kind": "input",
       "refersTo": "input-text",
-      "description": "A ruled entry on the setup sheet: caption above, well below.",
-      "html": "<label class=\"ds-field\"><span class=\"ds-field-caption\">Name</span><input class=\"ds-field-input\" type=\"text\" placeholder=\"Vereinsmeisterschaft 2026\"></label>",
-      "css": ".ds-field { display: flex; flex-direction: column; gap: 0.375rem; max-width: 22rem; } .ds-field-caption { font-family: Archivo, system-ui, sans-serif; font-size: 0.625rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.16em; color: #655638; } .ds-field-input { min-height: 2.75rem; padding: 0 0.75rem; background: #f6f0de; color: #15130f; border: 1px solid #a08e69; border-radius: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.9375rem; } .ds-field-input::placeholder { color: #a08e69; } .ds-field-input:focus { border-color: #1e7443; outline: 2px solid #1e7443; outline-offset: 2px; }"
+      "description": "A ruled caption over a night-slate well. The caption is the label, not a floating placeholder.",
+      "html": "<div class=\"ds-field\"><label class=\"ds-field-label\" for=\"ds-reason\">Begründung</label><input class=\"ds-field-input\" id=\"ds-reason\" placeholder=\"nicht an der Abwurflinie erschienen\" type=\"text\" /></div>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 0.375rem; max-width: 20rem; } .ds-field-label { font-family: Archivo, system-ui, sans-serif; font-size: 0.625rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.16em; color: #94a3b8; } .ds-field-input { min-height: 2.75rem; width: 100%; padding: 0 0.75rem; border: 1px solid #475569; border-radius: 0.5rem; background: #020617; color: #f8fafc; font-family: Archivo, system-ui, sans-serif; font-size: 0.9375rem; } .ds-field-input::placeholder { color: #64748b; } .ds-field-input:focus { border-color: #34d399; outline: 2px solid #34d399; outline-offset: 2px; }"
     },
     {
-      "name": "Number-Ring Plate",
-      "kind": "custom",
-      "refersTo": "plate-playing",
-      "description": "The board index, taken off the board's number ring. Black while playing, green when free, red-rimmed and hatched when blocked. Decorative for assistive tech: the board name is always text beside it.",
-      "html": "<div class=\"ds-plate-row\"><span class=\"ds-plate ds-plate-playing\" aria-hidden=\"true\">1</span><span class=\"ds-plate ds-plate-free\" aria-hidden=\"true\">3</span><span class=\"ds-plate ds-plate-blocked\" aria-hidden=\"true\">6</span></div>",
-      "css": ".ds-plate-row { display: flex; gap: 0.75rem; } .ds-plate { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 2.75rem; height: 2.75rem; border-radius: 9999px; font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 1.375rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; } .ds-plate-playing { background: #15130f; color: #f9f5e9; box-shadow: inset 0 0 0 1px rgba(201,204,200,0.7); } .ds-plate-free { background: #1e7443; color: #f9f5e9; box-shadow: inset 0 0 0 1px #124327; } .ds-plate-blocked { background: #15130f; color: #cdbc93; box-shadow: inset 0 0 0 2px #b4232a; background-image: repeating-linear-gradient(58deg, rgba(180,35,42,0.55) 0 1.5px, transparent 1.5px 5px); }"
+      "name": "Wedge · plate",
+      "kind": "card",
+      "refersTo": "wedge-plate",
+      "description": "The raised panel every data group sits on. Mounted, not floating.",
+      "html": "<section class=\"ds-wedge ds-wedge-plate\"><p class=\"ds-sheet-label\">Meldung Heim · Falken A</p><hr class=\"ds-rule\" /><p class=\"ds-wedge-body\">Gemeldet. Die Aufstellung wird sichtbar, sobald beide Seiten gemeldet haben.</p></section>",
+      "css": ".ds-wedge { position: relative; border-radius: 1rem; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.2); } .ds-wedge-plate { padding: 1rem; border: 1px solid #475569; background: #0f172a; color: #f8fafc; } .ds-sheet-label { margin: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.625rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.16em; color: #94a3b8; } .ds-rule { height: 1px; width: 100%; margin: 0.5rem 0 0; border: 0; background: #475569; } .ds-wedge-body { margin: 0.75rem 0 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.875rem; line-height: 1.5; color: #f8fafc; }"
+    },
+    {
+      "name": "Wedge · alarm",
+      "kind": "card",
+      "refersTo": "wedge-alarm",
+      "description": "An unresolved conflict, rendered in the page flow. Never a modal, never a badge.",
+      "html": "<section class=\"ds-wedge ds-wedge-alarm\"><svg aria-hidden=\"true\" class=\"ds-alarm-mark\" focusable=\"false\" height=\"16\" viewBox=\"0 0 16 16\" width=\"16\"><path d=\"M3.5 3.5 L12.5 12.5 M12.5 3.5 L3.5 12.5\" fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-width=\"1.5\" /></svg><div><p class=\"ds-sheet-label ds-sheet-label-alarm\">Versionskonflikt · HTTP 409</p><p class=\"ds-wedge-body\">Deine Eingabe ging von Version 12 aus, der Server steht auf 14.</p></div></section>",
+      "css": ".ds-wedge { position: relative; border-radius: 1rem; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.2); } .ds-wedge-alarm { display: flex; gap: 1rem; align-items: flex-start; padding: 1rem; border: 2px solid #fb7185; background: #020617; color: #f8fafc; } .ds-alarm-mark { flex-shrink: 0; margin-top: 0.125rem; color: #fb7185; } .ds-sheet-label { margin: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.625rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.16em; color: #94a3b8; } .ds-sheet-label-alarm { color: #fda4af; } .ds-wedge-body { margin: 0.375rem 0 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.875rem; line-height: 1.4; color: #f8fafc; }"
     },
     {
       "name": "State Tag",
       "kind": "chip",
-      "refersTo": "wedge-plate",
+      "refersTo": "state-tag",
       "description": "Colour, drawn mark and word in one row. The enforcement mechanism for the Never-Only-Colour Rule.",
-      "html": "<div class=\"ds-tag-row\"><span class=\"ds-tag ds-tag-free\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"4.5\" fill=\"currentColor\"/></svg>frei</span><span class=\"ds-tag ds-tag-finish\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"6.25\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/><circle cx=\"8\" cy=\"8\" r=\"2.5\" fill=\"currentColor\"/></svg>Finish</span><span class=\"ds-tag ds-tag-blocked\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><rect x=\"2.5\" y=\"2.5\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/><path d=\"M3 13 13 3\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg>gesperrt</span></div>",
-      "css": ".ds-tag-row { display: flex; flex-wrap: wrap; gap: 1rem; } .ds-tag { display: inline-flex; align-items: center; gap: 0.375rem; font-family: Archivo, system-ui, sans-serif; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; } .ds-tag-free { color: #124327; } .ds-tag-finish { color: #124327; } .ds-tag-blocked { color: #7c161c; }"
+      "html": "<span class=\"ds-state-tag ds-state-free\"><svg aria-hidden=\"true\" focusable=\"false\" height=\"14\" viewBox=\"0 0 16 16\" width=\"14\"><circle cx=\"8\" cy=\"8\" fill=\"currentColor\" r=\"4.5\" /></svg>frei</span> <span class=\"ds-state-tag ds-state-blocked\"><svg aria-hidden=\"true\" focusable=\"false\" height=\"14\" viewBox=\"0 0 16 16\" width=\"14\"><path d=\"M2 11 L11 2 M5 14 L14 5\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" /></svg>gesperrt</span>",
+      "css": ".ds-state-tag { display: inline-flex; align-items: center; gap: 0.375rem; margin-right: 1rem; font-family: Archivo, system-ui, sans-serif; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; } .ds-state-free { color: #6ee7b7; } .ds-state-blocked { color: #fda4af; }"
     },
     {
-      "name": "Board Wedge — live",
-      "kind": "card",
-      "refersTo": "wedge-live",
-      "description": "A black sector carrying a running match. The active player's remaining score is the largest element; the opponent's is half of it in dim steel.",
-      "html": "<article class=\"ds-wedge ds-wedge-live\"><header class=\"ds-wedge-head\"><span class=\"ds-plate ds-plate-playing\" aria-hidden=\"true\">1</span><div class=\"ds-wedge-id\"><h3 class=\"ds-wedge-name\">Board 1</h3><p class=\"ds-wedge-stage\">Gruppe C · Leg 2 von 3</p></div><div class=\"ds-wedge-meta\"><span class=\"ds-tag ds-tag-live\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><rect x=\"2\" y=\"6.25\" width=\"12\" height=\"3.5\" fill=\"currentColor\"/></svg>läuft</span><span class=\"ds-wedge-time\">12 Min</span></div></header><div class=\"ds-wedge-rule\"></div><div class=\"ds-player ds-player-active\"><div class=\"ds-player-id\"><p class=\"ds-player-name\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><path d=\"M1.5 8h9\" stroke=\"currentColor\" stroke-width=\"1.75\"/><path d=\"M9 3.5 14.5 8 9 12.5Z\" fill=\"currentColor\"/></svg>Reto Meier</p><p class=\"ds-player-finish\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"6.25\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/><circle cx=\"8\" cy=\"8\" r=\"2.5\" fill=\"currentColor\"/></svg>Finish T20 D6</p></div><span class=\"ds-player-legs\">1</span><span class=\"ds-score-display\">72</span></div><div class=\"ds-player\"><div class=\"ds-player-id\"><p class=\"ds-player-name ds-player-quiet\">Sandra Roth</p></div><span class=\"ds-player-legs\">0</span><span class=\"ds-score-lead\">148</span></div></article>",
-      "css": ".ds-wedge { border-radius: 0; box-shadow: 0 1px 0 #cdbc93, 0 10px 20px -14px rgba(21,19,15,0.55); max-width: 34rem; } .ds-wedge-live { background: #15130f; color: #f9f5e9; border: 1px solid #35301f; } .ds-wedge-head { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.875rem 1rem 0.75rem; } .ds-wedge-id { flex: 1; min-width: 0; } .ds-wedge-name { margin: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.9375rem; font-weight: 600; color: #f9f5e9; } .ds-wedge-stage { margin: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.75rem; color: rgba(201,204,200,0.8); } .ds-wedge-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; } .ds-tag-live { color: #c9ccc8; display: inline-flex; align-items: center; gap: 0.375rem; font-family: Archivo, system-ui, sans-serif; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; } .ds-wedge-time { font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 0.8125rem; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(201,204,200,0.75); } .ds-wedge-rule { height: 1px; background: rgba(201,204,200,0.45); } .ds-player { display: flex; align-items: center; gap: 0.75rem; padding: 0.625rem 1rem; border-top: 1px solid rgba(201,204,200,0.15); } .ds-player:first-of-type { border-top: none; } .ds-player-id { flex: 1; min-width: 0; } .ds-player-name { display: flex; align-items: center; gap: 0.375rem; margin: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.9375rem; font-weight: 600; color: #f9f5e9; } .ds-player-quiet { font-size: 0.875rem; font-weight: 400; color: rgba(201,204,200,0.85); } .ds-player-finish { display: flex; align-items: center; gap: 0.375rem; margin: 0.25rem 0 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: #4cb277; } .ds-player-legs { font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; color: rgba(201,204,200,0.6); } .ds-score-display { font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 3.5rem; line-height: 0.78; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: #f9f5e9; } .ds-score-lead { font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 2rem; line-height: 0.85; font-weight: 700; letter-spacing: -0.015em; font-variant-numeric: tabular-nums; color: #6d716c; }"
-    },
-    {
-      "name": "Board Wedge — free",
-      "kind": "card",
-      "refersTo": "wedge-free",
-      "description": "The focal moment: a light plate among black fields, carrying the next match and the one action that starts it. Lands with the `land` motion.",
-      "html": "<article class=\"ds-wedge ds-wedge-free\"><header class=\"ds-wedge-head\"><span class=\"ds-plate ds-plate-free\" aria-hidden=\"true\">3</span><div class=\"ds-wedge-id\"><h3 class=\"ds-wedge-name-ink\">Board 3</h3><p class=\"ds-wedge-stage-ink\">offen für die Zuweisung</p></div><span class=\"ds-tag ds-tag-free\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"4.5\" fill=\"currentColor\"/></svg>frei</span></header><div class=\"ds-wedge-rule-faint\"></div><div class=\"ds-wedge-body\"><p class=\"ds-field-caption\">Nächstes Match</p><p class=\"ds-next-match\">Yves Weber<span class=\"ds-dash\">–</span>Lea Bucher</p><p class=\"ds-wedge-stage-ink\">Gruppe D</p><button class=\"ds-control-go\"><svg viewBox=\"0 0 16 16\" width=\"13\" height=\"13\" aria-hidden=\"true\"><path d=\"M1.5 8h9\" stroke=\"currentColor\" stroke-width=\"1.75\"/><path d=\"M9 3.5 14.5 8 9 12.5Z\" fill=\"currentColor\"/></svg>Auf Board 3 starten<kbd class=\"ds-control-kbd\">3</kbd></button></div></article>",
-      "css": ".ds-wedge-free { background: #ede3c6; color: #15130f; border: 2px solid #1e7443; animation: ds-land 240ms cubic-bezier(0.16, 1, 0.3, 1) both; } @keyframes ds-land { 0% { transform: translateY(-11px); } 62% { transform: translateY(2px); } 100% { transform: translateY(0); } } .ds-wedge-name-ink { margin: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.9375rem; font-weight: 600; color: #15130f; } .ds-wedge-stage-ink { margin: 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.75rem; color: #6f6144; } .ds-wedge-rule-faint { height: 1px; background: #cdbc93; } .ds-wedge-body { display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem; align-items: flex-start; } .ds-next-match { margin: 0.25rem 0 0; font-family: Archivo, system-ui, sans-serif; font-size: 0.9375rem; font-weight: 600; color: #15130f; } .ds-dash { padding: 0 0.375rem; color: #a08e69; } @media (prefers-reduced-motion: reduce) { .ds-wedge-free { animation: none; } }"
-    },
-    {
-      "name": "Queue Row",
-      "kind": "list-item",
-      "refersTo": "wedge-plate",
-      "description": "One waiting match. Position, stage, readiness on the first line; the pairing below; the scheduler's reason under a blocked row.",
-      "html": "<ol class=\"ds-queue\"><li class=\"ds-queue-row\"><div class=\"ds-queue-head\"><span class=\"ds-queue-pos\">1</span><span class=\"ds-queue-stage\">Gruppe D</span><span class=\"ds-tag ds-tag-free\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"4.5\" fill=\"currentColor\"/></svg>bereit</span></div><p class=\"ds-queue-pair\">Yves Weber<span class=\"ds-dash\">–</span>Lea Bucher</p></li><li class=\"ds-queue-row\"><div class=\"ds-queue-head\"><span class=\"ds-queue-pos\">3</span><span class=\"ds-queue-stage\">Gruppe B</span><span class=\"ds-tag ds-tag-blocked\"><svg viewBox=\"0 0 16 16\" width=\"12\" height=\"12\" aria-hidden=\"true\"><rect x=\"2.5\" y=\"2.5\" width=\"11\" height=\"11\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/><path d=\"M3 13 13 3\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg>Spieler belegt</span></div><p class=\"ds-queue-pair\">Bruno Iten<span class=\"ds-dash\">–</span>Petra Odermatt</p><p class=\"ds-queue-reason\">Petra Odermatt spielt auf Board 5.</p></li></ol>",
-      "css": ".ds-queue { list-style: none; margin: 0; padding: 0; max-width: 22rem; } .ds-queue-row { padding: 0.625rem 0; border-bottom: 1px solid #cdbc93; } .ds-queue-head { display: flex; align-items: baseline; gap: 0.625rem; } .ds-queue-pos { width: 1rem; font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 0.8125rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #a08e69; } .ds-queue-stage { flex: 1; font-family: Archivo, system-ui, sans-serif; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: #6f6144; } .ds-queue-pair { margin: 0.125rem 0 0; padding-left: 1.625rem; font-family: Archivo, system-ui, sans-serif; font-size: 0.875rem; font-weight: 600; color: #15130f; } .ds-queue-reason { margin: 0.125rem 0 0; padding-left: 1.625rem; font-family: Archivo, system-ui, sans-serif; font-size: 0.75rem; color: #6f6144; }"
-    },
-    {
-      "name": "Standings Table",
+      "name": "Number-Ring Plate",
       "kind": "custom",
-      "refersTo": "wedge-plate",
-      "description": "The printed group sheet: hairlines, tabular figures, no zebra, no card. A qualifying row carries ground, a double-ring mark and a screen-reader note.",
-      "html": "<table class=\"ds-table\"><caption class=\"ds-table-caption\">Gruppe A</caption><thead><tr><th class=\"ds-th ds-th-narrow\" scope=\"col\">Pl</th><th class=\"ds-th\" scope=\"col\">Spieler</th><th class=\"ds-th ds-th-num\" scope=\"col\">S</th><th class=\"ds-th ds-th-num\" scope=\"col\">Legs</th><th class=\"ds-th ds-th-num\" scope=\"col\">Pkt</th></tr></thead><tbody><tr class=\"ds-tr ds-tr-qualified\"><td class=\"ds-td\"><span class=\"ds-pos\"><svg viewBox=\"0 0 16 16\" width=\"10\" height=\"10\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"6.25\" fill=\"none\" stroke=\"#1e7443\" stroke-width=\"1.5\"/><circle cx=\"8\" cy=\"8\" r=\"2.5\" fill=\"#1e7443\"/></svg>1</span></td><td class=\"ds-td ds-td-name\">Urs Keller</td><td class=\"ds-td ds-td-num\">3</td><td class=\"ds-td ds-td-num ds-td-dim\">9:4</td><td class=\"ds-td ds-td-num ds-td-strong\">6</td></tr><tr class=\"ds-tr ds-tr-qualified\"><td class=\"ds-td\"><span class=\"ds-pos\"><svg viewBox=\"0 0 16 16\" width=\"10\" height=\"10\" aria-hidden=\"true\"><circle cx=\"8\" cy=\"8\" r=\"6.25\" fill=\"none\" stroke=\"#1e7443\" stroke-width=\"1.5\"/><circle cx=\"8\" cy=\"8\" r=\"2.5\" fill=\"#1e7443\"/></svg>2</span></td><td class=\"ds-td ds-td-name\">Nadja Suter</td><td class=\"ds-td ds-td-num\">2</td><td class=\"ds-td ds-td-num ds-td-dim\">7:6</td><td class=\"ds-td ds-td-num ds-td-strong\">4</td></tr><tr class=\"ds-tr\"><td class=\"ds-td\"><span class=\"ds-pos\">3</span></td><td class=\"ds-td ds-td-name\">Olivier Wyss</td><td class=\"ds-td ds-td-num\">1</td><td class=\"ds-td ds-td-num ds-td-dim\">5:8</td><td class=\"ds-td ds-td-num ds-td-strong\">2</td></tr></tbody></table>",
-      "css": ".ds-table { width: 100%; max-width: 20rem; border-collapse: collapse; font-family: Archivo, system-ui, sans-serif; font-size: 0.8125rem; font-variant-numeric: tabular-nums; color: #15130f; } .ds-table-caption { text-align: left; padding-bottom: 0.25rem; font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 1.125rem; font-weight: 700; letter-spacing: -0.01em; } .ds-th { padding-bottom: 0.375rem; border-bottom: 1px solid #a08e69; text-align: left; font-size: 0.625rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: #6f6144; } .ds-th-narrow { width: 1.5rem; } .ds-th-num { text-align: right; } .ds-td { padding: 0.375rem 0; border-bottom: 1px solid #cdbc93; } .ds-td-name { font-weight: 500; } .ds-td-num { text-align: right; } .ds-td-dim { color: #6f6144; } .ds-td-strong { font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-weight: 700; } .ds-tr-qualified { background: #ede3c6; } .ds-pos { display: inline-flex; align-items: center; gap: 0.25rem; font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-weight: 700; }"
+      "refersTo": "plate-free",
+      "description": "The signature component: a stencilled board numeral on a circular plate. Always aria-hidden; the board's name is rendered as text beside it.",
+      "html": "<span aria-hidden=\"true\" class=\"ds-plate ds-plate-playing\">3</span> <span aria-hidden=\"true\" class=\"ds-plate ds-plate-free\">7</span> <span aria-hidden=\"true\" class=\"ds-plate ds-plate-blocked\">8</span>",
+      "css": ".ds-plate { display: inline-flex; align-items: center; justify-content: center; width: 2.75rem; height: 2.75rem; margin-right: 0.75rem; border-radius: 9999px; font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-size: 1.5rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; user-select: none; } .ds-plate-playing { background: #1e293b; color: #f8fafc; box-shadow: inset 0 0 0 1px rgb(203 213 225 / 0.7); } .ds-plate-free { background: #047857; color: #f8fafc; box-shadow: inset 0 0 0 1px #6ee7b7; } .ds-plate-blocked { background: #1e293b; color: #cbd5e1; box-shadow: inset 0 0 0 2px #fb7185; }"
+    },
+    {
+      "name": "Score",
+      "kind": "custom",
+      "refersTo": "typography.display",
+      "description": "The Oche Rule made visible: the active player's remaining score at 3.5rem, the opponent's at 2rem in dim steel. The size gap is the turn indicator.",
+      "html": "<div class=\"ds-score-row\"><span class=\"ds-score ds-score-display\">126</span><span class=\"ds-score ds-score-lead\">301</span></div>",
+      "css": ".ds-score-row { display: flex; align-items: baseline; gap: 2rem; } .ds-score { font-family: 'Saira Condensed', 'Arial Narrow', sans-serif; font-weight: 700; font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1; } .ds-score-display { font-size: 3.5rem; line-height: 0.78; letter-spacing: -0.02em; color: #f8fafc; } .ds-score-lead { font-size: 2rem; line-height: 0.85; letter-spacing: -0.015em; color: #94a3b8; }"
     }
   ],
   "narrative": {
     "northStar": "Der Sektorenring",
-    "overview": "A bristle board is already a precision information graphic: sisal wedges alternating black and oat, a steel spider dividing every sector, stencilled enamel numerals on a fixed ring, and a red/green double ring that has meant *this can end now* for a century. This system takes that apparatus and operates a tournament with it. It is emphatically not a picture of a dartboard — there is no round board on any screen. The board supplies the grammar: fields instead of cards, wire instead of borders, enamel numerals instead of a UI sans, and the sport's own two signal colours instead of an invented status palette.\n\nThe register is dense and matte. A tournament director reads this surface across a noisy hall under mixed light, so the ground is warm and light (sisal) with black fields carrying the live data — the inverse of the dark dashboard this category ships, and chosen from that scene rather than from taste. Density is high and deliberate: eight boards, a queue, a disruption list and eight group tables coexist without a single collapsible. Nothing dims, nothing hides behind a badge.\n\nThe world currently governs the tournament routes and the Sektorenring primitive set in packages/ui. The Phase-0/1 scaffold on / still carries the previous dark slate look; it is scoped out by the .sektorenring class and will be replaced when that surface is redesigned. Treat the scaffold as an anti-reference, not as a second system.",
+    "overview": "A bristle board is already a precision information graphic: wedges alternating dark and light, a steel spider dividing every sector, stencilled enamel numerals on a fixed ring, and a red/green double ring that has meant this can end now for a century. This system takes that apparatus and operates a tournament with it. It is emphatically not a picture of a dartboard — there is no round board on any screen. The board supplies the grammar: fields instead of cards, wire instead of borders, ring numerals instead of a UI sans, and the sport's own two signal colours instead of an invented status palette.\n\nThe material is slate. An earlier study painted this apparatus onto warm sisal, on the theory that a hall is bright; the product went the other way and unified every surface — entry, organisation, tournament, league — onto one calm dark ground with an emerald signal, so a director moving between the sign-in page and the command centre never changes worlds. The grammar survived the material change intact, and that is the point: the north star was never the colour of the ground, it was the way the board organises information.\n\nDensity is high and deliberate. Nineteen encounter slots, two lineups, four doubling panels and a running scoreline coexist on one page. Nothing dims, nothing hides behind a badge, and a monitoring surface may not obscure its own state. What earns the density is that the director is standing in a noisy hall with a tablet, deciding which board to fill next, and every collapsed zone is a question they have to re-open under time pressure.",
     "keyCharacteristics": [
-      "Warm sisal ground, black wedge fields, no rounded rectangles anywhere",
+      "Slate ground with a single emerald radial glow; raised slate panels, never a second hue",
       "Two chromatic signals only — the board's red and green — always paired with a drawn mark and a word",
-      "Enamel condensed numerals at display scale; the remaining score is the largest thing on the page",
-      "Hairlines instead of boxes: the spider wire is the only divider",
+      "Condensed ring numerals at display scale; the remaining score is the largest thing on the page",
+      "Rounded surfaces (0.5rem controls, 1rem panels) shared with the entry page",
       "One authored motion: the landing of a match on a board"
     ],
     "rules": [
-      {
-        "name": "The Two Signals Rule",
-        "body": "Only red and green carry state. Anything else on the surface is sisal, wedge black, steel or chalk. A third hue would make the first two stop meaning anything.",
-        "section": "colors"
-      },
-      {
-        "name": "The Never-Only-Colour Rule",
-        "body": "Every coloured state also carries a drawn mark (disc, bar, double ring, hatch, cross, clock) and a word. Colour is the third channel, never the only one. This is binding, not stylistic (AGENTS.md §19).",
-        "section": "colors"
-      },
-      {
-        "name": "The Lit-Pair Rule",
-        "body": "A signal colour has two renditions: the true ring colour on sisal, the lit variant on black. Using the true colour on a black field is a contrast failure, not a style choice.",
-        "section": "colors"
-      },
-      {
-        "name": "The Oche Rule",
-        "body": "The active player's remaining score is the largest element on the page (3.5rem); the opponent's is set at 2rem in dim steel. The size difference is the turn indicator, so it is never softened.",
-        "section": "typography"
-      },
-      {
-        "name": "The Tabular Rule",
-        "body": "Any numeral that can sit in a column — score, legs, runtime, points, leg difference — uses tabular figures. A proportional numeral in a table is a defect.",
-        "section": "typography"
-      },
-      {
-        "name": "The One Voice Per Job Rule",
-        "body": "Saira Condensed for numerals and headings, Archivo for everything read as language. No third face, and no system display face substituted for either.",
-        "section": "typography"
-      },
-      {
-        "name": "The Ten Steps Rule",
-        "body": "The ramp has exactly ten steps: 3.5, 2.75, 2, 1.5, 1.125, 1, 0.9375, 0.875, 0.75 and 0.625rem. A size one pixel off an existing step is drift, not a decision: pick the neighbour.",
-        "section": "typography"
-      },
-      {
-        "name": "The Three Zones Rule",
-        "body": "Boards, queue, disruptions. All three are on screen at the desk anchor, and none of them dims, collapses or hides behind a count. A monitoring surface may not obscure its own state.",
-        "section": "layout"
-      },
-      {
-        "name": "The Disruption-In-View Rule",
-        "body": "Conflicts render in the first viewport, never in a modal and never as a badge that must be clicked. When there is nothing wrong, the zone says so with a green disc and the word ohne Befund.",
-        "section": "layout"
-      },
-      {
-        "name": "The Mounted-Plate Rule",
-        "body": "Panels are mounted, not floating. One seam, one soft shadow, no second elevation step. A zero-offset coloured halo is decoration and has no place here.",
-        "section": "elevation"
-      },
-      {
-        "name": "The No-Radius Rule",
-        "body": "Radius is 0 everywhere except the number-ring plate. A rounded rectangle in this system is a foreign object.",
-        "section": "shapes"
-      },
-      {
-        "name": "The Two-Pixel Rule",
-        "body": "A 2px border means act on this. Free, blocked and alarm own it; nothing else may borrow it.",
-        "section": "shapes"
-      }
+      { "name": "The Two Signals Rule", "body": "Only red and green carry state. Anything else on the surface is slate, steel or chalk. A third hue would make the first two stop meaning anything.", "section": "colors" },
+      { "name": "The Never-Only-Colour Rule", "body": "Every coloured state also carries a drawn mark (disc, bar, double ring, hatch, cross, clock) and a word. Colour is the third channel, never the only one. This is binding, not stylistic (AGENTS.md §19).", "section": "colors" },
+      { "name": "The Filled-Pair Rule", "body": "A signal colour has two renditions: the lit token as text or rim on slate, the filled token as a ground under chalk. Putting ring-green (#34d399) behind white text is a contrast failure, not a style choice.", "section": "colors" },
+      { "name": "The Oche Rule", "body": "The active player's remaining score is the largest element on the page (3.5rem); the opponent's is set at 2rem in dim steel. The size difference is the turn indicator, so it is never softened.", "section": "typography" },
+      { "name": "The Tabular Rule", "body": "Any numeral that can sit in a column — score, legs, runtime, points, leg difference — uses tabular figures. A proportional numeral in a table is a defect.", "section": "typography" },
+      { "name": "The One Voice Per Job Rule", "body": "Saira Condensed for numerals and headings, Archivo for everything read as language. No third face, and no system display face substituted for either.", "section": "typography" },
+      { "name": "The Ten Steps Rule", "body": "The ramp has exactly ten steps. A size one pixel off an existing step is drift, not a decision: pick the neighbour. Every literal text-[…] resolves to one of these ten.", "section": "typography" },
+      { "name": "The No-Collapse Rule", "body": "A zone of a command centre does not dim, collapse or hide behind a count. Density is the feature. The one sanctioned exception is a destructive action, where a disclosure is a deliberate speed bump — and it must still present a 44px target.", "section": "layout" },
+      { "name": "The In-View Rule", "body": "Conflicts and failed commands render in the page flow, never in a modal and never as a badge that must be clicked.", "section": "layout" },
+      { "name": "The One Shadow Rule", "body": "Panels are mounted, not floating. One ambient shadow, no second step, no zero-offset coloured halo on any component.", "section": "elevation" },
+      { "name": "The Four Radii Rule", "body": "0.5rem, 0.75rem, 1rem, 9999px. A fifth value is drift; pick the neighbour.", "section": "shapes" },
+      { "name": "The Two-Pixel Rule", "body": "A 2px border means act on this. Free, blocked and alarm own it; nothing else may borrow it.", "section": "shapes" }
     ],
     "dos": [
       "Do pair every coloured state with a drawn mark and a word, on every surface, without exception.",
       "Do use Score at display (3.5rem) for the active player's remaining score and lead (2rem) for the opponent's — the size gap is the turn indicator.",
       "Do put numerals in Saira Condensed with tabular figures, and language in Archivo.",
       "Do reach for Rule when content needs separating. A hairline is the answer; a box is not.",
-      "Do keep radius at 0 and let the number-ring plate be the only circle.",
-      "Do pick the lit signal variant (ring-green-lit, ring-red-lit) whenever a signal sits on wedge-900.",
-      "Do show pending commands and version conflicts as visible, actionable states — a queued command listed by name beats a silent retry.",
-      "Do advertise the keyboard path on the control that performs it (shortcut on Control)."
+      "Do pick the filled signal token (#047857, #be123c) whenever a signal sits behind chalk text, and the lit token (#34d399, #fda4af) whenever it sits on slate.",
+      "Do keep every interactive target at 2.75rem minimum height, including <summary> elements and standalone links.",
+      "Do show pending commands, failed commands and version conflicts as visible, actionable states in the page flow — and announce them to assistive technology, not only visually.",
+      "Do read a sisal-* or wedge-* class as a role, and check its live value in globals.css before assuming a colour."
     ],
     "donts": [
       "Don't introduce a third accent hue. Amber, blue and violet have no meaning on a dartboard and would drain red and green of theirs.",
-      "Don't round a corner, anywhere, for any component.",
+      "Don't invent a fifth radius. The vocabulary is 0.5rem, 0.75rem, 1rem, 9999px.",
       "Don't render a circular dartboard, a wire spider illustration, or any depiction of the board as ornament. The board is the grammar, not the picture.",
-      "Don't dim, collapse or badge-away a zone of the command centre to reduce density. Density is the feature.",
-      "Don't use emerald, slate or any other Tailwind default palette colour on a .sektorenring surface — those belong to the scaffold this world replaces.",
-      "Don't add a second shadow step or a coloured glow; there is exactly one mounted-plate shadow.",
+      "Don't dim, collapse or badge-away a zone of a command centre to reduce density; destructive actions are the one sanctioned disclosure.",
+      "Don't use a raw Tailwind palette colour (emerald-500, slate-800) inside a .sektorenring surface. Go through the tokens, so one edit moves the whole world.",
+      "Don't add a second shadow step or a coloured glow to a component; the emerald wash belongs to the page ground alone.",
       "Don't stack a small uppercase caption above a heading as an eyebrow. SheetLabel is the heading for a data group.",
       "Don't substitute a unicode glyph or emoji for a drawn mark, and don't mix stroke weights in the mark family (1.5px on a 16px box).",
-      "Don't scatter hover animations. The system has one authored motion — the landing — and it belongs to assignment, result and release."
+      "Don't hand-roll a button out of a <Link> and utility classes when Control exists; that is how the radius vocabulary drifts.",
+      "Don't scatter hover animations. The system has two authored motions and they belong to state change, not to decoration."
     ]
   }
 }
