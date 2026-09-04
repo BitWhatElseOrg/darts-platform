@@ -12,7 +12,7 @@ import {
   type OrganizationSummary,
 } from "@darts-platform/schemas";
 import { hasOrganizationPermission } from "@darts-platform/domain";
-import { Control, Field, Rule, SelectInput, SheetLabel, StateTag, TextInput, Wedge } from "@darts-platform/ui";
+import { Control, Field, FieldRow, Rule, SelectInput, SheetLabel, StateTag, TextInput, Wedge } from "@darts-platform/ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -27,6 +27,7 @@ import {
 } from "@/lib/league-format";
 import { calendarDate, clockTime } from "@/lib/tournament-format";
 import { TemplateTable } from "./template-table";
+import { NavLink, PageNav } from "@/components/page-nav";
 import { useTournamentOrganization } from "@/components/tournament/use-tournament-organization";
 
 interface ScheduleFormValues {
@@ -56,19 +57,14 @@ export function CompetitionDetail({
   return (
     <main className="sektorenring min-h-screen">
       <div className="mx-auto max-w-[1100px] px-5 py-8 xl:px-9">
-        <nav className="mb-5 flex flex-wrap gap-5">
-          <Link
-            className={navLinkClassName}
-            href={organization === null ? "/liga" : `/liga?organisation=${organization.id}`}
-          >
+        <PageNav>
+          <NavLink href={organization === null ? "/liga" : `/liga?organisation=${organization.id}`}>
             Alle Wettbewerbe
-          </Link>
+          </NavLink>
           {organization === null ? null : (
-            <Link className={navLinkClassName} href={`/teams?organisation=${organization.id}`}>
-              Teams
-            </Link>
+            <NavLink href={`/teams?organisation=${organization.id}`}>Teams</NavLink>
           )}
-        </nav>
+        </PageNav>
 
         {query.isPending ? (
           <Notice>Organisation wird geladen …</Notice>
@@ -324,8 +320,10 @@ function ScheduleSection({
           </Link>
         </p>
       ) : (
-        <form
-          className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-[6rem_1fr_1fr_1fr_1fr_auto] lg:items-end"
+        <FieldRow
+          as="form"
+          className="mt-4 sm:grid-cols-2 lg:grid-cols-[6rem_1fr_1fr_1fr_1fr_auto]"
+          from="lg"
           onSubmit={handleSubmit(onSubmit)}
         >
           <Field error={formErrors.matchday ?? null} htmlFor="encounter-matchday" label="Spieltag">
@@ -370,7 +368,7 @@ function ScheduleSection({
           <Control disabled={schedule.isPending} type="submit" variant="go">
             {schedule.isPending ? "Setzt an …" : "Ansetzen"}
           </Control>
-        </form>
+        </FieldRow>
       )}
 
       {schedule.error ? (
@@ -387,8 +385,6 @@ function ScheduleSection({
   );
 }
 
-const navLinkClassName =
-  "font-plate text-caption font-semibold tracking-[0.14em] text-sisal-500 uppercase underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900";
 
 function Notice({ children }: { readonly children: ReactNode }) {
   return (

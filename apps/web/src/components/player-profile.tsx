@@ -3,9 +3,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { playerStatisticsProfileSchema } from "@darts-platform/schemas";
 import { Rule, SheetLabel } from "@darts-platform/ui";
-import Link from "next/link";
 import { useMemo } from "react";
 
+import { NavLink, PageNav } from "@/components/page-nav";
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { calendarDateNumeric } from "@/lib/tournament-format";
 import { useTournamentOrganization } from "./tournament/use-tournament-organization";
@@ -24,8 +24,10 @@ export function PlayerProfile({ playerId, requestedOrganizationId }: { readonly 
   const stats = profile.career;
   return <main className="sektorenring min-h-screen">
     <div className="mx-auto max-w-6xl px-5 py-8">
-      <Link className="font-plate text-body text-sisal-500 underline" href="/">Zur Organisation</Link>
-      <header className="mt-5 flex flex-wrap items-end justify-between gap-4">
+      <PageNav>
+        <NavLink href="/">Übersicht</NavLink>
+      </PageNav>
+      <header className="flex flex-wrap items-end justify-between gap-4">
         <div><h1 className="font-numerals text-headline font-bold text-wedge-900">{profile.player.displayName}</h1>{profile.player.nickname ? <p className="mt-1 font-plate text-body text-sisal-500">«{profile.player.nickname}»</p> : null}</div>
         <p className="font-plate text-body text-sisal-500">{stats.matchesPlayed} Matches · {stats.wins} Siege · {stats.losses} Niederlagen</p>
       </header>

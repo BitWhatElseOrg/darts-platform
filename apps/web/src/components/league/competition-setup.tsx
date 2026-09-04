@@ -9,7 +9,6 @@ import {
 } from "@darts-platform/schemas";
 import { hasOrganizationPermission } from "@darts-platform/domain";
 import { Control, Field, Rule, SelectInput, SheetLabel, TextInput, Wedge } from "@darts-platform/ui";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -17,6 +16,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { buildEncounterTemplate, slugFromName, type StartingScore } from "@/lib/league-template";
 import { TemplateTable } from "./template-table";
+import { NavLink, PageNav } from "@/components/page-nav";
 import { useTournamentOrganization } from "@/components/tournament/use-tournament-organization";
 
 /**
@@ -71,14 +71,11 @@ export function CompetitionSetup({
   return (
     <main className="sektorenring min-h-screen">
       <div className="mx-auto max-w-[1100px] px-5 py-8 xl:px-9">
-        <nav className="mb-5 flex flex-wrap gap-5">
-          <Link
-            className={navLinkClassName}
-            href={organization === null ? "/liga" : `/liga?organisation=${organization.id}`}
-          >
+        <PageNav>
+          <NavLink href={organization === null ? "/liga" : `/liga?organisation=${organization.id}`}>
             Alle Wettbewerbe
-          </Link>
-        </nav>
+          </NavLink>
+        </PageNav>
 
         <h1 className="font-numerals text-headline font-bold text-wedge-900">
           Wettbewerb anlegen
@@ -450,8 +447,6 @@ function SetupForm({ organization }: { readonly organization: OrganizationSummar
   );
 }
 
-const navLinkClassName =
-  "font-plate text-caption font-semibold tracking-[0.14em] text-sisal-500 uppercase underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900";
 
 function Notice({ children }: { readonly children: ReactNode }) {
   return (

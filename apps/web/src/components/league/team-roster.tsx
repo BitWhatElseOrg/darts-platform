@@ -13,13 +13,14 @@ import {
   type TeamResponse,
 } from "@darts-platform/schemas";
 import { hasOrganizationPermission } from "@darts-platform/domain";
-import { Control, Field, Rule, SelectInput, SheetLabel, StateTag, TextInput, Wedge } from "@darts-platform/ui";
+import { Control, Field, FieldRow, Rule, SelectInput, SheetLabel, StateTag, TextInput, Wedge } from "@darts-platform/ui";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
+import { NavLink, PageNav } from "@/components/page-nav";
 import { useTournamentOrganization } from "@/components/tournament/use-tournament-organization";
 import { calendarDate } from "@/lib/tournament-format";
 
@@ -62,16 +63,12 @@ export function TeamRoster({
   return (
     <main className="sektorenring min-h-screen">
       <div className="mx-auto max-w-[1100px] px-5 py-8 xl:px-9">
-        <nav className="mb-5 flex flex-wrap gap-5">
-          <Link className={navLinkClassName} href="/">
-            Übersicht
-          </Link>
+        <PageNav>
+          <NavLink href="/">Übersicht</NavLink>
           {organization === null ? null : (
-            <Link className={navLinkClassName} href={`/liga?organisation=${organization.id}`}>
-              Liga
-            </Link>
+            <NavLink href={`/liga?organisation=${organization.id}`}>Liga</NavLink>
           )}
-        </nav>
+        </PageNav>
 
         <div>
           <h1 className="font-numerals text-headline font-bold text-wedge-900">
@@ -190,8 +187,9 @@ function TeamList({ organization }: { readonly organization: OrganizationSummary
             Team anlegen
           </SheetLabel>
           <Rule className="mt-2" />
-          <form
-            className="mt-4 grid gap-4 sm:grid-cols-[1fr_14rem_auto] sm:items-end"
+          <FieldRow
+            as="form"
+            className="mt-4 sm:grid-cols-[1fr_14rem_auto]"
             onSubmit={form.handleSubmit(submitTeam)}
           >
             <Field error={formErrors.name ?? null} htmlFor="team-name" label="Name">
@@ -213,7 +211,7 @@ function TeamList({ organization }: { readonly organization: OrganizationSummary
             <Control disabled={createTeam.isPending} type="submit" variant="go">
               {createTeam.isPending ? "Legt an …" : "Team anlegen"}
             </Control>
-          </form>
+          </FieldRow>
           {createTeam.error ? (
             <Wedge className="mt-4 p-4" tone="alarm">
               <SheetLabel as="h3" tone="alarm">
@@ -395,8 +393,9 @@ function TeamCard({
       )}
 
       {canManage && team.status === "ACTIVE" ? (
-        <form
-          className="mt-4 grid gap-4 sm:grid-cols-[1fr_14rem_auto] sm:items-end"
+        <FieldRow
+          as="form"
+          className="mt-4 sm:grid-cols-[1fr_14rem_auto]"
           onSubmit={(event) => {
             event.preventDefault();
             if (playerId === "") return;
@@ -437,7 +436,7 @@ function TeamCard({
           <Control disabled={busy || playerId === ""} type="submit" variant="plate">
             Aufnehmen
           </Control>
-        </form>
+        </FieldRow>
       ) : null}
 
       {error ? (
@@ -458,8 +457,6 @@ function TeamCard({
   );
 }
 
-const navLinkClassName =
-  "font-plate text-caption font-semibold tracking-[0.14em] text-sisal-500 uppercase underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900";
 
 function Notice({ children }: { readonly children: ReactNode }) {
   return (

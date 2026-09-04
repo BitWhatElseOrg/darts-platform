@@ -26,11 +26,11 @@ import {
   type TournamentFormat,
 } from "@darts-platform/schemas";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 
+import { NavLink, PageNav } from "@/components/page-nav";
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 
 /**
@@ -205,14 +205,9 @@ export function SetupSheet({ organizationId, players, boards }: {
   return (
     <main className="sektorenring min-h-screen">
       <form className="mx-auto max-w-[1500px] px-5 py-8 xl:px-9" onSubmit={handleSubmit(onSubmit)}>
-        <nav className="mb-5">
-          <Link
-            className="font-plate text-caption font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900"
-            href={`/turniere?organisation=${organizationId}`}
-          >
-            Alle Turniere
-          </Link>
-        </nav>
+        <PageNav>
+          <NavLink href={`/turniere?organisation=${organizationId}`}>Alle Turniere</NavLink>
+        </PageNav>
 
         <h1 className="font-numerals text-headline font-bold text-wedge-900">
           Turnier anlegen
