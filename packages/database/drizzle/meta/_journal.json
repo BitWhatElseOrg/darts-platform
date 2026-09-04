@@ -141,6 +141,13 @@
       "when": 1788438726175,
       "tag": "0019_league_decider_bonus_default",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788551709511,
+      "tag": "0020_material_medusa",
+      "breakpoints": true
     }
   ]
 }

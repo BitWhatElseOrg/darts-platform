@@ -910,6 +910,10 @@ export const teamPlayers = pgTable(
     uniqueIndex("team_players_team_player_active_unique")
       .on(table.teamId, table.playerId)
       .where(sql`${table.validTo} is null`),
+    // Eine Mannschaft führt genau einen aktiven Captain (Reglement 1.2.1).
+    uniqueIndex("team_players_team_captain_unique")
+      .on(table.teamId)
+      .where(sql`${table.validTo} is null and ${table.role} = 'CAPTAIN'`),
     index("team_players_organization_player_idx").on(table.organizationId, table.playerId),
     check("team_players_role_check", sql`${table.role} in ('PLAYER', 'CAPTAIN')`),
     check(

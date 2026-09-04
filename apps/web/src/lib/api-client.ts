@@ -64,6 +64,8 @@ function localizedMessage(code: string): string {
     PLAYER_BUSY: "Mindestens eine Person spielt bereits an einem anderen Board.",
     COMMAND_ID_ALREADY_USED: "Dieser Befehl wurde bereits ausgeführt.",
     TEAM_PLAYER_ALREADY_MEMBER: "Diese Person gehört bereits zum Kader.",
+    TEAM_CAPTAIN_TAKEN:
+      "Diese Mannschaft führt bereits einen Captain. Nimm die Person als Spielerin oder Spieler auf.",
   };
   const translated = messages[code];
   if (translated !== undefined) return translated;
