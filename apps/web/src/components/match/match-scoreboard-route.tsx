@@ -5,10 +5,12 @@ import { matchStateSchema } from "@darts-platform/schemas";
 
 import { NavLink, PageNav } from "@/components/page-nav";
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
+import { matchBackLink } from "@/lib/match-navigation";
 import { useTournamentOrganization } from "../tournament/use-tournament-organization";
 import { MatchScoreboard } from "./match-scoreboard";
 
-export function MatchScoreboardRoute({ matchId, requestedOrganizationId }: {
+export function MatchScoreboardRoute({ encounterId, matchId, requestedOrganizationId }: {
+  readonly encounterId?: string | undefined;
   readonly matchId: string;
   readonly requestedOrganizationId: string | undefined;
 }) {
@@ -24,7 +26,10 @@ export function MatchScoreboardRoute({ matchId, requestedOrganizationId }: {
     refetchInterval: 4_000,
   });
 
-  const backHref = "/";
+  const back = matchBackLink({
+    organizationId: organization?.id ?? "",
+    encounterId: encounterId ?? null,
+  });
   const message = organizationQuery.isPending
     ? "Organisation wird geladen …"
     : organizationQuery.error
@@ -41,7 +46,7 @@ export function MatchScoreboardRoute({ matchId, requestedOrganizationId }: {
     return (
       <main className="sektorenring flex min-h-screen flex-col px-4 py-6 text-white sm:px-6">
         <PageNav className="mt-0">
-          <NavLink href={backHref}>Zurück</NavLink>
+          <NavLink href={back.href}>{back.label}</NavLink>
         </PageNav>
         <p className="mt-8 rounded-xl border border-slate-800 bg-slate-900/80 p-5 text-body text-slate-300" role="status">
           {message}
@@ -59,7 +64,7 @@ export function MatchScoreboardRoute({ matchId, requestedOrganizationId }: {
       <div className="mx-auto w-full max-w-2xl">
         <div className="flex items-center justify-between gap-3">
           <PageNav className="mt-0 mb-0">
-            <NavLink href={backHref}>Zurück</NavLink>
+            <NavLink href={back.href}>{back.label}</NavLink>
           </PageNav>
           <p className="truncate text-body text-slate-400" title={organization.name}>{organization.name}</p>
         </div>

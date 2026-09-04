@@ -15,5 +15,12 @@ interface PageProps {
 export default async function MatchScoreboardPage({ params, searchParams }: PageProps) {
   const [{ matchId }, query] = await Promise.all([params, searchParams]);
   const organizationId = typeof query.organisation === "string" ? query.organisation : undefined;
-  return <MatchScoreboardRoute matchId={matchId} requestedOrganizationId={organizationId} />;
+  const encounterId = typeof query.begegnung === "string" ? query.begegnung : undefined;
+  return (
+    <MatchScoreboardRoute
+      encounterId={encounterId}
+      matchId={matchId}
+      requestedOrganizationId={organizationId}
+    />
+  );
 }

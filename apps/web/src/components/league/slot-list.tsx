@@ -10,7 +10,8 @@ import { Control, Field, Rule, SelectInput, SheetLabel, StateTag, TextInput } fr
 import Link from "next/link";
 import { useState } from "react";
 
-import { slotAvailability } from "@/lib/encounter-view";
+import { encounterTally, slotAvailability } from "@/lib/encounter-view";
+import { matchScoreboardHref } from "@/lib/match-navigation";
 import { disciplineLabel, slotOutcomeLabel, slotStatusLabel, slotTone, variantLabel } from "@/lib/league-format";
 
 export interface SlotListProps {
@@ -39,7 +40,7 @@ export function SlotList(props: SlotListProps) {
           Spiele der Begegnung
         </SheetLabel>
         <span className="shrink-0 font-numerals text-counter font-bold tabular text-sisal-500">
-          {props.encounter.slots.length}
+          {encounterTally(props.encounter).total}
         </span>
       </div>
       <Rule />
@@ -141,7 +142,11 @@ function SlotRow({
               {slot.matchId === null ? null : (
                 <Link
                   className="inline-flex min-h-11 items-center rounded-lg border border-wedge-900 px-4 font-plate text-caption font-semibold tracking-[0.12em] text-wedge-900 uppercase hover:bg-sisal-50"
-                  href={`/matches/${slot.matchId}?organisation=${organizationId}`}
+                  href={matchScoreboardHref({
+                    matchId: slot.matchId,
+                    organizationId,
+                    encounterId: encounter.id,
+                  })}
                 >
                   Scoreboard
                 </Link>
