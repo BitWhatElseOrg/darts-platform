@@ -80,10 +80,10 @@ export function CompetitionSetup({
           </Link>
         </nav>
 
-        <h1 className="font-numerals text-[2.75rem] leading-[0.9] font-bold tracking-[-0.02em] text-wedge-900">
+        <h1 className="font-numerals text-headline font-bold text-wedge-900">
           Wettbewerb anlegen
         </h1>
-        <p className="mt-1.5 max-w-2xl font-plate text-[0.875rem] text-sisal-500">
+        <p className="mt-1.5 max-w-[65ch] prose-de font-plate text-body text-sisal-500">
           Die Eckwerte erzeugen die Begegnungsvorlage: die Einzel bilden ein vollständiges
           Rundenturnier über alle Aufstellungspositionen, die Doppel folgen nach der halben Distanz.
         </p>
@@ -217,7 +217,7 @@ function SetupForm({ organization }: { readonly organization: OrganizationSummar
           <SheetLabel as="h2" tone="alarm">
             Wettbewerb nicht angelegt
           </SheetLabel>
-          <p className="mt-1.5 font-plate text-[0.875rem] text-wedge-900">
+          <p className="mt-1.5 font-plate text-body text-wedge-900">
             {userFacingErrorMessage(createCompetition.error)}
           </p>
         </Wedge>
@@ -428,7 +428,7 @@ function SetupForm({ organization }: { readonly organization: OrganizationSummar
         </SheetLabel>
         <Rule className="mt-2" />
         {formErrors.slots ? (
-          <p className="mt-3 font-plate text-[0.875rem] text-ring-red-deep" role="alert">
+          <p className="mt-3 font-plate text-body text-ring-red-deep" role="alert">
             {formErrors.slots}
           </p>
         ) : null}
@@ -441,7 +441,7 @@ function SetupForm({ organization }: { readonly organization: OrganizationSummar
         <Control disabled={createCompetition.isPending} type="submit" variant="go">
           {createCompetition.isPending ? "Legt an …" : "Wettbewerb anlegen"}
         </Control>
-        <p className="font-plate text-[0.875rem] text-sisal-500">
+        <p className="font-plate text-body text-sisal-500">
           Die Vorlage wird beim Ansetzen einer Begegnung kopiert. Spätere Änderungen betreffen
           bestehende Begegnungen nicht.
         </p>
@@ -451,11 +451,11 @@ function SetupForm({ organization }: { readonly organization: OrganizationSummar
 }
 
 const navLinkClassName =
-  "font-plate text-[0.75rem] font-semibold tracking-[0.14em] text-sisal-500 uppercase underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900";
+  "font-plate text-caption font-semibold tracking-[0.14em] text-sisal-500 uppercase underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900";
 
 function Notice({ children }: { readonly children: ReactNode }) {
   return (
-    <div className="mt-6 border border-sisal-400 bg-sisal-100 px-6 py-10 text-center font-plate text-[0.875rem] text-wedge-900">
+    <div className="mt-6 border border-sisal-400 bg-sisal-100 px-6 py-10 text-center font-plate text-body text-wedge-900">
       {children}
     </div>
   );

@@ -40,11 +40,11 @@ export function DashboardHeader({ connection, dashboard, pendingCount }: Dashboa
       <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-3">
         <div>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="font-numerals text-[2.75rem] leading-[0.9] font-bold tracking-[-0.02em] text-wedge-900">
+            <h1 className="font-numerals text-headline font-bold text-wedge-900">
               {tournament.name}
             </h1>
           </div>
-          <p className="mt-1.5 font-plate text-[0.875rem] text-sisal-500">
+          <p className="mt-1.5 font-plate text-body text-sisal-500">
             {tournament.stageLabel} · {calendarDate(tournament.startsAt)} ·{" "}
             {tournament.startingScore} {inRuleLabel(tournament.inRule)} ·{" "}
             {outRuleLabel(tournament.outRule)}
@@ -54,19 +54,19 @@ export function DashboardHeader({ connection, dashboard, pendingCount }: Dashboa
         <dl className="flex flex-wrap items-start gap-x-7 gap-y-2">
           <div>
             <SheetLabel as="dt">Zustand</SheetLabel>
-            <dd className="mt-1 font-plate text-[0.875rem] font-semibold text-wedge-900">
+            <dd className="mt-1 font-plate text-body font-semibold text-wedge-900">
               {statusLabel(tournament.status)}
             </dd>
           </div>
           <div>
             <SheetLabel as="dt">Version</SheetLabel>
-            <dd className="mt-1 font-numerals text-[1.125rem] font-bold tabular text-wedge-900">
+            <dd className="mt-1 font-numerals text-title-sm font-bold tabular text-wedge-900">
               {tournament.version}
             </dd>
           </div>
           <div>
             <SheetLabel as="dt">Stand</SheetLabel>
-            <dd className="mt-1 font-numerals text-[1.125rem] font-bold tabular text-wedge-900">
+            <dd className="mt-1 font-numerals text-title-sm font-bold tabular text-wedge-900">
               {clockTime(dashboard.generatedAt)}
             </dd>
           </div>
@@ -97,12 +97,12 @@ export function DashboardHeader({ connection, dashboard, pendingCount }: Dashboa
         >
           <div className="h-full bg-ring-green" style={{ width: `${share}%` }} />
         </div>
-        <p className="font-plate text-[0.875rem] text-sisal-500">
-          <span className="font-numerals text-[1rem] font-bold tabular text-wedge-900">
+        <p className="font-plate text-body text-sisal-500">
+          <span className="font-numerals text-counter font-bold tabular text-wedge-900">
             {tournament.playedMatches}
           </span>{" "}
           von{" "}
-          <span className="font-numerals text-[1rem] font-bold tabular text-wedge-900">
+          <span className="font-numerals text-counter font-bold tabular text-wedge-900">
             {tournament.totalMatches}
           </span>{" "}
           Matches gespielt

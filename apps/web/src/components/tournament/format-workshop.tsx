@@ -45,9 +45,9 @@ export function FormatWorkshop({ requestedOrganizationId }: { readonly requested
   const updateStage = (id: string, patch: Partial<WorkshopStage>) => setStages((current) => current.map((stage) => stage.id === id ? { ...stage, ...patch } : stage));
   return <main className="sektorenring min-h-screen">
     <div className="mx-auto max-w-5xl px-5 py-8">
-      <Link className="font-plate text-sm text-sisal-500 underline" href={`/turniere?organisation=${organization.id}`}>Alle Turniere</Link>
-      <h1 className="mt-5 font-numerals text-5xl font-bold text-wedge-900">Formatwerkstatt</h1>
-      <p className="mt-2 max-w-2xl font-plate text-sm leading-relaxed text-sisal-500">Konfiguriere mehrstufige Turnierformate, Teams oder Paare und den Set-Modus. Die Engine prüft Qualifikation, Byes und Matchanzahl serverseitig.</p>
+      <Link className="font-plate text-body text-sisal-500 underline" href={`/turniere?organisation=${organization.id}`}>Alle Turniere</Link>
+      <h1 className="mt-5 font-numerals text-headline font-bold text-wedge-900">Formatwerkstatt</h1>
+      <p className="mt-2 max-w-[65ch] prose-de font-plate text-body text-sisal-500">Konfiguriere mehrstufige Turnierformate, Teams oder Paare und den Set-Modus. Die Engine prüft Qualifikation, Byes und Matchanzahl serverseitig.</p>
       <Rule className="mt-6" />
       <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Field htmlFor="teilnehmerzahl" label="Teilnehmer"><TextInput id="teilnehmerzahl" min={2} max={256} onChange={(event) => setParticipantCount(Number(event.target.value))} type="number" value={participantCount} /></Field>
@@ -60,7 +60,7 @@ export function FormatWorkshop({ requestedOrganizationId }: { readonly requested
         <div className="flex items-center justify-between"><SheetLabel as="h2">Turnierphasen in Reihenfolge</SheetLabel><Control onClick={() => setStages((current) => [...current, { id: generateId(), type: "SINGLE_ELIMINATION", rounds: 1, advance: 1 }])} variant="wire">Turnierphase hinzufügen</Control></div>
         <Rule className="mt-2" />
         <ol className="mt-4 space-y-3">{stages.map((stage, index) => <li className="grid gap-3 border border-sisal-400 bg-sisal-100 p-4 sm:grid-cols-[3rem_1fr_9rem_9rem_auto]" key={stage.id}>
-          <strong className="font-numerals text-2xl">{index + 1}</strong>
+          <strong className="font-numerals text-title font-bold">{index + 1}</strong>
           <SelectInput aria-label={`Format von Stage ${index + 1}`} onChange={(event) => updateStage(stage.id, { type: event.target.value as StageType })} value={stage.type}>{Object.entries(stageLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</SelectInput>
           <TextInput aria-label={`Runden von Stage ${index + 1}`} disabled={stage.type !== "SWISS"} min={1} max={15} onChange={(event) => updateStage(stage.id, { rounds: Number(event.target.value) })} type="number" value={stage.rounds} />
           <TextInput aria-label={`Qualifizierte aus Stage ${index + 1}`} disabled={stage.type === "PLACEMENT"} min={1} max={participantCount} onChange={(event) => updateStage(stage.id, { advance: Number(event.target.value) })} type="number" value={stage.advance} />
@@ -68,12 +68,12 @@ export function FormatWorkshop({ requestedOrganizationId }: { readonly requested
         </li>)}</ol>
       </section>
 
-      <Control className="mt-6" disabled={preview.isPending} onClick={() => preview.mutate()} variant="primary">Format prüfen</Control>
-      {preview.error ? <Wedge className="mt-5 p-4" tone="alarm"><p className="font-plate text-sm">{userFacingErrorMessage(preview.error)}</p></Wedge> : null}
+      <Control className="mt-6" disabled={preview.isPending} onClick={() => preview.mutate()} variant="go">Format prüfen</Control>
+      {preview.error ? <Wedge className="mt-5 p-4" tone="alarm"><p className="font-plate text-body">{userFacingErrorMessage(preview.error)}</p></Wedge> : null}
       {preview.data ? <section className="mt-7 border border-sisal-400 bg-sisal-50 p-5">
         <SheetLabel as="h2">Geprüfter Ablauf · {preview.data.totalMatches} Matches</SheetLabel>
-        <ol className="mt-4 space-y-2">{preview.data.stages.map((stage) => <li className="grid grid-cols-[1fr_auto] border-b border-sisal-300 py-3 font-plate text-sm" key={stage.key}><span>{stageLabels[stage.type]} · {stage.entrantCount} starten, {stage.advancingCount} kommen weiter</span><strong>{stage.matchCount} Matches</strong></li>)}</ol>
-        {preview.data.warnings.map((warning) => <p className="mt-3 font-plate text-sm text-ring-red-deep" key={warning}>{warning}</p>)}
+        <ol className="mt-4 space-y-2">{preview.data.stages.map((stage) => <li className="grid grid-cols-[1fr_auto] border-b border-sisal-300 py-3 font-plate text-body" key={stage.key}><span>{stageLabels[stage.type]} · {stage.entrantCount} starten, {stage.advancingCount} kommen weiter</span><strong>{stage.matchCount} Matches</strong></li>)}</ol>
+        {preview.data.warnings.map((warning) => <p className="mt-3 font-plate text-body text-ring-red-deep" key={warning}>{warning}</p>)}
       </section> : null}
     </div>
   </main>;

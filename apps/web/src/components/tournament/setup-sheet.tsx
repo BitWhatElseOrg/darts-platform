@@ -207,17 +207,17 @@ export function SetupSheet({ organizationId, players, boards }: {
       <form className="mx-auto max-w-[1500px] px-5 py-8 xl:px-9" onSubmit={handleSubmit(onSubmit)}>
         <nav className="mb-5">
           <Link
-            className="font-plate text-[0.75rem] font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900"
+            className="font-plate text-caption font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900"
             href={`/turniere?organisation=${organizationId}`}
           >
             Alle Turniere
           </Link>
         </nav>
 
-        <h1 className="font-numerals text-[2.75rem] leading-[0.9] font-bold tracking-[-0.02em] text-wedge-900">
+        <h1 className="font-numerals text-headline font-bold text-wedge-900">
           Turnier anlegen
         </h1>
-        <p className="mt-1.5 max-w-2xl font-plate text-[0.875rem] leading-relaxed text-sisal-500">
+        <p className="mt-1.5 max-w-[65ch] prose-de font-plate text-body text-sisal-500">
           Vier Angaben, dann erzeugt die Turnier-Engine Gruppen, Setzung und Spielplan. Mit dem
           Start wird die Struktur verbindlich eröffnet; alle Befehle werden auditiert.
         </p>
@@ -334,7 +334,7 @@ export function SetupSheet({ organizationId, players, boards }: {
                   2 · Teilnehmer
                 </SheetLabel>
                 <div className="flex items-center gap-3">
-                  <span className="font-numerals text-[1rem] font-bold tabular text-wedge-900">
+                  <span className="font-numerals text-counter font-bold tabular text-wedge-900">
                     {participantCount}
                   </span>
                   <Control
@@ -357,7 +357,7 @@ export function SetupSheet({ organizationId, players, boards }: {
               <Rule className="mt-2" />
               {contractErrors.participantIds ? (
                 <p
-                  className="mt-2 font-plate text-[0.75rem] text-ring-red-deep"
+                  className="mt-2 font-plate text-caption text-ring-red-deep"
                   id="participantIds-error"
                   role="alert"
                 >
@@ -369,7 +369,7 @@ export function SetupSheet({ organizationId, players, boards }: {
                   const checked = (values.participantIds ?? []).includes(player.id);
                   return (
                     <li className="border-b border-sisal-300" key={player.id}>
-                      <label className="flex min-h-11 cursor-pointer items-center gap-2.5 py-1.5 font-plate text-[0.875rem] text-wedge-900">
+                      <label className="flex min-h-11 cursor-pointer items-center gap-2.5 py-1.5 font-plate text-body text-wedge-900">
                         <input
                           aria-describedby={
                             contractErrors.participantIds ? "participantIds-error" : undefined
@@ -379,7 +379,7 @@ export function SetupSheet({ organizationId, players, boards }: {
                           onChange={() => toggleParticipant(player.id)}
                           type="checkbox"
                         />
-                        <span className="truncate">{player.displayName}</span>
+                        <span className="truncate" title={player.displayName}>{player.displayName}</span>
                       </label>
                     </li>
                   );
@@ -465,14 +465,14 @@ export function SetupSheet({ organizationId, players, boards }: {
                 <SheetLabel as="h2" id="setup-boards">
                   4 · Boards
                 </SheetLabel>
-                <span className="font-numerals text-[1rem] font-bold tabular text-wedge-900">
+                <span className="font-numerals text-counter font-bold tabular text-wedge-900">
                   {boardCount}
                 </span>
               </div>
               <Rule className="mt-2" />
               {contractErrors.boardIds ? (
                 <p
-                  className="mt-2 font-plate text-[0.75rem] text-ring-red-deep"
+                  className="mt-2 font-plate text-caption text-ring-red-deep"
                   id="boardIds-error"
                   role="alert"
                 >
@@ -503,7 +503,7 @@ export function SetupSheet({ organizationId, players, boards }: {
                           state={checked ? "free" : "quiet"}
                           value={index + 1}
                         />
-                        <span className="font-plate text-[0.875rem] font-medium text-wedge-900">
+                        <span className="font-plate text-body font-medium text-wedge-900">
                           {board.name}
                         </span>
                       </label>
@@ -526,10 +526,10 @@ export function SetupSheet({ organizationId, players, boards }: {
                   ["Freilose", preview.byes],
                 ].map(([label, value]) => (
                   <div key={String(label)}>
-                    <dt className="font-plate text-[0.625rem] font-semibold uppercase tracking-[0.14em] text-sisal-500">
+                    <dt className="font-plate text-label font-semibold uppercase tracking-[0.14em] text-sisal-500">
                       {label}
                     </dt>
-                    <dd className="font-numerals text-[1.5rem] leading-tight font-bold tabular text-wedge-900">
+                    <dd className="font-numerals text-title font-bold tabular text-wedge-900">
                       {value}
                     </dd>
                   </div>
@@ -537,14 +537,14 @@ export function SetupSheet({ organizationId, players, boards }: {
               </dl>
               <Rule className="mt-4" tone="faint" />
               <p className="mt-3 flex items-baseline justify-between gap-3">
-                <span className="font-plate text-[0.875rem] font-semibold text-wedge-900">
+                <span className="font-plate text-body font-semibold text-wedge-900">
                   Matches insgesamt
                 </span>
-                <span className="font-numerals text-[2rem] leading-none font-bold tabular text-wedge-900">
+                <span className="font-numerals text-data font-bold tabular text-wedge-900">
                   {preview.totalMatches}
                 </span>
               </p>
-              <p className="mt-2 font-plate text-[0.75rem] leading-relaxed text-sisal-500">
+              <p className="mt-2 font-plate text-caption text-sisal-500">
                 {preview.groups.map((group) => `${group.label}: ${group.participantCount}`).join(" · ")}
               </p>
               {preview.warnings.length > 0 ? (
@@ -552,7 +552,7 @@ export function SetupSheet({ organizationId, players, boards }: {
                   {preview.warnings.map((warning) => (
                     <li className="flex flex-col gap-1" key={warning}>
                       <StateTag label="prüfen" tone="blocked" />
-                      <span className="font-plate text-[0.75rem] leading-snug text-wedge-900">
+                      <span className="font-plate text-caption text-wedge-900">
                         {warning}
                       </span>
                     </li>
@@ -573,7 +573,7 @@ export function SetupSheet({ organizationId, players, boards }: {
             >
               Turnier starten
             </Control>
-            <p className="font-plate text-[0.75rem] leading-relaxed text-sisal-500">
+            <p className="font-plate text-caption text-sisal-500">
               Der Start erzeugt den persistenten Spielplan. Eine nachträgliche Strukturänderung
               ist im aktuellen MVP bewusst nicht verfügbar.
             </p>
@@ -581,13 +581,13 @@ export function SetupSheet({ organizationId, players, boards }: {
             {previewQuery.error ? (
               <Wedge className="p-4" tone="plate">
                 <SheetLabel as="h3">Vorschau nicht verfügbar</SheetLabel>
-                <p className="mt-1.5 font-plate text-[0.75rem] text-sisal-500">{userFacingErrorMessage(previewQuery.error)}</p>
+                <p className="mt-1.5 font-plate text-caption text-sisal-500">{userFacingErrorMessage(previewQuery.error)}</p>
               </Wedge>
             ) : null}
             {createMutation.error ? (
               <Wedge className="p-4" tone="alarm">
                 <SheetLabel as="h3" tone="alarm">Turnier konnte nicht angelegt werden</SheetLabel>
-                <p className="mt-1.5 font-plate text-[0.75rem] text-wedge-900">{userFacingErrorMessage(createMutation.error)}</p>
+                <p className="mt-1.5 font-plate text-caption text-wedge-900">{userFacingErrorMessage(createMutation.error)}</p>
               </Wedge>
             ) : null}
           </div>

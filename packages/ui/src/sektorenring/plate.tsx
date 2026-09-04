@@ -19,9 +19,9 @@ const plateVariants = cva(
         quiet: "bg-sisal-100 text-sisal-500 ring-1 ring-sisal-400",
       },
       size: {
-        sm: "size-7 text-[1rem]",
-        md: "size-11 text-[1.5rem]",
-        lg: "size-14 text-[2rem]",
+        sm: "size-7 text-counter",
+        md: "size-11 text-title",
+        lg: "size-14 text-data",
       },
     },
     defaultVariants: { state: "playing", size: "md" },
@@ -99,7 +99,7 @@ export function RingSteps({ className, steps, ...props }: RingStepsProps) {
             )}
             <span
               className={cn(
-                "font-plate text-[0.75rem] font-semibold uppercase tracking-[0.14em]",
+                "font-plate text-caption font-semibold uppercase tracking-[0.14em]",
                 step.state === "current" ? "text-wedge-900" : "text-sisal-500",
               )}
             >

@@ -11,8 +11,8 @@ import { Button } from "@darts-platform/ui";
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { MatchList } from "@/components/match/match-list";
 
-const inputClassName = "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
-const labelClassName = "block text-sm font-medium text-slate-300";
+const inputClassName = "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
+const labelClassName = "block text-body font-medium text-slate-300";
 const mutationMessage = (error: unknown) => userFacingErrorMessage(error);
 
 const bestOfOptions = [1, 3, 5, 7] as const;
@@ -56,13 +56,13 @@ export function MatchWorkspace({ organization, players }: { readonly organizatio
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-white">Match starten</h2>
-        <p className="mt-1 text-sm text-slate-400">501 · Double Out</p>
+        <h2 className="font-numerals text-title font-bold text-white">Match starten</h2>
+        <p className="mt-1 text-body text-slate-400">501 · Double Out</p>
       </div>
       {canCreate ? (
         <div className="grid gap-4 xl:grid-cols-[0.7fr_1.3fr]">
           <form className="rounded-xl border border-slate-800 bg-slate-950/40 p-4" onSubmit={(event) => { event.preventDefault(); createBoard.mutate(); }}>
-            <h3 className="text-sm font-semibold text-slate-200">Boards</h3>
+            <h3 className="text-body font-semibold text-slate-200">Boards</h3>
             <div className="mt-3 space-y-1.5">
               <label className={labelClassName} htmlFor="board-name">Neues Board</label>
               <div className="flex gap-2"><input id="board-name" className={inputClassName} placeholder="Board 1" value={boardName} onChange={(event) => setBoardName(event.target.value)} /><Button disabled={!boardName.trim() || createBoard.isPending} type="submit">Hinzufügen</Button></div>
@@ -72,11 +72,11 @@ export function MatchWorkspace({ organization, players }: { readonly organizatio
                 {boardsQuery.data.map((board) => {
                   const label = board.status === "AVAILABLE" ? "frei" : board.status === "IN_USE" ? "belegt" : "offline";
                   const tone = board.status === "AVAILABLE" ? "text-emerald-300" : board.status === "IN_USE" ? "text-slate-300" : "text-slate-500";
-                  return <li className="rounded-md border border-slate-800 px-2 py-1 text-xs text-slate-400" key={board.id}>{board.name} · <span className={tone}>{label}</span></li>;
+                  return <li className="rounded-md border border-slate-800 px-2 py-1 text-caption text-slate-400" key={board.id}>{board.name} · <span className={tone}>{label}</span></li>;
                 })}
               </ul>
             ) : (
-              <p className="mt-3 text-xs text-slate-400">Noch kein Board vorhanden.</p>
+              <p className="mt-3 text-caption text-slate-400">Noch kein Board vorhanden.</p>
             )}
           </form>
           <form className="grid gap-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4 sm:grid-cols-2" onSubmit={(event) => { event.preventDefault(); createMatch.mutate(); }}>
@@ -100,7 +100,7 @@ export function MatchWorkspace({ organization, players }: { readonly organizatio
               <label className={labelClassName} htmlFor="match-best-of-sets">Sets (Best of)</label>
               <select id="match-best-of-sets" className={inputClassName} value={bestOfSets} onChange={(event) => setBestOfSets(Number(event.target.value))}>{bestOfOptions.map((count) => <option key={count} value={count}>Best of {count}</option>)}</select>
             </div>
-            <p className="text-xs text-slate-400 sm:col-span-2">
+            <p className="text-caption text-slate-400 sm:col-span-2">
               {bestOfSets === 1
                 ? `Best of ${bestOfLegs} Legs – wer zuerst ${Math.ceil((bestOfLegs + 1) / 2)} Legs gewinnt.`
                 : `Best of ${bestOfSets} Sets à Best of ${bestOfLegs} Legs – Satz an ${Math.ceil((bestOfLegs + 1) / 2)} Legs, Match an ${Math.ceil((bestOfSets + 1) / 2)} Sets.`}
@@ -110,14 +110,14 @@ export function MatchWorkspace({ organization, players }: { readonly organizatio
               <select id="match-board" className={inputClassName} value={boardId} onChange={(event) => setBoardId(event.target.value)}><option value="">Kein Board</option>{boardsQuery.data?.filter((board) => board.status === "AVAILABLE").map((board) => <option key={board.id} value={board.id}>{board.name}</option>)}</select>
             </div>
             <Button className="sm:col-span-2" disabled={!resolvedPlayerOneId || !resolvedPlayerTwoId || resolvedPlayerOneId === resolvedPlayerTwoId || createMatch.isPending} type="submit">Match starten</Button>
-            {createMatch.isError ? <p className="text-sm text-rose-300 sm:col-span-2" role="alert">{mutationMessage(createMatch.error)}</p> : null}
+            {createMatch.isError ? <p className="text-body text-rose-300 sm:col-span-2" role="alert">{mutationMessage(createMatch.error)}</p> : null}
           </form>
         </div>
       ) : null}
       <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-slate-200">Matches</h3>
+        <h3 className="text-body font-semibold text-slate-200">Matches</h3>
         {matchesQuery.isPending ? (
-          <p className="text-sm text-slate-400">Matches werden geladen …</p>
+          <p className="text-body text-slate-400">Matches werden geladen …</p>
         ) : (
           <MatchList limit={30} matches={matchesQuery.data ?? []} organizationId={organization.id} variant="full" />
         )}

@@ -22,17 +22,17 @@ export default function HomePage() {
                 src={dartOstLogo}
               />
             </a>
-            <figcaption className="mt-2 text-xs font-semibold tracking-[0.16em] text-slate-500 uppercase">
+            <figcaption className="mt-2 text-caption font-semibold tracking-[0.12em] text-slate-500 uppercase">
               Sponsor
             </figcaption>
           </figure>
-          <p className="mb-3 text-sm font-semibold tracking-[0.28em] text-emerald-300 uppercase">
-            Dartturniere ohne Kompromisse
-          </p>
-          <h1 className="text-4xl font-bold tracking-tight text-white sm:text-6xl">
+          <h1 className="font-numerals text-headline font-bold text-white">
             DartBase - Turnier Plattform
           </h1>
-          <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-slate-400 sm:text-lg">
+          <p className="mt-2 text-caption font-semibold tracking-[0.12em] text-emerald-300 uppercase">
+            Dartturniere ohne Kompromisse
+          </p>
+          <p className="mx-auto mt-4 max-w-[65ch] prose-de text-field text-slate-400">
             Spielt eure Matches in verschiedenen Spielmodi, erfasst Ergebnisse zuverlässig
             und behaltet den aktuellen Spielstand jederzeit auf dem Scoreboard im Blick.
           </p>
@@ -42,7 +42,7 @@ export default function HomePage() {
 
         <nav aria-label="Hilfe" className="mt-auto flex w-full justify-center border-t border-slate-800/80 pt-6">
           <a
-            className="inline-flex min-h-11 items-center rounded-lg border border-emerald-300/50 px-4 py-2 text-sm font-semibold text-emerald-200 transition hover:border-emerald-200 hover:text-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-300"
+            className="inline-flex min-h-11 items-center rounded-lg border border-emerald-300/50 px-4 py-2 text-body font-semibold text-emerald-200 transition hover:border-emerald-200 hover:text-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-300"
             href="/bedienungsanleitung.html"
           >
             Bedienungsanleitung

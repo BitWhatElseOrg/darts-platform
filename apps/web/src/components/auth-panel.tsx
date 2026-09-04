@@ -23,7 +23,7 @@ interface AuthPanelProps {
 }
 
 const inputClassName =
-  "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
+  "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
 
 export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
   const [mode, setMode] = useState<"sign-in" | "register">("sign-in");
@@ -69,14 +69,11 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
   return (
     <section className="w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-900/80 p-5 shadow-2xl shadow-black/20 sm:p-8">
       <div className="mb-6">
-        <p className="mb-1 text-xs font-semibold tracking-[0.2em] text-emerald-300 uppercase">
-          Benutzerkonto
-        </p>
-        <h2 className="text-2xl font-semibold text-white">
+        <h2 className="font-numerals text-title font-bold text-white">
           {mode === "sign-in" ? "Anmelden" : "Konto erstellen"}
         </h2>
         {mode === "register" ? (
-          <p className="mt-2 text-sm leading-6 text-slate-400">
+          <p className="mt-2 text-body text-slate-400">
             Die Registrierung ist nur mit einer gültigen Einladung möglich.
           </p>
         ) : null}
@@ -85,7 +82,7 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
       <form autoComplete="on" className="space-y-4" onSubmit={(event) => void submit(event)}>
         {mode === "register" ? (
           <>
-            <label className="block space-y-2 text-sm text-slate-300">
+            <label className="block space-y-2 text-body text-slate-300">
               <span>Name</span>
               <input
                 className={inputClassName}
@@ -93,7 +90,7 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
                 {...form.register("name")}
               />
             </label>
-            <label className="block space-y-2 text-sm text-slate-300">
+            <label className="block space-y-2 text-body text-slate-300">
               <span>Einladungscode</span>
               <input
                 className={`${inputClassName} font-mono`}
@@ -105,7 +102,7 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
           </>
         ) : null}
 
-        <label className="block space-y-2 text-sm text-slate-300">
+        <label className="block space-y-2 text-body text-slate-300">
           <span>E-Mail</span>
           <input
             id="auth-email"
@@ -116,7 +113,7 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
           />
         </label>
 
-        <label className="block space-y-2 text-sm text-slate-300">
+        <label className="block space-y-2 text-body text-slate-300">
           <span>Passwort</span>
           <input
             id="auth-password"
@@ -128,7 +125,7 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
         </label>
 
         {serverError !== null ? (
-          <p role="alert" className="rounded-lg bg-rose-400/10 p-3 text-sm text-rose-200">
+          <p role="alert" className="rounded-lg bg-rose-400/10 p-3 text-body text-rose-200">
             {serverError}
           </p>
         ) : null}
@@ -143,7 +140,7 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
       </form>
 
       <button
-        className="mt-5 min-h-11 w-full text-sm font-medium text-emerald-300 hover:text-emerald-200"
+        className="mt-5 min-h-11 w-full text-body font-medium text-emerald-300 hover:text-emerald-200"
         onClick={() => {
           setMode((current) => (current === "sign-in" ? "register" : "sign-in"));
           setServerError(null);

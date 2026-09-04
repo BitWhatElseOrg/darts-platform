@@ -38,7 +38,7 @@ export function SlotList(props: SlotListProps) {
         <SheetLabel as="h2" id="slots-heading">
           Spiele der Begegnung
         </SheetLabel>
-        <span className="font-numerals text-[1rem] font-bold tabular text-sisal-500">
+        <span className="shrink-0 font-numerals text-counter font-bold tabular text-sisal-500">
           {props.encounter.slots.length}
         </span>
       </div>
@@ -78,14 +78,14 @@ function SlotRow({
 
   return (
     <li className="border border-sisal-400 bg-sisal-100 p-4">
-      <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
-        <span className="w-8 shrink-0 font-numerals text-[1.5rem] leading-none font-bold tabular text-wedge-900">
+      <div className="flex flex-wrap items-start gap-x-4 gap-y-3 sm:gap-x-6">
+        <span className="w-8 shrink-0 font-numerals text-title font-bold tabular text-wedge-900">
           {slot.sequence}
         </span>
 
-        <div className="min-w-0 flex-1">
-          <p className="font-plate text-[0.9375rem] font-semibold text-wedge-900">{slot.label}</p>
-          <p className="mt-0.5 font-plate text-[0.75rem] text-sisal-500">
+        <div className="min-w-0 flex-1 basis-[calc(100%-3rem)] sm:basis-0">
+          <p className="font-plate text-field font-semibold text-wedge-900">{slot.label}</p>
+          <p className="mt-0.5 font-plate text-caption text-sisal-500">
             {disciplineLabel(slot.discipline)} ·{" "}
             {variantLabel({
               startingScore: slot.startingScore,
@@ -96,20 +96,20 @@ function SlotRow({
           </p>
         </div>
 
-        <dl className="min-w-[16rem] flex-1">
+        <dl className="min-w-0 flex-1 basis-full sm:basis-0 sm:min-w-[16rem]">
           <div className="flex items-baseline gap-3">
-            <dt className="w-12 font-plate text-[0.625rem] font-semibold tracking-[0.14em] text-sisal-500 uppercase">
+            <dt className="w-12 font-plate text-label font-semibold tracking-[0.14em] text-sisal-500 uppercase">
               Heim
             </dt>
-            <dd className="min-w-0 flex-1 font-plate text-[0.9375rem] text-wedge-900">
+            <dd className="min-w-0 flex-1 font-plate text-field text-wedge-900">
               {slot.home.complete ? names(slot.home.players) : "noch offen"}
             </dd>
           </div>
           <div className="mt-1 flex items-baseline gap-3">
-            <dt className="w-12 font-plate text-[0.625rem] font-semibold tracking-[0.14em] text-sisal-500 uppercase">
+            <dt className="w-12 font-plate text-label font-semibold tracking-[0.14em] text-sisal-500 uppercase">
               Gast
             </dt>
-            <dd className="min-w-0 flex-1 font-plate text-[0.9375rem] text-wedge-900">
+            <dd className="min-w-0 flex-1 font-plate text-field text-wedge-900">
               {slot.away.complete ? names(slot.away.players) : "noch offen"}
             </dd>
           </div>
@@ -117,14 +117,14 @@ function SlotRow({
 
         <div className="w-20 shrink-0">
           <SheetLabel>Sätze</SheetLabel>
-          <p className="mt-1 font-numerals text-[1rem] font-bold tabular text-wedge-900">
+          <p className="mt-1 font-numerals text-counter font-bold tabular text-wedge-900">
             {slot.homeLegs}:{slot.awayLegs}
           </p>
         </div>
 
         <div className="w-40 shrink-0">
           <StateTag label={slotStatusLabel(slot.status)} tone={slotTone(slot.status)} />
-          <p className="mt-1 font-plate text-[0.75rem] text-sisal-500">
+          <p className="mt-1 font-plate text-caption text-sisal-500">
             {slot.winnerSide === null
               ? slot.boardName === null
                 ? ""
@@ -140,7 +140,7 @@ function SlotRow({
             <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
               {slot.matchId === null ? null : (
                 <Link
-                  className="inline-flex min-h-11 items-center rounded-lg border border-wedge-900 px-4 font-plate text-[0.75rem] font-semibold tracking-[0.12em] text-wedge-900 uppercase hover:bg-sisal-50"
+                  className="inline-flex min-h-11 items-center rounded-lg border border-wedge-900 px-4 font-plate text-caption font-semibold tracking-[0.12em] text-wedge-900 uppercase hover:bg-sisal-50"
                   href={`/matches/${slot.matchId}?organisation=${organizationId}`}
                 >
                   Scoreboard
@@ -156,7 +156,7 @@ function SlotRow({
                   >
                     Board freigeben
                   </Control>
-                  <p className="font-plate text-[0.75rem] text-sisal-500">
+                  <p className="font-plate text-caption text-sisal-500">
                     Das laufende Match wird abgebrochen und das Spiel wieder geöffnet.
                   </p>
                 </>
@@ -172,13 +172,13 @@ function SlotRow({
               }}
             >
               {freeBoards.length === 0 ? (
-                <p className="font-plate text-[0.875rem] text-sisal-500">
+                <p className="font-plate text-body text-sisal-500">
                   Kein Board frei. Sobald ein Spiel endet, wird sein Board wieder angeboten.
                 </p>
               ) : (
                 <>
                   <Field
-                    className="min-w-[12rem]"
+                    className="sm:min-w-[12rem]"
                     htmlFor={`slot-${slot.id}-board`}
                     label="Board"
                   >
@@ -202,12 +202,12 @@ function SlotRow({
               )}
             </form>
           ) : (
-            <p className="font-plate text-[0.875rem] text-sisal-500">{availability.reason}</p>
+            <p className="font-plate text-body text-sisal-500 prose-de">{availability.reason}</p>
           )}
 
           {canManage && slot.status === "WAITING" && encounter.status === "RUNNING" ? (
             <details className="mt-3">
-              <summary className="cursor-pointer font-plate text-[0.75rem] font-semibold tracking-[0.12em] text-sisal-500 uppercase">
+              <summary className="cursor-pointer font-plate text-caption font-semibold tracking-[0.12em] text-sisal-500 uppercase">
                 Kampflos werten
               </summary>
               <form
@@ -223,7 +223,7 @@ function SlotRow({
                 }}
               >
                 <Field
-                  className="min-w-[10rem]"
+                  className="sm:min-w-[10rem]"
                   htmlFor={`slot-${slot.id}-winner`}
                   label="Sieger"
                 >
@@ -239,7 +239,7 @@ function SlotRow({
                   </SelectInput>
                 </Field>
                 <Field
-                  className="min-w-[16rem] flex-1"
+                  className="min-w-0 flex-1 basis-full sm:basis-0 sm:min-w-[16rem]"
                   error={reasonError}
                   hint="Reglement 2.2.6: der Grund gehört auf den Spielrapport."
                   htmlFor={`slot-${slot.id}-reason`}

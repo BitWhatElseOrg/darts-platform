@@ -45,7 +45,7 @@ export function StateTag({ className, label, on = "sisal", tone, ...props }: Sta
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 font-plate text-[0.75rem] font-semibold uppercase tracking-[0.12em]",
+        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap font-plate text-caption font-semibold uppercase tracking-[0.12em]",
         on === "ink" ? onInk[tone] : onSisal[tone],
         className,
       )}

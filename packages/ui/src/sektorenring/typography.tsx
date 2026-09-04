@@ -7,9 +7,9 @@ const scoreVariants = cva("font-numerals font-bold tabular", {
   variants: {
     size: {
       /* The remaining score of the player at the oche: the largest thing on the page. */
-      display: "text-[3.5rem] leading-[0.78] tracking-[-0.02em]",
-      lead: "text-[2rem] leading-[0.85] tracking-[-0.015em]",
-      quiet: "text-[1.125rem] leading-none tracking-[-0.01em]",
+      display: "text-display",
+      lead: "text-data",
+      quiet: "text-title-sm",
     },
     tone: {
       chalk: "text-chalk",
@@ -28,8 +28,31 @@ export function Score({ className, size, tone, ...props }: ScoreProps) {
   return <span className={cn(scoreVariants({ size, tone }), className)} {...props} />;
 }
 
+const nameVariants = cva("font-plate text-field font-semibold", {
+  variants: {
+    tone: {
+      ink: "text-wedge-900",
+      chalk: "text-chalk",
+      dim: "text-spider/85",
+      quiet: "text-sisal-500",
+    },
+  },
+  defaultVariants: { tone: "ink" },
+});
+
+export type NameProps = ComponentProps<"span"> & VariantProps<typeof nameVariants>;
+
+/**
+ * A person, pair or team, wherever one is named. The field step is the one
+ * place a name may not shrink, so active and inactive differ by tone — never
+ * by size.
+ */
+export function Name({ className, tone, ...props }: NameProps) {
+  return <span className={cn(nameVariants({ tone }), className)} {...props} />;
+}
+
 const sheetLabelVariants = cva(
-  "font-plate text-[0.625rem] font-semibold uppercase tracking-[0.16em]",
+  "min-w-0 font-plate text-label font-semibold uppercase",
   {
     variants: {
       tone: {

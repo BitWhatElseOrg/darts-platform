@@ -20,18 +20,18 @@ export function ParticipantDisruptionPanel({ participants, canWithdraw, disabled
     <section aria-labelledby="participants-heading">
       <div className="flex items-baseline justify-between gap-3 pb-2">
         <SheetLabel as="h2" id="participants-heading">Teilnehmerstatus</SheetLabel>
-        <span className="font-numerals text-[1rem] font-bold tabular text-sisal-500">{active.length}/{participants.length}</span>
+        <span className="shrink-0 font-numerals text-counter font-bold tabular text-sisal-500">{active.length}/{participants.length}</span>
       </div>
       <Rule />
       {withdrawn.length === 0 ? (
-        <p className="py-3 font-plate text-[0.875rem] text-sisal-500">Alle Teilnehmer sind spielbereit.</p>
+        <p className="py-3 font-plate text-body text-sisal-500">Alle Teilnehmer sind spielbereit.</p>
       ) : (
         <ul className="divide-y divide-sisal-300">
           {withdrawn.map((participant) => (
             <li className="py-3" key={participant.playerId}>
-              <p className="font-plate text-[0.875rem] font-semibold text-wedge-900">{participant.displayName} · Ausgefallen</p>
+              <p className="font-plate text-body font-semibold text-wedge-900">{participant.displayName} · Ausgefallen</p>
               <div className="mt-1"><StateTag label="Ausgefallen" tone="blocked" /></div>
-              {participant.withdrawalReason ? <p className="mt-1 break-words font-plate text-[0.75rem] leading-relaxed text-sisal-500">{participant.withdrawalReason}</p> : null}
+              {participant.withdrawalReason ? <p className="mt-1 break-words font-plate text-caption text-sisal-500">{participant.withdrawalReason}</p> : null}
             </li>
           ))}
         </ul>
@@ -73,17 +73,17 @@ function WithdrawalDialog({ active, disabled, onCancel, onSubmit, open }: {
         <div className="flex gap-3">
           <MarkCross className="mt-1 shrink-0 text-ring-red" size={18} />
           <div>
-            <h3 className="font-numerals text-[1.5rem] font-bold" id="withdrawal-title">Spielerausfall erfassen</h3>
-            <p className="mt-2 max-w-[65ch] font-plate text-[0.875rem] leading-relaxed text-sisal-500" id="withdrawal-description">Gespielte Resultate bleiben bestehen. Offene Matches werden kampflos entschieden; ein laufendes Match wird vollständig verworfen.</p>
+            <h3 className="font-numerals text-title font-bold" id="withdrawal-title">Spielerausfall erfassen</h3>
+            <p className="mt-2 max-w-[65ch] prose-de font-plate text-body text-sisal-500" id="withdrawal-description">Gespielte Resultate bleiben bestehen. Offene Matches werden kampflos entschieden; ein laufendes Match wird vollständig verworfen.</p>
           </div>
         </div>
-        <label className="block space-y-2 font-plate text-[0.875rem] font-semibold">
+        <label className="block space-y-2 font-plate text-body font-semibold">
           <span>Spieler</span>
           <select autoFocus className="min-h-11 w-full border border-sisal-400 bg-sisal-50 px-3 text-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green" onChange={(event) => setPlayerId(event.target.value)} required value={resolvedPlayerId}>
             {active.map((participant) => <option key={participant.playerId} value={participant.playerId}>{participant.displayName}</option>)}
           </select>
         </label>
-        <label className="block space-y-2 font-plate text-[0.875rem] font-semibold">
+        <label className="block space-y-2 font-plate text-body font-semibold">
           <span>Ausfallgrund</span>
           <textarea className="min-h-24 w-full border border-sisal-400 bg-sisal-50 p-3 text-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green" maxLength={500} onChange={(event) => setReason(event.target.value)} placeholder="z. B. Verletzung oder Krankheit" required value={reason} />
         </label>

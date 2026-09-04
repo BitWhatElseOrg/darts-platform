@@ -65,16 +65,16 @@ export function CompetitionList({
 
         <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
           <div>
-            <h1 className="font-numerals text-[2.75rem] leading-[0.9] font-bold tracking-[-0.02em] text-wedge-900">
+            <h1 className="font-numerals text-headline font-bold text-wedge-900">
               Liga
             </h1>
-            <p className="mt-1.5 font-plate text-[0.875rem] text-sisal-500">
+            <p className="mt-1.5 font-plate text-body text-sisal-500">
               Ligawettbewerbe mit Begegnungsvorlage, Aufstellungs- und Wertungsregeln.
             </p>
           </div>
           {canManage ? (
             <Link
-              className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-wedge-900 px-5 font-plate text-[0.875rem] font-semibold tracking-[0.1em] text-chalk uppercase transition-colors hover:bg-wedge-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-wedge-900 px-5 font-plate text-body font-semibold tracking-[0.1em] text-chalk uppercase transition-colors hover:bg-wedge-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
               href={`/liga/neu?organisation=${organization.id}`}
             >
               <MarkFlight size={13} /> Wettbewerb anlegen
@@ -87,7 +87,7 @@ export function CompetitionList({
         {organizationsQuery.data && organizationsQuery.data.length > 1 ? (
           <div className="mt-5 max-w-sm">
             <label
-              className="font-plate text-[0.75rem] font-semibold tracking-[0.14em] text-sisal-500 uppercase"
+              className="font-plate text-caption font-semibold tracking-[0.14em] text-sisal-500 uppercase"
               htmlFor="competition-organization"
             >
               Organisation
@@ -119,16 +119,16 @@ export function CompetitionList({
           <Notice>Lege zuerst auf der Startseite eine Organisation an.</Notice>
         ) : competitions.length === 0 ? (
           <div className="mt-6 border border-sisal-400 bg-sisal-100 px-6 py-12 text-center">
-            <p className="font-numerals text-[1.5rem] leading-tight font-bold text-wedge-900">
+            <p className="font-numerals text-title font-bold text-wedge-900">
               Noch kein Wettbewerb angelegt
             </p>
-            <p className="mx-auto mt-2 max-w-md font-plate text-[0.875rem] leading-relaxed text-sisal-500">
+            <p className="mx-auto mt-2 max-w-md font-plate text-body text-sisal-500">
               Ein Ligawettbewerb trägt die Begegnungsvorlage — die nummerierten Spiele eines Abends
               — sowie die Aufstellungs- und Wertungsregeln. Begegnungen werden darin angesetzt.
             </p>
             {canManage ? (
               <Link
-                className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-lg bg-ring-green px-5 font-plate text-[0.875rem] font-semibold tracking-[0.1em] text-chalk uppercase transition-colors hover:bg-ring-green-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
+                className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-lg bg-ring-green px-5 font-plate text-body font-semibold tracking-[0.1em] text-chalk uppercase transition-colors hover:bg-ring-green-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
                 href={`/liga/neu?organisation=${organization.id}`}
               >
                 <MarkFlight size={13} /> Ersten Wettbewerb anlegen
@@ -144,17 +144,17 @@ export function CompetitionList({
                   href={`/liga/${competition.id}?organisation=${organization.id}`}
                 >
                   <div className="min-w-0 flex-1">
-                    <h2 className="font-numerals text-[1.5rem] leading-tight font-bold tracking-[-0.01em] text-wedge-900 group-hover:underline group-hover:decoration-1 group-hover:underline-offset-4">
+                    <h2 className="font-numerals text-title font-bold text-wedge-900 group-hover:underline group-hover:decoration-1 group-hover:underline-offset-4">
                       {competition.name}
                     </h2>
-                    <p className="mt-0.5 font-plate text-[0.875rem] text-sisal-500">
+                    <p className="mt-0.5 font-plate text-body text-sisal-500">
                       {competition.slug} · {competition.slotCount} Spiele je Begegnung ·{" "}
                       {competition.lineupPositions} Aufstellungspositionen
                     </p>
                   </div>
                   <div className="w-32">
                     <SheetLabel>Begegnungen</SheetLabel>
-                    <p className="mt-1 font-numerals text-[1rem] font-bold tabular text-wedge-900">
+                    <p className="mt-1 font-numerals text-counter font-bold tabular text-wedge-900">
                       {competition.encounterCount}
                     </p>
                   </div>
@@ -174,7 +174,7 @@ export function CompetitionList({
         )}
 
         <Rule className="mt-10" />
-        <p className="pt-4 font-plate text-[0.75rem] font-semibold tracking-[0.14em] text-sisal-500 uppercase">
+        <p className="pt-4 font-plate text-caption font-semibold tracking-[0.14em] text-sisal-500 uppercase">
           DartBase · Ligabetrieb · Serverdaten
         </p>
       </div>
@@ -183,11 +183,11 @@ export function CompetitionList({
 }
 
 const navLinkClassName =
-  "font-plate text-[0.75rem] font-semibold tracking-[0.14em] text-sisal-500 uppercase underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900";
+  "font-plate text-caption font-semibold tracking-[0.14em] text-sisal-500 uppercase underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900";
 
 function Notice({ children }: { readonly children: ReactNode }) {
   return (
-    <div className="mt-6 border border-sisal-400 bg-sisal-100 px-6 py-10 text-center font-plate text-[0.875rem] text-wedge-900">
+    <div className="mt-6 border border-sisal-400 bg-sisal-100 px-6 py-10 text-center font-plate text-body text-wedge-900">
       {children}
     </div>
   );
