@@ -14,6 +14,12 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
+import {
+  competitionFormErrors,
+  deciderReachability,
+  legDistanceHint,
+  lineupPositionsHint,
+} from "@/lib/competition-form";
 import { buildEncounterTemplate, slugFromName, type StartingScore } from "@/lib/league-template";
 import { TemplateTable } from "./template-table";
 import { NavLink, PageNav } from "@/components/page-nav";
@@ -46,16 +52,6 @@ interface SetupFormValues {
   readonly maxDoublesPerPlayer: string;
 }
 
-const messages: Readonly<Record<string, string>> = {
-  name: "Der Wettbewerb braucht einen Namen, unter dem er in der Liste auffindbar ist.",
-  slug: "Der Kurzname besteht aus Kleinbuchstaben, Ziffern und Bindestrichen.",
-  slots: "Die Vorlage ist widersprüchlich. Prüfe Positionen, Doppel und Distanz.",
-  minNominations: "Die Mindestmeldung muss alle Aufstellungspositionen abdecken.",
-  minNominationsShorthanded:
-    "Die Ausnahmemeldung darf die reguläre Mindestmeldung nicht übersteigen.",
-  pointsWin: "Die Punkte müssen geordnet sein: Sieg mindestens Unentschieden mindestens Niederlage.",
-  pointsDeciderBonus: "Ein Zusatzpunkt braucht ein Entscheidungsdoppel.",
-};
 
 function startingScore(value: string): StartingScore {
   return value === "301" ? 301 : value === "701" ? 701 : 501;
@@ -102,6 +98,37 @@ export function CompetitionSetup({
       </div>
     </main>
   );
+}
+
+/**
+ * Der Feldname des Zod-Pfads, übersetzt in die Kennung des Eingabefelds. Ohne
+ * diese Zuordnung fände der Sprung zum Fehler nichts.
+ */
+const fieldIds: Readonly<Record<string, string>> = {
+  name: "competition-name",
+  slug: "competition-slug",
+  lineupPositions: "lineup-positions",
+  minNominations: "min-nominations",
+  minNominationsShorthanded: "min-nominations-shorthanded",
+  pointsWin: "points-win",
+  pointsDraw: "points-draw",
+  pointsLoss: "points-loss",
+  pointsDeciderBonus: "points-decider-bonus",
+  maxSubstitutionsPerEncounter: "max-substitutions",
+  maxDoublesPerPlayer: "max-doubles",
+  slots: "template-heading",
+};
+
+function focusFirstError(fields: readonly string[]): void {
+  for (const field of fields) {
+    const id = fieldIds[field];
+    if (id === undefined) continue;
+    const element = document.getElementById(id);
+    if (element === null) continue;
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (element instanceof HTMLElement) element.focus({ preventScroll: true });
+    return;
+  }
 }
 
 function SetupForm({ organization }: { readonly organization: OrganizationSummary }) {
@@ -193,12 +220,13 @@ function SetupForm({ organization }: { readonly organization: OrganizationSummar
       slots,
     });
     if (!parsed.success) {
-      const next: Record<string, string> = {};
-      for (const issue of parsed.error.issues) {
-        const key = String(issue.path[0] ?? "form");
-        next[key] = messages[key] ?? issue.message;
-      }
+      const next = competitionFormErrors(parsed.error.issues, {
+        lineupPositions: Number(formValues.lineupPositions),
+      });
       setFormErrors(next);
+      // Die Schaltfläche steht unten, die fehlerhafte Angabe oft weit oben.
+      // Ohne diesen Sprung sieht die Bedienung nur, dass nichts passiert.
+      focusFirstError(Object.keys(next));
       return;
     }
     setFormErrors({});
@@ -206,6 +234,12 @@ function SetupForm({ organization }: { readonly organization: OrganizationSummar
   }
 
   const withDecider = (values.decider ?? "EXTRA_SLOT") === "EXTRA_SLOT";
+  const deciderWarning = deciderReachability({
+    lineupPositions: Number(values.lineupPositions ?? "4"),
+    regularDoubles: Number(values.regularDoubles ?? "2"),
+    withDecider,
+  });
+  const errorSummary = Object.entries(formErrors).map(([field, message]) => ({ field, message }));
 
   return (
     <form className="mt-7 flex flex-col gap-9" onSubmit={handleSubmit(onSubmit)}>
@@ -261,7 +295,7 @@ function SetupForm({ organization }: { readonly organization: OrganizationSummar
         <Rule className="mt-2" />
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Field
-            hint="Vier Positionen ergeben sechzehn Einzel."
+            hint={lineupPositionsHint(Number(values.lineupPositions ?? "4"))}
             htmlFor="lineup-positions"
             label="Aufstellungspositionen"
           >
@@ -293,7 +327,7 @@ function SetupForm({ organization }: { readonly organization: OrganizationSummar
             </SelectInput>
           </Field>
           <Field
-            hint="Zwei Gewinnsätze entsprechen Best of 3."
+            hint={legDistanceHint(Number(values.bestOfLegs ?? "3"))}
             htmlFor="best-of-legs"
             label="Distanz je Spiel"
           >
@@ -429,10 +463,36 @@ function SetupForm({ organization }: { readonly organization: OrganizationSummar
             {formErrors.slots}
           </p>
         ) : null}
+        {deciderWarning === null ? null : (
+          <p className="mt-3 font-plate text-body text-sisal-500" role="status">
+            {deciderWarning}
+          </p>
+        )}
         <div className="mt-4">
           <TemplateTable slots={slots} />
         </div>
       </section>
+
+      {errorSummary.length === 0 ? null : (
+        <Wedge className="p-4" tone="alarm">
+          <SheetLabel as="h2" tone="alarm">
+            Wettbewerb nicht angelegt
+          </SheetLabel>
+          <ul className="mt-1.5 flex flex-col gap-1">
+            {errorSummary.map((entry) => (
+              <li className="font-plate text-body text-wedge-900" key={entry.field}>
+                <button
+                  className="text-left underline underline-offset-4"
+                  onClick={() => focusFirstError([entry.field])}
+                  type="button"
+                >
+                  {entry.message}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Wedge>
+      )}
 
       <div className="flex flex-wrap items-center gap-4">
         <Control disabled={createCompetition.isPending} type="submit" variant="go">
