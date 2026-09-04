@@ -37,3 +37,10 @@ export {
   type ScoringRules,
   type SlotOutcome,
 } from "./result.js";
+export {
+  calculateStandings,
+  type StandingsEncounter,
+  type StandingsEncounterStatus,
+  type StandingsInput,
+  type StandingsRow,
+} from "./standings.js";

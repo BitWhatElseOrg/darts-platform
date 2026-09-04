@@ -1,11 +1,19 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 
-import { validateEncounterTemplate, type TemplateSlot } from "@darts-platform/league-engine";
+import {
+  calculateStandings,
+  validateEncounterTemplate,
+  type TemplateSlot,
+} from "@darts-platform/league-engine";
 import {
   competitionDetailSchema,
   competitionListSchema,
+  competitionStandingsSchema,
+  encounterResultSchema,
+  encounterStatusSchema,
   type CompetitionDetail,
   type CompetitionSlotInput,
+  type CompetitionStandings,
   type CompetitionSummary,
   type CreateCompetitionInput,
   type UpdateCompetitionInput,
@@ -109,6 +117,41 @@ export class CompetitionsService {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Competition not found." });
     }
     return competitionDetailSchema.parse(toResponse(data));
+  }
+
+  /**
+   * Die Tabelle rechnet die League-Engine; der Service liefert ihr nur die
+   * Zeilen und hängt die Mannschaftsnamen an (AGENTS.md §4).
+   */
+  public async standings(input: {
+    readonly organizationId: string;
+    readonly competitionId: string;
+    readonly auth: AuthContext;
+  }): Promise<CompetitionStandings> {
+    await this.require(input, "competition:read");
+    const data = await this.repository.get(input);
+    if (data === null) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Competition not found." });
+    }
+    const source = await this.repository.standingsSource(input);
+    const names = new Map(source.teams.map((team) => [team.id, team]));
+    const rows = calculateStandings({
+      teamIds: source.teams.map((team) => team.id),
+      // Der Datenbanktyp ist `varchar`; die Enums gehören an die Domänengrenze.
+      encounters: source.encounters.map((row) => ({
+        ...row,
+        status: encounterStatusSchema.parse(row.status),
+        result: row.result === null ? null : encounterResultSchema.parse(row.result),
+      })),
+    });
+    return competitionStandingsSchema.parse({
+      competitionId: input.competitionId,
+      rows: rows.map((row) => ({
+        ...row,
+        teamName: names.get(row.teamId)?.name ?? "",
+        teamShortName: names.get(row.teamId)?.shortName ?? null,
+      })),
+    });
   }
 
   public async create(input: {

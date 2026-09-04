@@ -106,6 +106,36 @@ export const competitionDetailSchema = competitionSummarySchema.extend({
   slots: z.array(competitionSlotSchema),
 });
 
+/**
+ * Die Ligatabelle eines Wettbewerbs. Sie wird serverseitig aus den beendeten
+ * Begegnungen gerechnet (League-Engine), nicht in der Fläche.
+ */
+export const standingsRowSchema = z.object({
+  teamId: z.uuid(),
+  teamName: z.string(),
+  teamShortName: z.string().nullable(),
+  rank: z.number().int().positive(),
+  played: z.number().int().nonnegative(),
+  won: z.number().int().nonnegative(),
+  drawn: z.number().int().nonnegative(),
+  lost: z.number().int().nonnegative(),
+  points: z.number().int().nonnegative(),
+  gamesFor: z.number().int().nonnegative(),
+  gamesAgainst: z.number().int().nonnegative(),
+  gameDifference: z.number().int(),
+  legsFor: z.number().int().nonnegative(),
+  legsAgainst: z.number().int().nonnegative(),
+  legDifference: z.number().int(),
+});
+
+export const competitionStandingsSchema = z.object({
+  competitionId: z.uuid(),
+  rows: z.array(standingsRowSchema),
+});
+
+export type StandingsRowResponse = z.infer<typeof standingsRowSchema>;
+export type CompetitionStandings = z.infer<typeof competitionStandingsSchema>;
+
 export const encounterSummarySchema = z.object({
   id: z.uuid(),
   publicId: z.uuid(),
