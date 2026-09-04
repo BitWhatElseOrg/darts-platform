@@ -3,12 +3,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { boardListSchema, type EncounterSide } from "@darts-platform/schemas";
 import { Control, Field, MarkCross, Rule, SelectInput, SheetLabel, TextInput, Wedge } from "@darts-platform/ui";
-import Link from "next/link";
 import { useCallback, useState } from "react";
 
 import { apiRequest } from "@/lib/api-client";
 import { deciderNotice } from "@/lib/encounter-view";
 import { sideLabel } from "@/lib/league-format";
+import { NavLink, PageNav } from "@/components/page-nav";
 import { DoublesPanel } from "./doubles-panel";
 import { EncounterScoreline } from "./encounter-scoreline";
 import { LineupPanel } from "./lineup-panel";
@@ -123,17 +123,14 @@ export function EncounterCommandCentre({
   return (
     <div className="sektorenring min-h-screen">
       <div className="mx-auto max-w-[1600px] px-5 py-6 xl:px-9">
-        <nav className="mb-5 flex flex-wrap gap-5">
-          <Link
-            className={navLinkClassName}
-            href={`/liga/${encounter.competitionId}?organisation=${organizationId}`}
-          >
+        <PageNav>
+          <NavLink href={`/liga/${encounter.competitionId}?organisation=${organizationId}`}>
             Wettbewerb
-          </Link>
-          <Link className={navLinkClassName} href={`/live/begegnungen/${encounter.publicId}`}>
+          </NavLink>
+          <NavLink href={`/live/begegnungen/${encounter.publicId}`}>
             Öffentliche Live-Ansicht
-          </Link>
-        </nav>
+          </NavLink>
+        </PageNav>
 
         <EncounterScoreline encounter={encounter} organizationId={organizationId} />
 
@@ -362,8 +359,6 @@ function ClosingActions({
   );
 }
 
-const navLinkClassName =
-  "font-plate text-caption font-semibold tracking-[0.14em] text-sisal-500 uppercase underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900";
 
 function RouteNotice({ message }: { readonly message: string }) {
   return (

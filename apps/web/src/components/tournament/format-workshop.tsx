@@ -3,9 +3,9 @@
 import { useMutation } from "@tanstack/react-query";
 import { advancedFormatPreviewSchema, type AdvancedFormatPreviewInput } from "@darts-platform/schemas";
 import { Control, Field, Rule, SelectInput, SheetLabel, TextInput, Wedge } from "@darts-platform/ui";
-import Link from "next/link";
 import { useState } from "react";
 
+import { NavLink, PageNav } from "@/components/page-nav";
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { generateId } from "@/lib/id";
 import { useTournamentOrganization } from "./use-tournament-organization";
@@ -45,8 +45,10 @@ export function FormatWorkshop({ requestedOrganizationId }: { readonly requested
   const updateStage = (id: string, patch: Partial<WorkshopStage>) => setStages((current) => current.map((stage) => stage.id === id ? { ...stage, ...patch } : stage));
   return <main className="sektorenring min-h-screen">
     <div className="mx-auto max-w-5xl px-5 py-8">
-      <Link className="font-plate text-body text-sisal-500 underline" href={`/turniere?organisation=${organization.id}`}>Alle Turniere</Link>
-      <h1 className="mt-5 font-numerals text-headline font-bold text-wedge-900">Formatwerkstatt</h1>
+      <PageNav>
+        <NavLink href={`/turniere?organisation=${organization.id}`}>Alle Turniere</NavLink>
+      </PageNav>
+      <h1 className="font-numerals text-headline font-bold text-wedge-900">Formatwerkstatt</h1>
       <p className="mt-2 max-w-[65ch] prose-de font-plate text-body text-sisal-500">Konfiguriere mehrstufige Turnierformate, Teams oder Paare und den Set-Modus. Die Engine prüft Qualifikation, Byes und Matchanzahl serverseitig.</p>
       <Rule className="mt-6" />
       <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -11,6 +11,7 @@ import type { ReactNode } from "react";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { competitionStatusLabel } from "@/lib/league-format";
+import { NavLink, PageNav } from "@/components/page-nav";
 import { useTournamentOrganization } from "@/components/tournament/use-tournament-organization";
 
 function competitionTone(status: CompetitionStatus): StateTone {
@@ -52,16 +53,12 @@ export function CompetitionList({
   return (
     <main className="sektorenring min-h-screen">
       <div className="mx-auto max-w-[1100px] px-5 py-8 xl:px-9">
-        <nav className="mb-5 flex flex-wrap gap-5">
-          <Link className={navLinkClassName} href="/">
-            Übersicht
-          </Link>
+        <PageNav>
+          <NavLink href="/">Übersicht</NavLink>
           {organization === null ? null : (
-            <Link className={navLinkClassName} href={`/teams?organisation=${organization.id}`}>
-              Teams
-            </Link>
+            <NavLink href={`/teams?organisation=${organization.id}`}>Teams</NavLink>
           )}
-        </nav>
+        </PageNav>
 
         <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
           <div>
@@ -182,8 +179,6 @@ export function CompetitionList({
   );
 }
 
-const navLinkClassName =
-  "font-plate text-caption font-semibold tracking-[0.14em] text-sisal-500 uppercase underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900";
 
 function Notice({ children }: { readonly children: ReactNode }) {
   return (

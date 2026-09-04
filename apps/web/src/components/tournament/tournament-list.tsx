@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 
+import { NavLink, PageNav } from "@/components/page-nav";
 import { apiRequest } from "@/lib/api-client";
 import { calendarDate, statusLabel } from "@/lib/tournament-format";
 import { useTournamentOrganization } from "./use-tournament-organization";
@@ -30,6 +31,10 @@ export function TournamentList({ requestedOrganizationId }: { readonly requested
   return (
     <main className="sektorenring min-h-screen">
       <div className="mx-auto max-w-[1100px] px-5 py-8 xl:px-9">
+        <PageNav>
+          <NavLink href="/">Übersicht</NavLink>
+        </PageNav>
+
         <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
           <div>
             <h1 className="font-numerals text-headline font-bold text-wedge-900">Turniere</h1>

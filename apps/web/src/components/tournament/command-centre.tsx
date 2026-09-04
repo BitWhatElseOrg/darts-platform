@@ -7,9 +7,9 @@ import {
   type TournamentDashboard,
 } from "@darts-platform/schemas";
 import { Control, MarkCross, Rule, SheetLabel, Wedge } from "@darts-platform/ui";
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { NavLink, PageNav } from "@/components/page-nav";
 import { ApiClientError, apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { generateId } from "@/lib/id";
 import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
@@ -312,12 +312,10 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
   return (
     <div className="sektorenring min-h-screen">
       <div className="mx-auto max-w-[1600px] px-5 py-6 xl:px-9">
-        <nav className="mb-5">
-          <div className="flex flex-wrap gap-5">
-            <Link className="font-plate text-caption font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900" href={`/turniere?organisation=${organizationId}`}>Alle Turniere</Link>
-            <Link className="font-plate text-caption font-semibold uppercase tracking-[0.14em] text-sisal-500 underline decoration-sisal-400 decoration-1 underline-offset-4 hover:text-wedge-900" href={`/live/${tournamentId}`}>Öffentliche Live-Ansicht</Link>
-          </div>
-        </nav>
+        <PageNav>
+          <NavLink href={`/turniere?organisation=${organizationId}`}>Alle Turniere</NavLink>
+          <NavLink href={`/live/${tournamentId}`}>Öffentliche Live-Ansicht</NavLink>
+        </PageNav>
 
         <DashboardHeader
           connection={dashboardQuery.error === null ? connection : "offline"}
