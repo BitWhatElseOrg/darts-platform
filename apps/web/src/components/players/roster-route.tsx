@@ -213,12 +213,13 @@ function PlayerRow({
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [displayName, setDisplayName] = useState(player.displayName);
+  const [nickname, setNickname] = useState(player.nickname ?? "");
   const updatePlayer = useMutation({
     mutationFn: () =>
       apiRequest({
         path: `/organizations/${organizationId}/players/${player.id}`,
         method: "PATCH",
-        body: { displayName },
+        body: { displayName, nickname: nickname.trim().length === 0 ? null : nickname },
         schema: playerSchema,
       }),
     onSuccess: async () => {
@@ -231,12 +232,21 @@ function PlayerRow({
     <div className="min-h-16 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         {isEditing ? (
-          <input
-            aria-label={`Anzeigename für ${player.displayName}`}
-            className={inputClassName}
-            onChange={(event) => setDisplayName(event.target.value)}
-            value={displayName}
-          />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              aria-label={`Anzeigename für ${player.displayName}`}
+              className={inputClassName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              value={displayName}
+            />
+            <input
+              aria-label={`Spitzname für ${player.displayName}`}
+              className={inputClassName}
+              placeholder="Spitzname (optional)"
+              onChange={(event) => setNickname(event.target.value)}
+              value={nickname}
+            />
+          </div>
         ) : (
           <div>
             <p className="font-semibold text-white">{player.displayName}</p>
@@ -258,6 +268,7 @@ function PlayerRow({
                 variant="outline"
                 onClick={() => {
                   setDisplayName(player.displayName);
+                  setNickname(player.nickname ?? "");
                   setIsEditing(false);
                 }}
               >

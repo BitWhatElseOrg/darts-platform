@@ -293,8 +293,13 @@ function OrganizationOverview({
       <nav className="grid gap-3 sm:grid-cols-2">
         <OverviewLink
           href={`/spieler${organisationParam}`}
-          title="Spieler & Team"
+          title="Spieler"
           description="Kader pflegen, Profile öffnen, Mitglieder einladen"
+        />
+        <OverviewLink
+          href={`/teams${organisationParam}`}
+          title="Teams"
+          description="Mannschaften und Kader für den Ligabetrieb"
         />
         <OverviewLink
           href={`/matches${organisationParam}`}
@@ -305,11 +310,6 @@ function OrganizationOverview({
           href={`/liga${organisationParam}`}
           title="Liga"
           description="Wettbewerbe, Begegnungen und Spielrapporte"
-        />
-        <OverviewLink
-          href={`/teams${organisationParam}`}
-          title="Teams"
-          description="Mannschaften und Kader für den Ligabetrieb"
         />
       </nav>
 
