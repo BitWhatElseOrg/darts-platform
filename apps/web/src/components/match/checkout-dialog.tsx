@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { Button, cn } from "@darts-platform/ui";
+import { checkoutFieldOptions, checkoutMissLabel } from "@/lib/round-entry";
 
 const fieldSelectClassName =
   "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
@@ -12,8 +13,15 @@ const dartsButtonClassName =
 /**
  * Checkout-Schritt des Runden-Modus (siehe `match-scoreboard.tsx`,
  * `handleRoundSubmit` für die Auslösebedingung). `onBust` sendet die
- * Aufnahme ohne Doppelangabe raus, wenn das Doppel tatsächlich nicht sass —
- * die Engine wertet sie dann korrekt als Bust statt das Leg offenzuhalten.
+ * Aufnahme ohne Doppelangabe raus, wenn das gewählte Feld tatsächlich nicht
+ * sass — die Engine wertet sie dann korrekt als Bust statt das Leg
+ * offenzuhalten.
+ *
+ * `outRule` steuert das wählbare Checkout-Feld: unter Master Out schliesst
+ * reglementarisch auch ein Triple das Leg (x01.ts, `masterFinishes`), unter
+ * Double Out nur ein Doppel. Das Dialog öffnet ohnehin nie unter Single Out
+ * (siehe `handleRoundSubmit`), deshalb ist `outRule` hier bereits auf die
+ * beiden tatsächlich vorkommenden Werte eingeschränkt.
  */
 export function CheckoutDialog({
   darts,
@@ -25,6 +33,7 @@ export function CheckoutDialog({
   onFieldChange,
   onSubmit,
   open,
+  outRule,
   pending,
   points,
 }: {
@@ -37,9 +46,11 @@ export function CheckoutDialog({
   readonly onFieldChange: (field: string) => void;
   readonly onSubmit: () => void;
   readonly open: boolean;
+  readonly outRule: "DOUBLE" | "MASTER";
   readonly pending: boolean;
   readonly points: number;
 }) {
+  const { doubles, triples } = checkoutFieldOptions(outRule);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -64,14 +75,26 @@ export function CheckoutDialog({
       <form className="space-y-5 p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
         <div>
           <h4 className="font-numerals text-title font-bold" id="checkout-dialog-title">Checkout erfassen</h4>
-          <p className="mt-2 text-body text-slate-300">{points} Punkte auf 0. Wähle das letzte Doppel und die benötigten Darts — oder melde, dass kein Doppel sass.</p>
+          <p className="mt-2 text-body text-slate-300">
+            {points} Punkte auf 0. Wähle das letzte {triples.length === 0 ? "Doppel" : "Doppel oder Triple"} und die benötigten Darts — oder melde, dass keins sass.
+          </p>
         </div>
         <label className="block space-y-2 text-body font-semibold text-slate-200">
           <span>Checkout-Feld</span>
           <select autoFocus className={fieldSelectClassName} required value={field} onChange={(event) => onFieldChange(event.target.value)}>
-            <option value="">Doppel wählen</option>
-            {Array.from({ length: 20 }, (_, index) => index + 1).map((double) => <option key={double} value={double}>D{double}</option>)}
-            <option value={25}>Bull (Double 25)</option>
+            <option value="">{triples.length === 0 ? "Doppel wählen" : "Doppel oder Triple wählen"}</option>
+            {triples.length === 0 ? (
+              doubles.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)
+            ) : (
+              <>
+                <optgroup label="Doppel">
+                  {doubles.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </optgroup>
+                <optgroup label="Triple">
+                  {triples.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </optgroup>
+              </>
+            )}
           </select>
         </label>
         <div className="space-y-2 text-body font-semibold text-slate-200">
@@ -94,7 +117,7 @@ export function CheckoutDialog({
         {error ? <p className="text-body text-rose-300" role="alert">{error}</p> : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <Button disabled={pending} onClick={onCancel} type="button" variant="outline">Abbrechen</Button>
-          <Button className="border-rose-500/60 text-rose-300 hover:bg-rose-500/10" disabled={pending} onClick={onBust} type="button" variant="outline">Kein Doppel getroffen (Bust)</Button>
+          <Button className="border-rose-500/60 text-rose-300 hover:bg-rose-500/10" disabled={pending} onClick={onBust} type="button" variant="outline">{checkoutMissLabel(outRule)}</Button>
         </div>
         <Button disabled={pending || field === ""} type="submit">Checkout speichern</Button>
       </form>

@@ -2,15 +2,18 @@
 
 import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { type MatchStateResponse } from "@darts-platform/schemas";
-import { Button, cn } from "@darts-platform/ui";
+import { Button } from "@darts-platform/ui";
 import { userFacingErrorMessage } from "@/lib/api-client";
 import { dartEntryReducer, emptyDartEntry, previewDartEntry, type DartEntryPreview } from "@/lib/dart-entry";
-import { appendRoundDigit, isRoundEntrySubmittable, onlyPossibleDouble, removeRoundDigit } from "@/lib/round-entry";
-import { defaultScoreboardSettings, readScoreboardSettings, subscribeScoreboardSettings } from "@/lib/scoreboard-settings";
+import { appendRoundDigit, decodeCheckoutField, isRoundEntrySubmittable, onlyPossibleDouble, removeRoundDigit } from "@/lib/round-entry";
+import {
+  defaultScoreboardSettings, readScoreboardSettings, subscribeScoreboardSettings, writeScoreboardSettings,
+} from "@/lib/scoreboard-settings";
 import { CheckoutDialog } from "./checkout-dialog";
 import { DartKeypad } from "./dart-keypad";
 import { RoundKeypad } from "./round-keypad";
 import { ScoreboardHeader } from "./scoreboard-header";
+import { ScoreboardSettingsDialog } from "./scoreboard-settings-dialog";
 import { ScoreboardSides } from "./scoreboard-sides";
 import { ScoreboardStatus } from "./scoreboard-status";
 import { useMatchScoring } from "./use-match-scoring";
@@ -44,9 +47,14 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   const quickScores = useQuickScores({ organizationId, playerId: match.currentPlayerId, enabled: settings.mode === "ROUND" });
   const [roundValue, setRoundValue] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [checkoutDouble, setCheckoutDouble] = useState("");
+  const [checkoutField, setCheckoutField] = useState("");
   const [checkoutDarts, setCheckoutDarts] = useState<1 | 2 | 3>(3);
   const [abortOpen, setAbortOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Master Out schliesst reglementarisch auch auf einem Triple (x01.ts,
+  // masterFinishes) -- der Checkout-Dialog braucht das, um zusaetzlich zu
+  // den 20 Doppeln die 20 Triple anzubieten (Zusatzauftrag Task 14).
+  const checkoutOutRule: "DOUBLE" | "MASTER" = match.outRule === "MASTER" ? "MASTER" : "DOUBLE";
   const [entry, dispatchEntry] = useReducer(dartEntryReducer, emptyDartEntry);
   const [pendingConfirmation, setPendingConfirmation] = useState<DartEntryPreview | null>(null);
   const autoConfirmTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -68,7 +76,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     setLastSubmitSuccess(scoring.submitSucceededAt);
     setRoundValue("");
     setCheckoutOpen(false);
-    setCheckoutDouble("");
+    setCheckoutField("");
     setCheckoutDarts(3);
     dispatchEntry({ type: "RESET" });
     setPendingConfirmation(null);
@@ -92,16 +100,19 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     setRoundValue((current) => removeRoundDigit(current));
   };
   // Erzwingt den Checkout-Schritt bei einem Ausgang mit Doppel (alles ausser
-  // SINGLE), unabhaengig von "Checkout-Darts bestaetigen": ohne
-  // `checkoutDouble` wertet die Engine ein Double-/Master-Out sonst als
-  // Bust (x01.ts, closesLeg). `onlyPossibleDouble` liefert nur die Vorbelegung.
+  // SINGLE), unabhaengig von "Checkout-Darts bestaetigen": ohne ein
+  // erkanntes Checkout-Feld wertet die Engine ein Double-/Master-Out sonst
+  // als Bust (x01.ts, closesLeg). `onlyPossibleDouble` liefert nur die
+  // Vorbelegung, und nur fuer ein eindeutiges DOPPEL -- bleibt unter Master
+  // Out rechnerisch nur ein Triple moeglich, bleibt das Feld bewusst leer
+  // und verlangt eine bewusste Auswahl (siehe checkout-dialog.tsx).
   const handleRoundSubmit = () => {
     if (activeParticipant === undefined) return;
     const visitPoints = Number(roundValue);
     if (visitPoints === activeParticipant.remaining && match.outRule !== "SINGLE") {
       scoring.resetSubmit();
       const preset = onlyPossibleDouble(visitPoints);
-      setCheckoutDouble(preset === null ? "" : String(preset));
+      setCheckoutField(preset === null ? "" : String(preset));
       setCheckoutDarts(3);
       setCheckoutOpen(true);
       return;
@@ -113,7 +124,22 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   // (`checkoutDarts` koennte z. B. auf 1 stehen, obwohl 141 Punkte nur mit
   // drei Darts werfbar sind) -- deshalb immer drei Darts.
   const handleCheckoutBust = () => {
-    scoring.submitVisit({ points: Number(roundValue), dartsThrown: 3, checkoutMissed: true });
+    scoring.submitVisit({ points: Number(roundValue), dartsThrown: 3, checkoutMissed: true, checkoutAttempted: true });
+  };
+  // Ein Doppel bleibt ueber `checkoutDouble` darstellbar (die Engine kennt
+  // darin nur Doppel-Segmente 1-20/25, x01.ts `checkoutValue`); ein Triple
+  // unter Master Out wird deshalb bewusst OHNE `checkoutDouble` gesendet --
+  // die Engine erkennt den Checkout dann ueber ihre eigene Heuristik
+  // `finishesOnMasterSegment`. `checkoutAttempted` haelt die Checkout-Quote
+  // in beiden Faellen korrekt (siehe use-match-scoring.ts).
+  const handleCheckoutSubmit = () => {
+    const selection = decodeCheckoutField(checkoutField);
+    scoring.submitVisit({
+      points: Number(roundValue),
+      dartsThrown: checkoutDarts,
+      checkoutAttempted: true,
+      ...(selection?.kind === "DOUBLE" ? { checkoutDouble: selection.segment } : {}),
+    });
   };
 
   // Wechselt durch die Serverantwort die werfende Person oder das Leg,
@@ -132,6 +158,25 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     setPendingConfirmation(null);
     setRoundValue("");
     setCheckoutOpen(false);
+  }
+
+  // Ein Moduswechsel im Einstellungs-Modal mitten in einer angefangenen
+  // Eingabe verwirft diese genauso wie ein Wechsel der werfenden Person
+  // oben: das Runden-Keypad zeigt bereits im Dart-Modus erfasste Würfe
+  // nirgends an, ein danach eingegebener Rundenwert würde sie beim Absenden
+  // stillschweigend unterschlagen (die Rundeneingabe kennt nur ihre eigene
+  // Summe, nicht die zuvor erfassten Einzelwürfe) — umgekehrt bliebe ein
+  // angefangener Rundenwert unsichtbar im Dart-Modus stehen. Unkommitteter
+  // Eingabezustand, kein gespeicherter Wurf: das Verwerfen ist hier kein
+  // versteckter Datenverlust, weil nichts davon je an den Server ging.
+  const [lastInputMode, setLastInputMode] = useState(settings.mode);
+  if (lastInputMode !== settings.mode) {
+    setLastInputMode(settings.mode);
+    dispatchEntry({ type: "RESET" });
+    setPendingConfirmation(null);
+    setRoundValue("");
+    setCheckoutOpen(false);
+    scoring.resetSubmit();
   }
 
   const submitEntry = (preview: DartEntryPreview) => {
@@ -264,10 +309,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
         backHref={backHref}
         backLabel={backLabel}
         match={match}
-        onOpenSettings={() => {
-          // Task 14 verdrahtet das Einstellungs-Modal; der Knopf steht schon,
-          // damit die Kopfzeile ab Task 11 vollständig ist.
-        }}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
       <ScoreboardStatus
         lockState={lock.state}
@@ -352,27 +394,42 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
           <CheckoutDialog
             darts={checkoutDarts}
             error={checkoutOpen && scoring.submitError !== null ? mutationMessage(scoring.submitError) : null}
-            field={checkoutDouble}
+            field={checkoutField}
             onBust={handleCheckoutBust}
             onCancel={() => { scoring.resetSubmit(); setCheckoutOpen(false); }}
             onDartsChange={setCheckoutDarts}
-            onFieldChange={setCheckoutDouble}
-            onSubmit={() => scoring.submitVisit({ points: Number(roundValue), dartsThrown: checkoutDarts, checkoutDouble: Number(checkoutDouble) })}
+            onFieldChange={setCheckoutField}
+            onSubmit={handleCheckoutSubmit}
             open={checkoutOpen}
+            outRule={checkoutOutRule}
             pending={scoring.submitPending}
             points={Number(roundValue)}
           />
           <AbortMatchDialog error={scoring.abortError !== null ? mutationMessage(scoring.abortError) : null} onCancel={() => { scoring.resetAbort(); setAbortOpen(false); }} onSubmit={(reason) => scoring.abortMatch(reason)} open={abortOpen} pending={scoring.abortPending} queuedCount={queued.length} />
-          <div className="p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h4 className="font-numerals text-title-sm font-bold text-slate-200">Letzte Aufnahmen</h4>
-              <div className="flex flex-wrap gap-2">
-                {mayControl && match.visits.some((visit) => !visit.reverted) ? <Button disabled={scoring.undoPending || !online} onClick={() => scoring.undoVisit()} variant="outline">Letzte Aufnahme zurücknehmen</Button> : null}
-                {canAbort && match.status === "IN_PROGRESS" ? <Button className="border border-rose-500/60 bg-rose-600 text-white hover:bg-rose-500" disabled={!online || lock.state !== "EIGEN" || scoring.abortPending} onClick={() => { scoring.resetAbort(); setAbortOpen(true); }}>Match abbrechen</Button> : null}
-              </div>
+          <ScoreboardSettingsDialog
+            backHref={backHref}
+            backLabel={backLabel}
+            canAbort={canAbort && match.status === "IN_PROGRESS"}
+            lockState={lock.state}
+            onAbort={() => { scoring.resetAbort(); setAbortOpen(true); setSettingsOpen(false); }}
+            onChange={(next) => writeScoreboardSettings(next)}
+            onClose={() => setSettingsOpen(false)}
+            onTakeOver={lock.takeOver}
+            open={settingsOpen}
+            settings={settings}
+            visits={match.visits}
+          />
+          {/* Nur die Rücknahme bleibt hier sichtbar: eine schnelle Korrektur
+              während des Zählens, kein Einstellungsvorgang. Die Liste
+              "Letzte Aufnahmen" und "Match abbrechen" (jetzt SPIEL BEENDEN)
+              wohnen seit Task 14 im Einstellungs-Modal. */}
+          {mayControl && match.visits.some((visit) => !visit.reverted) ? (
+            <div className="p-4">
+              <Button disabled={scoring.undoPending || !online} onClick={() => scoring.undoVisit()} variant="outline">
+                Letzte Aufnahme zurücknehmen
+              </Button>
             </div>
-            <div className="mt-3 space-y-2">{match.visits.slice(0, 8).map((visit) => <div className={cn("flex min-h-11 items-center justify-between rounded-lg bg-slate-900 px-3 text-body", visit.reverted && "opacity-40 line-through")} key={visit.id}><span className="text-slate-300">{visit.playerDisplayName} · {visit.dartsThrown} Darts</span><span className="font-bold text-white">{visit.outcome === "BUST" ? `BUST (${visit.points})` : `${visit.appliedPoints} → ${visit.scoreAfter}`}</span></div>)}</div>
-          </div>
+          ) : null}
         </div>
       </div>
     </section>

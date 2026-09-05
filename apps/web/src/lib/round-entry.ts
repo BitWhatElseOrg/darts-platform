@@ -33,3 +33,71 @@ export function onlyPossibleDouble(points: number): number | null {
   if (points === 50) return 25;
   return points <= 40 && points % 2 === 0 ? points / 2 : null;
 }
+
+export type CheckoutFieldKind = "DOUBLE" | "TRIPLE";
+
+export interface CheckoutFieldSelection {
+  readonly kind: CheckoutFieldKind;
+  readonly segment: number;
+}
+
+const TRIPLE_FIELD_PREFIX = "T";
+
+/**
+ * Wertkodierung des Checkout-Feldes im Runden-Keypad: ein Doppel bleibt die
+ * reine Segmentzahl (unveraendert seit Task 13 — haelt E2E-Selektoren wie
+ * `selectOption("16")` kompatibel), ein Triple traegt das Praefix "T". Die
+ * Engine kennt `checkoutDouble` nur als Doppel-Segment 1-20 oder Bull (25,
+ * siehe x01.ts `checkoutValue`); ein Triple laesst sich darueber nicht
+ * darstellen und wird beim Absenden deshalb weggelassen (siehe
+ * `match-scoreboard.tsx`) — die Engine erkennt den Checkout dann ueber ihre
+ * eigene Heuristik `finishesOnMasterSegment`.
+ */
+export function encodeCheckoutField(kind: CheckoutFieldKind, segment: number): string {
+  return kind === "TRIPLE" ? `${TRIPLE_FIELD_PREFIX}${segment}` : String(segment);
+}
+
+export function decodeCheckoutField(field: string): CheckoutFieldSelection | null {
+  if (field === "") return null;
+  if (field.startsWith(TRIPLE_FIELD_PREFIX)) {
+    const segment = Number(field.slice(TRIPLE_FIELD_PREFIX.length));
+    return Number.isInteger(segment) ? { kind: "TRIPLE", segment } : null;
+  }
+  const segment = Number(field);
+  return Number.isInteger(segment) ? { kind: "DOUBLE", segment } : null;
+}
+
+export interface CheckoutFieldOption {
+  readonly value: string;
+  readonly label: string;
+}
+
+const doubleFieldOptions: readonly CheckoutFieldOption[] = [
+  ...Array.from({ length: 20 }, (_, index) => index + 1).map((segment) => ({
+    value: encodeCheckoutField("DOUBLE", segment),
+    label: `D${segment}`,
+  })),
+  { value: encodeCheckoutField("DOUBLE", 25), label: "Bull (Double 25)" },
+];
+
+const tripleFieldOptions: readonly CheckoutFieldOption[] = Array.from({ length: 20 }, (_, index) => index + 1).map(
+  (segment) => ({ value: encodeCheckoutField("TRIPLE", segment), label: `T${segment}` }),
+);
+
+/**
+ * Waehlbare Checkout-Segmente je Ausgangsregel. Reglementarisch schliesst
+ * Master Out zusaetzlich auf einem Triple (x01.ts, `masterFinishes`); das
+ * aeussere Bull (Single 25) schliesst unter keiner Ausgangsregel und taucht
+ * deshalb nirgends auf.
+ */
+export function checkoutFieldOptions(outRule: "DOUBLE" | "MASTER"): {
+  readonly doubles: readonly CheckoutFieldOption[];
+  readonly triples: readonly CheckoutFieldOption[];
+} {
+  return { doubles: doubleFieldOptions, triples: outRule === "MASTER" ? tripleFieldOptions : [] };
+}
+
+/** Regelabhaengige Beschriftung des Bust-Knopfs im Checkout-Schritt. */
+export function checkoutMissLabel(outRule: "DOUBLE" | "MASTER"): string {
+  return outRule === "MASTER" ? "Kein Doppel oder Triple getroffen (Bust)" : "Kein Doppel getroffen (Bust)";
+}

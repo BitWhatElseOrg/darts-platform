@@ -18,6 +18,11 @@
         ],
         "createdAt": "2026-09-01T20:00:44.751Z",
         "reason": "false positive: text-slate-400 is paired with the ternary's plain border-slate-700 branch (no background color), not with the emerald bg-emerald-400/5 branch on the same line; matches the pre-existing text-slate-400-on-dark pattern used elsewhere in this file"
+      },
+      {
+        "rule": "gray-on-color",
+        "value": "text-slate-200",
+        "createdAt": "2026-09-05T14:29:36.704Z"
       }
     ]
   }

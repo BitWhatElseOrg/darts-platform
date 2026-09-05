@@ -51,6 +51,7 @@ export interface MatchScoring {
     readonly dartsThrown: 1 | 2 | 3;
     readonly checkoutDouble?: number;
     readonly checkoutMissed?: boolean;
+    readonly checkoutAttempted?: boolean;
     readonly darts?: readonly Dart[];
   }) => void;
   readonly undoVisit: () => void;
@@ -125,7 +126,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
 
   const submit = useMutation({
     networkMode: "always",
-    mutationFn: async (visit: { readonly points: number; readonly dartsThrown: 1 | 2 | 3; readonly checkoutDouble?: number; readonly checkoutMissed?: boolean; readonly darts?: readonly Dart[] }) => {
+    mutationFn: async (visit: { readonly points: number; readonly dartsThrown: 1 | 2 | 3; readonly checkoutDouble?: number; readonly checkoutMissed?: boolean; readonly checkoutAttempted?: boolean; readonly darts?: readonly Dart[] }) => {
       const commandId = generateId();
       const path = `/organizations/${organizationId}/matches/${match.id}/visits`;
       const body = {
@@ -137,8 +138,12 @@ export function useMatchScoring({ organizationId, match, canScore }: {
         checkoutDouble: visit.checkoutDouble ?? null,
         // Der Bust-Knopf meldet ausdruecklich einen verpassten Checkout-Versuch
         // (`checkoutMissed`) -- das zaehlt fuer die Checkout-Quote genauso als
-        // Versuch wie ein getroffenes Doppel.
-        checkoutAttempts: visit.checkoutDouble !== undefined || visit.checkoutMissed === true ? 1 : 0,
+        // Versuch wie ein getroffenes Doppel. Ein Master-Out-Finish auf einem
+        // Triple traegt `checkoutAttempted`, aber bewusst kein `checkoutDouble`
+        // (die Engine kennt darin nur Doppel-Segmente, siehe round-entry.ts) --
+        // ohne dieses Feld wuerde die Checkout-Quote den Versuch sonst
+        // unterschlagen.
+        checkoutAttempts: visit.checkoutAttempted === true || visit.checkoutDouble !== undefined || visit.checkoutMissed === true ? 1 : 0,
         controllerId: lock.controllerId,
         ...(visit.darts === undefined ? {} : { darts: visit.darts }),
         ...(visit.checkoutMissed === true ? { checkoutMissed: true } : {}),
