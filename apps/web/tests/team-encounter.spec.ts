@@ -173,7 +173,13 @@ async function record(page: Page, points: number, checkout?: Checkout): Promise<
   await typeRoundScore(page, points);
   if (checkout === undefined) {
     // Nach erfolgreicher Übernahme setzt die Fläche das Ziffernfeld zurück;
-    // ohne Wert ist „Aufnahme erfassen" wieder gesperrt.
+    // `roundValue` wird ausschliesslich bei tatsächlichem Erfolg geleert
+    // (match-scoreboard.tsx, `submitJustSucceeded`) — ein Versionskonflikt
+    // liesse den Wert bewusst stehen. "Rücktaste" aktiviert erst, wenn das
+    // Absenden vorbei ist (nicht mehr `submitPending`); erst danach zeigt
+    // "Aufnahme erfassen" gesperrt den geleerten, also erfolgreich
+    // übernommenen Wert.
+    await expect(page.getByRole("button", { name: "Rücktaste" })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Aufnahme erfassen" })).toBeDisabled();
     return;
   }

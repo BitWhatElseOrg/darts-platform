@@ -282,8 +282,13 @@ test("a club can complete a match and start a generated tournament match", async
   // gibt es nicht mehr — der Moduswechsel (Task 8/9) hat es vollständig
   // durch die zwei Keypads ersetzt, ein Umschalten auf ein Freitextfeld
   // existiert in keinem der beiden Modi. Dart ist die neue Standardeingabe;
-  // ihr Keypad steht bereit, sobald die Fläche lädt.
+  // ihr Keypad steht bereit, sobald die Fläche lädt. Die drei Wächter
+  // bleiben bestehen: die alten Bezeichner tauchen in der Fläche nirgends
+  // mehr auf.
   await expect(page.getByRole("button", { name: "Single 20" })).toBeEnabled();
+  await expect(page.getByLabel("Geworfene Darts")).toHaveCount(0);
+  await expect(page.getByLabel("Checkout-Double")).toHaveCount(0);
+  await expect(page.getByLabel("Doppelversuche")).toHaveCount(0);
 
   // Task 11 Spec: die Vollbildfläche füllt 100dvh und scrollt nicht. Geprüft
   // auf einem Mobilviewport in Hoch- und Querformat, danach zurück auf die
@@ -312,6 +317,9 @@ test("a club can complete a match and start a generated tournament match", async
   await abortDialog.getByLabel("Abbruchgrund").fill("Board versehentlich falsch zugewiesen");
   await abortDialog.getByRole("button", { name: "Match endgültig abbrechen" }).click();
   await expect(abortDialog).toHaveCount(0);
+  // Task 14: beide Dialoge schliessen erst gemeinsam bei erfolgreichem
+  // Abbruch (match-scoreboard.tsx, `lastAbortSuccess`).
+  await expect(page.getByRole("dialog", { name: "Einstellungen" })).toHaveCount(0);
   await page.goto(matchesUrl);
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toHaveCount(0);
   await expect(page.locator("li").filter({ hasText: "E2E Board" }).filter({ hasText: "frei" })).toBeVisible();
@@ -415,7 +423,13 @@ test("a club can complete a match and start a generated tournament match", async
     await typeRoundScore(page, score);
     if (checkoutDouble === undefined) {
       // Nach erfolgreicher Übernahme setzt die Fläche das Ziffernfeld
-      // zurück; ohne Wert ist „Aufnahme erfassen" wieder gesperrt.
+      // zurück; `roundValue` wird ausschliesslich bei tatsächlichem Erfolg
+      // geleert (match-scoreboard.tsx, `submitJustSucceeded`) — ein
+      // Versionskonflikt liesse den Wert bewusst stehen. "Rücktaste"
+      // aktiviert erst, wenn das Absenden vorbei ist; erst danach zeigt
+      // "Aufnahme erfassen" gesperrt den geleerten, also erfolgreich
+      // übernommenen Wert.
+      await expect(page.getByRole("button", { name: "Rücktaste" })).toBeEnabled();
       await expect(page.getByRole("button", { name: "Aufnahme erfassen" })).toBeDisabled();
     } else {
       const dialog = page.getByRole("dialog", { name: "Checkout erfassen" });
