@@ -427,6 +427,14 @@ describe("tournament scoring lock context", () => {
 
       const state = await repository.getState(organizationId, scoringMatchId);
       expect(state?.liveTarget).toEqual({ kind: "TOURNAMENT", tournamentId });
+      // Derselbe Bezug ueber den gebuendelten Weg: `getStates` laedt ihn fuer
+      // alle angefragten Matches in zwei Abfragen und speist damit `list()`,
+      // das Turnier-Dashboard und die Statistik.
+      const batched = await repository.getStates(organizationId, [scoringMatchId]);
+      expect(batched.get(scoringMatchId)?.liveTarget).toEqual({ kind: "TOURNAMENT", tournamentId });
+      const listed = await repository.list(organizationId);
+      expect(listed.find((entry) => entry.id === scoringMatchId)?.liveTarget)
+        .toEqual({ kind: "TOURNAMENT", tournamentId });
     } finally {
       await connection.database.delete(organizations).where(eq(organizations.id, organizationId));
       await connection.database.delete(users).where(eq(users.id, auth.user.id));

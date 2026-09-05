@@ -23,7 +23,8 @@ export class StatisticsService {
     await this.access.requirePermission({ organizationId: input.organizationId, userId: input.auth.user.id, permission: "statistics:read" });
     const data = await this.repository.getData(input.organizationId, input.playerId);
     if (data === null) throw new NotFoundException("Spieler nicht gefunden.");
-    const states = await Promise.all(data.matchIds.map((matchId) => this.matches.getState(input.organizationId, matchId)));
+    const statesById = await this.matches.getStates(input.organizationId, data.matchIds);
+    const states = data.matchIds.map((matchId) => statesById.get(matchId) ?? null);
     const statisticsMatches: StatisticsMatch[] = states.flatMap((state) => {
       if (state === null || state.winnerPlayerId === null) return [];
       const matchLegs = data.legs.filter((leg) => leg.matchId === state.id);

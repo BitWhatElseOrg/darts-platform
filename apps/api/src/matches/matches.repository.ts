@@ -30,6 +30,8 @@ export type TournamentCorrectionResult =
   | "downstream-started"
   | "board-unavailable";
 type ActorInput = { readonly organizationId: string; readonly matchId: string; readonly auth: AuthContext; readonly audit: AuditContext };
+/** Der Live-Bezug eines Matches ohne den Fall "kein Bezug" (das traegt `null`). */
+type LiveTarget = NonNullable<MatchStateResponse["liveTarget"]>;
 
 const seatSchema = z.union([z.literal(1), z.literal(2)]);
 // `playerId` stammt aus Kommandos, die vor dem Seitenmodell geschrieben wurden;
@@ -119,11 +121,65 @@ export class MatchesRepository {
 
   public async list(organizationId: string): Promise<MatchStateResponse[]> {
     const rows = await this.databaseService.database.select({ id: matches.id }).from(matches).where(and(eq(matches.organizationId, organizationId), notInArray(matches.status, ["ABORTED"]))).orderBy(desc(matches.createdAt));
-    const states = await Promise.all(rows.map((row) => this.getState(organizationId, row.id)));
-    return states.filter((state): state is MatchStateResponse => state !== null);
+    const states = await this.getStates(organizationId, rows.map((row) => row.id));
+    return [...states.values()];
+  }
+
+  /**
+   * Zustand mehrerer Matches auf einmal. Der Live-Bezug (`liveTarget`) wird
+   * fuer alle angefragten Matches in zwei Abfragen geladen statt in zwei je
+   * Match -- eine Turnier-Uebersicht mit 32 Paarungen, die das Command Centre
+   * alle fuenf Sekunden neu holt, sparte sich damit rund 64 Abfragen je Lauf.
+   * Die Reihenfolge der Rueckgabe folgt `matchIds`; nicht gefundene oder
+   * abgebrochene Matches fehlen in der Map.
+   */
+  public async getStates(organizationId: string, matchIds: readonly string[]): Promise<Map<string, MatchStateResponse>> {
+    const liveTargets = await this.loadLiveTargets(organizationId, matchIds);
+    const entries = await Promise.all(matchIds.map(async (matchId) =>
+      [matchId, await this.buildState(organizationId, matchId, liveTargets.get(matchId) ?? null)] as const,
+    ));
+    return new Map(entries.filter((entry): entry is readonly [string, MatchStateResponse] => entry[1] !== null));
   }
 
   public async getState(organizationId: string, matchId: string): Promise<MatchStateResponse | null> {
+    const liveTargets = await this.loadLiveTargets(organizationId, [matchId]);
+    return this.buildState(organizationId, matchId, liveTargets.get(matchId) ?? null);
+  }
+
+  /**
+   * Woher die angefragten Matches ihre oeffentliche Live-Ansicht beziehen:
+   * Turnier oder Team-Begegnung. Ein Match ohne Wettbewerbsbezug taucht in
+   * der Map nicht auf. Der Turnierbezug hat Vorrang, deshalb wird die
+   * Begegnungsabfrage nur noch fuer die verbleibenden Matches gestellt --
+   * und gar nicht, wenn keins uebrig bleibt.
+   */
+  private async loadLiveTargets(organizationId: string, matchIds: readonly string[]): Promise<Map<string, LiveTarget>> {
+    const targets = new Map<string, LiveTarget>();
+    if (matchIds.length === 0) return targets;
+    const ids = [...matchIds];
+    const tournamentRows = await this.databaseService.database
+      .select({ matchId: tournamentMatches.scoringMatchId, tournamentId: tournamentMatches.tournamentId })
+      .from(tournamentMatches)
+      .where(and(eq(tournamentMatches.organizationId, organizationId), inArray(tournamentMatches.scoringMatchId, ids)));
+    for (const row of tournamentRows) {
+      if (row.matchId === null || targets.has(row.matchId)) continue;
+      targets.set(row.matchId, { kind: "TOURNAMENT", tournamentId: row.tournamentId });
+    }
+    const remaining = ids.filter((id) => !targets.has(id));
+    if (remaining.length === 0) return targets;
+    const encounterRows = await this.databaseService.database
+      .select({ matchId: encounterSlots.matchId, publicId: encounters.publicId })
+      .from(encounterSlots)
+      .innerJoin(encounters, and(eq(encounters.id, encounterSlots.encounterId), eq(encounters.organizationId, organizationId)))
+      .where(and(eq(encounterSlots.organizationId, organizationId), inArray(encounterSlots.matchId, remaining)));
+    for (const row of encounterRows) {
+      if (row.matchId === null || targets.has(row.matchId)) continue;
+      targets.set(row.matchId, { kind: "ENCOUNTER", publicId: row.publicId });
+    }
+    return targets;
+  }
+
+  private async buildState(organizationId: string, matchId: string, liveTarget: LiveTarget | null): Promise<MatchStateResponse | null> {
     const [matchRow] = await this.databaseService.database
       .select({ match: matches, boardName: boards.name })
       .from(matches).leftJoin(boards, and(eq(boards.id, matches.boardId), eq(boards.organizationId, organizationId)))
@@ -168,26 +224,6 @@ export class MatchesRepository {
       list.push({ segment: row.segment, multiplier: row.multiplier as 1 | 2 | 3 });
       dartsByVisit.set(row.visitId, list);
     }
-
-    // Woher bezieht das Match seine oeffentliche Live-Ansicht: Turnier oder
-    // Team-Begegnung. Ein Match ohne Wettbewerbsbezug traegt keinen der beiden.
-    const [tournamentRow] = await this.databaseService.database
-      .select({ tournamentId: tournamentMatches.tournamentId })
-      .from(tournamentMatches)
-      .where(and(eq(tournamentMatches.organizationId, organizationId), eq(tournamentMatches.scoringMatchId, matchId)))
-      .limit(1);
-    const [encounterRow] = tournamentRow !== undefined ? [] : await this.databaseService.database
-      .select({ publicId: encounters.publicId })
-      .from(encounterSlots)
-      .innerJoin(encounters, and(eq(encounters.id, encounterSlots.encounterId), eq(encounters.organizationId, organizationId)))
-      .where(and(eq(encounterSlots.organizationId, organizationId), eq(encounterSlots.matchId, matchId)))
-      .limit(1);
-    const liveTarget =
-      tournamentRow !== undefined
-        ? ({ kind: "TOURNAMENT", tournamentId: tournamentRow.tournamentId } as const)
-        : encounterRow !== undefined
-          ? ({ kind: "ENCOUNTER", publicId: encounterRow.publicId } as const)
-          : null;
 
     const bySeat = new Map(projection.sides.map((side) => [side.seat, side]));
     // Im Doppel trägt ein Sitz zwei Zeilen; die Seite ist die Einheit, nicht die Zeile.
