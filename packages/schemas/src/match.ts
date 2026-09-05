@@ -92,6 +92,14 @@ export const matchVisitSchema = z.object({
   darts: z.array(dartSchema),
   createdAt: z.coerce.date(),
 });
+/**
+ * Woher das Match seine oeffentliche Live-Ansicht bezieht. Ein freies Match
+ * ohne Wettbewerbsbezug traegt null.
+ */
+export const matchLiveTargetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("TOURNAMENT"), tournamentId: z.uuid() }),
+  z.object({ kind: z.literal("ENCOUNTER"), publicId: z.uuid() }),
+]).nullable();
 export const matchStateSchema = z.object({
   id: z.uuid(), organizationId: z.uuid(), boardId: z.uuid().nullable(), boardName: z.string().nullable(),
   status: matchStatusSchema, version: z.number().int().nonnegative(), startingScore: z.number().int().positive(),
@@ -103,6 +111,7 @@ export const matchStateSchema = z.object({
   currentPlayerId: z.uuid().nullable(), winnerPlayerId: z.uuid().nullable(),
   participants: z.tuple([matchParticipantStateSchema, matchParticipantStateSchema]),
   visits: z.array(matchVisitSchema), createdAt: z.coerce.date(), updatedAt: z.coerce.date(),
+  liveTarget: matchLiveTargetSchema,
 });
 export const matchListSchema = z.array(matchStateSchema);
 export type CreateMatchInput = z.infer<typeof createMatchSchema>;
@@ -116,3 +125,4 @@ export type MatchStateResponse = z.infer<typeof matchStateSchema>;
 export type BoardControllerLeaseRequest = z.infer<typeof boardControllerLeaseRequestSchema>;
 export type BoardControllerLeaseResponse = z.infer<typeof boardControllerLeaseSchema>;
 export type Dart = z.infer<typeof dartSchema>;
+export type MatchLiveTarget = z.infer<typeof matchLiveTargetSchema>;

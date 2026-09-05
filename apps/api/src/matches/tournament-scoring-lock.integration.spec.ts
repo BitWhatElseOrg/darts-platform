@@ -11,6 +11,7 @@ import {
   tournamentMatches,
   tournaments,
   tournamentStages,
+  users,
   type Database,
 } from "@darts-platform/database";
 
@@ -353,6 +354,82 @@ describe("tournament scoring lock context", () => {
       if (organizationId !== undefined) {
         await connection.database.delete(organizations).where(eq(organizations.id, organizationId));
       }
+      await connection.close();
+    }
+  });
+
+  it("names the tournament as live target of a tournament match", async () => {
+    const connection = createDatabaseConnection(environment.DATABASE_URL);
+    const organizationId = randomUUID();
+
+    try {
+      const playerOneId = randomUUID();
+      const playerTwoId = randomUUID();
+      const tournamentId = randomUUID();
+      const tournamentStageId = randomUUID();
+
+      await connection.database.insert(organizations).values({
+        id: organizationId,
+        name: "Tournament Live Target Club",
+        slug: `tournament-live-target-${organizationId}`,
+        timezone: "Europe/Zurich",
+        locale: "de-CH",
+      });
+      // `repository.create()` schreibt ein Audit-Ereignis mit `auth.user.id`
+      // als Akteur; die Fremdschlüsselprüfung verlangt eine echte Zeile.
+      await connection.database.insert(users).values({ id: auth.user.id, email: auth.user.email, displayName: auth.user.name }).onConflictDoNothing();
+      await connection.database.insert(players).values([
+        { id: playerOneId, organizationId, displayName: "Live Target Player One", status: "ACTIVE" },
+        { id: playerTwoId, organizationId, displayName: "Live Target Player Two", status: "ACTIVE" },
+      ]);
+
+      const repository = new MatchesRepository({ database: connection.database } as unknown as DatabaseService);
+      const scoringMatchId = await repository.create({
+        organizationId,
+        data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId: null, bestOfLegs: 1, bestOfSets: 1 },
+        auth,
+        audit,
+      });
+
+      await connection.database.insert(tournaments).values({
+        id: tournamentId,
+        organizationId,
+        name: "Tournament Live Target Cup",
+        format: "SINGLE_ELIMINATION",
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 2,
+        seeding: "SEEDED",
+        startsAt: new Date("2026-09-01T10:00:00.000Z"),
+      });
+      await connection.database.insert(tournamentStages).values({
+        id: tournamentStageId,
+        organizationId,
+        tournamentId,
+        key: "knockout",
+        sequence: 1,
+        name: "Knockout",
+        type: "SINGLE_ELIMINATION",
+        status: "OPEN",
+      });
+      await connection.database.insert(tournamentMatches).values({
+        id: randomUUID(),
+        organizationId,
+        tournamentId,
+        stageId: tournamentStageId,
+        key: "R1-M1",
+        stageLabel: "Final",
+        round: 1,
+        position: 1,
+        status: "IN_PROGRESS",
+        scoringMatchId,
+      });
+
+      const state = await repository.getState(organizationId, scoringMatchId);
+      expect(state?.liveTarget).toEqual({ kind: "TOURNAMENT", tournamentId });
+    } finally {
+      await connection.database.delete(organizations).where(eq(organizations.id, organizationId));
+      await connection.database.delete(users).where(eq(users.id, auth.user.id));
       await connection.close();
     }
   });

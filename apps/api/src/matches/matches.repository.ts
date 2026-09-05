@@ -2,7 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  auditEvents, boardControllerLeases, boards, legs, matches, matchParticipantPlayers, matchParticipants, outboxEvents, players, scoreCommands,
+  auditEvents, boardControllerLeases, boards, encounters, encounterSlots, legs, matches, matchParticipantPlayers, matchParticipants, outboxEvents, players, scoreCommands,
   tournamentCommands, tournamentGroups, tournamentMatches,
   tournaments, tournamentStages,
   visitDarts, visits,
@@ -167,6 +167,26 @@ export class MatchesRepository {
       dartsByVisit.set(row.visitId, list);
     }
 
+    // Woher bezieht das Match seine oeffentliche Live-Ansicht: Turnier oder
+    // Team-Begegnung. Ein Match ohne Wettbewerbsbezug traegt keinen der beiden.
+    const [tournamentRow] = await this.databaseService.database
+      .select({ tournamentId: tournamentMatches.tournamentId })
+      .from(tournamentMatches)
+      .where(and(eq(tournamentMatches.organizationId, organizationId), eq(tournamentMatches.scoringMatchId, matchId)))
+      .limit(1);
+    const [encounterRow] = tournamentRow !== undefined ? [] : await this.databaseService.database
+      .select({ publicId: encounters.publicId })
+      .from(encounterSlots)
+      .innerJoin(encounters, and(eq(encounters.id, encounterSlots.encounterId), eq(encounters.organizationId, organizationId)))
+      .where(and(eq(encounterSlots.organizationId, organizationId), eq(encounterSlots.matchId, matchId)))
+      .limit(1);
+    const liveTarget =
+      tournamentRow !== undefined
+        ? ({ kind: "TOURNAMENT", tournamentId: tournamentRow.tournamentId } as const)
+        : encounterRow !== undefined
+          ? ({ kind: "ENCOUNTER", publicId: encounterRow.publicId } as const)
+          : null;
+
     const bySeat = new Map(projection.sides.map((side) => [side.seat, side]));
     // Im Doppel trägt ein Sitz zwei Zeilen; die Seite ist die Einheit, nicht die Zeile.
     const participantState = (seat: 1 | 2) => {
@@ -204,6 +224,7 @@ export class MatchesRepository {
         reverted: visit.revertedAt !== null, createdAt: visit.createdAt,
       })),
       createdAt: matchRow.match.createdAt, updatedAt: matchRow.match.updatedAt,
+      liveTarget,
     };
   }
 

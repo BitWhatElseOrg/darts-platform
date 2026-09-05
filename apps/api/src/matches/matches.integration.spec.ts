@@ -278,4 +278,14 @@ describe("persistent X01 match", () => {
     expect(thirdVisit?.playerId).toBe(playerOneId);
     expect(thirdVisit?.scoreBefore).toBe(456);
   });
+
+  it("names no live target for a match without a competition", async () => {
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const state = await repository.getState(organizationId, created.id);
+    expect(state?.liveTarget).toBeNull();
+  });
 });
