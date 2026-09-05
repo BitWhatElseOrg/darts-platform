@@ -25,7 +25,12 @@ export class StatisticsRepository {
     return { player, matchIds, legs: legRows, visits: visitRows };
   }
 
-  /** Die haeufigsten gewerteten Aufnahmesummen, absteigend nach Haeufigkeit. */
+  /**
+   * Die haeufigsten gewerteten Aufnahmesummen, absteigend nach Haeufigkeit.
+   * Bei Gleichstand entscheidet die Aufnahmesumme aufsteigend, damit die
+   * Auswahl bei unveraenderter Datenlage stabil bleibt (sonst waehlt
+   * PostgreSQL bei gleicher Haeufigkeit beliebig, je nach Ausfuehrungsplan).
+   */
   public async frequentScores(input: {
     readonly organizationId: string;
     readonly playerId: string | null;
@@ -43,7 +48,7 @@ export class StatisticsRepository {
       .from(visits)
       .where(and(...conditions))
       .groupBy(visits.points)
-      .orderBy(desc(count()))
+      .orderBy(desc(count()), asc(visits.points))
       .limit(input.limit);
     return rows.map((row) => ({ points: row.points, count: Number(row.count) }));
   }
