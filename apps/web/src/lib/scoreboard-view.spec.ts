@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentRoundNumber, dartKeypadLabel, dartLabel, liveHref, threeDartAverage } from "./scoreboard-view";
+import { currentRoundNumber, dartKeypadLabel, dartLabel, liveHref, quickScoresSourceLabel, threeDartAverage } from "./scoreboard-view";
 
 describe("currentRoundNumber", () => {
   it("beginnt bei eins ohne Aufnahme im Leg", () => {
@@ -104,6 +104,20 @@ describe("dartKeypadLabel", () => {
 
   it("beschriftet ein Segment mit aktivem Triple-Umschalter", () => {
     expect(dartKeypadLabel(5, 3)).toBe("Triple 5");
+  });
+});
+
+describe("quickScoresSourceLabel", () => {
+  it("beschriftet Werte aus der eigenen Historie der Person", () => {
+    expect(quickScoresSourceLabel("PLAYER")).toBe("Deine Schnellwerte");
+  });
+
+  it("beschriftet Werte aus der Organisation, wenn die Person zu wenig Historie hat", () => {
+    expect(quickScoresSourceLabel("ORGANIZATION")).toBe("Vereins-Schnellwerte");
+  });
+
+  it("beschriftet den festen Standardsatz", () => {
+    expect(quickScoresSourceLabel("DEFAULT")).toBe("Standard-Schnellwerte");
   });
 });
 

@@ -27,3 +27,9 @@ export function isRoundEntrySubmittable(value: string): boolean {
   if (!Number.isInteger(points) || points < 0 || points > 180) return false;
   return isAttainableScore(points, 3);
 }
+
+/** Bleibt rechnerisch nur ein Doppel, ist die Nachfrage eine Bestätigung. */
+export function onlyPossibleDouble(points: number): number | null {
+  if (points === 50) return 25;
+  return points <= 40 && points % 2 === 0 ? points / 2 : null;
+}

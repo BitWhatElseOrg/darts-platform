@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendRoundDigit, isRoundEntrySubmittable, removeRoundDigit } from "./round-entry";
+import { appendRoundDigit, isRoundEntrySubmittable, onlyPossibleDouble, removeRoundDigit } from "./round-entry";
 
 describe("appendRoundDigit", () => {
   it("hängt eine Ziffer an", () => {
@@ -48,5 +48,31 @@ describe("isRoundEntrySubmittable", () => {
 
   it("nimmt einen Rest von eins an, weil auch das ein Bust ist", () => {
     expect(isRoundEntrySubmittable("39")).toBe(true);
+  });
+});
+
+describe("onlyPossibleDouble", () => {
+  it("erkennt Bull als einzige Möglichkeit bei 50", () => {
+    expect(onlyPossibleDouble(50)).toBe(25);
+  });
+
+  it("erkennt Doppel 20 als einzige Möglichkeit bei 40", () => {
+    expect(onlyPossibleDouble(40)).toBe(20);
+  });
+
+  it("erkennt Doppel 1 als einzige Möglichkeit bei 2", () => {
+    expect(onlyPossibleDouble(2)).toBe(1);
+  });
+
+  it("lehnt einen ungeraden Rest ab, weil dort mehrere Doppel infrage kämen", () => {
+    expect(onlyPossibleDouble(39)).toBeNull();
+  });
+
+  it("lehnt einen geraden Rest über 40 ab, weil mehr als ein Doppel möglich ist", () => {
+    expect(onlyPossibleDouble(42)).toBeNull();
+  });
+
+  it("erkennt Doppel 16 als einzige Möglichkeit bei 32", () => {
+    expect(onlyPossibleDouble(32)).toBe(16);
   });
 });

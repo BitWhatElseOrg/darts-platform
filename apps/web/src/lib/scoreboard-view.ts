@@ -1,4 +1,4 @@
-import type { Dart, MatchLiveTarget } from "@darts-platform/schemas";
+import type { Dart, FrequentScores, MatchLiveTarget } from "@darts-platform/schemas";
 
 /**
  * Die drei Darstellungsbausteine der Vollbildfläche (Kopfzeile, Statuszeile,
@@ -80,6 +80,23 @@ export function dartKeypadLabel(segment: number, modifier: 1 | 2 | 3): string {
   if (segment === 50) return "Bullseye";
   if (segment === 25) return "Bull";
   return modifier === 3 ? `Triple ${segment}` : modifier === 2 ? `Doppel ${segment}` : `Single ${segment}`;
+}
+
+/**
+ * Beschriftet die Herkunft der sechs Schnellwerte im Runden-Keypad, damit die
+ * Person sieht, ob sie ihre eigenen häufigen Aufnahmen, die Werte der
+ * Organisation oder nur den festen Standardsatz vor sich hat (gestufter
+ * Endpunkt aus Task 6: Person, sonst Organisation, sonst Standard).
+ */
+export function quickScoresSourceLabel(source: FrequentScores["source"]): string {
+  switch (source) {
+    case "PLAYER":
+      return "Deine Schnellwerte";
+    case "ORGANIZATION":
+      return "Vereins-Schnellwerte";
+    case "DEFAULT":
+      return "Standard-Schnellwerte";
+  }
 }
 
 /**
