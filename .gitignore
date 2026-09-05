@@ -27,3 +27,6 @@ pnpm-debug.log*
 .vscode/
 .DS_Store
 Thumbs.db
+
+# SDD-Arbeitsbereich der Coding Agents
+.superpowers/

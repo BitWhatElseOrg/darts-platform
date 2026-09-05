@@ -579,22 +579,83 @@ remaining_before >= 0
 remaining_after >= 0
 ```
 
+### Visit-Kommando: `checkoutMissed`
+
+Das Score-Kommando (`submitVisitSchema` in
+[`packages/schemas/src/match.ts`](packages/schemas/src/match.ts)) trägt neben
+`points`, `dartsThrown`, `checkoutDouble` und `checkoutAttempts` das optionale
+Feld `checkoutMissed`. Es meldet ausdrücklich „kein gültiger Finish-Wurf sass"
+— ohne dieses Feld rät die Engine unter der Ausgangsregel `MASTER` anhand
+einer Heuristik (`finishesOnMasterSegment` in
+[`packages/scoring-engine/src/x01.ts`](packages/scoring-engine/src/x01.ts)).
+`checkoutMissed` ist optional und abwärtskompatibel: gespeicherte Kommandos
+ohne dieses Feld werden unverändert gewertet wie bisher. Es schliesst sich
+mit `checkoutDouble` und mit explizit übergebenen Einzelwürfen (`darts`)
+gegenseitig aus.
+
+### Visit-Kommando: `checkoutAttempts` — zwei Einheiten in einer Spalte
+
+`checkoutAttempts` trägt seit der Einführung der Einzelwürfe **je nach
+Aufnahme eine andere Einheit**, und der Bruch ist bewusst in Kauf genommen:
+
+- **Aufnahme ohne Einzelwürfe** (Runden-Modus, alle Aufnahmen vor Migration
+  `0021_steady_mauler.sql`): eine Zahl von **Aufnahmen** — 0 oder 1. Die
+  Fläche meldet „auf ein Finish geworfen", nicht wie oft.
+- **Aufnahme mit Einzelwürfen** (Wurf-für-Wurf-Modus): eine Zahl von
+  **Darts** — 0 bis 3. Die Engine leitet sie aus den Würfen ab
+  (`checkoutAttemptsFromDarts` in
+  [`packages/scoring-engine/src/x01.ts`](packages/scoring-engine/src/x01.ts))
+  und zählt jeden Wurf, der aus einer Finish-Position abgegeben wurde.
+
+Die dart-genaue Zählung ist die übliche Definition der Checkout-Quote
+(erfolgreiche Checkouts geteilt durch Darts auf ein Finish) und bleibt
+deshalb. Eine Umrechnung der Historie scheidet aus: für Aufnahmen ohne
+Einzelwürfe existieren die Wurfdaten nicht und lassen sich auch nicht
+rekonstruieren.
+
+**Folge für die Auswertung:** `checkout_percentage` (siehe
+`player_statistics`) und `CareerStatistics.checkoutAttempts` in
+[`packages/statistics`](packages/statistics/src/statistics.ts) summieren über
+den Umstellungszeitpunkt hinweg beide Einheiten. Ein Karrierewert, der
+Aufnahmen von vor und nach der Umstellung enthält, ist deshalb keine saubere
+Quote. Der Zähler (erfolgreiche Checkout-Aufnahmen) ist davon nicht
+betroffen. Wer die Quote je Einheit sauber ausweisen will, muss nach dem
+Vorhandensein von `visit_darts`-Zeilen trennen.
+
 ---
 
 ## visit_darts
 
-Optional, wenn Einzelpfeile gespeichert werden.
+Die bis zu drei Einzelwürfe einer Aufnahme, dart-genau gespeichert (Migration
+`0021_steady_mauler.sql`). Eine zurückgenommene Aufnahme behält ihre Würfe —
+`visits.reverted_at` bleibt die einzige Wahrheit über den Widerruf.
 
 ```text
 id uuid PK
+organization_id uuid FK organizations NOT NULL
 visit_id uuid FK visits NOT NULL
-sequence integer NOT NULL
-segment varchar
-multiplier integer
-score integer NOT NULL
+dart_index integer NOT NULL
+segment integer NOT NULL
+multiplier integer NOT NULL
+value integer NOT NULL
+created_at timestamptz NOT NULL
 
-UNIQUE (visit_id, sequence)
+UNIQUE (visit_id, dart_index)
 ```
+
+Checks:
+
+```text
+visit_darts_index_check      dart_index BETWEEN 1 AND 3
+visit_darts_segment_check    segment BETWEEN 0 AND 20 OR segment = 25
+visit_darts_multiplier_check multiplier BETWEEN 1 AND 3
+visit_darts_miss_check       segment <> 0 OR multiplier = 1
+visit_darts_bull_check       segment <> 25 OR multiplier <= 2
+visit_darts_value_check      value = segment * multiplier
+```
+
+Indizes: `visit_darts_organization_visit_idx` auf `(organization_id, visit_id)`
+für tenant-sichere Auswertungen je Aufnahme.
 
 ---
 
@@ -670,7 +731,7 @@ losses integer NOT NULL DEFAULT 0
 
 average numeric
 first_9_average numeric
-checkout_percentage numeric
+checkout_percentage numeric  -- Nenner mischt Einheiten, siehe unten
 
 count_100_plus integer NOT NULL DEFAULT 0
 count_120_plus integer NOT NULL DEFAULT 0
@@ -684,6 +745,13 @@ best_leg_darts integer
 
 updated_at timestamptz NOT NULL
 ```
+
+`checkout_percentage` teilt erfolgreiche Checkout-Aufnahmen durch die Summe
+der `checkoutAttempts`. Deren Einheit hängt an der einzelnen Aufnahme —
+Aufnahmen ohne Einzelwürfe tragen eine Aufnahmenzahl, Aufnahmen mit Würfen
+eine Wurfzahl (siehe „Visit-Kommando: `checkoutAttempts` — zwei Einheiten in
+einer Spalte" in Abschnitt 10). Über den Umstellungszeitpunkt hinweg mischt
+der Nenner deshalb beide Einheiten.
 
 ---
 

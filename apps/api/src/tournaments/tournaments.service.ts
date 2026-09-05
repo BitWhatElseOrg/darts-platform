@@ -28,7 +28,6 @@ import {
   type CorrectTournamentResultInput,
   type CreateTournamentInput,
   type GroupStanding,
-  type MatchStateResponse,
   type PublicTournamentDashboard,
   type ReleaseBoardInput,
   type TournamentDashboard,
@@ -278,21 +277,12 @@ export class TournamentsService {
   }
 
   private async projectDashboard(data: TournamentDashboardData): Promise<TournamentDashboard> {
-    const scoringPairs = await Promise.all(
-      data.matches.flatMap((match) =>
-        match.scoringMatchId === null
-          ? []
-          : [
-              this.matchesRepository
-                .getState(data.tournament.organizationId, match.scoringMatchId)
-                .then((state) => [match.scoringMatchId, state] as const),
-            ],
-      ),
-    );
-    const scoringById = new Map(
-      scoringPairs.filter(
-        (entry): entry is readonly [string, MatchStateResponse] => entry[1] !== null,
-      ),
+    // Eine Abfrage je Match statt eine je Match und Zusatzabfrage: `getStates`
+    // laedt den Live-Bezug aller Paarungen gebuendelt (matches.repository.ts).
+    // Das Command Centre holt dieses Dashboard alle fuenf Sekunden neu.
+    const scoringById = await this.matchesRepository.getStates(
+      data.tournament.organizationId,
+      data.matches.flatMap((match) => (match.scoringMatchId === null ? [] : [match.scoringMatchId])),
     );
     const names = new Map(
       data.participants.map((participant) => [participant.playerId, participant.displayName]),

@@ -5,6 +5,7 @@ import {
   createRegistrationInvitation,
   type RegistrationInvitationSeed,
 } from "./registration-invitation";
+import { selectCheckoutDarts, switchInputMode, typeRoundScore } from "./scoreboard-entry";
 import { signUpWithOrganization } from "./sign-up";
 
 /**
@@ -153,11 +154,15 @@ async function openScoreboard(page: Page, label: string): Promise<void> {
   await slotRow(page, label).getByRole("link", { name: "Scoreboard" }).click();
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
   const takeOver = page.getByRole("button", { name: "Steuerung übernehmen" });
+  // "Rücktaste" steht unabhaengig vom Eingabemodus (Dart- wie Rundenkeypad)
+  // zur Verfuegung und ist wie jede andere Taste gesperrt, solange dieses
+  // Geraet die Boardsteuerung nicht haelt — ein modusunabhaengiger Ersatz
+  // fuer die frühere Prüfung ueber das Textfeld "Aufnahmescore".
   await expect
     .poll(
       async () => {
         if (await takeOver.isVisible()) await takeOver.click();
-        return page.getByLabel("Aufnahmescore").isEnabled();
+        return page.getByRole("button", { name: "Rücktaste" }).isEnabled();
       },
       { timeout: 30_000 },
     )
@@ -165,17 +170,23 @@ async function openScoreboard(page: Page, label: string): Promise<void> {
 }
 
 async function record(page: Page, points: number, checkout?: Checkout): Promise<void> {
-  const score = page.getByLabel("Aufnahmescore");
-  await score.fill(String(points));
-  await page.getByRole("button", { name: "Erfassen" }).click();
+  await typeRoundScore(page, points);
   if (checkout === undefined) {
-    await expect(score).toHaveValue("");
+    // Nach erfolgreicher Übernahme setzt die Fläche das Ziffernfeld zurück;
+    // `roundValue` wird ausschliesslich bei tatsächlichem Erfolg geleert
+    // (match-scoreboard.tsx, `submitJustSucceeded`) — ein Versionskonflikt
+    // liesse den Wert bewusst stehen. "Rücktaste" aktiviert erst, wenn das
+    // Absenden vorbei ist (nicht mehr `submitPending`); erst danach zeigt
+    // "Aufnahme erfassen" gesperrt den geleerten, also erfolgreich
+    // übernommenen Wert.
+    await expect(page.getByRole("button", { name: "Rücktaste" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Aufnahme erfassen" })).toBeDisabled();
     return;
   }
   const dialog = page.getByRole("dialog", { name: "Checkout erfassen" });
   await expect(dialog).toBeVisible();
   await dialog.getByLabel("Checkout-Feld").selectOption(String(checkout.field));
-  await dialog.getByLabel("Benötigte Darts").selectOption(String(checkout.darts));
+  await selectCheckoutDarts(dialog, checkout.darts);
   await dialog.getByRole("button", { name: "Checkout speichern" }).click();
   await expect(page.getByText("Match beendet")).toBeVisible();
 }
@@ -331,6 +342,32 @@ test("a club plays a team encounter from the fixture to the result", async ({ br
   await expect(page.getByText("0 von 6 Spielen entschieden, 2 laufen")).toBeVisible();
 
   await openScoreboard(page, SLOT_SINGLES_ONE);
+  // Befund der Abschlussrunde: unter Double In — der Vorgabe jedes
+  // voreingestellten Ligawettbewerbs (competition-setup.tsx) — laufen
+  // geworfene und angerechnete Summe bis zur Eröffnung auseinander. Die
+  // Fläche muss die GEWORFENE senden, sonst weist der Server die
+  // Eröffnungsaufnahme ab (DART_SUM_MISMATCH) und die Wurf-für-Wurf-Eingabe
+  // ist in der Liga unbedienbar. T20/T20/D20: 160 geworfen, 40 angerechnet.
+  await page.getByRole("button", { name: "Umschalter TRIPLE" }).click();
+  await page.getByRole("button", { name: "Triple 20", exact: true }).click();
+  await page.getByRole("button", { name: "Umschalter TRIPLE" }).click();
+  await page.getByRole("button", { name: "Triple 20", exact: true }).click();
+  await page.getByRole("button", { name: "Umschalter DOUBLE" }).click();
+  await page.getByRole("button", { name: "Doppel 20", exact: true }).click();
+  await expect(page.getByText("ANGERECHNET")).toBeVisible();
+  await expect(page.getByText("von 160 geworfen")).toBeVisible();
+  await page.getByRole("button", { name: "WEITER" }).click();
+  await expect(page.getByLabel(`${HOME_PLAYERS[0]}, Restscore`)).toHaveText("461");
+  // Zurücknehmen: das Leg selbst läuft danach wie bisher über den
+  // Runden-Modus, die Eröffnung ist damit belegt.
+  await page.getByRole("button", { name: "Rücktaste" }).click();
+  await expect(page.getByLabel(`${HOME_PLAYERS[0]}, Restscore`)).toHaveText("501");
+  // Der Rundenmodus bleibt geräte-/browserlokal gespeichert (`localStorage`)
+  // und damit über jede weitere Navigation und jedes weitere Board dieses
+  // Tests hinweg bestehen — ein einmaliger Wechsel genügt. Der
+  // Wurf-für-Wurf-Modus samt dem Moduswechsel selbst ist eigens in
+  // scoreboard.spec.ts abgedeckt.
+  await switchInputMode(page, "Runde");
   await playSingles(page, HOME_PLAYERS[0]);
   await page.goto(encounterUrl);
   await openScoreboard(page, SLOT_SINGLES_TWO);

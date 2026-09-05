@@ -1,18 +1,30 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import { type MatchStateResponse } from "@darts-platform/schemas";
+import { Button } from "@darts-platform/ui";
+import { userFacingErrorMessage } from "@/lib/api-client";
 import {
-  abortMatchResponseSchema, matchStateSchema, type MatchStateResponse,
-} from "@darts-platform/schemas";
-import { Button, cn } from "@darts-platform/ui";
-import { ApiClientError, apiRequest, userFacingErrorMessage } from "@/lib/api-client";
-import { generateId } from "@/lib/id";
-import { listOfflineCommands, markOfflineCommandConflict, removeOfflineCommand, removeOfflineCommandsForScope, saveOfflineCommand, type OfflineCommand } from "@/lib/offline-command-queue";
-import { variantLabel } from "@/lib/league-format";
-import { useBoardControllerLock } from "@/lib/use-board-controller-lock";
-
-const inputClassName = "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
+  dartEntryReducer, dartVisitCommand, emptyDartEntry, previewDartEntry, type DartEntryPreview,
+} from "@/lib/dart-entry";
+import {
+  appendRoundDigit, checkoutDoubleFromField, checkoutOutRuleFor, isRoundEntrySubmittable, onlyPossibleDouble,
+  removeRoundDigit,
+} from "@/lib/round-entry";
+import {
+  defaultScoreboardSettings, readScoreboardSettings, subscribeScoreboardSettings, writeScoreboardSettings,
+} from "@/lib/scoreboard-settings";
+import { AbortMatchDialog } from "./abort-match-dialog";
+import { CheckoutDialog } from "./checkout-dialog";
+import { DartKeypad } from "./dart-keypad";
+import { RoundKeypad } from "./round-keypad";
+import { ScoreboardHeader } from "./scoreboard-header";
+import { ScoreboardSettingsDialog } from "./scoreboard-settings-dialog";
+import { ScoreboardSides } from "./scoreboard-sides";
+import { ScoreboardStatus } from "./scoreboard-status";
+import { useMatchScoring } from "./use-match-scoring";
+import { useQuickScores } from "./use-quick-scores";
+import { VisitConfirmation } from "./visit-confirmation";
 
 /** Eine Seite kann zwei Personen tragen; ihr Name ist beider Name. */
 function sideNames(participant: MatchStateResponse["participants"][number]): string {
@@ -27,343 +39,397 @@ function winnerName(match: MatchStateResponse): string {
 }
 const mutationMessage = (error: unknown) => userFacingErrorMessage(error);
 
-export function MatchScoreboard({ organizationId, match, canAbort, canScore }: { readonly organizationId: string; readonly match: MatchStateResponse; readonly canAbort: boolean; readonly canScore: boolean }) {
-  const queryClient = useQueryClient();
-  const lock = useBoardControllerLock(organizationId, match.id, canScore && match.status === "IN_PROGRESS");
-  const [points, setPoints] = useState("");
+export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match, organizationId }: {
+  readonly backHref: string;
+  readonly backLabel: string;
+  readonly canAbort: boolean;
+  readonly canScore: boolean;
+  readonly match: MatchStateResponse;
+  readonly organizationId: string;
+}) {
+  const scoring = useMatchScoring({ organizationId, match, canScore });
+  const { lock, queued, online, replaying, mayControl, error } = scoring;
+  const settings = useSyncExternalStore(subscribeScoreboardSettings, readScoreboardSettings, () => defaultScoreboardSettings);
+  const quickScores = useQuickScores({ organizationId, playerId: match.currentPlayerId, enabled: settings.mode === "ROUND" });
+  const [roundValue, setRoundValue] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [checkoutDouble, setCheckoutDouble] = useState("");
+  const [checkoutField, setCheckoutField] = useState("");
   const [checkoutDarts, setCheckoutDarts] = useState<1 | 2 | 3>(3);
   const [abortOpen, setAbortOpen] = useState(false);
-  const [queued, setQueued] = useState<readonly OfflineCommand[]>([]);
-  const [replaying, setReplaying] = useState(false);
-  const replayingRef = useRef(false);
-  const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
-  const scope = `match:${organizationId}:${match.id}`;
-  const refresh = useCallback(async () => { await Promise.all([
-    queryClient.invalidateQueries({ queryKey: ["matches", organizationId] }),
-    queryClient.invalidateQueries({ queryKey: ["match", organizationId, match.id] }),
-    queryClient.invalidateQueries({ queryKey: ["boards", organizationId] }),
-    queryClient.invalidateQueries({ queryKey: ["tournament-dashboard", organizationId] }),
-    queryClient.invalidateQueries({ queryKey: ["tournaments", organizationId] }),
-  ]); }, [organizationId, queryClient, match.id]);
-  const refreshQueue = useCallback(async () => setQueued(await listOfflineCommands(scope)), [scope]);
-  useEffect(() => {
-    let active = true;
-    void listOfflineCommands(scope).then((commands) => { if (active) setQueued(commands); });
-    return () => { active = false; };
-  }, [scope]);
-
-  const replay = useCallback(async () => {
-    if (!navigator.onLine || replayingRef.current) return;
-    replayingRef.current = true;
-    setReplaying(true);
-    const commands = await listOfflineCommands(scope);
-    for (const command of commands.filter((candidate) => candidate.status === "PENDING")) {
-      try {
-        await apiRequest({ path: command.path, method: "POST", body: command.body, schema: matchStateSchema });
-        await removeOfflineCommand(command.commandId);
-      } catch (error) {
-        if (error instanceof ApiClientError && ["MATCH_VERSION_CONFLICT", "BOARD_CONTROLLER_CONFLICT"].includes(error.code)) {
-          const message = error.code === "BOARD_CONTROLLER_CONFLICT"
-            ? "Ein anderes Gerät steuert dieses Board. Übernimm zuerst die Steuerung."
-            : "Der Serverzustand hat sich geändert. Synchronisiere, bevor du weiterzählst.";
-          await markOfflineCommandConflict(command, message);
-        }
-        break;
-      }
-    }
-    await refreshQueue();
-    await refresh();
-    setReplaying(false);
-    replayingRef.current = false;
-  }, [scope, refresh, refreshQueue]);
-
-  useEffect(() => {
-    const becameOnline = () => { setOnline(true); void replay(); };
-    const becameOffline = () => setOnline(false);
-    window.addEventListener("online", becameOnline);
-    window.addEventListener("offline", becameOffline);
-    if (navigator.onLine) void replay();
-    return () => { window.removeEventListener("online", becameOnline); window.removeEventListener("offline", becameOffline); };
-  }, [replay]);
-
-  const submit = useMutation({
-    networkMode: "always",
-    mutationFn: async (visit: { readonly points: number; readonly dartsThrown: 1 | 2 | 3; readonly checkoutDouble?: number }) => {
-      const commandId = generateId();
-      const path = `/organizations/${organizationId}/matches/${match.id}/visits`;
-      const body = {
-        commandId,
-        expectedVersion: match.version,
-        playerId: match.currentPlayerId,
-        points: visit.points,
-        dartsThrown: visit.dartsThrown,
-        checkoutDouble: visit.checkoutDouble ?? null,
-        checkoutAttempts: visit.checkoutDouble === undefined ? 0 : 1,
-        controllerId: lock.controllerId,
-      };
-      if (!navigator.onLine) {
-        await saveOfflineCommand({ commandId, scope, path, body, label: `${visit.points} Punkte`, createdAt: new Date().toISOString(), status: "PENDING", error: null });
-        await refreshQueue();
-        return null;
-      }
-      try {
-        return await apiRequest({ path, method: "POST", body, schema: matchStateSchema });
-      } catch (error) {
-        if (!(error instanceof ApiClientError)) {
-          await saveOfflineCommand({ commandId, scope, path, body, label: `${visit.points} Punkte`, createdAt: new Date().toISOString(), status: "PENDING", error: null });
-          await refreshQueue();
-          return null;
-        }
-        throw error;
-      }
-    },
-    onSuccess: async (serverState) => {
-      setPoints("");
-      setCheckoutOpen(false);
-      setCheckoutDouble("");
-      setCheckoutDarts(3);
-      if (serverState !== null) await refresh();
-    },
-    onError: async (error) => { if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") await refresh(); },
-  });
-  const undo = useMutation({
-    mutationFn: () => apiRequest({ path: `/organizations/${organizationId}/matches/${match.id}/undo`, method: "POST", body: { commandId: generateId(), expectedVersion: match.version, controllerId: lock.controllerId }, schema: matchStateSchema }),
-    onSuccess: refresh,
-    onError: async (error) => { if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") await refresh(); },
-  });
-  const abort = useMutation({
-    mutationFn: (reason: string) => apiRequest({
-      path: `/organizations/${organizationId}/matches/${match.id}/abort`,
-      method: "POST",
-      body: { commandId: generateId(), expectedVersion: match.version, controllerId: lock.controllerId, reason },
-      schema: abortMatchResponseSchema,
-    }),
-    onSuccess: async () => {
-      await removeOfflineCommandsForScope(scope);
-      setQueued([]);
-      setAbortOpen(false);
-      await refresh();
-    },
-    onError: async (abortError) => {
-      if (abortError instanceof ApiClientError && abortError.code === "MATCH_VERSION_CONFLICT") await refresh();
-    },
-  });
-  const error = submit.error ?? undo.error ?? abort.error;
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const checkoutOutRule = checkoutOutRuleFor(match.outRule);
+  const [entry, dispatchEntry] = useReducer(dartEntryReducer, emptyDartEntry);
+  const [pendingConfirmation, setPendingConfirmation] = useState<DartEntryPreview | null>(null);
+  const autoConfirmTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasPending = queued.length > 0;
-  const mayControl = canScore && match.status === "IN_PROGRESS" && lock.state === "EIGEN" && !hasPending;
+  // Der Eingabezustand der Fläche gehört der Komponente, das Wissen um Erfolg
+  // oder Misserfolg der Mutation dem Hook. Ohne Callback bleibt der
+  // Erfolgszähler die einzige Möglichkeit, „gerade erfolgreich übertragen"
+  // von „noch nie versucht" zu unterscheiden — angepasst während des Renders
+  // (React-Muster für abgeleiteten Zustand), nicht in einem Effect.
+  //
+  // Dieselbe Stelle setzt auch die Dart-Aufnahme zurück: erst bei
+  // tatsächlichem Erfolg der Mutation, nicht sofort nach dem Absenden. Ein
+  // Versionskonflikt lässt die geworfenen Darts sonst ausdrücklich stehen
+  // (siehe Design-Spec, Randfälle) — ein sofortiges Zurücksetzen würde sie
+  // beim Fehlschlag verlieren, obwohl niemand sie neu tippen sollte.
+  const [lastSubmitSuccess, setLastSubmitSuccess] = useState(scoring.submitSucceededAt);
+  const submitJustSucceeded = lastSubmitSuccess !== scoring.submitSucceededAt;
+  if (submitJustSucceeded) {
+    setLastSubmitSuccess(scoring.submitSucceededAt);
+    setRoundValue("");
+    setCheckoutOpen(false);
+    setCheckoutField("");
+    setCheckoutDarts(3);
+    dispatchEntry({ type: "RESET" });
+    setPendingConfirmation(null);
+  }
+  const [lastAbortSuccess, setLastAbortSuccess] = useState(scoring.abortSucceededAt);
+  if (lastAbortSuccess !== scoring.abortSucceededAt) {
+    setLastAbortSuccess(scoring.abortSucceededAt);
+    setAbortOpen(false);
+    setSettingsOpen(false);
+  }
   // Im Doppel ist `currentPlayerId` die werfende Person, nicht die erste der
   // Seite. Am Oche steht die Seite mit `isActive`.
   const activeParticipant = match.participants.find((participant) => participant.isActive);
-  const openCheckoutOrSubmit = () => {
-    const visitPoints = Number(points);
-    if (activeParticipant !== undefined && visitPoints === activeParticipant.remaining) {
-      submit.reset();
-      setCheckoutDouble("");
+
+  const handleRoundDigit = (digit: number) => setRoundValue((current) => appendRoundDigit(current, digit));
+  const handleRoundQuickScore = (score: number) => setRoundValue(String(score));
+  const handleRoundBackspace = () => {
+    if (roundValue === "") {
+      scoring.undoVisit();
+      return;
+    }
+    setRoundValue((current) => removeRoundDigit(current));
+  };
+  // Erzwingt den Checkout-Schritt bei einem Ausgang mit Doppel (alles ausser
+  // SINGLE), unabhaengig von "Checkout-Darts bestaetigen": ohne ein
+  // erkanntes Checkout-Feld wertet die Engine ein Double-/Master-Out sonst
+  // als Bust (x01.ts, closesLeg). `onlyPossibleDouble` presetzt nur ein
+  // eindeutiges Doppel; ein eindeutiges Triple unter Master Out bleibt
+  // unpresetzt (siehe round-entry.ts, checkoutFieldOptions).
+  const handleRoundSubmit = () => {
+    if (activeParticipant === undefined) return;
+    const visitPoints = Number(roundValue);
+    if (visitPoints === activeParticipant.remaining && match.outRule !== "SINGLE") {
+      scoring.resetSubmit();
+      const preset = onlyPossibleDouble(visitPoints);
+      setCheckoutField(preset === null ? "" : String(preset));
       setCheckoutDarts(3);
       setCheckoutOpen(true);
       return;
     }
-    submit.mutate({ points: visitPoints, dartsThrown: 3 });
+    scoring.submitVisit({ points: visitPoints, dartsThrown: 3 });
   };
+  // Die Einstellung „Checkout-Darts bestaetigen" steuert die Abfrage der
+  // Dart-ZAHL, nicht die des Segments: ist sie aus, blendet der Dialog die
+  // Dartwahl aus (checkout-dialog.tsx) und die Aufnahme geht mit drei Darts
+  // raus. Das Segment bleibt in beiden Faellen noetig, sonst wertet die
+  // Engine den Legabschluss unter Double/Master Out als Bust (siehe
+  // `handleRoundSubmit`).
+  const checkoutDartsThrown: 1 | 2 | 3 = settings.confirmCheckoutDarts ? checkoutDarts : 3;
+  // Die gewaehlte Dartzahl im Dialog gilt fuer einen ERFOLGREICHEN Checkout;
+  // fuer den Bust ist sie bedeutungslos und darf ihn nicht blockieren
+  // (`checkoutDarts` koennte z. B. auf 1 stehen, obwohl 141 Punkte nur mit
+  // drei Darts werfbar sind) -- deshalb immer drei Darts.
+  const handleCheckoutBust = () => {
+    scoring.submitVisit({ points: Number(roundValue), dartsThrown: 3, checkoutMissed: true, checkoutAttempted: true });
+  };
+  // `checkoutDoubleFromField` traegt die Weglass-Entscheidung fuer ein
+  // Triple-Finish (siehe round-entry.ts); `checkoutAttempted` haelt die
+  // Checkout-Quote in beiden Faellen korrekt (siehe use-match-scoring.ts).
+  const handleCheckoutSubmit = () => {
+    const checkoutDouble = checkoutDoubleFromField(checkoutField);
+    scoring.submitVisit({
+      checkoutAttempted: true,
+      dartsThrown: checkoutDartsThrown,
+      points: Number(roundValue),
+      ...(checkoutDouble === undefined ? {} : { checkoutDouble }),
+    });
+  };
+
+  // Wechselt durch die Serverantwort die werfende Person oder das Leg,
+  // gehörte eine angefangene Dart-Aufnahme zu einem vergangenen Zustand und
+  // wird verworfen. Angepasst während des Renders (dasselbe Muster wie
+  // `lastSubmitSuccess` oben), nicht in einem Effect: reines Zurücksetzen
+  // von Zustand anhand veränderter Props gehört laut React nicht in einen
+  // Effect (`react-hooks/set-state-in-effect`) — ein Effect wäre hier ein
+  // zusätzlicher, unnötiger Render. Bewusst nicht an `match.version`
+  // gehängt: ein Versionskonflikt allein lässt die Würfe stehen.
+  const turnKey = `${match.currentPlayerId ?? ""}:${match.currentLegNumber}`;
+  const [lastTurnKey, setLastTurnKey] = useState(turnKey);
+  if (lastTurnKey !== turnKey) {
+    setLastTurnKey(turnKey);
+    dispatchEntry({ type: "RESET" });
+    setPendingConfirmation(null);
+    setRoundValue("");
+    setCheckoutOpen(false);
+  }
+
+  // Ein Moduswechsel verwirft eine angefangene Eingabe genauso wie ein
+  // Wechsel der werfenden Person oben: das Runden-Keypad kennt im Dart-Modus
+  // erfasste Würfe nicht und würde sie sonst stillschweigend unterschlagen.
+  // Unkommitteter Zustand, kein gespeicherter Wurf — das Modal selbst nennt
+  // die Konsequenz (scoreboard-settings-dialog.tsx), deshalb kein stiller
+  // Verlust im Sinne der Vorgabe.
+  const [lastInputMode, setLastInputMode] = useState(settings.mode);
+  if (lastInputMode !== settings.mode) {
+    setLastInputMode(settings.mode);
+    dispatchEntry({ type: "RESET" });
+    setPendingConfirmation(null);
+    setRoundValue("");
+    setCheckoutOpen(false);
+    scoring.resetSubmit();
+  }
+
+  // Die Zusammenstellung des Kommandos liegt in `dart-entry.ts` und ist dort
+  // gegen `submitVisitSchema` getestet — insbesondere die Frage, welche der
+  // beiden Summen `points` traegt (die rohe, nicht die angerechnete).
+  const submitEntry = (preview: DartEntryPreview) => {
+    const command = dartVisitCommand(entry.darts, preview);
+    if (command === null) return;
+    scoring.submitVisit(command);
+  };
+
+  const confirmPendingVisit = () => {
+    if (pendingConfirmation === null || scoring.submitPending) return;
+    if (autoConfirmTimeout.current !== null) {
+      clearTimeout(autoConfirmTimeout.current);
+      autoConfirmTimeout.current = null;
+    }
+    submitEntry(pendingConfirmation);
+  };
+
+  // Vorschau der laufenden Aufnahme — reine Berechnung, jeden Render neu.
+  // Reststand und Regeln bleiben für die ganze Aufnahme gleich
+  // (VisitContext-Vertrag aus Task 8): `remaining` ist hier immer der Stand
+  // VOR der Aufnahme, weil `activeParticipant.remaining` erst durch eine
+  // erfolgreich übernommene Serverantwort weiterrückt.
+  const completedEntryPreview = activeParticipant === undefined || entry.darts.length === 0
+    ? null
+    : (() => {
+        const preview = previewDartEntry({
+          darts: entry.darts,
+          remaining: activeParticipant.remaining,
+          startingScore: match.startingScore,
+          inRule: match.inRule,
+          outRule: match.outRule,
+        });
+        return preview.complete ? preview : null;
+      })();
+
+  // Erscheint eine neue abgeschlossene Aufnahme (drittem Wurf, Checkout oder
+  // Bust) und ist eine Bestätigung verlangt, wird sie eingeblendet — reines
+  // Setzen von Zustand, deshalb während des Renders wie oben, nicht im
+  // Effect. Ohne die Einstellung geht die Aufnahme direkt raus; das ruft
+  // die Mutation auf und ist ein echter Seiteneffekt, deshalb unten im
+  // eigenen Effect statt hier.
+  const [previewedDarts, setPreviewedDarts] = useState(entry.darts);
+  if (previewedDarts !== entry.darts) {
+    setPreviewedDarts(entry.darts);
+    if (completedEntryPreview !== null && settings.confirmScore) {
+      setPendingConfirmation(completedEntryPreview);
+    }
+  }
+
+  // Review-Befund 1: schlägt das automatische Senden ohne Bestätigung fehl
+  // (Versionskonflikt, 4xx/5xx), bleibt `entry.darts` unverändert stehen —
+  // der Effekt unten hängt an `entry.darts` und feuert deshalb nie wieder,
+  // und der Reducer verwirft jeden weiteren Tastendruck stumm, weil die
+  // Aufnahme schon `complete` ist. Ohne Gegenmassnahme gäbe es dann keinen
+  // Weg mehr zum erneuten Absenden ausser Rücktaste-und-neu-Tippen. Sobald
+  // ein Sendeversuch endet (pending → nicht mehr pending), OHNE dass er
+  // erfolgreich war (sonst hätte der Block oben schon zurückgesetzt), wird
+  // dieselbe Bestätigungsfläche als Wiederholungsangebot eingeblendet —
+  // `WEITER` versucht denselben Versuch erneut, `‹` lässt die Würfe für die
+  // Rücktaste stehen. Im Bestätigungsmodus (`confirmScore`) ist das nicht
+  // nötig: dort bleibt die Fläche ohnehin offen, bis `WEITER` gelingt.
+  const [lastSubmitPending, setLastSubmitPending] = useState(scoring.submitPending);
+  if (lastSubmitPending !== scoring.submitPending) {
+    const submitJustSettledWithoutSuccess = lastSubmitPending && !scoring.submitPending && !submitJustSucceeded;
+    setLastSubmitPending(scoring.submitPending);
+    if (submitJustSettledWithoutSuccess && completedEntryPreview !== null && !settings.confirmScore) {
+      setPendingConfirmation(completedEntryPreview);
+    }
+  }
+
+  // Automatisches Senden ohne Bestätigung: ruft die Mutation auf, sobald
+  // eine neue abgeschlossene Aufnahme erscheint. Absichtlich nur an
+  // `entry.darts` gehängt, damit ein unveränderter, bereits gesendeter
+  // Checkout nicht ein zweites Mal rausgeht.
+  useEffect(() => {
+    if (completedEntryPreview !== null && !settings.confirmScore) {
+      submitEntry(completedEntryPreview);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry.darts]);
+
+  // Automatisches Bestätigen: 1200 ms nach dem Einblenden senden, sofern die
+  // Bestätigung nicht vorher manuell oder per Tipp auf die Fläche ausgelöst
+  // wurde. Das Timeout räumt sich beim Verlassen (Effekt-Cleanup) und beim
+  // manuellen Bestätigen (`confirmPendingVisit`) auf.
+  useEffect(() => {
+    if (pendingConfirmation === null || !settings.autoConfirm) return;
+    autoConfirmTimeout.current = setTimeout(() => {
+      confirmPendingVisit();
+    }, 1200);
+    return () => {
+      if (autoConfirmTimeout.current !== null) clearTimeout(autoConfirmTimeout.current);
+      autoConfirmTimeout.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingConfirmation, settings.autoConfirm]);
+
+  const handleDartSegment = (segment: number) => {
+    if (activeParticipant === undefined) return;
+    dispatchEntry({
+      type: "SEGMENT",
+      segment,
+      remaining: activeParticipant.remaining,
+      startingScore: match.startingScore,
+      inRule: match.inRule,
+      outRule: match.outRule,
+    });
+  };
+
+  const handleDartBackspace = () => {
+    if (entry.darts.length === 0) {
+      scoring.undoVisit();
+      return;
+    }
+    dispatchEntry({ type: "BACKSPACE" });
+  };
+
   return (
-    <section aria-label="Match-Scoreboard" className="overflow-hidden rounded-2xl border border-emerald-400/30 bg-slate-950 shadow-2xl shadow-emerald-950/20">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-slate-800 px-4 py-3 text-caption font-semibold tracking-[0.12em] text-slate-400 uppercase">
-        <span>Set {match.currentSetNumber} · Leg {match.currentLegNumber} · Best of {match.bestOfLegs}</span>
-        {/* Die Spielart gehört sichtbar ans Oche: bei Double In wird eine
-            Eröffnung ohne Doppel abgelehnt, und der Grund muss ablesbar sein. */}
-        <span className="text-emerald-300">
-          {variantLabel({ startingScore: match.startingScore, inRule: match.inRule, outRule: match.outRule })}
-        </span>
-        <span>{match.boardName ?? "Nicht zugewiesen"} · v{match.version}</span>
-      </div>
-      <div className="grid grid-cols-2 divide-x divide-slate-800">
-        {match.participants.map((participant) => (
-          <div className={cn("p-4 text-center sm:p-7", participant.isActive && match.status === "IN_PROGRESS" ? "bg-emerald-400/10" : "")} key={participant.playerId}>
-            <p className="truncate text-body font-semibold text-slate-300" title={sideNames(participant)}>
-              {participant.players.map((person, index) => (
-                <span key={person.playerId}>
-                  {index > 0 ? <span aria-hidden="true"> · </span> : null}
-                  <span className={person.isThrowing ? "text-white underline decoration-emerald-400 decoration-2 underline-offset-4" : ""}>
-                    {person.displayName}
-                    {person.isThrowing ? <span className="sr-only"> (am Wurf)</span> : null}
-                  </span>
-                </span>
-              ))}
-            </p>
-            <p
-              aria-label={`${sideNames(participant)}, Restscore`}
-              className={cn(
-                "mt-2 font-numerals font-bold tabular",
-                participant.isActive && match.status === "IN_PROGRESS"
-                  ? "text-display text-white"
-                  : "text-data text-slate-400",
-              )}
-            >
-              {participant.remaining}
-            </p>
-            {/* Nach dem Matchende steht der Legzähler auf dem nächsten, nie
-                begonnenen Satz; dann zählen nur noch die Sätze. */}
-            <p className="mt-2 text-body text-slate-400">
-              {match.status === "COMPLETED"
-                ? `${participant.setsWon} / ${match.setsToWin} Sets`
-                : `${participant.legsWonInSet} / ${match.legsToWin} Legs · ${participant.setsWon} / ${match.setsToWin} Sets`}
-            </p>
-          </div>
-        ))}
-      </div>
-      {canScore && match.status === "IN_PROGRESS" ? <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-900 px-4 py-3 text-body"><span>{lock.state === "EIGEN" ? "Dieses Gerät steuert das Board · Verbindung aktiv" : lock.state === "FREMD" ? "Ein anderes Gerät steuert dieses Board" : "Board-Steuerung wird übernommen …"}</span>{lock.state === "FREMD" ? <Button onClick={lock.takeOver} variant="outline">Steuerung übernehmen</Button> : null}</div> : null}
-      {hasPending ? <div className="border-t border-amber-400/40 bg-amber-300/10 p-4" role="status"><p className="font-semibold text-amber-100">{queued.length} Aufnahme wartet dauerhaft gespeichert auf die Übertragung.</p>{queued.map((command) => <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-body text-amber-100" key={command.commandId}><span>{command.label} · {command.status === "CONFLICT" ? command.error : online ? "Wiederholung läuft" : "Offline"}</span>{command.status === "CONFLICT" ? <Button onClick={() => void removeOfflineCommand(command.commandId).then(refreshQueue).then(refresh)} variant="outline">Verwerfen und synchronisieren</Button> : <Button disabled={!online || replaying} onClick={() => void replay()} variant="outline">Jetzt übertragen</Button>}</div>)}</div> : null}
-      {match.status === "COMPLETED" ? <div className="border-t border-emerald-400/30 bg-emerald-400/10 p-5 text-center"><p className="text-body uppercase tracking-[0.12em] text-emerald-300">Match beendet</p><p className="mt-1 font-numerals text-title font-bold text-white">{winnerName(match)} gewinnt</p></div> : canScore ? (
-        <form className="grid gap-3 border-t border-slate-800 p-4 sm:grid-cols-[1fr_auto]" onSubmit={(event) => { event.preventDefault(); openCheckoutOrSubmit(); }}>
-          <input aria-label="Aufnahmescore" autoFocus className={inputClassName} disabled={!mayControl} inputMode="numeric" min="0" max="180" placeholder="Score" required type="number" value={points} onChange={(event) => setPoints(event.target.value)} />
-          <Button disabled={submit.isPending || !mayControl || checkoutOpen} type="submit">Erfassen</Button>
-        </form>
-      ) : null}
-      <CheckoutDialog
-        darts={checkoutDarts}
-        error={checkoutOpen && submit.isError ? mutationMessage(submit.error) : null}
-        field={checkoutDouble}
-        onCancel={() => { submit.reset(); setCheckoutOpen(false); }}
-        onDartsChange={setCheckoutDarts}
-        onFieldChange={setCheckoutDouble}
-        onSubmit={() => submit.mutate({ points: Number(points), dartsThrown: checkoutDarts, checkoutDouble: Number(checkoutDouble) })}
-        open={checkoutOpen}
-        pending={submit.isPending}
-        points={Number(points)}
+    <section aria-label="Match-Scoreboard" className="grid h-[100dvh] grid-rows-[auto_auto_auto_1fr] bg-slate-950 text-white">
+      {/* Ohne Seitentitel ist das die einzige Überschrift der Fläche und der
+          einzige Name, den Screenreader ausserhalb von "Match-Scoreboard"
+          zu hören bekommen. `sr-only` ist `position: absolute` und nimmt
+          deshalb keine eigene Grid-Zeile ein. */}
+      <h1 className="sr-only">
+        {sideNames(match.participants[0])} – {sideNames(match.participants[1])}
+      </h1>
+      <ScoreboardHeader
+        backHref={backHref}
+        backLabel={backLabel}
+        match={match}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
-      <AbortMatchDialog error={abort.isError ? mutationMessage(abort.error) : null} onCancel={() => { abort.reset(); setAbortOpen(false); }} onSubmit={(reason) => abort.mutate(reason)} open={abortOpen} pending={abort.isPending} queuedCount={queued.length} />
-      <div className="border-t border-slate-800 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h4 className="font-numerals text-title-sm font-bold text-slate-200">Letzte Aufnahmen</h4>
-          <div className="flex flex-wrap gap-2">
-            {mayControl && match.visits.some((visit) => !visit.reverted) ? <Button disabled={undo.isPending || !online} onClick={() => undo.mutate()} variant="outline">Letzte Aufnahme zurücknehmen</Button> : null}
-            {canAbort && match.status === "IN_PROGRESS" ? <Button className="border border-rose-500/60 bg-rose-600 text-white hover:bg-rose-500" disabled={!online || lock.state !== "EIGEN" || abort.isPending} onClick={() => { abort.reset(); setAbortOpen(true); }}>Match abbrechen</Button> : null}
-          </div>
+      <ScoreboardStatus
+        lockState={lock.state}
+        message={error !== null && !checkoutOpen ? mutationMessage(error) : null}
+        online={online}
+        onTakeOver={lock.takeOver}
+        queuedCount={queued.length}
+      />
+      <ScoreboardSides
+        match={match}
+        pendingDarts={settings.mode === "DART" ? entry.darts : []}
+        showDartBand={settings.mode === "DART"}
+      />
+      {/* Review-Befund 3: drei feste Reihen statt eines einzigen scrollenden
+          Blocks — sonst bekommt das Keypad je nach Inhalt der ersten Reihe
+          (Warteschlangen-Banner vorhanden oder nicht) mal die 1fr-Spur, mal
+          gar keine. So bleibt seine Reihe unabhängig davon immer die
+          mittlere, bekommt also immer den verbleibenden Platz; nur wenn der
+          Gesamtinhalt trotzdem nicht passt (z. B. sehr niedriges Gerät),
+          scrollt diese Fläche für sich, ohne dass die Seite selbst wächst. */}
+      <div className="grid min-h-0 grid-rows-[auto_1fr_auto] overflow-y-auto">
+        <div>
+          {hasPending ? (
+            <div className="border-b border-amber-400/40 bg-amber-300/10 p-4">
+              {queued.map((command) => (
+                <div className="flex flex-wrap items-center justify-between gap-3 text-body text-amber-100" key={command.commandId}>
+                  <span>{command.label} · {command.status === "CONFLICT" ? command.error : online ? "Wiederholung läuft" : "Offline"}</span>
+                  {command.status === "CONFLICT" ? (
+                    <Button onClick={() => scoring.discardQueued(command.commandId)} variant="outline">Verwerfen und synchronisieren</Button>
+                  ) : (
+                    <Button disabled={!online || replaying} onClick={() => scoring.replay()} variant="outline">Jetzt übertragen</Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
-        {error && !checkoutOpen ? <p className="mt-3 text-body text-rose-300" role="alert">{mutationMessage(error)}</p> : null}
-        <div className="mt-3 space-y-2">{match.visits.slice(0, 8).map((visit) => <div className={cn("flex min-h-11 items-center justify-between rounded-lg bg-slate-900 px-3 text-body", visit.reverted && "opacity-40 line-through")} key={visit.id}><span className="text-slate-300">{visit.playerDisplayName} · {visit.dartsThrown} Darts</span><span className="font-bold text-white">{visit.outcome === "BUST" ? `BUST (${visit.points})` : `${visit.appliedPoints} → ${visit.scoreAfter}`}</span></div>)}</div>
+        <div className="min-h-0">
+          {match.status === "COMPLETED" ? (
+            <div className="border-b border-emerald-400/30 bg-emerald-400/10 p-5 text-center">
+              <p className="text-body uppercase tracking-[0.12em] text-emerald-300">Match beendet</p>
+              <p className="mt-1 font-numerals text-title font-bold text-white">{winnerName(match)} gewinnt</p>
+            </div>
+          ) : canScore && settings.mode === "DART" ? (
+            <div className="relative h-full min-h-0 border-b border-slate-800 p-3">
+              <DartKeypad
+                disabled={!mayControl || activeParticipant === undefined || pendingConfirmation !== null || scoring.submitPending}
+                modifier={entry.modifier}
+                onBackspace={handleDartBackspace}
+                onModifier={(multiplier) => dispatchEntry({ type: "MODIFIER", multiplier })}
+                onSegment={handleDartSegment}
+                segmentsLocked={completedEntryPreview !== null}
+              />
+              {pendingConfirmation !== null ? (
+                <VisitConfirmation
+                  bust={pendingConfirmation.outcome === "BUST"}
+                  onBack={() => setPendingConfirmation(null)}
+                  onConfirm={confirmPendingVisit}
+                  points={pendingConfirmation.appliedPoints}
+                  thrownPoints={pendingConfirmation.points}
+                />
+              ) : null}
+            </div>
+          ) : canScore && settings.mode === "ROUND" ? (
+            // overflow-y-auto: das Keypad braucht mehr Hoehe als das
+            // Dart-Keypad und ueberlief sonst sichtbar in "Letzte Aufnahmen".
+            <div className="h-full min-h-0 overflow-y-auto border-b border-slate-800 p-3">
+              <RoundKeypad
+                disabled={!mayControl || activeParticipant === undefined || scoring.submitPending || checkoutOpen}
+                onBackspace={handleRoundBackspace}
+                onDigit={handleRoundDigit}
+                onQuickScore={handleRoundQuickScore}
+                onSubmit={handleRoundSubmit}
+                quickScores={quickScores.scores}
+                quickScoresSource={quickScores.source}
+                submittable={isRoundEntrySubmittable(roundValue)}
+                value={roundValue}
+              />
+            </div>
+          ) : null}
+        </div>
+        <div>
+          <CheckoutDialog
+            confirmDarts={settings.confirmCheckoutDarts}
+            darts={checkoutDarts}
+            error={checkoutOpen && scoring.submitError !== null ? mutationMessage(scoring.submitError) : null}
+            field={checkoutField}
+            onBust={handleCheckoutBust}
+            onCancel={() => { scoring.resetSubmit(); setCheckoutOpen(false); }}
+            onDartsChange={setCheckoutDarts}
+            onFieldChange={setCheckoutField}
+            onSubmit={handleCheckoutSubmit}
+            open={checkoutOpen}
+            outRule={checkoutOutRule}
+            pending={scoring.submitPending}
+            points={Number(roundValue)}
+          />
+          {/* SPIEL BEENDEN laesst das Einstellungs-Modal absichtlich offen
+              (native <dialog>s stapeln sich, unsichtbar darunter) -- beide im
+              selben Commit zu wechseln liesse ihre Fokus-Rueckgaben
+              (use-dialog-focus-return.ts) gegeneinander laufen, mit
+              Playwright gemessen. Erst ein Erfolg schliesst beide (siehe
+              lastAbortSuccess oben). */}
+          <AbortMatchDialog error={scoring.abortError !== null ? mutationMessage(scoring.abortError) : null} onCancel={() => { scoring.resetAbort(); setAbortOpen(false); }} onSubmit={(reason) => scoring.abortMatch(reason)} open={abortOpen} pending={scoring.abortPending} queuedCount={queued.length} />
+          <ScoreboardSettingsDialog abortDisabled={!online || lock.state !== "EIGEN" || scoring.abortPending} backHref={backHref} backLabel={backLabel} canAbort={canAbort && match.status === "IN_PROGRESS"} lockState={lock.state} onAbort={() => { scoring.resetAbort(); setAbortOpen(true); }} onChange={(next) => writeScoreboardSettings(next)} onClose={() => setSettingsOpen(false)} onTakeOver={lock.takeOver} open={settingsOpen} settings={settings} visits={match.visits} />
+          {/* Rücknahme = schnelle Korrektur beim Zählen, kein Einstellungsvorgang. */}
+          {mayControl && match.visits.some((visit) => !visit.reverted) ? (
+            <div className="p-4">
+              <Button disabled={scoring.undoPending || !online} onClick={() => scoring.undoVisit()} variant="outline">
+                Letzte Aufnahme zurücknehmen
+              </Button>
+            </div>
+          ) : null}
+        </div>
       </div>
     </section>
-  );
-}
-
-function AbortMatchDialog({ error, onCancel, onSubmit, open, pending, queuedCount }: {
-  readonly error: string | null;
-  readonly onCancel: () => void;
-  readonly onSubmit: (reason: string) => void;
-  readonly open: boolean;
-  readonly pending: boolean;
-  readonly queuedCount: number;
-}) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const [reason, setReason] = useState("");
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog === null) return;
-    if (open && !dialog.open) {
-      setReason("");
-      dialog.showModal();
-    }
-    if (!open && dialog.open) dialog.close();
-    return () => { if (dialog.open) dialog.close(); };
-  }, [open]);
-
-  if (!open) return null;
-  return (
-    <dialog aria-describedby="abort-match-description" aria-labelledby="abort-match-title" className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-rose-500/50 bg-slate-950 p-0 text-white shadow-2xl backdrop:bg-slate-950/80" onCancel={(event) => { event.preventDefault(); onCancel(); }} ref={dialogRef}>
-      <form className="space-y-5 p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); onSubmit(reason.trim()); }}>
-        <div>
-          <h4 className="font-numerals text-title font-bold" id="abort-match-title">Match abbrechen</h4>
-          <p className="mt-2 text-body text-slate-300" id="abort-match-description">Alle Aufnahmen und Legs dieses Matches werden unwiderruflich verworfen. {queuedCount} lokal gespeicherte {queuedCount === 1 ? "Aufnahme wird" : "Aufnahmen werden"} verworfen. Das Board wird freigegeben; eine Turnierpaarung wechselt zurück auf READY.</p>
-        </div>
-        <label className="block space-y-2 text-body font-semibold text-slate-200">
-          <span>Abbruchgrund</span>
-          <textarea autoFocus className="min-h-24 w-full rounded-lg border border-slate-700 bg-slate-950 p-3 text-base text-white outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-400/30" maxLength={500} onChange={(event) => setReason(event.target.value)} placeholder="z. B. falsche Board-Zuweisung" required value={reason} />
-        </label>
-        {error ? <p className="text-body text-rose-300" role="alert">{error}</p> : null}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Button disabled={pending} onClick={onCancel} type="button" variant="outline">Zurück zum Match</Button>
-          <Button className="bg-rose-600 text-white hover:bg-rose-500" disabled={pending || reason.trim().length < 3} type="submit">Match endgültig abbrechen</Button>
-        </div>
-      </form>
-    </dialog>
-  );
-}
-
-function CheckoutDialog({
-  darts,
-  error,
-  field,
-  onCancel,
-  onDartsChange,
-  onFieldChange,
-  onSubmit,
-  open,
-  pending,
-  points,
-}: {
-  readonly darts: 1 | 2 | 3;
-  readonly error: string | null;
-  readonly field: string;
-  readonly onCancel: () => void;
-  readonly onDartsChange: (darts: 1 | 2 | 3) => void;
-  readonly onFieldChange: (field: string) => void;
-  readonly onSubmit: () => void;
-  readonly open: boolean;
-  readonly pending: boolean;
-  readonly points: number;
-}) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog === null) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-    return () => {
-      if (dialog.open) dialog.close();
-    };
-  }, [open]);
-
-  if (!open) return null;
-
-  return (
-    <dialog
-      aria-labelledby="checkout-dialog-title"
-      className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-emerald-400/40 bg-slate-950 p-0 text-white shadow-2xl backdrop:bg-slate-950/80"
-      onCancel={(event) => { event.preventDefault(); onCancel(); }}
-      ref={dialogRef}
-    >
-      <form className="space-y-5 p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
-        <div>
-          <h4 className="font-numerals text-title font-bold" id="checkout-dialog-title">Checkout erfassen</h4>
-          <p className="mt-2 text-body text-slate-300">{points} Punkte auf 0. Wähle das letzte Doppel und die benötigten Darts.</p>
-        </div>
-        <label className="block space-y-2 text-body font-semibold text-slate-200">
-          <span>Checkout-Feld</span>
-          <select autoFocus className={inputClassName} required value={field} onChange={(event) => onFieldChange(event.target.value)}>
-            <option value="">Doppel wählen</option>
-            {Array.from({ length: 20 }, (_, index) => index + 1).map((double) => <option key={double} value={double}>D{double}</option>)}
-            <option value={25}>Bull (Double 25)</option>
-          </select>
-        </label>
-        <label className="block space-y-2 text-body font-semibold text-slate-200">
-          <span>Benötigte Darts</span>
-          <select className={inputClassName} value={darts} onChange={(event) => onDartsChange(Number(event.target.value) as 1 | 2 | 3)}>
-            <option value={1}>1 Dart</option>
-            <option value={2}>2 Darts</option>
-            <option value={3}>3 Darts</option>
-          </select>
-        </label>
-        {error ? <p className="text-body text-rose-300" role="alert">{error}</p> : null}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Button disabled={pending} onClick={onCancel} type="button" variant="outline">Abbrechen</Button>
-          <Button disabled={pending || field === ""} type="submit">Checkout speichern</Button>
-        </div>
-      </form>
-    </dialog>
   );
 }

@@ -5,7 +5,7 @@ export {
   type ServiceHealthStatus,
 } from "./health";
 export { apiErrorSchema, type ApiErrorResponse } from "./api-error";
-export { careerStatisticsSchema, playerStatisticsProfileSchema, type PlayerStatisticsProfile } from "./statistics";
+export { careerStatisticsSchema, frequentScoresSchema, frequentScoresSourceSchema, playerStatisticsProfileSchema, type FrequentScores, type PlayerStatisticsProfile } from "./statistics";
 export {
   advancedFormatPreviewInputSchema,
   advancedFormatPreviewSchema,
@@ -17,9 +17,9 @@ export {
 } from "./advanced-tournament";
 export { boardListSchema, boardSchema, boardStatusSchema, createBoardSchema, type BoardResponse, type CreateBoardInput } from "./board";
 export {
-  abortMatchResponseSchema, abortMatchSchema, boardControllerLeaseRequestSchema, boardControllerLeaseSchema, createMatchSchema, decideLegByBullSchema, decideLegStartSchema, matchListSchema, matchStateSchema, matchStatusSchema, matchVisitSchema,
+  abortMatchResponseSchema, abortMatchSchema, boardControllerLeaseRequestSchema, boardControllerLeaseSchema, createMatchSchema, dartSchema, decideLegByBullSchema, decideLegStartSchema, matchListSchema, matchLiveTargetSchema, matchStateSchema, matchStatusSchema, matchVisitSchema,
   submitVisitSchema, undoVisitSchema, visitOutcomeSchema,
-  type AbortMatchInput, type AbortMatchResponse, type BoardControllerLeaseRequest, type BoardControllerLeaseResponse, type CreateMatchInput, type DecideLegByBullInput, type DecideLegStartInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput,
+  type AbortMatchInput, type AbortMatchResponse, type BoardControllerLeaseRequest, type BoardControllerLeaseResponse, type CreateMatchInput, type Dart, type DecideLegByBullInput, type DecideLegStartInput, type MatchLiveTarget, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput,
 } from "./match";
 export {
   acceptInvitationSchema,

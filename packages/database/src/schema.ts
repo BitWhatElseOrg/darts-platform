@@ -466,6 +466,7 @@ export const visits = pgTable(
     uniqueIndex("visits_match_sequence_unique").on(table.matchId, table.sequence),
     index("visits_organization_match_idx").on(table.organizationId, table.matchId),
     index("visits_leg_id_idx").on(table.legId),
+    index("visits_organization_thrower_idx").on(table.organizationId, table.throwerPlayerId),
     check("visits_points_check", sql`${table.points} between 0 and 180`),
     check("visits_applied_points_check", sql`${table.appliedPoints} between 0 and 180`),
     check("visits_darts_check", sql`${table.dartsThrown} between 1 and 3`),
@@ -474,6 +475,39 @@ export const visits = pgTable(
     check("visits_checkout_attempts_check", sql`${table.checkoutAttempts} between 0 and ${table.dartsThrown}`),
     check("visits_outcome_check", sql`${table.outcome} in ('SCORED', 'BUST', 'LEG_WON', 'SET_WON', 'MATCH_WON')`),
     check("visits_seat_check", sql`${table.seat} in (1, 2)`),
+  ],
+);
+
+/**
+ * Die einzelnen Wuerfe einer Aufnahme. Sie haengen am Visit; eine
+ * zurueckgenommene Aufnahme behaelt ihre Wuerfe, `visits.reverted_at` bleibt
+ * die einzige Wahrheit ueber den Widerruf.
+ */
+export const visitDarts = pgTable(
+  "visit_darts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    visitId: uuid("visit_id")
+      .notNull()
+      .references(() => visits.id, { onDelete: "cascade" }),
+    dartIndex: integer("dart_index").notNull(),
+    segment: integer("segment").notNull(),
+    multiplier: integer("multiplier").notNull(),
+    value: integer("value").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("visit_darts_visit_index_unique").on(table.visitId, table.dartIndex),
+    index("visit_darts_organization_visit_idx").on(table.organizationId, table.visitId),
+    check("visit_darts_index_check", sql`${table.dartIndex} between 1 and 3`),
+    check("visit_darts_segment_check", sql`${table.segment} between 0 and 20 or ${table.segment} = 25`),
+    check("visit_darts_multiplier_check", sql`${table.multiplier} between 1 and 3`),
+    check("visit_darts_miss_check", sql`${table.segment} <> 0 or ${table.multiplier} = 1`),
+    check("visit_darts_bull_check", sql`${table.segment} <> 25 or ${table.multiplier} <= 2`),
+    check("visit_darts_value_check", sql`${table.value} = ${table.segment} * ${table.multiplier}`),
   ],
 );
 
@@ -1397,6 +1431,7 @@ export type Match = typeof matches.$inferSelect;
 export type MatchParticipant = typeof matchParticipants.$inferSelect;
 export type Leg = typeof legs.$inferSelect;
 export type Visit = typeof visits.$inferSelect;
+export type VisitDart = typeof visitDarts.$inferSelect;
 export type ScoreCommand = typeof scoreCommands.$inferSelect;
 export type OutboxEvent = typeof outboxEvents.$inferSelect;
 export type PlayerStatisticAggregate = typeof playerStatisticAggregates.$inferSelect;

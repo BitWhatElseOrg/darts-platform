@@ -61,7 +61,10 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 - Spielerverwaltung inklusive revisionssicherer Archivierung
 - Board- und Matchverwaltung, tenant-sicher
 - vollständiges 501-Double-Out-Match: Legs, Bust, Checkout, Dart Count, Best of Legs, Undo
-- touchfreundliches Scoreboard für Smartphone und Tablet
+- Vollbild-Scoreboard für Smartphone und Tablet mit zwei umschaltbaren
+  Eingabearten – Wurf für Wurf (Standard, mit Bestätigungsfläche) und
+  Rundensumme (mit Checkout-Schritt) –, dauerhafter Einzelwurf-Speicherung
+  und geräteweiten Schnellwerten
 - Audit- und Outbox-Einträge in derselben Transaktion wie die Mutation
 - vollständiger Tournament MVP: Round Robin, Gruppen, Setzung, K.-o., Byes,
   Ranking, Board-Zuweisung, Dashboard und auditierte Result Correction
@@ -73,7 +76,12 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
   Konfliktanzeige, Board-Controller-Lock, Heartbeat und Match Resume
 - Spielerprofile mit Match History, Average, First 9, Checkout-Quote, 180ern,
   High Finish, Best Leg, Darts pro Leg, Head-to-Head und Rankingverlauf sowie
-  asynchron aktualisierten Karriereaggregaten
+  asynchron aktualisierten Karriereaggregaten. Der Nenner der Checkout-Quote
+  hat mit der Einzelwurf-Erfassung die Einheit gewechselt: Aufnahmen ohne
+  Einzelwürfe zählen Aufnahmen auf ein Finish, Aufnahmen mit Einzelwürfen
+  zählen Darts auf ein Finish. Karrierewerte über den Umstellungszeitpunkt
+  hinweg mischen deshalb beide Einheiten — Einzelheiten in
+  [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md), Abschnitt 10.
 - Team-Begegnungen als Ligamodus nach [VFC-Reglement](LIGA-REGLEMENT.md):
   Teams mit Kader und Captain, Ligawettbewerb mit Begegnungsvorlage, beidseitige
   Aufstellung, 18 beziehungsweise 19 Einzel- und Doppelspiele auf mehreren

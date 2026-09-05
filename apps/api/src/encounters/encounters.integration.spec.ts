@@ -1053,6 +1053,39 @@ describe("team encounter persistence", () => {
   }, 60_000);
 
   /**
+   * Der Live-Bezug eines Begegnungs-Matches: die Kopfzeile der Scoringflaeche
+   * verlinkt damit die oeffentliche Ansicht (`scoreboard-header.tsx`,
+   * `liveHref`). Seit dem gebuendelten Laden (`MatchesRepository.getStates`)
+   * gibt es dafuer zwei Wege — den Einzelabruf der Flaeche und den
+   * Sammelabruf hinter `list()`, dem Turnier-Dashboard und der Statistik.
+   * Beide muessen denselben Bezug tragen, sonst verliert die Kopfzeile ihren
+   * Link, sobald sie ueber den einen oder anderen Weg geladen wird.
+   */
+  it("names the encounter as live target, loaded singly and in a batch", async () => {
+    const competitionId = await createCompetition();
+    let encounter = await openEncounter(competitionId);
+    const first = encounter.slots.find((entry) => entry.sequence === 1);
+    if (first === undefined) throw new Error("Expected the first slot.");
+
+    encounter = await encountersService.assignSlot({
+      organizationId,
+      encounterId: encounter.id,
+      slotId: first.id,
+      data: { commandId: randomUUID(), expectedVersion: encounter.version, boardId: boardIds[0]! },
+      auth,
+      audit,
+    });
+    const matchId = encounter.slots.find((entry) => entry.sequence === 1)?.matchId;
+    if (matchId === null || matchId === undefined) throw new Error("Expected a scoring match.");
+
+    const expected = { kind: "ENCOUNTER", publicId: encounter.publicId } as const;
+    const single = await matchesRepository.getState(organizationId, matchId);
+    expect(single?.liveTarget).toEqual(expected);
+    const batched = await matchesRepository.getStates(organizationId, [matchId]);
+    expect(batched.get(matchId)?.liveTarget).toEqual(expected);
+  }, 60_000);
+
+  /**
    * Wer schon an einer Scheibe steht, kann nicht gleichzeitig ein zweites
    * Spiel bestreiten. Die Absage muss sagen, wen sie meint — sonst sucht die
    * Spielleitung den Grund am falschen Ende.
