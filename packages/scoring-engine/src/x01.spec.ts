@@ -90,7 +90,10 @@ describe("X01 scoring", () => {
     expect(result.state.winnerSeat).toBe(1);
   });
   it("finishes on a treble under master out but not under double out", () => {
-    const master = executeX01Command(
+    // Ohne Wurfdaten und ohne Segment lehnt der Schreibpfad die Aufnahme heute
+    // ab (CHECKOUT_DETAIL_REQUIRED); geprueft wird hier die Wertung eines
+    // bereits gespeicherten Kommandos.
+    const master = replay(
       createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 12, outRule: "MASTER" }) }),
       visit("master", 1, "one", 12, 1),
     );
@@ -114,7 +117,9 @@ describe("X01 scoring", () => {
   });
 
   it("without checkoutMissed, master out still relies on the segment heuristic (backwards compatibility)", () => {
-    const result = executeX01Command(
+    // Replay statt Schreibpfad: neue Kommandos dieser Form verlangt die Engine
+    // seit CHECKOUT_DETAIL_REQUIRED belegt, gespeicherte wertet sie unveraendert.
+    const result = replay(
       createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 40, outRule: "MASTER" }) }),
       { type: "SUBMIT_VISIT", commandId: "master-heuristic", seat: 1, throwerPlayerId: "one", points: 40, dartsThrown: 3 },
     );
@@ -1125,4 +1130,97 @@ describe("X01 Audit-Korrekturen", () => {
     expect(stored.state.sides[0].remaining).toBe(440);
   });
 
+  /**
+   * Befund D-I1: Ohne Beleg raet die Master-Out-Heuristik permissiv. Neue
+   * Kommandos muessen den Abschluss deshalb belegen.
+   */
+  it("lehnt einen Master-Out-Abschluss ohne Beleg ab", () => {
+    const match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 60, outRule: "MASTER" }),
+    });
+    try {
+      executeX01Command(match, visit("no-detail", 1, "one", 60, 3));
+      expect.unreachable("a master-out finish needs a detail");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("CHECKOUT_DETAIL_REQUIRED");
+    }
+    expect(projectX01Match(match).status).toBe("IN_PROGRESS");
+  });
+
+  it("nimmt einen Master-Out-Abschluss mit checkoutDouble an", () => {
+    const result = executeX01Command(
+      createX01Match({
+        sides: singles("one", "two"),
+        rules: rules({ startingScore: 60, outRule: "MASTER" }),
+      }),
+      visit("with-double", 1, "one", 60, 3, 10),
+    );
+    expect(result.outcome).toBe("MATCH_WON");
+  });
+
+  it("wertet denselben Rest mit Wurfdaten regelrichtig", () => {
+    const bust = executeX01Command(
+      createX01Match({
+        sides: singles("one", "two"),
+        rules: rules({ startingScore: 60, outRule: "MASTER" }),
+      }),
+      {
+        type: "SUBMIT_VISIT",
+        commandId: "three-singles",
+        seat: 1,
+        throwerPlayerId: "one",
+        points: 60,
+        dartsThrown: 3,
+        darts: [
+          { segment: 20, multiplier: 1 },
+          { segment: 20, multiplier: 1 },
+          { segment: 20, multiplier: 1 },
+        ],
+      },
+    );
+    expect(bust.outcome).toBe("BUST");
+    expect(bust.state.sides[0].remaining).toBe(60);
+
+    const finish = executeX01Command(
+      createX01Match({
+        sides: singles("one", "two"),
+        rules: rules({ startingScore: 60, outRule: "MASTER" }),
+      }),
+      {
+        type: "SUBMIT_VISIT",
+        commandId: "treble",
+        seat: 1,
+        throwerPlayerId: "one",
+        points: 60,
+        dartsThrown: 1,
+        darts: [{ segment: 20, multiplier: 3 }],
+      },
+    );
+    expect(finish.outcome).toBe("MATCH_WON");
+  });
+
+  it("nimmt einen Master-Out-Abschluss mit checkoutMissed als Bust an", () => {
+    const result = executeX01Command(
+      createX01Match({
+        sides: singles("one", "two"),
+        rules: rules({ startingScore: 60, outRule: "MASTER" }),
+      }),
+      { type: "SUBMIT_VISIT", commandId: "missed", seat: 1, throwerPlayerId: "one", points: 60, dartsThrown: 3, checkoutMissed: true },
+    );
+    expect(result.outcome).toBe("BUST");
+    expect(result.state.sides[0].remaining).toBe(60);
+  });
+
+  it("wertet ein gespeichertes Master-Out-Kommando ohne Beleg beim Replay unveraendert", () => {
+    const stored = replay(
+      createX01Match({
+        sides: singles("one", "two"),
+        rules: rules({ startingScore: 60, outRule: "MASTER" }),
+      }),
+      visit("stored-no-detail", 1, "one", 60, 3),
+    );
+    expect(stored.state.status).toBe("COMPLETED");
+    expect(stored.state.winnerSeat).toBe(1);
+  });
 });

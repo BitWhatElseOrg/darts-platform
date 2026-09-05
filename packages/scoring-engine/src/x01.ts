@@ -940,6 +940,23 @@ function assertWritableVisit(match: X01Match, command: SubmitVisitCommand, befor
       "Under double in the opening visit must be recorded dart by dart.",
     );
   }
+  // Master Out: bringt die Aufnahme den Rest rechnerisch auf null, entscheidet
+  // ohne Wurfdaten, ohne `checkoutDouble` und ohne `checkoutMissed` allein die
+  // Heuristik `finishesOnMasterSegment` — und die raet permissiv (Rest 60 mit
+  // drei Darts gilt ihr als Finish, obwohl S20/S20/S20 keins ist). Neue
+  // Kommandos muessen den Abschluss deshalb belegen.
+  if (
+    match.rules.outRule === "MASTER" &&
+    command.darts === undefined &&
+    command.checkoutDouble === undefined &&
+    command.checkoutMissed !== true &&
+    side.remaining - command.points === 0
+  ) {
+    throw new ScoringValidationError(
+      "CHECKOUT_DETAIL_REQUIRED",
+      "Under master out a finishing visit needs the closing segment, the recorded darts or an explicit miss.",
+    );
+  }
 }
 
 export function executeX01Command(match: X01Match, command: X01Command): ExecuteX01Result {

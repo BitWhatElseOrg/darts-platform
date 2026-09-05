@@ -436,6 +436,64 @@ describe("persistent X01 match", () => {
     expect(applied.visits[0]?.appliedPoints).toBe(60);
   });
 
+  it("rejects a master-out finish without a checkout detail without writing", async () => {
+    // Befund D-I1: Ohne Beleg raet die Heuristik permissiv - Rest 60 mit drei
+    // Darts galt ihr als Master-Finish, obwohl S20/S20/S20 keins ist. Neue
+    // Kommandos muessen den Abschluss belegen.
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    await databaseService.database
+      .update(matches)
+      .set({ outRule: "MASTER" })
+      .where(and(eq(matches.organizationId, organizationId), eq(matches.id, matchId)));
+
+    let state = created;
+    const score = async (playerId: string, points: number) => {
+      state = await service.submitVisit({ organizationId, matchId, auth, audit, data: { commandId: randomUUID(), expectedVersion: state.version, playerId, points, dartsThrown: 3 } });
+    };
+    await score(playerOneId, 180); // 501 -> 321
+    await score(playerTwoId, 0);
+    await score(playerOneId, 180); // 321 -> 141
+    await score(playerTwoId, 0);
+    await score(playerOneId, 81); // 141 -> 60
+    await score(playerTwoId, 0);
+
+    const rejectedCommandId = randomUUID();
+    await expect(service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: { commandId: rejectedCommandId, expectedVersion: state.version, playerId: playerOneId, points: 60, dartsThrown: 3 },
+    })).rejects.toMatchObject({
+      status: 400,
+      response: { code: "CHECKOUT_DETAIL_REQUIRED" },
+    });
+
+    expect(await databaseService.database.select().from(scoreCommands)
+      .where(and(eq(scoreCommands.organizationId, organizationId), eq(scoreCommands.commandId, rejectedCommandId)))).toHaveLength(0);
+    expect(await databaseService.database.select().from(visits)
+      .where(and(eq(visits.organizationId, organizationId), eq(visits.commandId, rejectedCommandId)))).toHaveLength(0);
+    const unchanged = await repository.getState(organizationId, matchId);
+    expect(unchanged?.version).toBe(state.version);
+    expect(unchanged?.status).toBe("IN_PROGRESS");
+    expect(unchanged?.participants.find((participant) => participant.playerId === playerOneId)?.remaining).toBe(60);
+
+    // Dieselben 60 Punkte als S20/S20/S20 sind kein Master-Finish, sondern ein Bust.
+    state = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: {
+        commandId: randomUUID(), expectedVersion: state.version, playerId: playerOneId,
+        points: 60, dartsThrown: 3,
+        darts: [{ segment: 20, multiplier: 1 }, { segment: 20, multiplier: 1 }, { segment: 20, multiplier: 1 }],
+      },
+    });
+    expect(state.status).toBe("IN_PROGRESS");
+    expect(state.visits[0]?.outcome).toBe("BUST");
+    expect(state.participants.find((participant) => participant.playerId === playerOneId)?.remaining).toBe(60);
+  });
+
   it("names no live target for a match without a competition", async () => {
     const created = await service.create({
       organizationId,
