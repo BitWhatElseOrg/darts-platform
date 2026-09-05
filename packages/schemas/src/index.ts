@@ -71,6 +71,7 @@ export {
   type BoardSlot,
   type BoardSlotMatch,
   type BoardSlotState,
+  type BracketMatch,
   type ConflictSeverity,
   type CorrectTournamentResultInput,
   type CreateTournamentInput,

@@ -417,5 +417,7 @@ test("a club can complete a match and start a generated tournament match", async
   const tournamentId = new URL(tournamentUrl).pathname.split("/").at(-1);
   if (tournamentId === undefined) throw new Error("Expected tournament ID in dashboard URL.");
   await page.goto(`/live/${tournamentId}`);
+  // Die Teilnehmerliste steht in der Live-Ansicht zugeklappt am Seitenende.
+  await page.locator("summary", { hasText: "Teilnehmende" }).click();
   await expect(page.getByText("E2E Player One · Ausgefallen")).toBeVisible();
 });

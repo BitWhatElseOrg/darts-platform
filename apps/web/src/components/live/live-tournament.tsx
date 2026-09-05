@@ -5,9 +5,10 @@ import { publicTournamentDashboardSchema, type BoardSlot } from "@darts-platform
 import QRCode from "qrcode";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { apiRequest } from "@/lib/api-client";
+import { buildBracketRounds, knockoutLeadsLiveView, type BracketNode, type BracketRound, type BracketSlot } from "@/lib/bracket-tree";
 import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
 
 interface LiveTournamentProps {
@@ -44,6 +45,25 @@ export function LiveTournament({ tournamentId, mode, boardId }: LiveTournamentPr
   const boards = mode === "board"
     ? dashboard.boards.filter((board) => board.boardId === boardId)
     : dashboard.boards;
+  // Ab der K.-o.-Phase steht das Tableau vor den Gruppenranglisten.
+  const knockoutFirst = knockoutLeadsLiveView(dashboard.tournament.status);
+  const groupsSection = dashboard.groups.length > 0 ? (
+    <LiveSection title="Gruppenranglisten">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {dashboard.groups.map((group) => (
+          <div className="overflow-hidden rounded-xl border border-slate-800" key={group.groupLabel}>
+            <h3 className="bg-slate-900 px-4 py-3 font-numerals text-title-sm font-bold">Gruppe {group.groupLabel}</h3>
+            <ol>{group.rows.map((row) => <li className="grid grid-cols-[2rem_1fr_3rem] border-t border-slate-800 px-4 py-2 text-body tabular" key={row.playerId}><span>{row.position}.</span><span>{row.displayName}{row.withdrawn ? " · Ausgefallen" : ""}</span><span className="text-right font-bold">{row.points}</span></li>)}</ol>
+          </div>
+        ))}
+      </div>
+    </LiveSection>
+  ) : null;
+  const bracketSection = dashboard.bracket.length > 0 ? (
+    <LiveSection title="K.-o.-Tableau">
+      <BracketTree rounds={buildBracketRounds(dashboard.bracket)} />
+    </LiveSection>
+  ) : null;
 
   return (
     <main className={`min-h-screen bg-slate-950 text-white ${mode === "tv" ? "p-8 xl:p-12" : "p-4 sm:p-7"}`}>
@@ -59,42 +79,85 @@ export function LiveTournament({ tournamentId, mode, boardId }: LiveTournamentPr
         </div>
       </header>
 
-      <div className="mx-auto mt-7 grid max-w-[1500px] gap-7 xl:grid-cols-[1.15fr_0.85fr]">
-        <section>
-          <h2 className="mb-3 text-caption font-semibold uppercase tracking-[0.12em] text-slate-400">Boards</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {boards.map((board) => <LiveBoard board={board} key={board.boardId} mode={mode} tournamentId={tournamentId} />)}
-          </div>
-        </section>
-        {mode !== "board" ? (
-          <div className="space-y-7">
-            <section>
-              <h2 className="mb-3 text-caption font-semibold uppercase tracking-[0.12em] text-slate-400">Teilnehmende</h2>
-              <ul className="grid gap-2 sm:grid-cols-2">
-                {dashboard.participants.map((participant) => (
-                  <li className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-body" key={participant.playerId}>
-                    {participant.displayName}{participant.status === "WITHDRAWN" ? " · Ausgefallen" : ""}
-                  </li>
-                ))}
-              </ul>
-            </section>
-            <section>
-              <h2 className="mb-3 text-caption font-semibold uppercase tracking-[0.12em] text-slate-400">Gruppenranglisten</h2>
-              <div className="space-y-4">{dashboard.groups.map((group) => (
-                <div className="overflow-hidden rounded-xl border border-slate-800" key={group.groupLabel}>
-                  <h3 className="bg-slate-900 px-4 py-3 font-numerals text-title-sm font-bold">Gruppe {group.groupLabel}</h3>
-                  <ol>{group.rows.map((row) => <li className="grid grid-cols-[2rem_1fr_3rem] border-t border-slate-800 px-4 py-2 text-body tabular" key={row.playerId}><span>{row.position}.</span><span>{row.displayName}{row.withdrawn ? " · Ausgefallen" : ""}</span><span className="text-right font-bold">{row.points}</span></li>)}</ol>
-                </div>
-              ))}</div>
-            </section>
-            {dashboard.bracket.length > 0 ? <section>
-              <h2 className="mb-3 text-caption font-semibold uppercase tracking-[0.12em] text-slate-400">K.-o.-Tableau</h2>
-              <div className="grid gap-3 sm:grid-cols-2">{dashboard.bracket.map((match) => <div className="rounded-lg border border-slate-800 bg-slate-900 p-3 text-body" key={match.matchId}><p className="text-caption text-slate-400">{match.stageLabel}{match.resultType === "WALKOVER" ? " · Walkover" : match.resultType === "BYE" ? " · Freilos" : ""}</p><p className={match.winnerDisplayName === match.participantNames[0] ? "mt-2 font-bold text-emerald-300" : "mt-2"}>{match.participantNames[0]}</p><p className={match.winnerDisplayName === match.participantNames[1] ? "font-bold text-emerald-300" : ""}>{match.participantNames[1]}</p></div>)}</div>
-            </section> : null}
-          </div>
-        ) : null}
-      </div>
+      <LiveSection title="Boards">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {boards.map((board) => <LiveBoard board={board} key={board.boardId} mode={mode} tournamentId={tournamentId} />)}
+        </div>
+      </LiveSection>
+
+      {mode !== "board" ? (
+        <>
+          {knockoutFirst ? <>{bracketSection}{groupsSection}</> : <>{groupsSection}{bracketSection}</>}
+          <details className="mx-auto mt-7 max-w-[1500px] overflow-hidden rounded-xl border border-slate-800">
+            <summary className="cursor-pointer px-4 py-3 text-caption font-semibold uppercase tracking-[0.12em] text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400">
+              Teilnehmende ({dashboard.participants.length})
+            </summary>
+            <ul className="grid gap-2 border-t border-slate-800 p-4 sm:grid-cols-2 xl:grid-cols-4">
+              {dashboard.participants.map((participant) => (
+                <li className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-body" key={participant.playerId}>
+                  {participant.displayName}{participant.status === "WITHDRAWN" ? " · Ausgefallen" : ""}
+                </li>
+              ))}
+            </ul>
+          </details>
+        </>
+      ) : null}
     </main>
+  );
+}
+
+function LiveSection({ children, title }: { readonly children: ReactNode; readonly title: string }) {
+  return (
+    <section className="mx-auto mt-7 max-w-[1500px]">
+      <h2 className="mb-3 text-caption font-semibold uppercase tracking-[0.12em] text-slate-400">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Bis `lg` stehen die Runden untereinander — auf dem Handy soll niemand
+ * seitwärts scrollen müssen. Erst ab `lg` werden daraus Spalten, in denen die
+ * Folgerunde durch `justify-around` mittig zwischen ihren beiden Zubringern
+ * sitzt.
+ */
+function BracketTree({ rounds }: { readonly rounds: readonly BracketRound[] }) {
+  return (
+    <div className="flex flex-col gap-6 lg:flex-row lg:items-stretch lg:gap-4 lg:overflow-x-auto lg:pb-2">
+      {rounds.map((round) => (
+        <div className="flex flex-col lg:min-w-[13rem] lg:flex-1" key={round.round}>
+          <h3 className="mb-3 text-caption font-semibold uppercase tracking-[0.12em] text-emerald-300 lg:text-center">{round.label}</h3>
+          <ol className="flex flex-col gap-3 lg:flex-1 lg:justify-around lg:gap-4">
+            {round.matches.map((match) => <li key={match.matchId}><BracketCard match={match} /></li>)}
+          </ol>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BracketCard({ match }: { readonly match: BracketNode }) {
+  return (
+    <article className={`rounded-lg border bg-slate-900 p-3 text-body ${match.status === "IN_PROGRESS" ? "border-emerald-400" : "border-slate-800"}`}>
+      {match.note !== null ? <p className="mb-2 text-caption uppercase tracking-[0.12em] text-slate-400">{match.note}</p> : null}
+      {match.slots.map((slot, index) => <BracketSlotLine key={index} slot={slot} />)}
+    </article>
+  );
+}
+
+function BracketSlotLine({ slot }: { readonly slot: BracketSlot }) {
+  const tone = slot.state === "WINNER"
+    ? "font-bold text-emerald-300"
+    : slot.state === "OPEN"
+      ? "italic text-slate-500"
+      : slot.state === "LOSER"
+        ? "text-slate-400"
+        : "text-white";
+  return (
+    <p className={`flex items-center justify-between gap-2 ${tone}`}>
+      <span className="truncate" title={slot.displayName}>{slot.displayName}</span>
+      {slot.state === "WINNER" ? <span className="shrink-0"><span aria-hidden="true">&#x2713;</span><span className="sr-only">Sieger</span></span> : null}
+    </p>
   );
 }
 
