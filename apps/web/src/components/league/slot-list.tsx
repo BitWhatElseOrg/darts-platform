@@ -207,7 +207,21 @@ function SlotRow({
               )}
             </form>
           ) : (
-            <p className="font-plate text-body text-sisal-500 prose-de">{availability.reason}</p>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <p className="font-plate text-body text-sisal-500 prose-de">{availability.reason}</p>
+              {availability.blockingMatchId === null ? null : (
+                <Link
+                  className="inline-flex min-h-11 items-center rounded-lg border border-wedge-900 px-4 font-plate text-caption font-semibold tracking-[0.12em] text-wedge-900 uppercase hover:bg-sisal-50"
+                  href={matchScoreboardHref({
+                    matchId: availability.blockingMatchId,
+                    organizationId,
+                    encounterId: encounter.id,
+                  })}
+                >
+                  Blockierende Partie öffnen
+                </Link>
+              )}
+            </div>
           )}
 
           {canManage && slot.status === "WAITING" && encounter.status === "RUNNING" ? (

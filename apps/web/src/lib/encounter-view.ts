@@ -16,6 +16,8 @@ import { sideLabel } from "./league-format";
 export interface SlotAvailability {
   readonly assignable: boolean;
   readonly reason: string | null;
+  /** Die fremde Partie, die diesen Slot blockiert — dorthin führt der Weg. */
+  readonly blockingMatchId: string | null;
 }
 
 function lineupOf(encounter: EncounterDetail, side: EncounterSide): EncounterSideLineup {
@@ -27,19 +29,26 @@ export function slotAvailability(
   slot: EncounterSlotView,
 ): SlotAvailability {
   if (slot.status === "IN_PROGRESS") {
-    return { assignable: false, reason: "Das Spiel läuft bereits." };
+    return { assignable: false, reason: "Das Spiel läuft bereits.", blockingMatchId: null };
   }
   if (slot.status === "COMPLETED" || slot.status === "WALKOVER") {
-    return { assignable: false, reason: "Das Spiel ist entschieden." };
+    return { assignable: false, reason: "Das Spiel ist entschieden.", blockingMatchId: null };
   }
-  if (slot.status === "CANCELLED") return { assignable: false, reason: "Das Spiel entfällt." };
+  if (slot.status === "CANCELLED") {
+    return { assignable: false, reason: "Das Spiel entfällt.", blockingMatchId: null };
+  }
   if (encounter.status !== "RUNNING") {
-    return { assignable: false, reason: "Die Begegnung ist noch nicht gestartet." };
+    return {
+      assignable: false,
+      reason: "Die Begegnung ist noch nicht gestartet.",
+      blockingMatchId: null,
+    };
   }
   if (slot.role === "DECIDER" && !encounter.decider.required) {
     return {
       assignable: false,
       reason: "Das Entscheidungsdoppel wird erst bei Gleichstand gebraucht.",
+      blockingMatchId: null,
     };
   }
   for (const side of ["HOME", "AWAY"] as const) {
@@ -49,9 +58,38 @@ export function slotAvailability(
       slot.discipline === "DOUBLES"
         ? "hat die Doppelpaarung noch nicht gemeldet"
         : "hat diese Aufstellungsposition nicht besetzt";
-    return { assignable: false, reason: `${sideLabel(side)} ${what}.` };
+    return { assignable: false, reason: `${sideLabel(side)} ${what}.`, blockingMatchId: null };
   }
-  return { assignable: true, reason: null };
+  // Der Server weist eine belegte Person mit 409 ab. Diese Auskunft zeigt den
+  // Konflikt schon vorher, damit niemand ins Leere klickt.
+  const involved = [...slot.home.players, ...slot.away.players];
+  const blocked = involved
+    .map((entry) => ({
+      entry,
+      busy: encounter.busyPlayers.find((candidate) => candidate.playerId === entry.playerId),
+    }))
+    .find((candidate) => candidate.busy !== undefined);
+  if (blocked !== undefined && blocked.busy !== undefined) {
+    const here = runningSlotOf(encounter, blocked.busy.matchId);
+    return here === null
+      ? {
+          assignable: false,
+          reason: `${blocked.entry.displayName} spielt gerade eine andere Partie. Das Spiel startet, sobald sie beendet ist.`,
+          blockingMatchId: blocked.busy.matchId,
+        }
+      : {
+          assignable: false,
+          reason: `${blocked.entry.displayName} spielt gerade Spiel ${here} dieser Begegnung.`,
+          // Kein Sprung: die Partie läuft in dieser Begegnung, sie steht daneben.
+          blockingMatchId: null,
+        };
+  }
+  return { assignable: true, reason: null, blockingMatchId: null };
+}
+
+/** Die Nummer des Spiels dieser Begegnung, das zu dieser Partie gehört. */
+function runningSlotOf(encounter: EncounterDetail, matchId: string): number | null {
+  return encounter.slots.find((candidate) => candidate.matchId === matchId)?.sequence ?? null;
 }
 
 /** Die Doppel, für die diese Seite noch eine Paarung schuldet. */
@@ -204,4 +242,41 @@ export function busyPlayersMessage(details: unknown): string | null {
       : `${names.slice(0, -1).join(", ")} und ${names[names.length - 1]}`;
   const verb = names.length === 1 ? "spielt" : "spielen";
   return `${list} ${verb} bereits an einem anderen Board. Das Spiel startet, sobald die andere Partie beendet ist.`;
+}
+
+/**
+ * Nach dem Start ist die Meldung gesperrt. Steht eine gemeldete Person zu
+ * diesem Zeitpunkt an einer fremden Scheibe, läuft die Begegnung in eine
+ * Sackgasse — die Warnung kommt deshalb davor.
+ */
+export interface CommitmentWarning {
+  readonly message: string;
+  readonly blocked: readonly {
+    readonly playerId: string;
+    readonly displayName: string;
+    readonly matchId: string;
+  }[];
+}
+
+export function commitmentWarning(encounter: EncounterDetail): CommitmentWarning | null {
+  if (encounter.status === "RUNNING" || encounter.status === "COMPLETED") return null;
+  if (encounter.status === "CANCELLED") return null;
+  const nominated = [...encounter.home.nominations, ...encounter.away.nominations];
+  const blocked = nominated.flatMap((entry) => {
+    const busy = encounter.busyPlayers.find((candidate) => candidate.playerId === entry.playerId);
+    return busy === undefined
+      ? []
+      : [{ playerId: entry.playerId, displayName: entry.displayName, matchId: busy.matchId }];
+  });
+  if (blocked.length === 0) return null;
+  const names = blocked.map((entry) => entry.displayName);
+  const list =
+    names.length === 1
+      ? names[0]
+      : `${names.slice(0, -1).join(", ")} und ${names[names.length - 1]}`;
+  const verb = names.length === 1 ? "spielt" : "spielen";
+  return {
+    message: `${list} ${verb} gerade eine andere Partie. Nach dem Start lässt sich die Meldung nicht mehr ändern — warte ab oder melde jemand anderen.`,
+    blocked,
+  };
 }

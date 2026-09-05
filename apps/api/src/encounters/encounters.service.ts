@@ -218,6 +218,7 @@ function toDetail(data: EncounterData): unknown {
     home: sideLineup(data, "HOME", revealed),
     away: sideLineup(data, "AWAY", revealed),
     slots: slotViews(data),
+    busyPlayers: data.busyPlayers,
   };
 }
 

@@ -261,6 +261,12 @@ export const encounterDetailSchema = encounterSummarySchema.extend({
   home: encounterSideLineupSchema,
   away: encounterSideLineupSchema,
   slots: z.array(encounterSlotSchema),
+  /**
+   * Wer von den beteiligten Personen gerade an einer Scheibe steht, und in
+   * welcher Partie. Die Fläche warnt damit vor der Board-Zuweisung und führt
+   * zu der Partie, die den Weg blockiert.
+   */
+  busyPlayers: z.array(z.object({ playerId: z.uuid(), matchId: z.uuid() })).default([]),
 });
 
 /** Die öffentliche Ansicht trägt keine Meldungen und keine Auswechselhistorie. */

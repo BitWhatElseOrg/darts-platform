@@ -6,7 +6,9 @@ import { Control, Field, MarkCross, Rule, SelectInput, SheetLabel, TextInput, We
 import { useCallback, useState } from "react";
 
 import { apiRequest } from "@/lib/api-client";
-import { deciderNotice, preStartHint } from "@/lib/encounter-view";
+import { commitmentWarning, deciderNotice, preStartHint } from "@/lib/encounter-view";
+import { matchScoreboardHref } from "@/lib/match-navigation";
+import Link from "next/link";
 import { sideLabel } from "@/lib/league-format";
 import { NavLink, PageNav } from "@/components/page-nav";
 import { DoublesPanel } from "./doubles-panel";
@@ -111,6 +113,7 @@ export function EncounterCommandCentre({
   }
 
   const notice = deciderNotice(encounter);
+  const commitment = commitmentWarning(encounter);
 
   return (
     <div className="sektorenring min-h-screen">
@@ -157,6 +160,33 @@ export function EncounterCommandCentre({
           <Wedge className="mt-5 p-4" tone="plate">
             <SheetLabel as="h2">Entscheidungsdoppel</SheetLabel>
             <p className="mt-1.5 font-plate text-body text-wedge-900">{notice}</p>
+          </Wedge>
+        )}
+
+        {commitment === null ? null : (
+          <Wedge className="mt-5 p-4" tone="alarm">
+            <SheetLabel as="h2" tone="alarm">
+              Meldung prüfen
+            </SheetLabel>
+            <p className="mt-1.5 font-plate text-body text-wedge-900 prose-de">
+              {commitment.message}
+            </p>
+            <ul className="mt-3 flex flex-wrap gap-3">
+              {commitment.blocked.map((entry) => (
+                <li key={entry.playerId}>
+                  <Link
+                    className="inline-flex min-h-11 items-center rounded-lg border border-wedge-900 px-4 font-plate text-caption font-semibold tracking-[0.12em] text-wedge-900 uppercase hover:bg-sisal-50"
+                    href={matchScoreboardHref({
+                      matchId: entry.matchId,
+                      organizationId,
+                      encounterId,
+                    })}
+                  >
+                    Partie von {entry.displayName}
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </Wedge>
         )}
 
