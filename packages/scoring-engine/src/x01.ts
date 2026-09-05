@@ -395,8 +395,26 @@ function isBust(outRule: OutRule, tentative: number, validCheckout: boolean): bo
 
 export type VisitPreviewOutcome = "OPEN" | "SCORED" | "BUST" | "CHECKOUT";
 
+/**
+ * Die Vorschau traegt dieselbe Unterscheidung wie `AppliedVisit` und
+ * `SubmitVisitCommand`: `points` ist die ROHE Summe der geworfenen Darts,
+ * `appliedPoints` die tatsaechlich ANGERECHNETE. Unter Double In laufen die
+ * beiden auseinander, solange die Seite das Leg noch nicht eroeffnet hat
+ * (T20/T20/D20 auf 501: `points` 160, `appliedPoints` 40).
+ *
+ * Wer eine Aufnahme absendet, muss `points` uebertragen: `validateVisit`
+ * prueft die Wurfsumme gegen `command.points` (DART_SUM_MISMATCH), und die
+ * Anrechnung nimmt `projectX01Match` selbst vor. `appliedPoints` ist reine
+ * Anzeige.
+ *
+ * Ein Unterschied zu `AppliedVisit.appliedPoints` bleibt: dort ist der Wert
+ * bei einem Bust null, hier traegt er auch dann die nach der In-Regel
+ * angerechnete Summe. Die Vorschau meldet den Bust ueber `outcome`, und die
+ * Flaeche am Board zeigt in dem Fall die geworfene Zahl, nicht eine Null.
+ */
 export interface VisitOutcomePreview {
   readonly points: number;
+  readonly appliedPoints: number;
   readonly remaining: number;
   readonly complete: boolean;
   readonly outcome: VisitPreviewOutcome;
@@ -448,15 +466,17 @@ export function previewVisitOutcome(input: {
     input.openedInLeg ?? (rules.inRule !== "DOUBLE" || remaining < rules.startingScore);
   const opening = openingDartIndex(darts);
   const countedDarts = openedInLeg ? darts : opening === -1 ? [] : darts.slice(opening);
-  const points = dartsTotal(countedDarts);
-  const tentative = remaining - points;
+  const points = dartsTotal(darts);
+  const appliedPoints = dartsTotal(countedDarts);
+  const tentative = remaining - appliedPoints;
   const finishing = darts.at(-1) ?? null;
   const checkout = tentative === 0 && finishing !== null && closesLegWithDarts(rules.outRule, finishing);
   const bust = isBust(rules.outRule, tentative, checkout);
-  if (checkout) return { points, remaining: 0, complete: true, outcome: "CHECKOUT" };
-  if (bust) return { points, remaining, complete: true, outcome: "BUST" };
+  if (checkout) return { points, appliedPoints, remaining: 0, complete: true, outcome: "CHECKOUT" };
+  if (bust) return { points, appliedPoints, remaining, complete: true, outcome: "BUST" };
   return {
     points,
+    appliedPoints,
     remaining: tentative,
     complete: darts.length >= 3,
     outcome: darts.length >= 3 ? "SCORED" : "OPEN",

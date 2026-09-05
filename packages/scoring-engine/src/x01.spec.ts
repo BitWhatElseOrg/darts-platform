@@ -680,7 +680,40 @@ describe("previewVisitOutcome", () => {
       remaining: 501,
       rules: { startingScore: 501, inRule: "DOUBLE", outRule: "DOUBLE" },
     });
-    expect(preview).toMatchObject({ points: 40, remaining: 461, complete: true, outcome: "SCORED" });
+    expect(preview).toMatchObject({ points: 160, appliedPoints: 40, remaining: 461, complete: true, outcome: "SCORED" });
+  });
+
+  /**
+   * Review-Befund der Abschlussrunde: die Flaeche am Board sendet `points`
+   * aus dieser Vorschau als Aufnahmesumme. Waere darin die angerechnete
+   * Summe, verlangte `validateVisit` (DART_SUM_MISMATCH) und dieselbe Regel
+   * in `submitVisitSchema` vergeblich Gleichheit mit der Wurfsumme — unter
+   * Double In waere die Eroeffnungsaufnahme deshalb nicht absendbar. Der
+   * Test haelt fest, dass `points` die rohe Summe ist und die Engine sie
+   * annimmt.
+   */
+  it("liefert eine Aufnahmesumme, die die Engine unter Double In auch annimmt", () => {
+    const darts = [
+      { segment: 20, multiplier: 3 },
+      { segment: 20, multiplier: 3 },
+      { segment: 20, multiplier: 2 },
+    ] as const;
+    const preview = previewVisitOutcome({
+      darts,
+      remaining: 501,
+      rules: { startingScore: 501, inRule: "DOUBLE", outRule: "DOUBLE" },
+    });
+    const match = createX01Match({ sides: singles("one", "two"), rules: rules({ inRule: "DOUBLE" }) });
+    const result = executeX01Command(match, {
+      type: "SUBMIT_VISIT",
+      commandId: "double-in-preview-sum",
+      seat: 1,
+      throwerPlayerId: "one",
+      points: preview.points,
+      dartsThrown: 3,
+      darts: [...darts],
+    });
+    expect(result.state.visits.at(-1)).toMatchObject({ points: 160, appliedPoints: 40, scoreAfter: 461 });
   });
 
   it("rechnet bei Double In ohne Doppel nichts an, ohne zu scheitern", () => {
@@ -693,7 +726,7 @@ describe("previewVisitOutcome", () => {
       remaining: 501,
       rules: { startingScore: 501, inRule: "DOUBLE", outRule: "DOUBLE" },
     });
-    expect(preview).toMatchObject({ points: 0, remaining: 501, complete: true, outcome: "SCORED" });
+    expect(preview).toMatchObject({ points: 60, appliedPoints: 0, remaining: 501, complete: true, outcome: "SCORED" });
   });
 
   it("behandelt eine bereits eroeffnete Seite bei Double In wie Straight In", () => {
@@ -705,7 +738,7 @@ describe("previewVisitOutcome", () => {
       remaining: 461,
       rules: { startingScore: 501, inRule: "DOUBLE", outRule: "DOUBLE" },
     });
-    expect(preview).toMatchObject({ points: 20, remaining: 441, complete: false, outcome: "OPEN" });
+    expect(preview).toMatchObject({ points: 20, appliedPoints: 20, remaining: 441, complete: false, outcome: "OPEN" });
   });
 
   it("erkennt einen Checkout bereits nach dem zweiten Wurf, ohne auf den dritten zu warten", () => {
@@ -758,7 +791,7 @@ describe("previewVisitOutcome", () => {
       remaining: 101,
       rules: { startingScore: 101, inRule: "DOUBLE", outRule: "DOUBLE" },
     });
-    expect(preview).toEqual({ points: 0, remaining: 101, complete: false, outcome: "OPEN" });
+    expect(preview).toEqual({ points: 120, appliedPoints: 0, remaining: 101, complete: false, outcome: "OPEN" });
   });
 
   it("liefert mit explizit uebergebenem openedInLeg das von der Engine tatsaechlich gewertete Ergebnis", () => {
@@ -771,6 +804,6 @@ describe("previewVisitOutcome", () => {
       rules: { startingScore: 101, inRule: "DOUBLE", outRule: "DOUBLE" },
       openedInLeg: true,
     });
-    expect(preview).toEqual({ points: 120, remaining: 101, complete: true, outcome: "BUST" });
+    expect(preview).toEqual({ points: 120, appliedPoints: 120, remaining: 101, complete: true, outcome: "BUST" });
   });
 });
