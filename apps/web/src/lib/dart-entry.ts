@@ -76,8 +76,15 @@ export function dartEntryReducer(state: DartEntryState, action: DartEntryAction)
   }
 }
 
+/**
+ * `points` ist die rohe Wurfsumme, `appliedPoints` die nach der In-Regel
+ * angerechnete. Unter Double In laufen sie auseinander, solange die Seite
+ * das Leg noch nicht eroeffnet hat — siehe `VisitOutcomePreview` in der
+ * Scoring Engine, deren Vertrag hier unveraendert weitergereicht wird.
+ */
 export interface DartEntryPreview {
   readonly points: number;
+  readonly appliedPoints: number;
   readonly remaining: number;
   readonly complete: boolean;
   readonly outcome: "OPEN" | "SCORED" | "BUST" | "CHECKOUT";
@@ -96,4 +103,44 @@ export function previewDartEntry(input: VisitContext & { readonly darts: readonl
     remaining: input.remaining,
     rules: { startingScore: input.startingScore, inRule: input.inRule, outRule: input.outRule },
   });
+}
+
+/** Was der Server als Aufnahme entgegennimmt (Ausschnitt aus `submitVisitSchema`). */
+export interface DartVisitCommand {
+  readonly points: number;
+  readonly dartsThrown: 1 | 2 | 3;
+  readonly darts: readonly Dart[];
+}
+
+/** Verengt die Wurfanzahl auf die vom Schema erlaubten Werte, ohne Cast. */
+function dartCount(darts: readonly Dart[]): 1 | 2 | 3 | null {
+  switch (darts.length) {
+    case 1:
+      return 1;
+    case 2:
+      return 2;
+    case 3:
+      return 3;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Baut aus einer erfassten Aufnahme das Visit-Kommando. Uebertragen wird die
+ * ROHE Wurfsumme (`preview.points`), nicht die angerechnete
+ * (`preview.appliedPoints`): sowohl `submitVisitSchema` als auch die Engine
+ * (`validateVisit`, DART_SUM_MISMATCH) verlangen Gleichheit von Wurfsumme
+ * und `points`, und die Anrechnung nach der In-Regel nimmt die Engine selbst
+ * vor. Unter Double In laufen die beiden Zahlen bis zur Eroeffnung
+ * auseinander — wer hier die angerechnete Summe sendet, macht die
+ * Eroeffnungsaufnahme unabsendbar (Befund der Abschlussrunde).
+ *
+ * `null` bedeutet: keine absendbare Aufnahme (kein Wurf erfasst). Mehr als
+ * drei Wuerfe laesst der Reducer gar nicht erst zu.
+ */
+export function dartVisitCommand(darts: readonly Dart[], preview: DartEntryPreview): DartVisitCommand | null {
+  const dartsThrown = dartCount(darts);
+  if (dartsThrown === null) return null;
+  return { points: preview.points, dartsThrown, darts };
 }

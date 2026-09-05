@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { dartEntryReducer, emptyDartEntry, isSegmentAvailable, previewDartEntry, type VisitContext } from "./dart-entry";
+import { submitVisitSchema } from "@darts-platform/schemas";
+import {
+  dartEntryReducer, dartVisitCommand, emptyDartEntry, isSegmentAvailable, previewDartEntry, type VisitContext,
+} from "./dart-entry";
 
 /**
  * Regelkontext einer offenen, noch nicht eroeffneten Aufnahme bei Straight In
@@ -201,6 +204,58 @@ describe("previewDartEntry", () => {
       inRule: "DOUBLE",
       outRule: "DOUBLE",
     });
-    expect(preview).toMatchObject({ points: 40, remaining: 461, complete: true, outcome: "SCORED" });
+    expect(preview).toMatchObject({ points: 160, appliedPoints: 40, remaining: 461, complete: true, outcome: "SCORED" });
+  });
+});
+
+/**
+ * Befund der Abschlussrunde: die Flaeche am Board hat bis hierhin die
+ * ANGERECHNETE Summe als `points` gesendet. `submitVisitSchema` und die
+ * Engine verlangen aber Gleichheit von Wurfsumme und `points` — unter Double
+ * In (Vorgabe jedes voreingestellten Liga-Wettbewerbs) war die
+ * Eroeffnungsaufnahme deshalb nicht absendbar. Dass es fuenfzehn Reviews
+ * ueberlebt hat, lag daran, dass der Sendepfad gar nicht geprueft war; diese
+ * Tests pruefen ihn gegen das echte Schema.
+ */
+describe("dartVisitCommand", () => {
+  const submittable = (command: ReturnType<typeof dartVisitCommand>) =>
+    submitVisitSchema.safeParse({
+      commandId: "11111111-1111-4111-8111-111111111111",
+      expectedVersion: 3,
+      playerId: "22222222-2222-4222-8222-222222222222",
+      checkoutAttempts: 0,
+      ...command,
+    });
+
+  it("sendet unter Double In vor der Eroeffnung die rohe, nicht die angerechnete Summe", () => {
+    const darts = [
+      { segment: 20, multiplier: 3 },
+      { segment: 20, multiplier: 3 },
+      { segment: 20, multiplier: 2 },
+    ] as const;
+    const context: VisitContext = { remaining: 501, startingScore: 501, inRule: "DOUBLE", outRule: "DOUBLE" };
+    const preview = previewDartEntry({ darts, ...context });
+    const command = dartVisitCommand(darts, preview);
+
+    expect(preview.appliedPoints).toBe(40);
+    expect(command).toEqual({ points: 160, dartsThrown: 3, darts });
+    expect(submittable(command).success).toBe(true);
+  });
+
+  it("besteht das Schema auch fuer einen Checkout aus zwei Wuerfen", () => {
+    const darts = [
+      { segment: 20, multiplier: 1 },
+      { segment: 20, multiplier: 2 },
+    ] as const;
+    const preview = previewDartEntry({ darts, ...straightContext, remaining: 60 });
+    const command = dartVisitCommand(darts, preview);
+
+    expect(preview.outcome).toBe("CHECKOUT");
+    expect(command).toEqual({ points: 60, dartsThrown: 2, darts });
+    expect(submittable(command).success).toBe(true);
+  });
+
+  it("ergibt ohne erfassten Wurf kein Kommando", () => {
+    expect(dartVisitCommand([], previewDartEntry({ darts: [], ...straightContext }))).toBeNull();
   });
 });

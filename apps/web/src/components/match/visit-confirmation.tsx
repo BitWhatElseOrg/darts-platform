@@ -23,14 +23,21 @@ function BackArrowIcon() {
  * erledigt die aufrufende Fläche. Ein Klick oder Tipp irgendwo auf der
  * Fläche wirkt wie `WEITER` (auch bei automatischem Bestätigen ein
  * sofortiges Absenden); Tastaturfokus liegt beim Öffnen auf `WEITER`.
+ *
+ * `points` ist die angerechnete Zahl, `thrownPoints` die geworfene. Unter
+ * Double In laufen sie bis zur Eröffnung auseinander (T20/T20/D20: 40
+ * angerechnet, 160 geworfen) — dann nennt die Fläche beide, statt eine der
+ * beiden Zahlen als die ganze Wahrheit auszugeben.
  */
-export function VisitConfirmation({ points, bust, onBack, onConfirm }: {
+export function VisitConfirmation({ points, thrownPoints, bust, onBack, onConfirm }: {
   readonly points: number;
+  readonly thrownPoints: number;
   readonly bust: boolean;
   readonly onBack: () => void;
   readonly onConfirm: () => void;
 }) {
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const partiallyCounted = !bust && thrownPoints !== points;
 
   useEffect(() => {
     confirmRef.current?.focus();
@@ -53,8 +60,11 @@ export function VisitConfirmation({ points, bust, onBack, onConfirm }: {
             {points}
           </span>
           <span className={cn("text-label", bust ? "text-rose-300" : "text-emerald-300")}>
-            {bust ? "BUST" : "GEWORFEN"}
+            {bust ? "BUST" : partiallyCounted ? "ANGERECHNET" : "GEWORFEN"}
           </span>
+          {partiallyCounted ? (
+            <span className="text-body text-slate-300">von {thrownPoints} geworfen</span>
+          ) : null}
         </div>
         <div className="pointer-events-auto grid w-full max-w-md grid-cols-[auto_1fr] gap-3">
           <button

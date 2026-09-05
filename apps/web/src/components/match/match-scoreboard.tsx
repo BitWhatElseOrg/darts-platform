@@ -4,7 +4,9 @@ import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from "r
 import { type MatchStateResponse } from "@darts-platform/schemas";
 import { Button } from "@darts-platform/ui";
 import { userFacingErrorMessage } from "@/lib/api-client";
-import { dartEntryReducer, emptyDartEntry, previewDartEntry, type DartEntryPreview } from "@/lib/dart-entry";
+import {
+  dartEntryReducer, dartVisitCommand, emptyDartEntry, previewDartEntry, type DartEntryPreview,
+} from "@/lib/dart-entry";
 import {
   appendRoundDigit, checkoutDoubleFromField, checkoutOutRuleFor, isRoundEntrySubmittable, onlyPossibleDouble,
   removeRoundDigit,
@@ -174,12 +176,13 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     scoring.resetSubmit();
   }
 
+  // Die Zusammenstellung des Kommandos liegt in `dart-entry.ts` und ist dort
+  // gegen `submitVisitSchema` getestet — insbesondere die Frage, welche der
+  // beiden Summen `points` traegt (die rohe, nicht die angerechnete).
   const submitEntry = (preview: DartEntryPreview) => {
-    scoring.submitVisit({
-      points: preview.points,
-      dartsThrown: entry.darts.length as 1 | 2 | 3,
-      darts: entry.darts,
-    });
+    const command = dartVisitCommand(entry.darts, preview);
+    if (command === null) return;
+    scoring.submitVisit(command);
   };
 
   const confirmPendingVisit = () => {
@@ -363,7 +366,8 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
                   bust={pendingConfirmation.outcome === "BUST"}
                   onBack={() => setPendingConfirmation(null)}
                   onConfirm={confirmPendingVisit}
-                  points={pendingConfirmation.points}
+                  points={pendingConfirmation.appliedPoints}
+                  thrownPoints={pendingConfirmation.points}
                 />
               ) : null}
             </div>
