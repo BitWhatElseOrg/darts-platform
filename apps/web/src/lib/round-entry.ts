@@ -1,4 +1,4 @@
-import { isAttainableScore } from "@darts-platform/scoring-engine";
+import { isAttainableScore, type OutRule } from "@darts-platform/scoring-engine";
 
 /**
  * Haengt eine Ziffer an die Rundensumme an. Eine fuehrende Null wird durch
@@ -100,4 +100,26 @@ export function checkoutFieldOptions(outRule: "DOUBLE" | "MASTER"): {
 /** Regelabhaengige Beschriftung des Bust-Knopfs im Checkout-Schritt. */
 export function checkoutMissLabel(outRule: "DOUBLE" | "MASTER"): string {
   return outRule === "MASTER" ? "Kein Doppel oder Triple getroffen (Bust)" : "Kein Doppel getroffen (Bust)";
+}
+
+/**
+ * Master Out ist die einzige Ausgangsregel mit Triple-Finish (x01.ts,
+ * `masterFinishes`); jede andere -- inklusive SINGLE, unter der der
+ * Checkout-Dialog laut `handleRoundSubmit` in `match-scoreboard.tsx` ohnehin
+ * nie oeffnet -- verhaelt sich fuers Checkout-Feld wie DOUBLE.
+ */
+export function checkoutOutRuleFor(outRule: OutRule): "DOUBLE" | "MASTER" {
+  return outRule === "MASTER" ? "MASTER" : "DOUBLE";
+}
+
+/**
+ * Segment fuer `checkoutDouble`, oder `undefined`, wenn das gewaehlte Feld
+ * ein Triple (oder leer) ist. Die Engine kennt `checkoutDouble` nur als
+ * Doppel-Segment 1-20/25 (x01.ts `checkoutValue`); ein Triple unter Master
+ * Out wird deshalb bewusst OHNE dieses Feld gesendet -- die Engine erkennt
+ * den Checkout dann ueber ihre eigene Heuristik `finishesOnMasterSegment`.
+ */
+export function checkoutDoubleFromField(field: string): number | undefined {
+  const selection = decodeCheckoutField(field);
+  return selection?.kind === "DOUBLE" ? selection.segment : undefined;
 }

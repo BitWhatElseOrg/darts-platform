@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { Button, cn } from "@darts-platform/ui";
 import { checkoutFieldOptions, checkoutMissLabel } from "@/lib/round-entry";
+import { useDialogFocusReturn } from "./use-dialog-focus-return";
 
 const fieldSelectClassName =
   "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
@@ -52,18 +53,7 @@ export function CheckoutDialog({
 }) {
   const { doubles, triples } = checkoutFieldOptions(outRule);
   const dialogRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog === null) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-    return () => {
-      if (dialog.open) dialog.close();
-    };
-  }, [open]);
-
-  if (!open) return null;
+  useDialogFocusReturn(dialogRef, open);
 
   return (
     <dialog

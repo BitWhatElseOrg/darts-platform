@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import Link from "next/link";
 import type { MatchStateResponse } from "@darts-platform/schemas";
 import { Button, cn } from "@darts-platform/ui";
 import type { ScoreboardInputMode, ScoreboardSettings } from "@/lib/scoreboard-settings";
 import type { BoardLockState } from "@/lib/use-board-controller-lock";
+import { useDialogFocusReturn } from "./use-dialog-focus-return";
 
 const modeOptions: readonly { readonly value: ScoreboardInputMode; readonly label: string }[] = [
   { value: "DART", label: "Dart" },
@@ -93,11 +94,7 @@ function SettingSwitch({ checked, disabled, label, onToggle }: {
 
 /**
  * Einstellungs-Modal hinter dem Zahnrad der Kopfzeile (`scoreboard-header.tsx`).
- * `dialog` mit `showModal` — gebaut wie `AbortMatchDialog`/`CheckoutDialog`
- * in `match-scoreboard.tsx`: dieselbe Ref-Mechanik, dasselbe
- * `onCancel`-Abfangen für `Escape`. Der Fokusfang (Tab bleibt im Dialog)
- * kommt nativ von `<dialog>` mit `showModal`; die Fokusrückgabe beim
- * Schliessen dagegen NICHT — dazu unten mehr, direkt am Ref.
+ * Fokusfang und -rückgabe kommen aus `use-dialog-focus-return.ts`.
  *
  * `lockState` folgt `BoardLockState` aus `use-board-controller-lock.ts`
  * (`EIGEN`/`FREMD`/`WIRD_ÜBERNOMMEN`), nicht dem im Task-Brief erfundenen
@@ -105,12 +102,12 @@ function SettingSwitch({ checked, disabled, label, onToggle }: {
  * `scoreboard-status.tsx`).
  *
  * Trägt bewusst keine Undo-Funktion: „Letzte Aufnahmen" ist hier nur die
- * gelesene Liste (Brief Schritt 2.3, „unverändert übernommen"), die
- * Rücknahme-Taste bleibt in `match-scoreboard.tsx` sichtbar neben dem
- * Keypad — Rücknehmen ist eine schnelle Korrektur während des Zählens,
- * kein Einstellungsvorgang, und soll nicht hinter einem Modal verschwinden.
+ * gelesene Liste, die Rücknahme-Taste bleibt in `match-scoreboard.tsx`
+ * sichtbar neben dem Keypad — eine schnelle Korrektur während des Zählens,
+ * kein Einstellungsvorgang.
  */
 export function ScoreboardSettingsDialog({
+  abortDisabled,
   backHref,
   backLabel,
   canAbort,
@@ -134,42 +131,14 @@ export function ScoreboardSettingsDialog({
   readonly backLabel: string;
   readonly canAbort: boolean;
   readonly onAbort: () => void;
+  // Dieselbe Sperre, die der Abbrechen-Knopf vor Task 14 direkt trug
+  // (`!online || lock.state !== "EIGEN" || scoring.abortPending`) — sonst
+  // liesse „SPIEL BEENDEN" sich antippen, obwohl der Abbruch serverseitig
+  // ohnehin nichts bewirken würde (Review-Befund 4).
+  readonly abortDisabled: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  // Anders als bei `AbortMatchDialog`/`CheckoutDialog` bleibt dieses <dialog>
-  // IMMER gerendert (kein `if (!open) return null`): mit Playwright
-  // verifiziert, dass ein `return null` bei `!open` den nativen Knoten aus
-  // dem DOM entfernt, bevor der folgende Effekt ihn ueber `dialogRef.current`
-  // noch erreichen kann (der Ref ist zu dem Zeitpunkt schon `null`) — die
-  // Fokusrückgabe beim Schliessen lief dadurch nie. Ein ungeöffnetes
-  // <dialog> ist ohnehin unsichtbar und für Screenreader nicht erreichbar
-  // (UA-Stylesheet `display: none` ohne `[open]`), das Fruehausblenden war
-  // also nie fuer die Sichtbarkeit noetig.
-  //
-  // Ebenso mit Playwright verifiziert: Chromium schliesst das native
-  // <dialog> bei Escape SOFORT, bevor `onCancel`s `event.preventDefault()`
-  // etwas dagegen ausrichten könnte — ein Vergleich mit `dialog.open` taugt
-  // deshalb nicht als Bedingung fürs Zurückholen, das native Element ist zu
-  // dem Zeitpunkt oft schon geschlossen. Dieser Ref hält deshalb unabhängig
-  // davon fest, wer beim Öffnen fokussiert war, und holt den Fokus bei
-  // jedem Wechsel von offen auf geschlossen explizit dorthin zurück.
-  const previouslyFocused = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog === null) return undefined;
-    if (open && !dialog.open) {
-      previouslyFocused.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      dialog.showModal();
-    } else if (!open) {
-      if (dialog.open) dialog.close();
-      previouslyFocused.current?.focus();
-      previouslyFocused.current = null;
-    }
-    return () => {
-      if (dialog.open) dialog.close();
-    };
-  }, [open]);
+  useDialogFocusReturn(dialogRef, open);
 
   return (
     <dialog
@@ -186,6 +155,7 @@ export function ScoreboardSettingsDialog({
             Eingabe
           </h5>
           <InputModeSwitch mode={settings.mode} onChange={(mode) => onChange({ ...settings, mode })} />
+          <p className="text-caption text-slate-400">Ein Moduswechsel verwirft eine angefangene, noch nicht gesendete Aufnahme.</p>
           {settings.mode === "DART" ? (
             <div className="space-y-2">
               <SettingSwitch
@@ -251,6 +221,7 @@ export function ScoreboardSettingsDialog({
             <Button
               aria-label="Spiel beenden"
               className="border border-rose-500/60 bg-rose-600 text-white hover:bg-rose-500"
+              disabled={abortDisabled}
               onClick={onAbort}
             >
               SPIEL BEENDEN

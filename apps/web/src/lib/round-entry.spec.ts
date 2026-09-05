@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   appendRoundDigit,
+  checkoutDoubleFromField,
   checkoutFieldOptions,
   checkoutMissLabel,
+  checkoutOutRuleFor,
   decodeCheckoutField,
   encodeCheckoutField,
   isRoundEntrySubmittable,
@@ -151,5 +153,37 @@ describe("checkoutMissLabel", () => {
 
   it("nennt unter MASTER Doppel und Triple", () => {
     expect(checkoutMissLabel("MASTER")).toBe("Kein Doppel oder Triple getroffen (Bust)");
+  });
+});
+
+describe("checkoutOutRuleFor", () => {
+  it("bleibt DOUBLE unter der Ausgangsregel DOUBLE", () => {
+    expect(checkoutOutRuleFor("DOUBLE")).toBe("DOUBLE");
+  });
+
+  it("wird MASTER unter der Ausgangsregel MASTER", () => {
+    expect(checkoutOutRuleFor("MASTER")).toBe("MASTER");
+  });
+
+  it("faellt unter SINGLE auf DOUBLE zurueck (der Checkout-Dialog oeffnet dort ohnehin nie)", () => {
+    expect(checkoutOutRuleFor("SINGLE")).toBe("DOUBLE");
+  });
+});
+
+describe("checkoutDoubleFromField", () => {
+  it("liefert das Segment bei einem Doppel", () => {
+    expect(checkoutDoubleFromField("20")).toBe(20);
+  });
+
+  it("liefert Bull als Segment 25", () => {
+    expect(checkoutDoubleFromField("25")).toBe(25);
+  });
+
+  it("liefert undefined bei einem Triple", () => {
+    expect(checkoutDoubleFromField("T20")).toBeUndefined();
+  });
+
+  it("liefert undefined bei leerem Feld", () => {
+    expect(checkoutDoubleFromField("")).toBeUndefined();
   });
 });
