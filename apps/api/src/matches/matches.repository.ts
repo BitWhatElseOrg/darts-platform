@@ -173,6 +173,9 @@ export class MatchesRepository {
         points: visit.points, appliedPoints: visit.appliedPoints, dartsThrown: visit.dartsThrown,
         scoreBefore: visit.scoreBefore, scoreAfter: visit.scoreAfter, checkoutDouble: visit.checkoutDouble,
         checkoutAttempts: visit.checkoutAttempts,
+        // Die Einzelwuerfe kommen aus `visit_darts`; bis der Lesepfad sie
+        // laedt, traegt jede Aufnahme eine leere Liste.
+        darts: [],
         outcome: visit.outcome as "SCORED" | "BUST" | "LEG_WON" | "SET_WON" | "MATCH_WON",
         reverted: visit.revertedAt !== null, createdAt: visit.createdAt,
       })),
