@@ -11,6 +11,9 @@ import {
   type InRule,
   type OutRule,
   type SubmitVisitCommand,
+  type X01Command,
+  type X01Match,
+  type X01MatchState,
   type X01Rules,
   type X01Side,
 } from "./x01.js";
@@ -32,6 +35,22 @@ function visit(
     dartsThrown,
     ...(checkoutDouble === undefined ? {} : { checkoutDouble }),
   };
+}
+
+/**
+ * Replay eines gespeicherten Kommando-Stroms: haengt die Kommandos direkt an
+ * und projiziert. Bewusst NICHT ueber `executeX01Command`, weil der
+ * Schreibpfad Regeln traegt, die nur fuer NEUE Kommandos gelten
+ * (`DARTS_REQUIRED_FOR_DOUBLE_IN`, `CHECKOUT_DETAIL_REQUIRED`). Gespeicherte
+ * Kommandos muessen beim Lesen unveraendert gewertet werden — genau das
+ * pruefen die Tests, die diesen Helfer verwenden.
+ */
+function replay(
+  match: X01Match,
+  ...commands: readonly X01Command[]
+): { readonly match: X01Match; readonly state: X01MatchState } {
+  const next: X01Match = { ...match, commands: [...match.commands, ...commands] };
+  return { match: next, state: projectX01Match(next) };
 }
 
 function singles(one: string, two: string): readonly [X01Side, X01Side] {
@@ -170,8 +189,11 @@ describe("X01 scoring", () => {
       sides: singles("one", "two"),
       rules: rules({ startingScore: 10, inRule: "DOUBLE" }),
     });
+    // Der Schreibpfad verlangt fuer eine Eroeffnungsaufnahme inzwischen
+    // Wurfdaten; `DOUBLE_IN_REQUIRED` ist damit die Wertung eines
+    // GESPEICHERTEN Kommandos ohne Wurfdaten geblieben.
     try {
-      executeX01Command(match, visit("no-double", 1, "one", 3, 1));
+      replay(match, visit("no-double", 1, "one", 3, 1));
       expect.unreachable("a single must not open the leg");
     } catch (error: unknown) {
       expect((error as ScoringValidationError).code).toBe("DOUBLE_IN_REQUIRED");
@@ -187,7 +209,9 @@ describe("X01 scoring", () => {
       sides: singles("one", "two"),
       rules: rules({ startingScore: 701, inRule: "DOUBLE" }),
     });
-    match = executeX01Command(match, visit("open", 1, "one", 40, 1, 20)).match;
+    // Rundensumme ohne Wurfdaten: als gespeichertes Kommando weiterhin
+    // gueltig, im Schreibpfad seit DARTS_REQUIRED_FOR_DOUBLE_IN abgelehnt.
+    match = replay(match, visit("open", 1, "one", 40, 1, 20)).match;
     const opened = projectX01Match(match);
     expect(opened.sides[0].openedInLeg).toBe(true);
     expect(opened.sides[0].remaining).toBe(661);
@@ -201,8 +225,8 @@ describe("X01 scoring", () => {
       sides: singles("one", "two"),
       rules: rules({ startingScore: 10, inRule: "DOUBLE" }),
     });
-    const result = executeX01Command(match, visit("bust-open", 1, "one", 12, 1, 6));
-    expect(result.outcome).toBe("BUST");
+    const result = replay(match, visit("bust-open", 1, "one", 12, 1, 6));
+    expect(result.state.visits.at(-1)?.outcome).toBe("BUST");
     expect(result.state.sides[0].openedInLeg).toBe(true);
     expect(result.state.sides[0].remaining).toBe(10);
   });
@@ -1015,4 +1039,90 @@ describe("X01 Audit-Korrekturen", () => {
     expect(third.state.sides[1].legsWonInSet).toBe(0);
     expect(third.state.sides[0].totalLegsWon).toBe(3);
   });
+
+  /**
+   * Befund K2: Unter Double In laesst sich aus einer Rundensumme nicht
+   * ablesen, wie viele Punkte vor dem eroeffnenden Doppel fielen. Der
+   * Schreibpfad verlangt deshalb Wurfdaten, solange die Seite nicht eroeffnet
+   * hat.
+   */
+  it("lehnt eine Rundensumme vor der Eroeffnung unter Double In ab", () => {
+    const match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 501, inRule: "DOUBLE" }),
+    });
+    try {
+      executeX01Command(match, visit("round-sum", 1, "one", 61, 3));
+      expect.unreachable("a round sum cannot open a double-in leg");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("DARTS_REQUIRED_FOR_DOUBLE_IN");
+    }
+    expect(projectX01Match(match).sides[0].remaining).toBe(501);
+  });
+
+  it("nimmt dieselbe Eroeffnungsaufnahme mit Wurfdaten an und zaehlt ab dem Doppel", () => {
+    const match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 501, inRule: "DOUBLE" }),
+    });
+    const result = executeX01Command(match, {
+      type: "SUBMIT_VISIT",
+      commandId: "opening-darts",
+      seat: 1,
+      throwerPlayerId: "one",
+      points: 61,
+      dartsThrown: 3,
+      darts: [
+        { segment: 1, multiplier: 1 },
+        { segment: 20, multiplier: 2 },
+        { segment: 20, multiplier: 1 },
+      ],
+    });
+    expect(result.state.visits.at(-1)?.appliedPoints).toBe(60);
+    expect(result.state.sides[0].remaining).toBe(441);
+    expect(result.state.sides[0].openedInLeg).toBe(true);
+  });
+
+  it("nimmt eine Rundensumme nach der Eroeffnung unter Double In an", () => {
+    let match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 501, inRule: "DOUBLE" }),
+    });
+    match = executeX01Command(match, {
+      type: "SUBMIT_VISIT",
+      commandId: "open",
+      seat: 1,
+      throwerPlayerId: "one",
+      points: 40,
+      dartsThrown: 1,
+      darts: [{ segment: 20, multiplier: 2 }],
+    }).match;
+    match = executeX01Command(match, visit("guest-miss", 2, "two", 0, 3)).match;
+    const result = executeX01Command(match, visit("round-sum", 1, "one", 60, 3));
+    expect(result.state.sides[0].remaining).toBe(401);
+    expect(result.state.visits.at(-1)?.appliedPoints).toBe(60);
+  });
+
+  it("nimmt eine Rundensumme unter Straight In unveraendert an", () => {
+    const match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 501 }),
+    });
+    const result = executeX01Command(match, visit("round-sum", 1, "one", 61, 3));
+    expect(result.state.sides[0].remaining).toBe(440);
+    expect(result.state.visits.at(-1)?.appliedPoints).toBe(61);
+  });
+
+  it("wertet ein gespeichertes Double-In-Kommando ohne Wurfdaten beim Replay unveraendert", () => {
+    const stored = replay(
+      createX01Match({
+        sides: singles("one", "two"),
+        rules: rules({ startingScore: 501, inRule: "DOUBLE" }),
+      }),
+      visit("stored-round-sum", 1, "one", 61, 3),
+    );
+    expect(stored.state.visits.at(-1)?.appliedPoints).toBe(61);
+    expect(stored.state.sides[0].remaining).toBe(440);
+  });
+
 });

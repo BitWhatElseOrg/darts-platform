@@ -908,9 +908,46 @@ export function projectX01Match(match: X01Match): X01MatchState {
   };
 }
 
+/**
+ * Regeln, die NUR fuer neue Kommandos gelten. Sie liegen bewusst im
+ * Schreibpfad und nicht in `projectX01Match`: gespeicherte Kommandos dieser
+ * Form tragen heute einen falschen oder geratenen Stand, doch eine Ablehnung
+ * beim Replay machte die betroffenen Matches unlesbar (Event Sourcing — jedes
+ * Lesen baut den Zustand aus dem Kommando-Strom neu auf). Die Projektion
+ * wertet gespeicherte Kommandos deshalb unveraendert weiter; die Korrektur
+ * greift ab dem naechsten Kommando.
+ *
+ * Der Eroeffnungsstand kommt aus dem Zustand vor dem Kommando
+ * (`X01SideState.openedInLeg`), damit die Eroeffnungsregel nur an einer
+ * Stelle steht — die Regel selbst wird hier nicht zweitkodiert.
+ */
+function assertWritableVisit(match: X01Match, command: SubmitVisitCommand, before: X01MatchState): void {
+  // Nur fuer das Kommando, das tatsaechlich an der Reihe ist. Sonst blieben
+  // die aussagekraeftigeren Fehler der Projektion (NOT_ACTIVE_SEAT,
+  // INVALID_THROWER, MATCH_ALREADY_COMPLETED) hinter diesen Regeln verborgen.
+  if (before.activeSeat !== command.seat) return;
+  if (before.activeThrowerPlayerId !== command.throwerPlayerId) return;
+  validateVisit(command);
+  const side = before.sides[indexOfSeat(command.seat)];
+  // Double In: vor der Eroeffnung zaehlt die Aufnahme erst ab dem
+  // eroeffnenden Doppel. Aus einer blossen Rundensumme laesst sich der Anteil
+  // vor dem Doppel nicht rekonstruieren — die Engine rechnete die ganze Summe
+  // an (501, S1/D20/S20 = 61 ergab Rest 440 statt 441). In diesem Zustand
+  // sind Wurfdaten deshalb Pflicht.
+  if (match.rules.inRule === "DOUBLE" && !side.openedInLeg && command.darts === undefined && command.points > 0) {
+    throw new ScoringValidationError(
+      "DARTS_REQUIRED_FOR_DOUBLE_IN",
+      "Under double in the opening visit must be recorded dart by dart.",
+    );
+  }
+}
+
 export function executeX01Command(match: X01Match, command: X01Command): ExecuteX01Result {
   if (match.commands.some((existing) => existing.commandId === command.commandId)) {
     return { match, state: projectX01Match(match), duplicate: true, outcome: null };
+  }
+  if (command.type === "SUBMIT_VISIT") {
+    assertWritableVisit(match, command, projectX01Match(match));
   }
   if (command.type === "UNDO_LAST_VISIT") {
     const active = activeCommands(match.commands);

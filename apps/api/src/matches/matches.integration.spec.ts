@@ -389,6 +389,53 @@ describe("persistent X01 match", () => {
     expect(state.visits[0]?.outcome).toBe("MATCH_WON");
   });
 
+  it("rejects a round sum before the opening double under double in without writing", async () => {
+    // Befund K2: Ohne Einzelwuerfe laesst sich unter Double In nicht sagen,
+    // wie viele Punkte vor dem eroeffnenden Doppel fielen; die Engine rechnete
+    // die ganze Summe an (501 mit S1/D20/S20 = 61 ergab Rest 440 statt 441).
+    // Neue Kommandos muessen die Wuerfe deshalb mitliefern - als sauberer 400
+    // und ohne jede Schreibwirkung.
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    await databaseService.database
+      .update(matches)
+      .set({ inRule: "DOUBLE" })
+      .where(and(eq(matches.organizationId, organizationId), eq(matches.id, matchId)));
+
+    const rejectedCommandId = randomUUID();
+    await expect(service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: { commandId: rejectedCommandId, expectedVersion: created.version, playerId: playerOneId, points: 61, dartsThrown: 3 },
+    })).rejects.toMatchObject({
+      status: 400,
+      response: { code: "DARTS_REQUIRED_FOR_DOUBLE_IN" },
+    });
+
+    expect(await databaseService.database.select().from(scoreCommands)
+      .where(and(eq(scoreCommands.organizationId, organizationId), eq(scoreCommands.commandId, rejectedCommandId)))).toHaveLength(0);
+    expect(await databaseService.database.select().from(visits)
+      .where(and(eq(visits.organizationId, organizationId), eq(visits.commandId, rejectedCommandId)))).toHaveLength(0);
+    const unchanged = await repository.getState(organizationId, matchId);
+    expect(unchanged?.version).toBe(created.version);
+    expect(unchanged?.participants.find((participant) => participant.playerId === playerOneId)?.remaining).toBe(501);
+
+    // Dieselbe Aufnahme mit Wuerfen zaehlt ab dem Doppel: 60 statt 61.
+    const applied = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: {
+        commandId: randomUUID(), expectedVersion: created.version, playerId: playerOneId,
+        points: 61, dartsThrown: 3,
+        darts: [{ segment: 1, multiplier: 1 }, { segment: 20, multiplier: 2 }, { segment: 20, multiplier: 1 }],
+      },
+    });
+    expect(applied.participants.find((participant) => participant.playerId === playerOneId)?.remaining).toBe(441);
+    expect(applied.visits[0]?.appliedPoints).toBe(60);
+  });
+
   it("names no live target for a match without a competition", async () => {
     const created = await service.create({
       organizationId,
