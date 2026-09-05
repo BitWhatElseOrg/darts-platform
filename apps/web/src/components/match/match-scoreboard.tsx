@@ -74,6 +74,13 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   };
   return (
     <section aria-label="Match-Scoreboard" className="grid h-[100dvh] grid-rows-[auto_auto_auto_1fr] bg-slate-950 text-white">
+      {/* Ohne Seitentitel ist das die einzige Überschrift der Fläche und der
+          einzige Name, den Screenreader ausserhalb von "Match-Scoreboard"
+          zu hören bekommen. `sr-only` ist `position: absolute` und nimmt
+          deshalb keine eigene Grid-Zeile ein. */}
+      <h1 className="sr-only">
+        {sideNames(match.participants[0])} – {sideNames(match.participants[1])}
+      </h1>
       <ScoreboardHeader
         backHref={backHref}
         backLabel={backLabel}

@@ -270,14 +270,28 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByLabel("Board (optional)").selectOption({ label: "E2E Board" });
   await page.getByRole("button", { name: "Match starten" }).click();
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
-  // Task 11: die Statuszeile zeigt nur noch ein Vorkommnis (fremde Steuerung,
-  // offline, wartende Aufnahmen, Fehler) und kostet ohne eines keine Höhe
-  // mehr — die frühere "Verbindung aktiv"-Dauermeldung entfällt deshalb.
-  await expect(page.getByRole("status")).toHaveCount(0);
+  // Task 11: die Statuszeile bleibt als Live-Region immer im DOM (Befund 5
+  // der Review-Runde), zeigt aber ohne Vorkommnis (fremde Steuerung, offline,
+  // wartende Aufnahmen, Fehler) weder Text noch Höhe — die frühere
+  // "Verbindung aktiv"-Dauermeldung entfällt deshalb.
+  await expect(page.getByRole("status")).toHaveCount(1);
+  await expect(page.getByRole("status")).toBeEmpty();
   await expect(page.getByLabel("Aufnahmescore")).toBeEnabled();
   await expect(page.getByLabel("Geworfene Darts")).toHaveCount(0);
   await expect(page.getByLabel("Checkout-Double")).toHaveCount(0);
   await expect(page.getByLabel("Doppelversuche")).toHaveCount(0);
+
+  // Task 11 Spec: die Vollbildfläche füllt 100dvh und scrollt nicht. Geprüft
+  // auf einem Mobilviewport in Hoch- und Querformat, danach zurück auf die
+  // Projekt-Standardauflösung für den Rest dieses Tests.
+  const overflowsViewport = () => page.evaluate(
+    () => document.documentElement.scrollHeight > window.innerHeight + 1,
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await overflowsViewport(), "Hochformat überläuft 100dvh").toBe(false);
+  await page.setViewportSize({ width: 844, height: 390 });
+  expect(await overflowsViewport(), "Querformat überläuft 100dvh").toBe(false);
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   await page.getByLabel("Aufnahmescore").fill("100");
   await page.getByRole("button", { name: "Erfassen" }).click();

@@ -80,8 +80,12 @@ export function ScoreboardSides({ match, pendingDarts, showDartBand }: {
                 </span>
               ))}
             </p>
+            {/* Nach dem Matchende steht der Legzähler auf dem nächsten, nie
+                begonnenen Satz; dann zählen nur noch die Sätze. */}
             <p className="text-body">
-              {participant.legsWonInSet} / {match.legsToWin} Legs · {participant.setsWon} / {match.setsToWin} Sets
+              {match.status === "COMPLETED"
+                ? `${participant.setsWon} / ${match.setsToWin} Sets`
+                : `${participant.legsWonInSet} / ${match.legsToWin} Legs · ${participant.setsWon} / ${match.setsToWin} Sets`}
             </p>
             {showDartBand ? (
               <div className="mt-auto flex gap-2">
