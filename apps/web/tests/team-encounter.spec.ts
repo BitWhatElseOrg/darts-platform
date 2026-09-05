@@ -342,6 +342,26 @@ test("a club plays a team encounter from the fixture to the result", async ({ br
   await expect(page.getByText("0 von 6 Spielen entschieden, 2 laufen")).toBeVisible();
 
   await openScoreboard(page, SLOT_SINGLES_ONE);
+  // Befund der Abschlussrunde: unter Double In — der Vorgabe jedes
+  // voreingestellten Ligawettbewerbs (competition-setup.tsx) — laufen
+  // geworfene und angerechnete Summe bis zur Eröffnung auseinander. Die
+  // Fläche muss die GEWORFENE senden, sonst weist der Server die
+  // Eröffnungsaufnahme ab (DART_SUM_MISMATCH) und die Wurf-für-Wurf-Eingabe
+  // ist in der Liga unbedienbar. T20/T20/D20: 160 geworfen, 40 angerechnet.
+  await page.getByRole("button", { name: "Umschalter TRIPLE" }).click();
+  await page.getByRole("button", { name: "Triple 20", exact: true }).click();
+  await page.getByRole("button", { name: "Umschalter TRIPLE" }).click();
+  await page.getByRole("button", { name: "Triple 20", exact: true }).click();
+  await page.getByRole("button", { name: "Umschalter DOUBLE" }).click();
+  await page.getByRole("button", { name: "Doppel 20", exact: true }).click();
+  await expect(page.getByText("ANGERECHNET")).toBeVisible();
+  await expect(page.getByText("von 160 geworfen")).toBeVisible();
+  await page.getByRole("button", { name: "WEITER" }).click();
+  await expect(page.getByLabel(`${HOME_PLAYERS[0]}, Restscore`)).toHaveText("461");
+  // Zurücknehmen: das Leg selbst läuft danach wie bisher über den
+  // Runden-Modus, die Eröffnung ist damit belegt.
+  await page.getByRole("button", { name: "Rücktaste" }).click();
+  await expect(page.getByLabel(`${HOME_PLAYERS[0]}, Restscore`)).toHaveText("501");
   // Der Rundenmodus bleibt geräte-/browserlokal gespeichert (`localStorage`)
   // und damit über jede weitere Navigation und jedes weitere Board dieses
   // Tests hinweg bestehen — ein einmaliger Wechsel genügt. Der
