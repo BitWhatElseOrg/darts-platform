@@ -159,6 +159,9 @@ importers:
       '@darts-platform/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
+      '@darts-platform/scoring-engine':
+        specifier: workspace:*
+        version: link:../../packages/scoring-engine
       '@darts-platform/ui':
         specifier: workspace:*
         version: link:../../packages/ui

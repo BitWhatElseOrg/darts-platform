@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { parseApplicationEnvironment } from "@darts-platform/config";
-import { auditEvents, boardControllerLeases, boards, legs, matches, matchParticipantPlayers, memberships, organizations, outboxEvents, players, scoreCommands, users, visits } from "@darts-platform/database";
+import { auditEvents, boardControllerLeases, boards, legs, matches, matchParticipantPlayers, memberships, organizations, outboxEvents, players, scoreCommands, users, visitDarts, visits } from "@darts-platform/database";
 import type { AuthContext } from "../auth/auth.types.js";
 import { DatabaseService } from "../database/database.service.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
@@ -175,5 +175,227 @@ describe("persistent X01 match", () => {
     expect(sideRows.map((side) => side.playerId).sort()).toEqual(
       [playerOneId, playerTwoId].sort(),
     );
+  });
+
+  it("persists the single darts of a visit and returns them", async () => {
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    const commandId = randomUUID();
+    const state = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: {
+        commandId, expectedVersion: 0, playerId: playerOneId,
+        points: 100, dartsThrown: 3,
+        darts: [{ segment: 20, multiplier: 3 }, { segment: 20, multiplier: 2 }, { segment: 0, multiplier: 1 }],
+      },
+    });
+
+    expect(state.visits[0]?.darts).toEqual([
+      { segment: 20, multiplier: 3 },
+      { segment: 20, multiplier: 2 },
+      { segment: 0, multiplier: 1 },
+    ]);
+
+    const stored = await databaseService.database
+      .select()
+      .from(visitDarts)
+      .where(and(eq(visitDarts.organizationId, organizationId), eq(visitDarts.visitId, state.visits[0]!.id)));
+    expect(stored).toHaveLength(3);
+    expect(stored.map((row) => row.value).reduce((sum, value) => sum + value, 0)).toBe(100);
+  });
+
+  it("does not duplicate darts when the same command arrives twice", async () => {
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    const data = {
+      commandId: randomUUID(), expectedVersion: 0, playerId: playerOneId,
+      points: 60, dartsThrown: 3 as const,
+      darts: [{ segment: 20, multiplier: 1 as const }, { segment: 20, multiplier: 1 as const }, { segment: 20, multiplier: 1 as const }],
+    };
+    const first = await service.submitVisit({ organizationId, matchId, auth, audit, data });
+    await service.submitVisit({ organizationId, matchId, auth, audit, data });
+
+    const stored = await databaseService.database
+      .select()
+      .from(visitDarts)
+      .where(and(eq(visitDarts.organizationId, organizationId), eq(visitDarts.visitId, first.visits[0]!.id)));
+    expect(stored).toHaveLength(3);
+  });
+
+  it("replays a stored visit's darts through aggregate() before applying the next visit", async () => {
+    // Reglement/Engine: bei Double In zählt eine Aufnahme erst ab dem ersten
+    // Doppel. Fehlten die Einzelwürfe beim Nachrechnen über `aggregate()`
+    // (z. B. weil `darts` aus dem gespeicherten Kommando entfernt würde),
+    // zählte die Engine dort den vollen `points`-Wert statt der Teilwertung -
+    // ein stiller Fehler im projizierten Reststand.
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    await databaseService.database
+      .update(matches)
+      .set({ inRule: "DOUBLE" })
+      .where(and(eq(matches.organizationId, organizationId), eq(matches.id, matchId)));
+
+    // Eröffnungsaufnahme von Spieler eins: der Fehlwurf vor dem Doppel zählt
+    // nicht mit. Gewertet werden dürfen nur 45 (40 + 5), nicht die vollen 46.
+    const afterFirstVisit = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: {
+        commandId: randomUUID(), expectedVersion: 0, playerId: playerOneId,
+        points: 46, dartsThrown: 3,
+        darts: [{ segment: 1, multiplier: 1 }, { segment: 20, multiplier: 2 }, { segment: 5, multiplier: 1 }],
+      },
+    });
+    expect(afterFirstVisit.participants[0].remaining).toBe(456);
+
+    // Spieler zwei eröffnet nicht (kein Doppel getroffen); reine Turnwechsel-Aufnahme.
+    const afterSecondVisit = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: { commandId: randomUUID(), expectedVersion: afterFirstVisit.version, playerId: playerTwoId, points: 0, dartsThrown: 3 },
+    });
+
+    // Die dritte Aufnahme (wieder Spieler eins) zwingt `aggregate()`, die
+    // erste gespeicherte Aufnahme über `parseStoredCommand` erneut
+    // durchzurechnen. Der `scoreBefore` dieser Aufnahme deckt auf, ob die
+    // Würfe der ersten Aufnahme den Round-Trip überstanden haben.
+    const afterThirdVisit = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: { commandId: randomUUID(), expectedVersion: afterSecondVisit.version, playerId: playerOneId, points: 0, dartsThrown: 3 },
+    });
+
+    const thirdVisit = afterThirdVisit.visits[0];
+    expect(thirdVisit?.playerId).toBe(playerOneId);
+    expect(thirdVisit?.scoreBefore).toBe(456);
+  });
+
+  it("replays a stored checkoutMissed command correctly under master out", async () => {
+    // Ohne das Feld faellt Master Out ohne checkoutDouble auf die Heuristik
+    // finishesOnMasterSegment zurueck, die bei Rest 40 faelschlich ein Finish
+    // erkennen wuerde. checkoutMissed:true muss das explizit verhindern -
+    // und muss das auch nach einem Rueckrechnen ueber aggregate() (der
+    // naechste Visit zwingt dazu) noch tun, sonst waere das Match hier
+    // faelschlich beendet statt weiterzulaufen.
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    await databaseService.database
+      .update(matches)
+      .set({ outRule: "MASTER" })
+      .where(and(eq(matches.organizationId, organizationId), eq(matches.id, matchId)));
+
+    let state = created;
+    const score = async (playerId: string, points: number) => {
+      state = await service.submitVisit({ organizationId, matchId, auth, audit, data: { commandId: randomUUID(), expectedVersion: state.version, playerId, points, dartsThrown: 3 } });
+    };
+    await score(playerOneId, 180); // 501 -> 321
+    await score(playerTwoId, 0);
+    await score(playerOneId, 180); // 321 -> 141
+    await score(playerTwoId, 0);
+    await score(playerOneId, 101); // 141 -> 40
+    await score(playerTwoId, 0);
+
+    state = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: { commandId: randomUUID(), expectedVersion: state.version, playerId: playerOneId, points: 40, dartsThrown: 3, checkoutMissed: true },
+    });
+    expect(state.status).toBe("IN_PROGRESS");
+    expect(state.participants.find((participant) => participant.playerId === playerOneId)?.remaining).toBe(40);
+    expect(state.visits[0]?.outcome).toBe("BUST");
+
+    // Ein weiterer Visit zwingt `aggregate()`, den gespeicherten
+    // checkoutMissed-Befehl erneut ueber `parseStoredCommand` zu lesen.
+    state = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: { commandId: randomUUID(), expectedVersion: state.version, playerId: playerTwoId, points: 0, dartsThrown: 3 },
+    });
+    expect(state.status).toBe("IN_PROGRESS");
+    expect(state.participants.find((participant) => participant.playerId === playerOneId)?.remaining).toBe(40);
+  });
+
+  it("rejects a visit whose darts continue past the closing dart", async () => {
+    // Befund des PR-Agenten: die Fläche beendet die Eingabe beim Checkout, ein
+    // API-Client ist daran nicht gebunden. Rest 40 mit [D20, Fehlwurf] wurde
+    // bisher als Bust verbucht, obwohl das Leg mit dem D20 gewonnen war. Der
+    // Schreibpfad muss das ablehnen, ohne einen falschen Zustand zu schreiben.
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    let state = created;
+    const score = async (playerId: string, points: number) => {
+      state = await service.submitVisit({ organizationId, matchId, auth, audit, data: { commandId: randomUUID(), expectedVersion: state.version, playerId, points, dartsThrown: 3 } });
+    };
+    await score(playerOneId, 180); // 501 -> 321
+    await score(playerTwoId, 0);
+    await score(playerOneId, 180); // 321 -> 141
+    await score(playerTwoId, 0);
+    await score(playerOneId, 101); // 141 -> 40
+    await score(playerTwoId, 0);
+
+    const rejectedCommandId = randomUUID();
+    await expect(service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: {
+        commandId: rejectedCommandId, expectedVersion: state.version, playerId: playerOneId,
+        points: 40, dartsThrown: 2,
+        darts: [{ segment: 20, multiplier: 2 }, { segment: 0, multiplier: 1 }],
+      },
+    })).rejects.toMatchObject({
+      status: 400,
+      response: { code: "DARTS_AFTER_LEG_CLOSED" },
+    });
+
+    const storedCommands = await databaseService.database
+      .select()
+      .from(scoreCommands)
+      .where(and(eq(scoreCommands.organizationId, organizationId), eq(scoreCommands.commandId, rejectedCommandId)));
+    expect(storedCommands).toHaveLength(0);
+    const storedVisits = await databaseService.database
+      .select()
+      .from(visits)
+      .where(and(eq(visits.organizationId, organizationId), eq(visits.commandId, rejectedCommandId)));
+    expect(storedVisits).toHaveLength(0);
+
+    const unchanged = await repository.getState(organizationId, matchId);
+    expect(unchanged?.version).toBe(state.version);
+    expect(unchanged?.status).toBe("IN_PROGRESS");
+    expect(unchanged?.participants.find((participant) => participant.playerId === playerOneId)?.remaining).toBe(40);
+
+    // Dieselbe Aufnahme ohne den Wurf nach dem Checkout gewinnt weiterhin.
+    state = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: {
+        commandId: randomUUID(), expectedVersion: state.version, playerId: playerOneId,
+        points: 40, dartsThrown: 1, darts: [{ segment: 20, multiplier: 2 }],
+      },
+    });
+    expect(state.status).toBe("COMPLETED");
+    expect(state.visits[0]?.outcome).toBe("MATCH_WON");
+  });
+
+  it("names no live target for a match without a competition", async () => {
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const state = await repository.getState(organizationId, created.id);
+    expect(state?.liveTarget).toBeNull();
   });
 });

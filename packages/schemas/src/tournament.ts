@@ -376,6 +376,7 @@ export type TournamentConflict = z.infer<typeof tournamentConflictSchema>;
 export type GroupStanding = z.infer<typeof groupStandingSchema>;
 export type GroupStandingRow = z.infer<typeof groupStandingRowSchema>;
 export type TournamentResult = z.infer<typeof tournamentResultSchema>;
+export type BracketMatch = z.infer<typeof bracketMatchSchema>;
 export type TournamentDashboard = z.infer<typeof tournamentDashboardSchema>;
 export type PublicTournamentDashboard = z.infer<typeof publicTournamentDashboardSchema>;
 export type TournamentStructurePreview = z.infer<typeof tournamentStructurePreviewSchema>;

@@ -326,6 +326,19 @@ Rankingverlauf und Karrierewerte. Der separate Worker verarbeitet
 `MATCH_COMPLETED` aus der transaktionalen Outbox unabhängig vom
 Realtime-Publikationsstatus und aktualisiert persistente Spieleraggregate.
 
+## Vollbild-Scoring-Fläche
+
+**Status:** Umgesetzt – 05. September 2026. Die Scoring-Fläche läuft auf
+einer geräteweiten Vollbildansicht mit zwei Eingabearten (Wurf für Wurf als
+Standard, Rundensumme als Alternative, umschaltbar im Einstellungs-Modal),
+Checkout-Erfassung in beiden Modi und dauerhafter Einzelwurf-Speicherung in
+`visit_darts` (siehe [DATABASE_SCHEMA.md](DATABASE_SCHEMA.md)).
+
+**Offene Folgearbeit:** Statistik über Wurfdaten — Segmentverteilung,
+Checkout-Muster je Doppel/Triple und ähnliche Auswertungen auf Basis der in
+`visit_darts` gespeicherten Einzelwürfe sind noch nicht gebaut; die
+bestehenden Spielerprofile werten bisher nur Aufnahme- und Leg-Ebene aus.
+
 ---
 
 # Phase 7 – Multi-Tenant SaaS

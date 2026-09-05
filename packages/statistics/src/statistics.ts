@@ -43,6 +43,15 @@ export function calculatePlayerStatistics(playerId: string, matches: readonly St
     const matchDarts = activeVisits.reduce((sum, visit) => sum + visit.dartsThrown, 0);
     totalPoints += matchPoints;
     totalDarts += matchDarts;
+    // Einheitenbruch, bewusst in Kauf genommen: `checkoutAttempts` ist bei
+    // einer Aufnahme OHNE Einzelwuerfe eine Aufnahmenzahl (0 oder 1), bei
+    // einer Aufnahme MIT Einzelwuerfen eine Wurfzahl (0 bis 3, abgeleitet in
+    // `checkoutAttemptsFromDarts` der Scoring Engine). Diese Summe mischt
+    // ueber den Umstellungszeitpunkt hinweg beide Einheiten, und
+    // `checkoutPercentage` unten erbt das. Der Zaehler (`checkouts`) bleibt
+    // davon unberuehrt, er zaehlt erfolgreiche Checkout-Aufnahmen. Eine
+    // Umrechnung der Historie ist unmoeglich: fuer alte Aufnahmen existieren
+    // die Wurfdaten nicht. Siehe DATABASE_SCHEMA.md, Abschnitt 10.
     checkoutAttempts += activeVisits.reduce((sum, visit) => sum + visit.checkoutAttempts, 0);
     checkouts += activeVisits.filter((visit) => visit.checkoutAttempts > 0 && visit.outcome.endsWith("WON")).length;
     oneEighties += activeVisits.filter((visit) => visit.appliedPoints === 180 && visit.outcome !== "BUST").length;

@@ -24,6 +24,15 @@ export interface X01Side {
   readonly playerIds: readonly string[];
 }
 
+export interface Dart {
+  readonly segment: number;
+  readonly multiplier: 1 | 2 | 3;
+}
+
+export function dartValue(dart: Dart): number {
+  return dart.segment * dart.multiplier;
+}
+
 export interface SubmitVisitCommand {
   readonly type: "SUBMIT_VISIT";
   readonly commandId: string;
@@ -33,6 +42,18 @@ export interface SubmitVisitCommand {
   readonly dartsThrown: 1 | 2 | 3;
   readonly checkoutDouble?: number;
   readonly checkoutAttempts?: number;
+  readonly darts?: readonly Dart[];
+  /**
+   * Ausdrueckliche Meldung, dass die Aufnahme trotz Rest null KEIN gueltiges
+   * Finish war (kein Doppel unter DOUBLE, kein Doppel/Triple unter MASTER
+   * getroffen). Ohne dieses Feld gilt weiterhin der bisherige Rueckfall: unter
+   * DOUBLE ohne `checkoutDouble` ein Bust, unter MASTER ohne `checkoutDouble`
+   * die Heuristik `finishesOnMasterSegment`, unter SINGLE immer ein Finish.
+   * Das Feld entscheidet nur explizit gegen ein Finish, es kann keins
+   * herbeifuehren — deshalb aendert ein fehlendes Feld nichts an bereits
+   * gespeicherten Kommandos (Replay-Sicherheit).
+   */
+  readonly checkoutMissed?: boolean;
 }
 
 export interface UndoVisitCommand {
@@ -96,6 +117,7 @@ export interface AppliedVisit {
   readonly checkoutDouble: number | null;
   readonly checkoutAttempts: number;
   readonly outcome: VisitOutcome;
+  readonly darts: readonly Dart[];
 }
 
 export interface X01SideState {
@@ -306,6 +328,216 @@ function closesLeg(
   }
 }
 
+function isValidDart(dart: Dart): boolean {
+  if (!Number.isInteger(dart.segment) || dart.segment < 0) return false;
+  if (dart.segment > 20 && dart.segment !== 25) return false;
+  if (dart.segment === 0) return dart.multiplier === 1;
+  if (dart.segment === 25) return dart.multiplier <= 2;
+  return true;
+}
+
+function dartsTotal(darts: readonly Dart[]): number {
+  return darts.reduce((sum, dart) => sum + dartValue(dart), 0);
+}
+
+/**
+ * Double In: die Aufnahme zaehlt erst ab dem ersten Doppel. Wuerfe davor sind
+ * keine Regelverletzung, sie zaehlen bloss nicht. Segment 0 traegt nie einen
+ * Multiplikator, ein Doppel ist deshalb immer ein Treffer.
+ */
+function openingDartIndex(darts: readonly Dart[]): number {
+  return darts.findIndex((dart) => dart.multiplier === 2);
+}
+
+/**
+ * Ein Rest, den ein Doppel schliessen kann. Grundlage fuer die Zaehlung der
+ * Checkout-Versuche; bei Master Out gilt dieselbe Definition, weil der
+ * Doppelversuch die berichtete Groesse ist.
+ */
+function isFinishPosition(remaining: number): boolean {
+  return remaining === 50 || (remaining > 0 && remaining <= 40 && remaining % 2 === 0);
+}
+
+/**
+ * Zaehlt die DARTS, die aus einer Finish-Position abgegeben wurden — die
+ * uebliche Definition des Nenners der Checkout-Quote.
+ *
+ * ACHTUNG, Einheitenbruch: `checkoutAttempts` traegt damit je nach Aufnahme
+ * eine andere Einheit. Ohne Einzelwuerfe uebernimmt die Engine den Wert des
+ * Kommandos, und die Flaeche meldet dort 0 oder 1 — also eine AUFNAHMENZAHL.
+ * Mit Einzelwuerfen steht hier eine WURFZAHL von 0 bis 3. Beides landet in
+ * derselben Spalte `visits.checkout_attempts`; Karrierewerte ueber den
+ * Umstellungszeitpunkt hinweg mischen die beiden Einheiten. Bewusst so
+ * belassen: fuer Aufnahmen ohne Wurfdaten laesst sich die Wurfzahl nicht
+ * rekonstruieren. Siehe DATABASE_SCHEMA.md, Abschnitt 10
+ * („Visit-Kommando: `checkoutAttempts` — zwei Einheiten in einer Spalte").
+ */
+function checkoutAttemptsFromDarts(scoreBefore: number, darts: readonly Dart[], outRule: OutRule): number {
+  if (outRule === "SINGLE") return 0;
+  let remaining = scoreBefore;
+  let attempts = 0;
+  for (const dart of darts) {
+    if (isFinishPosition(remaining)) attempts += 1;
+    remaining -= dartValue(dart);
+    if (remaining < 0) break;
+  }
+  return attempts;
+}
+
+function closesLegWithDarts(outRule: OutRule, finishing: Dart): boolean {
+  switch (outRule) {
+    case "SINGLE":
+      return true;
+    case "DOUBLE":
+      return finishing.multiplier === 2;
+    case "MASTER":
+      return finishing.multiplier >= 2;
+  }
+}
+
+/**
+ * Der Wurf, der das Leg schliesst — wurfweise statt ueber die Gesamtsumme.
+ * Geliefert wird der Index des ersten Wurfs, der den Rest auf null bringt UND
+ * die Ausgangsregel erfuellt (`closesLegWithDarts`: SINGLE jeder Wurf, DOUBLE
+ * nur ein Doppel, MASTER Doppel oder Triple); `-1`, wenn keiner das tut.
+ *
+ * Double In: vor dem eroeffnenden Doppel zaehlt kein Wurf (`openingDartIndex`,
+ * dieselbe Zaehlung wie in `projectX01Match`), also kann ein Wurf davor das Leg
+ * auch dann nicht schliessen, wenn die Summe passte.
+ *
+ * Abbruch bei Bust: ueberwirft ein Wurf oder laesst er Rest eins stehen, endet
+ * die Aufnahme fachlich. Ein spaeterer Wurf kann den Rest ohnehin nicht mehr
+ * auf null zurueckholen (Wurfwerte sind nie negativ), der Abbruch ist also nur
+ * ausgesprochen, was die Rechnung ohnehin ergibt. Bewusst NICHT abgelehnt
+ * werden Wuerfe NACH einem solchen Bust: die Engine wertet die Aufnahme als
+ * Ganzes und kommt dabei zum selben Bust — es entsteht kein falscher Zustand,
+ * waehrend eine Ablehnung bereits gespeicherte, korrekt gewertete Kommandos im
+ * Replay scheitern liesse. Abgelehnt wird nur, was heute falsch gewertet wird:
+ * ein Wurf nach dem Legabschluss.
+ */
+function legClosingDartIndex(input: {
+  readonly darts: readonly Dart[];
+  readonly scoreBefore: number;
+  readonly openedInLeg: boolean;
+  readonly outRule: OutRule;
+}): number {
+  let remaining = input.scoreBefore;
+  let counting = input.openedInLeg;
+  for (const [index, dart] of input.darts.entries()) {
+    if (!counting) {
+      if (dart.multiplier !== 2) continue;
+      counting = true;
+    }
+    remaining -= dartValue(dart);
+    if (remaining === 0 && closesLegWithDarts(input.outRule, dart)) return index;
+    if (remaining <= 0) break;
+    if (input.outRule !== "SINGLE" && remaining === 1) break;
+  }
+  return -1;
+}
+
+/**
+ * Ein Rest unter null ist immer Bust; ein Rest von genau eins ist es bei
+ * jeder Ausgangsregel ausser Straight Out, weil ihn kein einzelner Wurf mehr
+ * regelkonform schliesst; ein Rest von genau null ist Bust, wenn der
+ * schliessende Wurf die Ausgangsregel nicht erfuellt. Von `projectX01Match`
+ * und `previewVisitOutcome` gemeinsam genutzt, damit Server-Wertung und
+ * Vorschau nicht auseinanderlaufen koennen.
+ */
+function isBust(outRule: OutRule, tentative: number, validCheckout: boolean): boolean {
+  return tentative < 0 || (outRule !== "SINGLE" && tentative === 1) || (tentative === 0 && !validCheckout);
+}
+
+export type VisitPreviewOutcome = "OPEN" | "SCORED" | "BUST" | "CHECKOUT";
+
+/**
+ * Die Vorschau traegt dieselbe Unterscheidung wie `AppliedVisit` und
+ * `SubmitVisitCommand`: `points` ist die ROHE Summe der geworfenen Darts,
+ * `appliedPoints` die tatsaechlich ANGERECHNETE. Unter Double In laufen die
+ * beiden auseinander, solange die Seite das Leg noch nicht eroeffnet hat
+ * (T20/T20/D20 auf 501: `points` 160, `appliedPoints` 40).
+ *
+ * Wer eine Aufnahme absendet, muss `points` uebertragen: `validateVisit`
+ * prueft die Wurfsumme gegen `command.points` (DART_SUM_MISMATCH), und die
+ * Anrechnung nimmt `projectX01Match` selbst vor. `appliedPoints` ist reine
+ * Anzeige.
+ *
+ * Ein Unterschied zu `AppliedVisit.appliedPoints` bleibt: dort ist der Wert
+ * bei einem Bust null, hier traegt er auch dann die nach der In-Regel
+ * angerechnete Summe. Die Vorschau meldet den Bust ueber `outcome`, und die
+ * Flaeche am Board zeigt in dem Fall die geworfene Zahl, nicht eine Null.
+ */
+export interface VisitOutcomePreview {
+  readonly points: number;
+  readonly appliedPoints: number;
+  readonly remaining: number;
+  readonly complete: boolean;
+  readonly outcome: VisitPreviewOutcome;
+}
+
+/**
+ * Reine Vorschau einer laufenden Aufnahme (bis zu drei Wuerfe), ohne den
+ * Matchzustand zu veraendern. Nutzt dieselbe Regel-Logik wie
+ * `projectX01Match` (Double-In-Zaehlung, Checkout-Erkennung ueber
+ * `closesLegWithDarts`, Bust-Erkennung ueber `isBust`), damit die Vorschau in
+ * der UI nicht von der Server-Wertung abweichen kann. Verbindlich bleibt in
+ * jedem Fall die Antwort der Engine auf dem Server.
+ *
+ * Ob das Leg fuer diese Seite bereits eroeffnet ist, kennt nur der
+ * Matchzustand selbst (`X01SideState.openedInLeg`); der uebertragene
+ * Matchzustand (`matchStateSchema`/`matchParticipantStateSchema`) fuehrt
+ * dieses Feld aber nicht. Ist `openedInLeg` nicht gesetzt, greift ein
+ * abgeleiteter Rueckfall: bei Double In bleibt der Reststand beim Startwert,
+ * bis der erste Punkt zaehlt, bei Straight In ist die Seite von Anfang an
+ * eroeffnet.
+ *
+ * Dieser Rueckfall ist NICHT exakt: `projectX01Match` schreibt `openedInLeg`
+ * im Bust-Zweig dauerhaft fort, ohne `remaining` zu aendern (x01.ts:691 —
+ * `const openedInLeg = side.openedInLeg || countedPoints > 0;` — und
+ * x01.ts:720 — `replaceSide(sides, activeIndex, { ...side, openedInLeg })`
+ * ohne `remaining`). Wer also mit einem Doppel eroeffnet und
+ * in derselben Aufnahme ueberwirft, hat danach `openedInLeg: true` bei
+ * `remaining === startingScore` — der Rueckfall liest daraus faelschlich
+ * "noch nicht eroeffnet". Das kann nur passieren, wenn eine Aufnahme ab dem
+ * eroeffnenden Doppel mindestens `startingScore - 1` Punkte zaehlt; bei
+ * hoechstens 180 Punkten pro Aufnahme ist das nur fuer `startingScore <= 181`
+ * ueberhaupt erreichbar. Fuer die heute produktiv erreichbaren Startwerte
+ * (301/501/701) haelt der Rueckfall uneingeschraenkt. Wer `startingScore`
+ * darunter verwendet oder Gewissheit braucht, muss `openedInLeg` explizit
+ * mitgeben — der Rueckfall ist ein Notbehelf, keine Ersatz-Wahrheit.
+ */
+export function previewVisitOutcome(input: {
+  readonly darts: readonly Dart[];
+  readonly remaining: number;
+  readonly rules: {
+    readonly startingScore: number;
+    readonly inRule: InRule;
+    readonly outRule: OutRule;
+  };
+  readonly openedInLeg?: boolean;
+}): VisitOutcomePreview {
+  const { darts, remaining, rules } = input;
+  const openedInLeg =
+    input.openedInLeg ?? (rules.inRule !== "DOUBLE" || remaining < rules.startingScore);
+  const opening = openingDartIndex(darts);
+  const countedDarts = openedInLeg ? darts : opening === -1 ? [] : darts.slice(opening);
+  const points = dartsTotal(darts);
+  const appliedPoints = dartsTotal(countedDarts);
+  const tentative = remaining - appliedPoints;
+  const finishing = darts.at(-1) ?? null;
+  const checkout = tentative === 0 && finishing !== null && closesLegWithDarts(rules.outRule, finishing);
+  const bust = isBust(rules.outRule, tentative, checkout);
+  if (checkout) return { points, appliedPoints, remaining: 0, complete: true, outcome: "CHECKOUT" };
+  if (bust) return { points, appliedPoints, remaining, complete: true, outcome: "BUST" };
+  return {
+    points,
+    appliedPoints,
+    remaining: tentative,
+    complete: darts.length >= 3,
+    outcome: darts.length >= 3 ? "SCORED" : "OPEN",
+  };
+}
+
 function validateVisit(command: SubmitVisitCommand): void {
   if (!isAttainableScore(command.points, command.dartsThrown)) {
     throw new ScoringValidationError("INVALID_VISIT_SCORE", `${command.points} cannot be scored with ${command.dartsThrown} dart(s).`);
@@ -315,6 +547,23 @@ function validateVisit(command: SubmitVisitCommand): void {
   }
   if (command.checkoutAttempts !== undefined && (!Number.isInteger(command.checkoutAttempts) || command.checkoutAttempts < 0 || command.checkoutAttempts > command.dartsThrown)) {
     throw new ScoringValidationError("INVALID_CHECKOUT_ATTEMPTS", "Checkout attempts must be between zero and the number of darts thrown.");
+  }
+  if (command.checkoutMissed === true && command.checkoutDouble !== undefined) {
+    throw new ScoringValidationError("INVALID_CHECKOUT_MISSED", "Checkout missed cannot be combined with a checkout double.");
+  }
+  if (command.checkoutMissed === true && command.darts !== undefined) {
+    throw new ScoringValidationError("INVALID_CHECKOUT_MISSED", "Checkout missed cannot be combined with recorded darts.");
+  }
+  if (command.darts !== undefined) {
+    if (command.darts.length !== command.dartsThrown) {
+      throw new ScoringValidationError("INVALID_DART_COUNT", "The number of darts must match the darts thrown.");
+    }
+    if (!command.darts.every(isValidDart)) {
+      throw new ScoringValidationError("INVALID_DART", "A dart must hit 0-20 or bull, with a valid multiplier.");
+    }
+    if (dartsTotal(command.darts) !== command.points) {
+      throw new ScoringValidationError("DART_SUM_MISMATCH", "The darts must add up to the visit score.");
+    }
   }
 }
 
@@ -516,25 +765,59 @@ export function projectX01Match(match: X01Match): X01MatchState {
     if (command.throwerPlayerId !== expectedThrower) {
       throw new ScoringValidationError("INVALID_THROWER", "The visit does not belong to the person whose turn it is.");
     }
-    if (!side.openedInLeg && command.points > 0 && !opensOnDouble(command.points, command.dartsThrown)) {
-      throw new ScoringValidationError(
-        "DOUBLE_IN_REQUIRED",
-        "The first scoring visit of a leg must start on a double.",
-      );
+    const darts = command.darts;
+    let countedPoints = command.points;
+    if (!side.openedInLeg) {
+      if (darts === undefined) {
+        if (command.points > 0 && !opensOnDouble(command.points, command.dartsThrown)) {
+          throw new ScoringValidationError(
+            "DOUBLE_IN_REQUIRED",
+            "The first scoring visit of a leg must start on a double.",
+          );
+        }
+      } else {
+        const opening = openingDartIndex(darts);
+        countedPoints = opening === -1 ? 0 : dartsTotal(darts.slice(opening));
+      }
     }
-    const openedInLeg = side.openedInLeg || command.points > 0;
+    const openedInLeg = side.openedInLeg || countedPoints > 0;
     const scoreBefore = side.remaining;
-    const tentative = scoreBefore - command.points;
+    // Kommandovalidierung mit Regelkontext: was `validateVisit` prueft, kommt
+    // ohne Matchzustand aus, diese Regel nicht — sie braucht Reststand,
+    // Eroeffnungsstand und Ausgangsregel. Schliesst ein Wurf das Leg, darf kein
+    // weiterer folgen. Die Flaeche verhindert das schon in der Eingabe
+    // (`dartEntryReducer`), aber ein handgebautes Kommando oder ein
+    // Score-Provider-Adapter ist daran nicht gebunden — und die Wertung ueber
+    // die Gesamtsumme wuerde daraus faelschlich einen Bust machen
+    // (Rest 40, `[D20, Fehlwurf]` unter Double Out).
+    if (darts !== undefined) {
+      const closingIndex = legClosingDartIndex({
+        darts,
+        scoreBefore,
+        openedInLeg: side.openedInLeg,
+        outRule: match.rules.outRule,
+      });
+      if (closingIndex !== -1 && closingIndex < darts.length - 1) {
+        throw new ScoringValidationError(
+          "DARTS_AFTER_LEG_CLOSED",
+          "No dart can follow the dart that closes the leg.",
+        );
+      }
+    }
+    const tentative = scoreBefore - countedPoints;
     const doubleValue = command.checkoutDouble === undefined ? null : checkoutValue(command.checkoutDouble);
+    const finishingDart = darts === undefined ? null : (darts.at(-1) ?? null);
     const validDoubleCheckout =
       doubleValue !== null &&
       command.points >= doubleValue &&
       attainableTotals(command.dartsThrown - 1).has(command.points - doubleValue);
-    const validCheckout = tentative === 0 && closesLeg(match.rules.outRule, command, validDoubleCheckout);
-    const bust =
-      tentative < 0 ||
-      (match.rules.outRule !== "SINGLE" && tentative === 1) ||
-      (tentative === 0 && !validCheckout);
+    const validCheckout =
+      tentative === 0 &&
+      command.checkoutMissed !== true &&
+      (finishingDart === null
+        ? closesLeg(match.rules.outRule, command, validDoubleCheckout)
+        : closesLegWithDarts(match.rules.outRule, finishingDart));
+    const bust = isBust(match.rules.outRule, tentative, validCheckout);
     let outcome: VisitOutcome = bust ? "BUST" : "SCORED";
     let scoreAfter = bust ? scoreBefore : tentative;
     let setWonByVisit = false;
@@ -554,19 +837,28 @@ export function projectX01Match(match: X01Match): X01MatchState {
       sides = replaceSide(sides, activeIndex, { ...side, remaining: tentative, openedInLeg });
     }
 
+    const derivedCheckoutDouble =
+      finishingDart !== null && validCheckout && finishingDart.multiplier === 2
+        ? finishingDart.segment
+        : null;
+
     visits.push({
       commandId: command.commandId,
       seat: command.seat,
       throwerPlayerId: command.throwerPlayerId,
       legNumber,
       points: command.points,
-      appliedPoints: bust ? 0 : command.points,
+      appliedPoints: bust ? 0 : countedPoints,
       dartsThrown: command.dartsThrown,
       scoreBefore,
       scoreAfter,
-      checkoutDouble: command.checkoutDouble ?? null,
-      checkoutAttempts: command.checkoutAttempts ?? (command.checkoutDouble === undefined ? 0 : 1),
+      checkoutDouble: darts === undefined ? (command.checkoutDouble ?? null) : derivedCheckoutDouble,
+      checkoutAttempts:
+        darts === undefined
+          ? (command.checkoutAttempts ?? (command.checkoutDouble === undefined && command.checkoutMissed !== true ? 0 : 1))
+          : checkoutAttemptsFromDarts(scoreBefore, darts, match.rules.outRule),
       outcome,
+      darts: darts ?? [],
     });
 
     visitsInLeg =

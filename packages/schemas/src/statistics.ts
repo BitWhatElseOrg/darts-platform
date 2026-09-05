@@ -15,3 +15,10 @@ export const playerStatisticsProfileSchema = z.object({
   generatedAt: z.coerce.date(),
 });
 export type PlayerStatisticsProfile = z.infer<typeof playerStatisticsProfileSchema>;
+
+export const frequentScoresSourceSchema = z.enum(["PLAYER", "ORGANIZATION", "DEFAULT"]);
+export const frequentScoresSchema = z.object({
+  scores: z.array(z.number().int().min(0).max(180)).max(6),
+  source: frequentScoresSourceSchema,
+});
+export type FrequentScores = z.infer<typeof frequentScoresSchema>;
