@@ -3,12 +3,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { matchStateSchema } from "@darts-platform/schemas";
 
-import { NavLink, PageNav } from "@/components/page-nav";
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { matchBackLink } from "@/lib/match-navigation";
 import { useTournamentOrganization } from "../tournament/use-tournament-organization";
 import { MatchScoreboard } from "./match-scoreboard";
 
+/**
+ * Die Vollbildfläche verzichtet auf die übliche Seitenhülle (`PageNav`,
+ * Organisationsname, Match-Titel): sie füllt `100dvh`, und der Rückweg
+ * wandert als `backHref`/`backLabel` in die Kopfzeile der Fläche selbst.
+ */
 export function MatchScoreboardRoute({ encounterId, matchId, requestedOrganizationId }: {
   readonly encounterId?: string | undefined;
   readonly matchId: string;
@@ -44,11 +48,8 @@ export function MatchScoreboardRoute({ encounterId, matchId, requestedOrganizati
 
   if (message !== null || organization === null || matchQuery.data === undefined) {
     return (
-      <main className="sektorenring flex min-h-screen flex-col px-4 py-6 text-white sm:px-6">
-        <PageNav className="mt-0">
-          <NavLink href={back.href}>{back.label}</NavLink>
-        </PageNav>
-        <p className="mt-8 rounded-xl border border-slate-800 bg-slate-900/80 p-5 text-body text-slate-300" role="status">
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-6 text-white">
+        <p className="rounded-xl border border-slate-800 bg-slate-900/80 p-5 text-body text-slate-300" role="status">
           {message}
         </p>
       </main>
@@ -60,25 +61,15 @@ export function MatchScoreboardRoute({ encounterId, matchId, requestedOrganizati
   const canAbort = ["OWNER", "ADMIN", "TOURNAMENT_DIRECTOR"].includes(organization.role);
 
   return (
-    <main className="sektorenring flex min-h-screen flex-col px-4 py-6 text-white sm:px-6 sm:py-8">
-      <div className="mx-auto w-full max-w-2xl">
-        <div className="flex items-center justify-between gap-3">
-          <PageNav className="mt-0 mb-0">
-            <NavLink href={back.href}>{back.label}</NavLink>
-          </PageNav>
-          <p className="truncate text-body text-slate-400" title={organization.name}>{organization.name}</p>
-        </div>
-        <h1
-          className="mt-4 truncate font-numerals text-title font-bold text-white"
-          title={`${match.participants[0].displayName} – ${match.participants[1].displayName}`}
-        >
-          {match.participants[0].displayName} <span className="text-slate-500">–</span> {match.participants[1].displayName}
-        </h1>
-        <div className="mt-4">
-          <MatchScoreboard canAbort={canAbort} canScore={canScore} match={match} organizationId={organization.id} />
-        </div>
-      </div>
+    <main className="bg-slate-950">
+      <MatchScoreboard
+        backHref={back.href}
+        backLabel={back.label}
+        canAbort={canAbort}
+        canScore={canScore}
+        match={match}
+        organizationId={organization.id}
+      />
     </main>
   );
 }
-

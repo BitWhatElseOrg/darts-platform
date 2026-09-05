@@ -270,7 +270,10 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByLabel("Board (optional)").selectOption({ label: "E2E Board" });
   await page.getByRole("button", { name: "Match starten" }).click();
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
-  await expect(page.getByText("Dieses Gerät steuert das Board · Verbindung aktiv")).toBeVisible();
+  // Task 11: die Statuszeile zeigt nur noch ein Vorkommnis (fremde Steuerung,
+  // offline, wartende Aufnahmen, Fehler) und kostet ohne eines keine Höhe
+  // mehr — die frühere "Verbindung aktiv"-Dauermeldung entfällt deshalb.
+  await expect(page.getByRole("status")).toHaveCount(0);
   await expect(page.getByLabel("Aufnahmescore")).toBeEnabled();
   await expect(page.getByLabel("Geworfene Darts")).toHaveCount(0);
   await expect(page.getByLabel("Checkout-Double")).toHaveCount(0);

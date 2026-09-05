@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { type MatchStateResponse } from "@darts-platform/schemas";
 import { Button, cn } from "@darts-platform/ui";
 import { userFacingErrorMessage } from "@/lib/api-client";
-import { variantLabel } from "@/lib/league-format";
+import { ScoreboardHeader } from "./scoreboard-header";
+import { ScoreboardSides } from "./scoreboard-sides";
+import { ScoreboardStatus } from "./scoreboard-status";
 import { useMatchScoring } from "./use-match-scoring";
 
 const inputClassName = "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
@@ -22,7 +24,14 @@ function winnerName(match: MatchStateResponse): string {
 }
 const mutationMessage = (error: unknown) => userFacingErrorMessage(error);
 
-export function MatchScoreboard({ organizationId, match, canAbort, canScore }: { readonly organizationId: string; readonly match: MatchStateResponse; readonly canAbort: boolean; readonly canScore: boolean }) {
+export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match, organizationId }: {
+  readonly backHref: string;
+  readonly backLabel: string;
+  readonly canAbort: boolean;
+  readonly canScore: boolean;
+  readonly match: MatchStateResponse;
+  readonly organizationId: string;
+}) {
   const scoring = useMatchScoring({ organizationId, match, canScore });
   const { lock, queued, online, replaying, mayControl, error } = scoring;
   const [points, setPoints] = useState("");
@@ -64,82 +73,73 @@ export function MatchScoreboard({ organizationId, match, canAbort, canScore }: {
     scoring.submitVisit({ points: visitPoints, dartsThrown: 3 });
   };
   return (
-    <section aria-label="Match-Scoreboard" className="overflow-hidden rounded-2xl border border-emerald-400/30 bg-slate-950 shadow-2xl shadow-emerald-950/20">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-slate-800 px-4 py-3 text-caption font-semibold tracking-[0.12em] text-slate-400 uppercase">
-        <span>Set {match.currentSetNumber} · Leg {match.currentLegNumber} · Best of {match.bestOfLegs}</span>
-        {/* Die Spielart gehört sichtbar ans Oche: bei Double In wird eine
-            Eröffnung ohne Doppel abgelehnt, und der Grund muss ablesbar sein. */}
-        <span className="text-emerald-300">
-          {variantLabel({ startingScore: match.startingScore, inRule: match.inRule, outRule: match.outRule })}
-        </span>
-        <span>{match.boardName ?? "Nicht zugewiesen"} · v{match.version}</span>
-      </div>
-      <div className="grid grid-cols-2 divide-x divide-slate-800">
-        {match.participants.map((participant) => (
-          <div className={cn("p-4 text-center sm:p-7", participant.isActive && match.status === "IN_PROGRESS" ? "bg-emerald-400/10" : "")} key={participant.playerId}>
-            <p className="truncate text-body font-semibold text-slate-300" title={sideNames(participant)}>
-              {participant.players.map((person, index) => (
-                <span key={person.playerId}>
-                  {index > 0 ? <span aria-hidden="true"> · </span> : null}
-                  <span className={person.isThrowing ? "text-white underline decoration-emerald-400 decoration-2 underline-offset-4" : ""}>
-                    {person.displayName}
-                    {person.isThrowing ? <span className="sr-only"> (am Wurf)</span> : null}
-                  </span>
-                </span>
-              ))}
-            </p>
-            <p
-              aria-label={`${sideNames(participant)}, Restscore`}
-              className={cn(
-                "mt-2 font-numerals font-bold tabular",
-                participant.isActive && match.status === "IN_PROGRESS"
-                  ? "text-display text-white"
-                  : "text-data text-slate-400",
-              )}
-            >
-              {participant.remaining}
-            </p>
-            {/* Nach dem Matchende steht der Legzähler auf dem nächsten, nie
-                begonnenen Satz; dann zählen nur noch die Sätze. */}
-            <p className="mt-2 text-body text-slate-400">
-              {match.status === "COMPLETED"
-                ? `${participant.setsWon} / ${match.setsToWin} Sets`
-                : `${participant.legsWonInSet} / ${match.legsToWin} Legs · ${participant.setsWon} / ${match.setsToWin} Sets`}
-            </p>
-          </div>
-        ))}
-      </div>
-      {canScore && match.status === "IN_PROGRESS" ? <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-900 px-4 py-3 text-body"><span>{lock.state === "EIGEN" ? "Dieses Gerät steuert das Board · Verbindung aktiv" : lock.state === "FREMD" ? "Ein anderes Gerät steuert dieses Board" : "Board-Steuerung wird übernommen …"}</span>{lock.state === "FREMD" ? <Button onClick={lock.takeOver} variant="outline">Steuerung übernehmen</Button> : null}</div> : null}
-      {hasPending ? <div className="border-t border-amber-400/40 bg-amber-300/10 p-4" role="status"><p className="font-semibold text-amber-100">{queued.length} Aufnahme wartet dauerhaft gespeichert auf die Übertragung.</p>{queued.map((command) => <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-body text-amber-100" key={command.commandId}><span>{command.label} · {command.status === "CONFLICT" ? command.error : online ? "Wiederholung läuft" : "Offline"}</span>{command.status === "CONFLICT" ? <Button onClick={() => scoring.discardQueued(command.commandId)} variant="outline">Verwerfen und synchronisieren</Button> : <Button disabled={!online || replaying} onClick={() => scoring.replay()} variant="outline">Jetzt übertragen</Button>}</div>)}</div> : null}
-      {match.status === "COMPLETED" ? <div className="border-t border-emerald-400/30 bg-emerald-400/10 p-5 text-center"><p className="text-body uppercase tracking-[0.12em] text-emerald-300">Match beendet</p><p className="mt-1 font-numerals text-title font-bold text-white">{winnerName(match)} gewinnt</p></div> : canScore ? (
-        <form className="grid gap-3 border-t border-slate-800 p-4 sm:grid-cols-[1fr_auto]" onSubmit={(event) => { event.preventDefault(); openCheckoutOrSubmit(); }}>
-          <input aria-label="Aufnahmescore" autoFocus className={inputClassName} disabled={!mayControl} inputMode="numeric" min="0" max="180" placeholder="Score" required type="number" value={points} onChange={(event) => setPoints(event.target.value)} />
-          <Button disabled={scoring.submitPending || !mayControl || checkoutOpen} type="submit">Erfassen</Button>
-        </form>
-      ) : null}
-      <CheckoutDialog
-        darts={checkoutDarts}
-        error={checkoutOpen && scoring.submitError !== null ? mutationMessage(scoring.submitError) : null}
-        field={checkoutDouble}
-        onCancel={() => { scoring.resetSubmit(); setCheckoutOpen(false); }}
-        onDartsChange={setCheckoutDarts}
-        onFieldChange={setCheckoutDouble}
-        onSubmit={() => scoring.submitVisit({ points: Number(points), dartsThrown: checkoutDarts, checkoutDouble: Number(checkoutDouble) })}
-        open={checkoutOpen}
-        pending={scoring.submitPending}
-        points={Number(points)}
+    <section aria-label="Match-Scoreboard" className="grid h-[100dvh] grid-rows-[auto_auto_auto_1fr] bg-slate-950 text-white">
+      <ScoreboardHeader
+        backHref={backHref}
+        backLabel={backLabel}
+        match={match}
+        onOpenSettings={() => {
+          // Task 14 verdrahtet das Einstellungs-Modal; der Knopf steht schon,
+          // damit die Kopfzeile ab Task 11 vollständig ist.
+        }}
       />
-      <AbortMatchDialog error={scoring.abortError !== null ? mutationMessage(scoring.abortError) : null} onCancel={() => { scoring.resetAbort(); setAbortOpen(false); }} onSubmit={(reason) => scoring.abortMatch(reason)} open={abortOpen} pending={scoring.abortPending} queuedCount={queued.length} />
-      <div className="border-t border-slate-800 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h4 className="font-numerals text-title-sm font-bold text-slate-200">Letzte Aufnahmen</h4>
-          <div className="flex flex-wrap gap-2">
-            {mayControl && match.visits.some((visit) => !visit.reverted) ? <Button disabled={scoring.undoPending || !online} onClick={() => scoring.undoVisit()} variant="outline">Letzte Aufnahme zurücknehmen</Button> : null}
-            {canAbort && match.status === "IN_PROGRESS" ? <Button className="border border-rose-500/60 bg-rose-600 text-white hover:bg-rose-500" disabled={!online || lock.state !== "EIGEN" || scoring.abortPending} onClick={() => { scoring.resetAbort(); setAbortOpen(true); }}>Match abbrechen</Button> : null}
+      <ScoreboardStatus
+        lockState={lock.state}
+        message={error !== null && !checkoutOpen ? mutationMessage(error) : null}
+        online={online}
+        onTakeOver={lock.takeOver}
+        queuedCount={queued.length}
+      />
+      <ScoreboardSides match={match} pendingDarts={[]} showDartBand={false} />
+      <div className="min-h-0 overflow-y-auto">
+        {hasPending ? (
+          <div className="border-b border-amber-400/40 bg-amber-300/10 p-4">
+            {queued.map((command) => (
+              <div className="flex flex-wrap items-center justify-between gap-3 text-body text-amber-100" key={command.commandId}>
+                <span>{command.label} · {command.status === "CONFLICT" ? command.error : online ? "Wiederholung läuft" : "Offline"}</span>
+                {command.status === "CONFLICT" ? (
+                  <Button onClick={() => scoring.discardQueued(command.commandId)} variant="outline">Verwerfen und synchronisieren</Button>
+                ) : (
+                  <Button disabled={!online || replaying} onClick={() => scoring.replay()} variant="outline">Jetzt übertragen</Button>
+                )}
+              </div>
+            ))}
           </div>
+        ) : null}
+        {match.status === "COMPLETED" ? (
+          <div className="border-b border-emerald-400/30 bg-emerald-400/10 p-5 text-center">
+            <p className="text-body uppercase tracking-[0.12em] text-emerald-300">Match beendet</p>
+            <p className="mt-1 font-numerals text-title font-bold text-white">{winnerName(match)} gewinnt</p>
+          </div>
+        ) : canScore ? (
+          <form className="grid gap-3 border-b border-slate-800 p-4 sm:grid-cols-[1fr_auto]" onSubmit={(event) => { event.preventDefault(); openCheckoutOrSubmit(); }}>
+            <input aria-label="Aufnahmescore" autoFocus className={inputClassName} disabled={!mayControl} inputMode="numeric" min="0" max="180" placeholder="Score" required type="number" value={points} onChange={(event) => setPoints(event.target.value)} />
+            <Button disabled={scoring.submitPending || !mayControl || checkoutOpen} type="submit">Erfassen</Button>
+          </form>
+        ) : null}
+        <CheckoutDialog
+          darts={checkoutDarts}
+          error={checkoutOpen && scoring.submitError !== null ? mutationMessage(scoring.submitError) : null}
+          field={checkoutDouble}
+          onCancel={() => { scoring.resetSubmit(); setCheckoutOpen(false); }}
+          onDartsChange={setCheckoutDarts}
+          onFieldChange={setCheckoutDouble}
+          onSubmit={() => scoring.submitVisit({ points: Number(points), dartsThrown: checkoutDarts, checkoutDouble: Number(checkoutDouble) })}
+          open={checkoutOpen}
+          pending={scoring.submitPending}
+          points={Number(points)}
+        />
+        <AbortMatchDialog error={scoring.abortError !== null ? mutationMessage(scoring.abortError) : null} onCancel={() => { scoring.resetAbort(); setAbortOpen(false); }} onSubmit={(reason) => scoring.abortMatch(reason)} open={abortOpen} pending={scoring.abortPending} queuedCount={queued.length} />
+        <div className="p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h4 className="font-numerals text-title-sm font-bold text-slate-200">Letzte Aufnahmen</h4>
+            <div className="flex flex-wrap gap-2">
+              {mayControl && match.visits.some((visit) => !visit.reverted) ? <Button disabled={scoring.undoPending || !online} onClick={() => scoring.undoVisit()} variant="outline">Letzte Aufnahme zurücknehmen</Button> : null}
+              {canAbort && match.status === "IN_PROGRESS" ? <Button className="border border-rose-500/60 bg-rose-600 text-white hover:bg-rose-500" disabled={!online || lock.state !== "EIGEN" || scoring.abortPending} onClick={() => { scoring.resetAbort(); setAbortOpen(true); }}>Match abbrechen</Button> : null}
+            </div>
+          </div>
+          <div className="mt-3 space-y-2">{match.visits.slice(0, 8).map((visit) => <div className={cn("flex min-h-11 items-center justify-between rounded-lg bg-slate-900 px-3 text-body", visit.reverted && "opacity-40 line-through")} key={visit.id}><span className="text-slate-300">{visit.playerDisplayName} · {visit.dartsThrown} Darts</span><span className="font-bold text-white">{visit.outcome === "BUST" ? `BUST (${visit.points})` : `${visit.appliedPoints} → ${visit.scoreAfter}`}</span></div>)}</div>
         </div>
-        {error && !checkoutOpen ? <p className="mt-3 text-body text-rose-300" role="alert">{mutationMessage(error)}</p> : null}
-        <div className="mt-3 space-y-2">{match.visits.slice(0, 8).map((visit) => <div className={cn("flex min-h-11 items-center justify-between rounded-lg bg-slate-900 px-3 text-body", visit.reverted && "opacity-40 line-through")} key={visit.id}><span className="text-slate-300">{visit.playerDisplayName} · {visit.dartsThrown} Darts</span><span className="font-bold text-white">{visit.outcome === "BUST" ? `BUST (${visit.points})` : `${visit.appliedPoints} → ${visit.scoreAfter}`}</span></div>)}</div>
       </div>
     </section>
   );
