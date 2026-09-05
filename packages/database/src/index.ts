@@ -41,6 +41,7 @@ export {
   tournamentStages,
   users,
   visits,
+  visitDarts,
   verifications,
   type Account,
   type AuditEvent,
@@ -95,5 +96,6 @@ export {
   type TournamentStage,
   type User,
   type Visit,
+  type VisitDart,
   type Verification,
 } from "./schema.js";

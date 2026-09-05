@@ -148,6 +148,13 @@
       "when": 1788551709511,
       "tag": "0020_material_medusa",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788595717625,
+      "tag": "0021_steady_mauler",
+      "breakpoints": true
     }
   ]
 }

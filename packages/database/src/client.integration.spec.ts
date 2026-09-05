@@ -51,4 +51,26 @@ describe("database connection", () => {
     expect(definitions).toHaveLength(1);
     expect(definitions[0]?.definition).toContain("OWNER");
   });
+
+  it("guards every dart of a visit with database constraints", async () => {
+    const definitions = await connection.database.execute<{ readonly constraint_name: string; readonly definition: string }>(sql`
+      select conname as constraint_name, pg_get_constraintdef(oid) as definition
+      from pg_constraint
+      where conrelid = 'visit_darts'::regclass
+      order by conname
+    `);
+    const byName = new Map(definitions.map((row) => [row.constraint_name, row.definition.toLowerCase()]));
+
+    expect(byName.get("visit_darts_index_check")).toContain("dart_index");
+    expect(byName.get("visit_darts_segment_check")).toContain("25");
+    expect(byName.get("visit_darts_bull_check")).toContain("multiplier");
+    expect(byName.get("visit_darts_value_check")).toContain("segment");
+  });
+
+  it("indexes visits by thrower so frequent scores do not scan the table", async () => {
+    const indexes = await connection.database.execute<{ readonly indexname: string }>(sql`
+      select indexname from pg_indexes where tablename = 'visits'
+    `);
+    expect(indexes.map((row) => row.indexname)).toContain("visits_organization_thrower_idx");
+  });
 });
