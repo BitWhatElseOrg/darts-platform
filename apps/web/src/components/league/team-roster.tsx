@@ -293,6 +293,9 @@ function TeamCard({
       }),
     onSuccess: async () => {
       setPlayerId("");
+      // Ohne dieses Zurücksetzen bliebe „Captain" stehen und der nächste
+      // Kadereintrag würde stillschweigend als Captain aufgenommen.
+      setRole("PLAYER");
       await invalidate();
     },
   });

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { inRuleSchema, outRuleSchema } from "./tournament";
+
 export const matchStatusSchema = z.enum(["IN_PROGRESS", "COMPLETED"]);
 export const visitOutcomeSchema = z.enum(["SCORED", "BUST", "LEG_WON", "SET_WON", "MATCH_WON"]);
 export const createMatchSchema = z.object({
@@ -73,6 +75,8 @@ export const matchVisitSchema = z.object({
 export const matchStateSchema = z.object({
   id: z.uuid(), organizationId: z.uuid(), boardId: z.uuid().nullable(), boardName: z.string().nullable(),
   status: matchStatusSchema, version: z.number().int().nonnegative(), startingScore: z.number().int().positive(),
+  /** Die Spielart gehört in den Zustand: das Scoreboard muss sie nennen können. */
+  inRule: inRuleSchema, outRule: outRuleSchema,
   bestOfLegs: z.number().int().positive(), legsToWin: z.number().int().positive(),
   bestOfSets: z.number().int().positive(), setsToWin: z.number().int().positive(), currentSetNumber: z.number().int().positive(),
   currentLegNumber: z.number().int().positive(), currentLegVersion: z.number().int().nonnegative(),

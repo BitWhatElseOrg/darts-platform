@@ -26,6 +26,7 @@ import {
   encounterTone,
 } from "@/lib/league-format";
 import { calendarDate, clockTime } from "@/lib/tournament-format";
+import { StandingsTable } from "./standings-table";
 import { TemplateTable } from "./template-table";
 import { NavLink, PageNav } from "@/components/page-nav";
 import { useTournamentOrganization } from "@/components/tournament/use-tournament-organization";
@@ -153,6 +154,8 @@ function CompetitionBody({
         </div>
       </details>
 
+      <StandingsTable competitionId={competitionId} organizationId={organization.id} />
+
       {canManageEncounters ? (
         <ScheduleSection competition={competition} organization={organization} />
       ) : null}
@@ -188,13 +191,13 @@ function CompetitionBody({
                   className="group flex flex-wrap items-center gap-x-6 gap-y-3 py-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
                   href={`/liga/begegnungen/${encounter.id}?organisation=${organization.id}`}
                 >
-                  <div className="w-20">
+                  <div className="w-20 shrink-0">
                     <SheetLabel>Spieltag</SheetLabel>
                     <p className="mt-1 font-numerals text-title font-bold tabular text-wedge-900">
                       {encounter.matchday}
                     </p>
                   </div>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 basis-[calc(100%-6.5rem)] sm:basis-0">
                     <h3 className="font-numerals text-title font-bold text-wedge-900 group-hover:underline group-hover:decoration-1 group-hover:underline-offset-4">
                       {encounter.homeTeamName} gegen {encounter.awayTeamName}
                     </h3>
@@ -203,14 +206,14 @@ function CompetitionBody({
                       {encounter.venue === null ? "" : ` · ${encounter.venue}`}
                     </p>
                   </div>
-                  <div className="w-52">
+                  <div className="min-w-0 basis-full shrink-0 sm:w-52 sm:basis-auto">
                     <SheetLabel>Stand</SheetLabel>
                     <p className="mt-1 font-plate text-body tabular text-wedge-900">
                       {encounter.homePoints}:{encounter.awayPoints} Punkte · {encounter.homeGames}:
                       {encounter.awayGames} Spiele · {encounter.homeLegs}:{encounter.awayLegs} Sätze
                     </p>
                   </div>
-                  <div className="w-36">
+                  <div className="min-w-0 basis-full shrink-0 sm:w-36 sm:basis-auto">
                     <SheetLabel>Zustand</SheetLabel>
                     <p className="mt-1.5">
                       <StateTag

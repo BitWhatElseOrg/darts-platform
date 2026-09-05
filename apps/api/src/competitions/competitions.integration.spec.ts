@@ -201,6 +201,46 @@ describe("competitions and their encounter template", () => {
    * Sperre verhindert, dass eine laufende Saison ihre Vorlage unter sich
    * wegzieht.
    */
+  it("builds the standings table from the completed encounters", async () => {
+    const competitionId = await create();
+    const encounter = await encountersService.schedule({
+      organizationId,
+      competitionId,
+      data: {
+        matchday: 1,
+        homeTeamId,
+        awayTeamId,
+        scheduledAt: new Date("2026-10-02T19:30:00.000Z"),
+        venue: null,
+      },
+      auth,
+      audit,
+    });
+
+    const beforePlay = await service.standings({ organizationId, competitionId, auth });
+    expect(beforePlay.rows).toHaveLength(2);
+    expect(beforePlay.rows.every((row) => row.played === 0 && row.rank === 1)).toBe(true);
+
+    await encountersService.declareForfeit({
+      organizationId,
+      encounterId: encounter.id,
+      data: {
+        commandId: randomUUID(),
+        expectedVersion: encounter.version,
+        forfeitSide: "AWAY",
+        reason: "Mannschaft nicht angetreten.",
+      },
+      auth,
+      audit,
+    });
+
+    const table = await service.standings({ organizationId, competitionId, auth });
+    expect(table.competitionId).toBe(competitionId);
+    expect(table.rows[0]).toMatchObject({ teamId: homeTeamId, rank: 1, played: 1, won: 1, points: 3 });
+    expect(table.rows[1]).toMatchObject({ teamId: awayTeamId, rank: 2, played: 1, lost: 1, points: 0 });
+    expect(table.rows[0]?.teamName.length).toBeGreaterThan(0);
+  }, 30_000);
+
   it("locks the template once an encounter of the competition runs", async () => {
     const competitionId = await create();
     const encounter = await encountersService.schedule({

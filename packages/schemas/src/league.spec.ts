@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  COMPETITION_RULE_MESSAGES,
   createCompetitionSchema,
   createTeamSchema,
   declareSlotWalkoverSchema,
@@ -175,5 +176,31 @@ describe("league schemas", () => {
       effectiveFromSequence: 5,
     });
     expect(substitution.reason).toBeNull();
+  });
+});
+
+describe("competition rule messages", () => {
+  it("names the lineup-position rule when the shorthanded minimum exceeds the positions", () => {
+    // Zwei Regeln teilen sich den Pfad `minNominationsShorthanded`. Ohne
+    // unterscheidbare Meldung zeigt die Fläche die falsche Begründung an.
+    const result = createCompetitionSchema.safeParse(
+      competition({ lineupPositions: 2, minNominations: 4, minNominationsShorthanded: 3 }),
+    );
+    expect(result.success).toBe(false);
+    const issue = result.error?.issues.find(
+      (candidate) => candidate.path[0] === "minNominationsShorthanded",
+    );
+    expect(issue?.message).toBe(COMPETITION_RULE_MESSAGES.shorthandedNotAbovePositions);
+  });
+
+  it("names the minimum rule when the shorthanded minimum exceeds the regular minimum", () => {
+    const result = createCompetitionSchema.safeParse(
+      competition({ lineupPositions: 4, minNominations: 2, minNominationsShorthanded: 3 }),
+    );
+    expect(result.success).toBe(false);
+    const issue = result.error?.issues.find(
+      (candidate) => candidate.path[0] === "minNominationsShorthanded",
+    );
+    expect(issue?.message).toBe(COMPETITION_RULE_MESSAGES.shorthandedNotAboveMinimum);
   });
 });

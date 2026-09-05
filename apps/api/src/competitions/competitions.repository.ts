@@ -6,6 +6,7 @@ import {
   competitionSlots,
   competitions,
   encounters,
+  teams,
 } from "@darts-platform/database";
 import type {
   CreateCompetitionInput,
@@ -26,6 +27,27 @@ export type CompetitionMutationResult =
 type CompetitionRow = typeof competitions.$inferSelect;
 type CompetitionSlotRow = typeof competitionSlots.$inferSelect;
 
+/** Was die Ligatabelle aus der Datenbank braucht: Begegnungsbilanzen und Teamnamen. */
+export interface StandingsSource {
+  readonly encounters: readonly {
+    readonly homeTeamId: string;
+    readonly awayTeamId: string;
+    readonly status: string;
+    readonly result: string | null;
+    readonly homePoints: number;
+    readonly awayPoints: number;
+    readonly homeGames: number;
+    readonly awayGames: number;
+    readonly homeLegs: number;
+    readonly awayLegs: number;
+  }[];
+  readonly teams: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly shortName: string | null;
+  }[];
+}
+
 export interface CompetitionData {
   readonly competition: CompetitionRow;
   readonly slots: readonly CompetitionSlotRow[];
@@ -43,6 +65,47 @@ export class CompetitionsRepository {
   public constructor(
     @Inject(DatabaseService) private readonly databaseService: DatabaseService,
   ) {}
+
+  /**
+   * Alle Begegnungen des Wettbewerbs samt der beteiligten Mannschaften. Auch
+   * noch nicht gespielte Begegnungen zählen, damit angesetzte Teams mit null
+   * Punkten in der Tabelle stehen statt zu fehlen.
+   */
+  public async standingsSource(input: {
+    readonly organizationId: string;
+    readonly competitionId: string;
+  }): Promise<StandingsSource> {
+    const rows = await this.databaseService.database
+      .select({
+        homeTeamId: encounters.homeTeamId,
+        awayTeamId: encounters.awayTeamId,
+        status: encounters.status,
+        result: encounters.result,
+        homePoints: encounters.homePoints,
+        awayPoints: encounters.awayPoints,
+        homeGames: encounters.homeGames,
+        awayGames: encounters.awayGames,
+        homeLegs: encounters.homeLegs,
+        awayLegs: encounters.awayLegs,
+      })
+      .from(encounters)
+      .where(
+        and(
+          eq(encounters.organizationId, input.organizationId),
+          eq(encounters.competitionId, input.competitionId),
+        ),
+      );
+
+    const teamIds = [...new Set(rows.flatMap((row) => [row.homeTeamId, row.awayTeamId]))];
+    if (teamIds.length === 0) return { encounters: rows, teams: [] };
+
+    const teamRows = await this.databaseService.database
+      .select({ id: teams.id, name: teams.name, shortName: teams.shortName })
+      .from(teams)
+      .where(and(eq(teams.organizationId, input.organizationId), inArray(teams.id, teamIds)));
+
+    return { encounters: rows, teams: teamRows };
+  }
 
   public async list(organizationId: string): Promise<CompetitionData[]> {
     const rows = await this.databaseService.database

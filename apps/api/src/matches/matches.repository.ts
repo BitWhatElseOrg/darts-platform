@@ -161,6 +161,7 @@ export class MatchesRepository {
     return {
       id: matchRow.match.id, organizationId, boardId: matchRow.match.boardId, boardName: matchRow.boardName,
       status: projection.status, version: matchRow.match.version, startingScore: matchRow.match.startingScore,
+      inRule: matchRow.match.inRule as "STRAIGHT" | "DOUBLE", outRule: matchRow.match.outRule as "SINGLE" | "DOUBLE" | "MASTER",
       bestOfLegs: matchRow.match.bestOfLegs, legsToWin: Math.floor(matchRow.match.bestOfLegs / 2) + 1,
       bestOfSets: matchRow.match.setsToWin * 2 - 1, setsToWin: matchRow.match.setsToWin, currentSetNumber: projection.setNumber,
       currentLegNumber: projection.legNumber, currentLegVersion: legRow.version,

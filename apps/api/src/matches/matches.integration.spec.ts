@@ -53,6 +53,22 @@ afterAll(async () => {
 });
 
 describe("persistent X01 match", () => {
+  /**
+   * Ohne In- und Out-Regel im Zustand kann das Scoreboard die Spielart nicht
+   * nennen. Eine abgelehnte Eröffnungsaufnahme bliebe dann unerklärlich.
+   */
+  it("reports the variant of the match so the scoreboard can name it", async () => {
+    const state = await service.create({
+      organizationId,
+      // Ohne Board, damit dieser Test das gemeinsame Board nicht belegt.
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId: null, bestOfLegs: 1, bestOfSets: 1 },
+      auth,
+      audit,
+    });
+
+    expect(state).toMatchObject({ startingScore: 501, inRule: "STRAIGHT", outRule: "DOUBLE" });
+  }, 30_000);
+
   it("aborts an active scoring session transactionally and idempotently", async () => {
     let state = await service.create({ organizationId, data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId, bestOfLegs: 1, bestOfSets: 1 }, auth, audit });
     const controllerId = randomUUID();

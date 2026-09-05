@@ -110,6 +110,8 @@ export interface EncounterData {
   readonly nominations: readonly EncounterNominationRow[];
   readonly lineupEntries: readonly EncounterLineupRow[];
   readonly substitutions: readonly EncounterSubstitutionRow[];
+  /** Beteiligte, die gerade an einer Scheibe stehen — hier oder anderswo. */
+  readonly busyPlayers: readonly { readonly playerId: string; readonly matchId: string }[];
 }
 
 interface ActorInput {
@@ -1278,6 +1280,46 @@ export class EncountersRepository {
    * zweite sieht nach dem Commit der ersten deren laufendes Match und faellt
    * mit `player-busy` durch.
    */
+  /**
+   * Wer aus diesem Spiel bereits an einer anderen Scheibe steht. Nur für die
+   * Fehlermeldung: die Prüfung selbst passiert unter Sperre in `assignSlot`.
+   */
+  public async busyPlayersOfSlot(input: {
+    readonly organizationId: string;
+    readonly encounterId: string;
+    readonly slotId: string;
+  }): Promise<{ readonly playerId: string; readonly displayName: string }[]> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [slot] = await transaction
+        .select()
+        .from(encounterSlots)
+        .where(
+          and(
+            eq(encounterSlots.organizationId, input.organizationId),
+            eq(encounterSlots.encounterId, input.encounterId),
+            eq(encounterSlots.id, input.slotId),
+          ),
+        )
+        .limit(1);
+      if (slot === undefined) return [];
+      const occupancy = await this.resolveOccupancy(
+        transaction,
+        input.organizationId,
+        input.encounterId,
+        slot,
+      );
+      const involved = [...occupancy.home.playerIds, ...occupancy.away.playerIds];
+      if (involved.length === 0) return [];
+      const active = await this.loadActivePlayerIds(transaction, input.organizationId);
+      const busy = involved.filter((playerId) => active.has(playerId));
+      if (busy.length === 0) return [];
+      return transaction
+        .select({ playerId: players.id, displayName: players.displayName })
+        .from(players)
+        .where(and(eq(players.organizationId, input.organizationId), inArray(players.id, busy)));
+    });
+  }
+
   private async lockPlayers(
     transaction: DatabaseTransaction,
     organizationId: string,
@@ -1594,6 +1636,15 @@ export class EncountersRepository {
         .orderBy(asc(encounterSubstitutions.effectiveFromSequence)),
     ]);
 
+    const involved = [
+      ...new Set([
+        ...nominations.map((entry) => entry.playerId),
+        ...lineupEntries.map((entry) => entry.playerId),
+      ]),
+    ];
+    const busyPlayers =
+      involved.length === 0 ? [] : await this.loadBusyPlayers(tenantId, involved);
+
     return {
       encounter: row.encounter,
       competition: row.competition,
@@ -1607,7 +1658,32 @@ export class EncountersRepository {
         outDisplayName: entry.outDisplayName,
         inDisplayName: entry.inDisplayName,
       })),
+      busyPlayers,
     };
+  }
+
+  /**
+   * Nur eine Auskunft für die Fläche. Die verbindliche Prüfung passiert unter
+   * Sperre in `assignSlot` — hier geht es darum, den Konflikt vorher zu zeigen.
+   */
+  private async loadBusyPlayers(
+    organizationId: string,
+    playerIds: readonly string[],
+  ): Promise<{ readonly playerId: string; readonly matchId: string }[]> {
+    return this.databaseService.database
+      .selectDistinct({
+        playerId: matchParticipantPlayers.playerId,
+        matchId: matchParticipantPlayers.matchId,
+      })
+      .from(matchParticipantPlayers)
+      .innerJoin(matches, eq(matches.id, matchParticipantPlayers.matchId))
+      .where(
+        and(
+          eq(matchParticipantPlayers.organizationId, organizationId),
+          eq(matches.status, "IN_PROGRESS"),
+          inArray(matchParticipantPlayers.playerId, [...playerIds]),
+        ),
+      );
   }
 }
 

@@ -108,6 +108,12 @@ export class TeamsService {
 
   private assert(result: TeamMutationResult): void {
     if (result === "ok") return;
+    if (result === "captain-taken") {
+      throw new ConflictException({
+        code: "TEAM_CAPTAIN_TAKEN",
+        message: "Diese Mannschaft führt bereits einen Captain.",
+      });
+    }
     if (result === "player-already-member") {
       throw new ConflictException({
         code: "TEAM_PLAYER_ALREADY_MEMBER",

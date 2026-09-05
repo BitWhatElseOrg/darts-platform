@@ -3,11 +3,17 @@ import type { EncounterDetail, EncounterSlotView } from "@darts-platform/schemas
 
 import {
   deciderNotice,
+  busyPlayersMessage,
+  commitmentWarning,
   encounterTally,
+  preStartHint,
   openDoublesSlots,
   slotAvailability,
   substitutionContext,
 } from "./encounter-view";
+
+const FOREIGN_MATCH = "00000000-0000-4000-8000-0000000000f1";
+const OWN_MATCH = "00000000-0000-4000-8000-0000000000f2";
 
 function player(id: string, name: string) {
   return { playerId: id, displayName: name };
@@ -78,6 +84,7 @@ function encounter(overrides: Partial<EncounterDetail> = {}): EncounterDetail {
     maxSubstitutionsPerEncounter: 4,
     maxDoublesPerPlayer: 1,
     decider: { status: "REGULAR_SLOTS_PENDING", required: false, slotSequence: 19 },
+    busyPlayers: [],
     home: {
       side: "HOME",
       teamId: "00000000-0000-4000-8000-000000000003",
@@ -110,6 +117,7 @@ describe("slotAvailability", () => {
     expect(slotAvailability(encounter(), slot({ sequence: 1 }))).toEqual({
       assignable: true,
       reason: null,
+      blockingMatchId: null,
     });
   });
 
@@ -171,7 +179,7 @@ describe("slotAvailability", () => {
       encounter({ decider: { status: "REQUIRED", required: true, slotSequence: 19 } }),
       decider,
     );
-    expect(result).toEqual({ assignable: true, reason: null });
+    expect(result).toEqual({ assignable: true, reason: null, blockingMatchId: null });
   });
 });
 
@@ -298,5 +306,198 @@ describe("encounterTally und deciderNotice", () => {
         encounter({ decider: { status: "NOT_REQUIRED", required: false, slotSequence: 19 } }),
       ),
     ).toBe("Das Entscheidungsdoppel wird nicht gebraucht.");
+  });
+});
+
+describe("preStartHint", () => {
+  it("names the side whose nomination is missing", () => {
+    const hint = preStartHint(
+      encounter({
+        status: "LINEUPS_OPEN",
+        home: { ...encounter().home, submitted: true },
+        away: { ...encounter().away, submitted: false },
+      }),
+    );
+
+    expect(hint).toBe("Es fehlt noch die Meldung der Gastmannschaft.");
+  });
+
+  it("uses the lineup positions, not the shorthanded minimum, as the threshold", () => {
+    // Unterscheidbare Zahlen: die Ausnahmemeldung erlaubt drei von vier
+    // Positionen, und genau diese drei lösen die kampflosen Spiele aus. Eine
+    // Meldung unter der Ausnahmegrenze weist bereits die Engine ab
+    // (`NOT_ENOUGH_NOMINATIONS`), sie erreicht den Start nie.
+    const hint = preStartHint(
+      encounter({
+        status: "READY",
+        lineupPositions: 4,
+        minNominationsShorthanded: 3,
+        home: { ...encounter().home, submitted: true },
+        away: { ...encounter().away, submitted: true },
+      }),
+    );
+
+    expect(hint).toBe(
+      "Meldet eine Seite weniger als 4 Positionen, gelten deren Einzel und ein Doppel beim Start sofort als kampflos verloren.",
+    );
+  });
+
+  it("explains the shorthanded rule with the numbers of this competition", () => {
+    // Der Hinweis stand fest auf drei Positionen und log bei jeder anderen
+    // Aufstellungsgrösse.
+    const hint = preStartHint(
+      encounter({
+        status: "READY",
+        lineupPositions: 2,
+        minNominationsShorthanded: 2,
+        home: { ...encounter().home, submitted: true },
+        away: { ...encounter().away, submitted: true },
+      }),
+    );
+
+    expect(hint).toBe(
+      "Meldet eine Seite weniger als 2 Positionen, gelten deren Einzel und ein Doppel beim Start sofort als kampflos verloren.",
+    );
+  });
+
+  it("says that the encounter runs once it has started", () => {
+    const hint = preStartHint(
+      encounter({
+        status: "RUNNING",
+        home: { ...encounter().home, submitted: true },
+        away: { ...encounter().away, submitted: true },
+      }),
+    );
+
+    expect(hint).toBe(
+      "Die Begegnung läuft. Weise Spiele einem Board zu, sobald beide Seiten besetzt sind.",
+    );
+  });
+});
+
+describe("busyPlayersMessage", () => {
+  it("names the one person who is already at a board", () => {
+    expect(busyPlayersMessage({ busyPlayers: [{ displayName: "Alina Frei" }] })).toBe(
+      "Alina Frei spielt bereits an einem anderen Board. Das Spiel startet, sobald die andere Partie beendet ist.",
+    );
+  });
+
+  it("names several people", () => {
+    expect(
+      busyPlayersMessage({
+        busyPlayers: [{ displayName: "Alina Frei" }, { displayName: "Basil Kern" }],
+      }),
+    ).toBe(
+      "Alina Frei und Basil Kern spielen bereits an einem anderen Board. Das Spiel startet, sobald die andere Partie beendet ist.",
+    );
+  });
+
+  it("gives up quietly when the server sent no names", () => {
+    expect(busyPlayersMessage({ busyPlayers: [] })).toBe(null);
+    expect(busyPlayersMessage(undefined)).toBe(null);
+    expect(busyPlayersMessage({ busyPlayers: "kaputt" })).toBe(null);
+  });
+});
+
+describe("slotAvailability with busy people", () => {
+  it("leads to the foreign match that blocks this game", () => {
+    // Vorher bot die Fläche die Zuweisung an und der Server antwortete mit 409,
+    // wenn jemand längst an einer anderen Scheibe stand.
+    const current = encounter({
+      status: "RUNNING",
+      busyPlayers: [{ playerId: "h1", matchId: FOREIGN_MATCH }],
+      slots: [slot({ sequence: 1 })],
+    });
+
+    expect(slotAvailability(current, current.slots[0]!)).toEqual({
+      assignable: false,
+      reason: "Heim Eins spielt gerade eine andere Partie. Das Spiel startet, sobald sie beendet ist.",
+      blockingMatchId: FOREIGN_MATCH,
+    });
+  });
+
+  it("names the game of this encounter and offers no jump", () => {
+    // Innerhalb der eigenen Begegnung ist das der Normalfall eines Spielabends.
+    // Ein Sprung dorthin hilft nicht, die Partie läuft ja hier.
+    const own = slot({ sequence: 1, status: "IN_PROGRESS", matchId: OWN_MATCH });
+    const current = encounter({
+      status: "RUNNING",
+      busyPlayers: [{ playerId: "h1", matchId: OWN_MATCH }],
+      slots: [own, slot({ sequence: 2, away: { players: [player("a2", "Gast Zwei")], complete: true } })],
+    });
+
+    expect(slotAvailability(current, current.slots[1]!)).toEqual({
+      assignable: false,
+      reason: "Heim Eins spielt gerade Spiel 1 dieser Begegnung.",
+      blockingMatchId: null,
+    });
+  });
+
+  it("keeps a slot assignable while nobody is busy", () => {
+    const current = encounter({ status: "RUNNING", busyPlayers: [], slots: [slot({ sequence: 1 })] });
+
+    expect(slotAvailability(current, current.slots[0]!)).toEqual({
+      assignable: true,
+      reason: null,
+      blockingMatchId: null,
+    });
+  });
+});
+
+describe("commitmentWarning", () => {
+  function pending(busy: { playerId: string; matchId: string }[]) {
+    return encounter({
+      status: "READY",
+      busyPlayers: busy,
+      home: {
+        ...encounter().home,
+        submitted: true,
+        nominations: [
+          { playerId: "h1", displayName: "Heim Eins", position: 1, origin: "SQUAD" },
+          { playerId: "h2", displayName: "Heim Zwei", position: 2, origin: "SQUAD" },
+        ],
+      },
+    });
+  }
+
+  it("warns before the start and leads to the blocking match", () => {
+    expect(commitmentWarning(pending([{ playerId: "h1", matchId: FOREIGN_MATCH }]))).toEqual({
+      message:
+        "Heim Eins spielt gerade eine andere Partie. Nach dem Start lässt sich die Meldung nicht mehr ändern — warte ab oder melde jemand anderen.",
+      blocked: [{ playerId: "h1", displayName: "Heim Eins", matchId: FOREIGN_MATCH }],
+    });
+  });
+
+  it("lists every blocked person", () => {
+    const warning = commitmentWarning(
+      pending([
+        { playerId: "h1", matchId: FOREIGN_MATCH },
+        { playerId: "h2", matchId: OWN_MATCH },
+      ]),
+    );
+
+    expect(warning?.message).toBe(
+      "Heim Eins und Heim Zwei spielen gerade eine andere Partie. Nach dem Start lässt sich die Meldung nicht mehr ändern — warte ab oder melde jemand anderen.",
+    );
+    expect(warning?.blocked.map((entry) => entry.displayName)).toEqual(["Heim Eins", "Heim Zwei"]);
+  });
+
+  it("stays quiet once the encounter runs", () => {
+    const current = encounter({
+      status: "RUNNING",
+      busyPlayers: [{ playerId: "h1", matchId: FOREIGN_MATCH }],
+      home: {
+        ...encounter().home,
+        nominations: [
+          { playerId: "h1", displayName: "Heim Eins", position: 1, origin: "SQUAD" },
+        ],
+      },
+    });
+
+    expect(commitmentWarning(current)).toBe(null);
+  });
+
+  it("stays quiet when nobody is busy", () => {
+    expect(commitmentWarning(encounter({ status: "READY", busyPlayers: [] }))).toBe(null);
   });
 });

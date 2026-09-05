@@ -12,7 +12,8 @@ export type TeamMutationResult =
   | "ok"
   | "not-found"
   | "player-not-found"
-  | "player-already-member";
+  | "player-already-member"
+  | "captain-taken";
 
 interface TeamRow {
   readonly id: string;
@@ -176,6 +177,23 @@ export class TeamsRepository {
         )
         .limit(1);
       if (active !== undefined) return "player-already-member";
+      if (input.data.role === "CAPTAIN") {
+        // Der Unique-Index deckt es ab; die Vorabfrage macht daraus eine
+        // verständliche Antwort statt eines Constraint-Fehlers.
+        const [captain] = await transaction
+          .select({ id: teamPlayers.id })
+          .from(teamPlayers)
+          .where(
+            and(
+              eq(teamPlayers.organizationId, input.organizationId),
+              eq(teamPlayers.teamId, input.teamId),
+              eq(teamPlayers.role, "CAPTAIN"),
+              isNull(teamPlayers.validTo),
+            ),
+          )
+          .limit(1);
+        if (captain !== undefined) return "captain-taken";
+      }
       const [created] = await transaction
         .insert(teamPlayers)
         .values({

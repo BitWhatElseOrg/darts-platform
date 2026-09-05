@@ -1020,6 +1020,88 @@ describe("team encounter persistence", () => {
     ).rejects.toMatchObject({ response: { code: "SUBSTITUTION_SLOT_RUNNING" } });
   }, 60_000);
 
+  /**
+   * Die Absage bei der Board-Zuweisung kommt zu spät: da ist die Aufstellung
+   * längst gesperrt. Die Begegnung meldet deshalb laufend, wer von den
+   * gemeldeten Personen gerade an einer Scheibe steht.
+   */
+  it("reports which of its people are currently in a running match", async () => {
+    const competitionId = await createCompetition();
+    let encounter = await openEncounter(competitionId);
+    expect(encounter.busyPlayers).toEqual([]);
+
+    const first = encounter.slots.find((entry) => entry.sequence === 1);
+    if (first === undefined) throw new Error("Expected the first slot.");
+    const playing = [...first.home.players, ...first.away.players].map((entry) => entry.playerId);
+
+    encounter = await encountersService.assignSlot({
+      organizationId,
+      encounterId: encounter.id,
+      slotId: first.id,
+      data: { commandId: randomUUID(), expectedVersion: encounter.version, boardId: boardIds[0]! },
+      auth,
+      audit,
+    });
+
+    const started = encounter.slots.find((entry) => entry.sequence === 1);
+    expect(encounter.busyPlayers.map((entry) => entry.playerId).sort()).toEqual(
+      [...playing].sort(),
+    );
+    // Die Kennung der blockierenden Partie gehört dazu, sonst führt die
+    // Auskunft die Spielleitung nicht dorthin, wo sie handeln kann.
+    expect(encounter.busyPlayers.every((entry) => entry.matchId === started?.matchId)).toBe(true);
+  }, 60_000);
+
+  /**
+   * Wer schon an einer Scheibe steht, kann nicht gleichzeitig ein zweites
+   * Spiel bestreiten. Die Absage muss sagen, wen sie meint — sonst sucht die
+   * Spielleitung den Grund am falschen Ende.
+   */
+  it("names the people who are already playing when a board is refused", async () => {
+    const competitionId = await createCompetition();
+    let encounter = await openEncounter(competitionId);
+    const first = encounter.slots.find((entry) => entry.sequence === 1);
+    const shared = encounter.slots.find(
+      (entry) =>
+        entry.discipline === "SINGLES" && entry.homePosition === 1 && entry.sequence !== 1,
+    );
+    if (first === undefined || shared === undefined) {
+      throw new Error("Expected two singles slots that share the first home position.");
+    }
+    const busyName = first.home.players[0]?.displayName;
+    expect(busyName).toBeDefined();
+
+    encounter = await encountersService.assignSlot({
+      organizationId,
+      encounterId: encounter.id,
+      slotId: first.id,
+      data: { commandId: randomUUID(), expectedVersion: encounter.version, boardId: boardIds[0]! },
+      auth,
+      audit,
+    });
+
+    await expect(
+      encountersService.assignSlot({
+        organizationId,
+        encounterId: encounter.id,
+        slotId: shared.id,
+        data: {
+          commandId: randomUUID(),
+          expectedVersion: encounter.version,
+          boardId: boardIds[1]!,
+        },
+        auth,
+        audit,
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        code: "PLAYER_BUSY",
+        details: { busyPlayers: [{ displayName: busyName }] },
+      },
+      status: 409,
+    });
+  }, 60_000);
+
   it("refuses a board that another encounter slot already uses", async () => {
     const competitionId = await createCompetition();
     let encounter = await openEncounter(competitionId);

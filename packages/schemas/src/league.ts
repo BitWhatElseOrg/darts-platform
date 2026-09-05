@@ -106,6 +106,36 @@ export const competitionDetailSchema = competitionSummarySchema.extend({
   slots: z.array(competitionSlotSchema),
 });
 
+/**
+ * Die Ligatabelle eines Wettbewerbs. Sie wird serverseitig aus den beendeten
+ * Begegnungen gerechnet (League-Engine), nicht in der Fläche.
+ */
+export const standingsRowSchema = z.object({
+  teamId: z.uuid(),
+  teamName: z.string(),
+  teamShortName: z.string().nullable(),
+  rank: z.number().int().positive(),
+  played: z.number().int().nonnegative(),
+  won: z.number().int().nonnegative(),
+  drawn: z.number().int().nonnegative(),
+  lost: z.number().int().nonnegative(),
+  points: z.number().int().nonnegative(),
+  gamesFor: z.number().int().nonnegative(),
+  gamesAgainst: z.number().int().nonnegative(),
+  gameDifference: z.number().int(),
+  legsFor: z.number().int().nonnegative(),
+  legsAgainst: z.number().int().nonnegative(),
+  legDifference: z.number().int(),
+});
+
+export const competitionStandingsSchema = z.object({
+  competitionId: z.uuid(),
+  rows: z.array(standingsRowSchema),
+});
+
+export type StandingsRowResponse = z.infer<typeof standingsRowSchema>;
+export type CompetitionStandings = z.infer<typeof competitionStandingsSchema>;
+
 export const encounterSummarySchema = z.object({
   id: z.uuid(),
   publicId: z.uuid(),
@@ -231,6 +261,12 @@ export const encounterDetailSchema = encounterSummarySchema.extend({
   home: encounterSideLineupSchema,
   away: encounterSideLineupSchema,
   slots: z.array(encounterSlotSchema),
+  /**
+   * Wer von den beteiligten Personen gerade an einer Scheibe steht, und in
+   * welcher Partie. Die Fläche warnt damit vor der Board-Zuweisung und führt
+   * zu der Partie, die den Weg blockiert.
+   */
+  busyPlayers: z.array(z.object({ playerId: z.uuid(), matchId: z.uuid() })).default([]),
 });
 
 /** Die öffentliche Ansicht trägt keine Meldungen und keine Auswechselhistorie. */
@@ -323,6 +359,19 @@ const competitionRulesShape = {
   maxDoublesPerPlayer: z.number().int().min(0).max(20).default(1),
 };
 
+/**
+ * Stabile Meldungen der Wettbewerbsregeln. Zwei Regeln teilen sich den Pfad
+ * `minNominationsShorthanded`; nur eine eindeutige Meldung erlaubt der Fläche,
+ * die richtige Begründung anzuzeigen.
+ */
+export const COMPETITION_RULE_MESSAGES = {
+  minNominationsCoversPositions: "minNominations must cover every lineup position.",
+  shorthandedNotAboveMinimum: "minNominationsShorthanded must not exceed minNominations.",
+  shorthandedNotAbovePositions: "minNominationsShorthanded must not exceed lineupPositions.",
+  pointsOrdered: "Points must be ordered win >= draw >= loss.",
+  deciderBonusNeedsDecider: "A decider bonus needs the EXTRA_SLOT decider rule.",
+} as const;
+
 export const createCompetitionSchema = z
   .object({
     type: competitionTypeSchema.default("LEAGUE"),
@@ -343,26 +392,26 @@ export const createCompetitionSchema = z
       value.pointsDeciderBonus ?? (value.deciderRule === "EXTRA_SLOT" ? 1 : 0),
   }))
   .refine((value) => value.minNominations >= value.lineupPositions, {
-    message: "minNominations must cover every lineup position.",
+    message: COMPETITION_RULE_MESSAGES.minNominationsCoversPositions,
     path: ["minNominations"],
   })
   .refine((value) => value.minNominationsShorthanded <= value.minNominations, {
-    message: "minNominationsShorthanded must not exceed minNominations.",
+    message: COMPETITION_RULE_MESSAGES.shorthandedNotAboveMinimum,
     path: ["minNominationsShorthanded"],
   })
   // Die Meldepruefung zaehlt besetzte Aufstellungspositionen; mehr als
   // `lineupPositions` kann es davon nicht geben. Eine hoehere Untergrenze
   // liesse den Wettbewerb anlegen, aber nie eine Begegnung melden.
   .refine((value) => value.minNominationsShorthanded <= value.lineupPositions, {
-    message: "minNominationsShorthanded must not exceed lineupPositions.",
+    message: COMPETITION_RULE_MESSAGES.shorthandedNotAbovePositions,
     path: ["minNominationsShorthanded"],
   })
   .refine((value) => value.pointsWin >= value.pointsDraw && value.pointsDraw >= value.pointsLoss, {
-    message: "Points must be ordered win >= draw >= loss.",
+    message: COMPETITION_RULE_MESSAGES.pointsOrdered,
     path: ["pointsWin"],
   })
   .refine((value) => value.pointsDeciderBonus === 0 || value.deciderRule === "EXTRA_SLOT", {
-    message: "A decider bonus needs the EXTRA_SLOT decider rule.",
+    message: COMPETITION_RULE_MESSAGES.deciderBonusNeedsDecider,
     path: ["pointsDeciderBonus"],
   });
 

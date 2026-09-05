@@ -9,6 +9,7 @@ import { Button, cn } from "@darts-platform/ui";
 import { ApiClientError, apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { generateId } from "@/lib/id";
 import { listOfflineCommands, markOfflineCommandConflict, removeOfflineCommand, removeOfflineCommandsForScope, saveOfflineCommand, type OfflineCommand } from "@/lib/offline-command-queue";
+import { variantLabel } from "@/lib/league-format";
 import { useBoardControllerLock } from "@/lib/use-board-controller-lock";
 
 const inputClassName = "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
@@ -168,7 +169,15 @@ export function MatchScoreboard({ organizationId, match, canAbort, canScore }: {
   };
   return (
     <section aria-label="Match-Scoreboard" className="overflow-hidden rounded-2xl border border-emerald-400/30 bg-slate-950 shadow-2xl shadow-emerald-950/20">
-      <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3 text-caption font-semibold tracking-[0.12em] text-slate-400 uppercase"><span>Set {match.currentSetNumber} · Leg {match.currentLegNumber} · Best of {match.bestOfLegs}</span><span>{match.boardName ?? "Nicht zugewiesen"} · v{match.version}</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-slate-800 px-4 py-3 text-caption font-semibold tracking-[0.12em] text-slate-400 uppercase">
+        <span>Set {match.currentSetNumber} · Leg {match.currentLegNumber} · Best of {match.bestOfLegs}</span>
+        {/* Die Spielart gehört sichtbar ans Oche: bei Double In wird eine
+            Eröffnung ohne Doppel abgelehnt, und der Grund muss ablesbar sein. */}
+        <span className="text-emerald-300">
+          {variantLabel({ startingScore: match.startingScore, inRule: match.inRule, outRule: match.outRule })}
+        </span>
+        <span>{match.boardName ?? "Nicht zugewiesen"} · v{match.version}</span>
+      </div>
       <div className="grid grid-cols-2 divide-x divide-slate-800">
         {match.participants.map((participant) => (
           <div className={cn("p-4 text-center sm:p-7", participant.isActive && match.status === "IN_PROGRESS" ? "bg-emerald-400/10" : "")} key={participant.playerId}>
@@ -194,7 +203,13 @@ export function MatchScoreboard({ organizationId, match, canAbort, canScore }: {
             >
               {participant.remaining}
             </p>
-            <p className="mt-2 text-body text-slate-400">{participant.legsWonInSet} / {match.legsToWin} Legs · {participant.setsWon} / {match.setsToWin} Sets</p>
+            {/* Nach dem Matchende steht der Legzähler auf dem nächsten, nie
+                begonnenen Satz; dann zählen nur noch die Sätze. */}
+            <p className="mt-2 text-body text-slate-400">
+              {match.status === "COMPLETED"
+                ? `${participant.setsWon} / ${match.setsToWin} Sets`
+                : `${participant.legsWonInSet} / ${match.legsToWin} Legs · ${participant.setsWon} / ${match.setsToWin} Sets`}
+            </p>
           </div>
         ))}
       </div>

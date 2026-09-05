@@ -221,4 +221,41 @@ describe("teams and squads", () => {
       }),
     ).rejects.toMatchObject({ status: 403 });
   }, 30_000);
+
+  /**
+   * Eine Mannschaft hat einen Captain. Ohne diese Regel meldet die Fläche —
+   * deren Rollenauswahl stehen bleibt — versehentlich einen ganzen Kader
+   * voller Captains.
+   */
+  it("refuses a second captain on the same squad", async () => {
+    const teamId = await createTeam(`Captains ${randomUUID().slice(0, 8)}`);
+    await service.addMember({
+      organizationId,
+      teamId,
+      data: { playerId: playerIds[0]!, role: "CAPTAIN" },
+      auth,
+      audit,
+    });
+
+    await expect(
+      service.addMember({
+        organizationId,
+        teamId,
+        data: { playerId: playerIds[1]!, role: "CAPTAIN" },
+        auth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ response: { code: "TEAM_CAPTAIN_TAKEN" }, status: 409 });
+
+    // Ohne Captain-Rolle bleibt dieselbe Person aufnehmbar.
+    await expect(
+      service.addMember({
+        organizationId,
+        teamId,
+        data: { playerId: playerIds[1]!, role: "PLAYER" },
+        auth,
+        audit,
+      }),
+    ).resolves.toMatchObject({ id: teamId });
+  }, 30_000);
 });
