@@ -399,13 +399,28 @@ export interface VisitOutcomePreview {
  * der UI nicht von der Server-Wertung abweichen kann. Verbindlich bleibt in
  * jedem Fall die Antwort der Engine auf dem Server.
  *
- * Ob das Leg fuer diese Seite bereits eroeffnet ist, wird aus `remaining`
- * abgeleitet statt als eigenes Feld verlangt: bei Double In bleibt der
- * Reststand exakt beim Startwert, bis der erste Punkt zaehlt (siehe
- * `X01SideState.openedInLeg`), und sinkt danach fuer den Rest des Legs nie
- * wieder auf den Startwert zurueck. Bei Straight In ist die Seite von Anfang
- * an eroeffnet. Diese Ableitung braucht daher kein zusaetzliches Feld im
- * uebertragenen Matchzustand.
+ * Ob das Leg fuer diese Seite bereits eroeffnet ist, kennt nur der
+ * Matchzustand selbst (`X01SideState.openedInLeg`); der uebertragene
+ * Matchzustand (`matchStateSchema`/`matchParticipantStateSchema`) fuehrt
+ * dieses Feld aber nicht. Ist `openedInLeg` nicht gesetzt, greift ein
+ * abgeleiteter Rueckfall: bei Double In bleibt der Reststand beim Startwert,
+ * bis der erste Punkt zaehlt, bei Straight In ist die Seite von Anfang an
+ * eroeffnet.
+ *
+ * Dieser Rueckfall ist NICHT exakt: `projectX01Match` schreibt `openedInLeg`
+ * im Bust-Zweig dauerhaft fort, ohne `remaining` zu aendern (x01.ts:691 —
+ * `const openedInLeg = side.openedInLeg || countedPoints > 0;` — und
+ * x01.ts:720 — `replaceSide(sides, activeIndex, { ...side, openedInLeg })`
+ * ohne `remaining`). Wer also mit einem Doppel eroeffnet und
+ * in derselben Aufnahme ueberwirft, hat danach `openedInLeg: true` bei
+ * `remaining === startingScore` — der Rueckfall liest daraus faelschlich
+ * "noch nicht eroeffnet". Das kann nur passieren, wenn eine Aufnahme ab dem
+ * eroeffnenden Doppel mindestens `startingScore - 1` Punkte zaehlt; bei
+ * hoechstens 180 Punkten pro Aufnahme ist das nur fuer `startingScore <= 181`
+ * ueberhaupt erreichbar. Fuer die heute produktiv erreichbaren Startwerte
+ * (301/501/701) haelt der Rueckfall uneingeschraenkt. Wer `startingScore`
+ * darunter verwendet oder Gewissheit braucht, muss `openedInLeg` explizit
+ * mitgeben — der Rueckfall ist ein Notbehelf, keine Ersatz-Wahrheit.
  */
 export function previewVisitOutcome(input: {
   readonly darts: readonly Dart[];
@@ -415,9 +430,11 @@ export function previewVisitOutcome(input: {
     readonly inRule: InRule;
     readonly outRule: OutRule;
   };
+  readonly openedInLeg?: boolean;
 }): VisitOutcomePreview {
   const { darts, remaining, rules } = input;
-  const openedInLeg = rules.inRule !== "DOUBLE" || remaining < rules.startingScore;
+  const openedInLeg =
+    input.openedInLeg ?? (rules.inRule !== "DOUBLE" || remaining < rules.startingScore);
   const opening = openingDartIndex(darts);
   const countedDarts = openedInLeg ? darts : opening === -1 ? [] : darts.slice(opening);
   const points = dartsTotal(countedDarts);

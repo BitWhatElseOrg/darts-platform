@@ -699,4 +699,40 @@ describe("previewVisitOutcome", () => {
     });
     expect(preview.outcome).toBe("BUST");
   });
+
+  /**
+   * Review-Befund Runde 2: die Ableitung von `openedInLeg` aus `remaining`
+   * ist kein unbedingter Fakt, sondern ein dokumentierter Rueckfall mit einer
+   * bekannten Luecke. Gegenbeweis: Rest 101 bei Double In/Double Out, die
+   * Seite hat mit D20+T20 (100 gezaehlte Punkte ab dem eroeffnenden Doppel)
+   * bereits eroeffnet und in derselben Aufnahme ueberworfen (Rest 1 -> Bust).
+   * `projectX01Match` schreibt danach `openedInLeg: true` fort, waehrend
+   * `remaining` unveraendert bei 101 (== startingScore) bleibt (x01.ts:691
+   * und :720). Die Ableitung liest daraus faelschlich "noch nicht
+   * eroeffnet" und ignoriert im Folge-Visit T20/T20 alle 120 Punkte.
+   */
+  it("liest bei einem Bust in der Eroeffnungsaufnahme faelschlich 'noch nicht eroeffnet' (bekannte Grenze des Rueckfalls)", () => {
+    const preview = previewVisitOutcome({
+      darts: [
+        { segment: 20, multiplier: 3 },
+        { segment: 20, multiplier: 3 },
+      ],
+      remaining: 101,
+      rules: { startingScore: 101, inRule: "DOUBLE", outRule: "DOUBLE" },
+    });
+    expect(preview).toEqual({ points: 0, remaining: 101, complete: false, outcome: "OPEN" });
+  });
+
+  it("liefert mit explizit uebergebenem openedInLeg das von der Engine tatsaechlich gewertete Ergebnis", () => {
+    const preview = previewVisitOutcome({
+      darts: [
+        { segment: 20, multiplier: 3 },
+        { segment: 20, multiplier: 3 },
+      ],
+      remaining: 101,
+      rules: { startingScore: 101, inRule: "DOUBLE", outRule: "DOUBLE" },
+      openedInLeg: true,
+    });
+    expect(preview).toEqual({ points: 120, remaining: 101, complete: true, outcome: "BUST" });
+  });
 });
