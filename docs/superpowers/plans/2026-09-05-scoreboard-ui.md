@@ -18,7 +18,7 @@
 - Die Scoring-Engine darf nichts aus Drizzle, PostgreSQL, Redis, NestJS, Next.js oder Socket.IO importieren.
 - Kritische Mutationen bleiben transaktional; Realtime-Events erst nach dem Commit.
 - Conventional Commits, kleine Commits, jeder Task endet mit mindestens einem Commit.
-- Commit-Nachrichten enden mit `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+- Commit-Nachrichten tragen KEINEN `Co-Authored-By`-Trailer (Repo-Regel in CLAUDE.md).
 - Integrationstests brauchen eine laufende Datenbank: `pnpm infra:up` und Ausführung mit `dotenv -e .env`.
 - Einzelne API-Testdatei: aus `apps/api` heraus `npx dotenv -e ../../.env -- npx vitest run <pfad>`; `pnpm --filter … test -- <pfad>` filtert nicht.
 - Vor Abschluss: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build`, bei UI zusätzlich `pnpm test:e2e`.
