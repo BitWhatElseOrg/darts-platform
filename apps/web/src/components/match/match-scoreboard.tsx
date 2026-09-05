@@ -1,16 +1,11 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  abortMatchResponseSchema, matchStateSchema, type MatchStateResponse,
-} from "@darts-platform/schemas";
+import { useEffect, useRef, useState } from "react";
+import { type MatchStateResponse } from "@darts-platform/schemas";
 import { Button, cn } from "@darts-platform/ui";
-import { ApiClientError, apiRequest, userFacingErrorMessage } from "@/lib/api-client";
-import { generateId } from "@/lib/id";
-import { listOfflineCommands, markOfflineCommandConflict, removeOfflineCommand, removeOfflineCommandsForScope, saveOfflineCommand, type OfflineCommand } from "@/lib/offline-command-queue";
+import { userFacingErrorMessage } from "@/lib/api-client";
 import { variantLabel } from "@/lib/league-format";
-import { useBoardControllerLock } from "@/lib/use-board-controller-lock";
+import { useMatchScoring } from "./use-match-scoring";
 
 const inputClassName = "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
 
@@ -28,144 +23,45 @@ function winnerName(match: MatchStateResponse): string {
 const mutationMessage = (error: unknown) => userFacingErrorMessage(error);
 
 export function MatchScoreboard({ organizationId, match, canAbort, canScore }: { readonly organizationId: string; readonly match: MatchStateResponse; readonly canAbort: boolean; readonly canScore: boolean }) {
-  const queryClient = useQueryClient();
-  const lock = useBoardControllerLock(organizationId, match.id, canScore && match.status === "IN_PROGRESS");
+  const scoring = useMatchScoring({ organizationId, match, canScore });
+  const { lock, queued, online, replaying, mayControl, error } = scoring;
   const [points, setPoints] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutDouble, setCheckoutDouble] = useState("");
   const [checkoutDarts, setCheckoutDarts] = useState<1 | 2 | 3>(3);
   const [abortOpen, setAbortOpen] = useState(false);
-  const [queued, setQueued] = useState<readonly OfflineCommand[]>([]);
-  const [replaying, setReplaying] = useState(false);
-  const replayingRef = useRef(false);
-  const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
-  const scope = `match:${organizationId}:${match.id}`;
-  const refresh = useCallback(async () => { await Promise.all([
-    queryClient.invalidateQueries({ queryKey: ["matches", organizationId] }),
-    queryClient.invalidateQueries({ queryKey: ["match", organizationId, match.id] }),
-    queryClient.invalidateQueries({ queryKey: ["boards", organizationId] }),
-    queryClient.invalidateQueries({ queryKey: ["tournament-dashboard", organizationId] }),
-    queryClient.invalidateQueries({ queryKey: ["tournaments", organizationId] }),
-  ]); }, [organizationId, queryClient, match.id]);
-  const refreshQueue = useCallback(async () => setQueued(await listOfflineCommands(scope)), [scope]);
-  useEffect(() => {
-    let active = true;
-    void listOfflineCommands(scope).then((commands) => { if (active) setQueued(commands); });
-    return () => { active = false; };
-  }, [scope]);
-
-  const replay = useCallback(async () => {
-    if (!navigator.onLine || replayingRef.current) return;
-    replayingRef.current = true;
-    setReplaying(true);
-    const commands = await listOfflineCommands(scope);
-    for (const command of commands.filter((candidate) => candidate.status === "PENDING")) {
-      try {
-        await apiRequest({ path: command.path, method: "POST", body: command.body, schema: matchStateSchema });
-        await removeOfflineCommand(command.commandId);
-      } catch (error) {
-        if (error instanceof ApiClientError && ["MATCH_VERSION_CONFLICT", "BOARD_CONTROLLER_CONFLICT"].includes(error.code)) {
-          const message = error.code === "BOARD_CONTROLLER_CONFLICT"
-            ? "Ein anderes Gerät steuert dieses Board. Übernimm zuerst die Steuerung."
-            : "Der Serverzustand hat sich geändert. Synchronisiere, bevor du weiterzählst.";
-          await markOfflineCommandConflict(command, message);
-        }
-        break;
-      }
-    }
-    await refreshQueue();
-    await refresh();
-    setReplaying(false);
-    replayingRef.current = false;
-  }, [scope, refresh, refreshQueue]);
-
-  useEffect(() => {
-    const becameOnline = () => { setOnline(true); void replay(); };
-    const becameOffline = () => setOnline(false);
-    window.addEventListener("online", becameOnline);
-    window.addEventListener("offline", becameOffline);
-    if (navigator.onLine) void replay();
-    return () => { window.removeEventListener("online", becameOnline); window.removeEventListener("offline", becameOffline); };
-  }, [replay]);
-
-  const submit = useMutation({
-    networkMode: "always",
-    mutationFn: async (visit: { readonly points: number; readonly dartsThrown: 1 | 2 | 3; readonly checkoutDouble?: number }) => {
-      const commandId = generateId();
-      const path = `/organizations/${organizationId}/matches/${match.id}/visits`;
-      const body = {
-        commandId,
-        expectedVersion: match.version,
-        playerId: match.currentPlayerId,
-        points: visit.points,
-        dartsThrown: visit.dartsThrown,
-        checkoutDouble: visit.checkoutDouble ?? null,
-        checkoutAttempts: visit.checkoutDouble === undefined ? 0 : 1,
-        controllerId: lock.controllerId,
-      };
-      if (!navigator.onLine) {
-        await saveOfflineCommand({ commandId, scope, path, body, label: `${visit.points} Punkte`, createdAt: new Date().toISOString(), status: "PENDING", error: null });
-        await refreshQueue();
-        return null;
-      }
-      try {
-        return await apiRequest({ path, method: "POST", body, schema: matchStateSchema });
-      } catch (error) {
-        if (!(error instanceof ApiClientError)) {
-          await saveOfflineCommand({ commandId, scope, path, body, label: `${visit.points} Punkte`, createdAt: new Date().toISOString(), status: "PENDING", error: null });
-          await refreshQueue();
-          return null;
-        }
-        throw error;
-      }
-    },
-    onSuccess: async (serverState) => {
-      setPoints("");
-      setCheckoutOpen(false);
-      setCheckoutDouble("");
-      setCheckoutDarts(3);
-      if (serverState !== null) await refresh();
-    },
-    onError: async (error) => { if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") await refresh(); },
-  });
-  const undo = useMutation({
-    mutationFn: () => apiRequest({ path: `/organizations/${organizationId}/matches/${match.id}/undo`, method: "POST", body: { commandId: generateId(), expectedVersion: match.version, controllerId: lock.controllerId }, schema: matchStateSchema }),
-    onSuccess: refresh,
-    onError: async (error) => { if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") await refresh(); },
-  });
-  const abort = useMutation({
-    mutationFn: (reason: string) => apiRequest({
-      path: `/organizations/${organizationId}/matches/${match.id}/abort`,
-      method: "POST",
-      body: { commandId: generateId(), expectedVersion: match.version, controllerId: lock.controllerId, reason },
-      schema: abortMatchResponseSchema,
-    }),
-    onSuccess: async () => {
-      await removeOfflineCommandsForScope(scope);
-      setQueued([]);
-      setAbortOpen(false);
-      await refresh();
-    },
-    onError: async (abortError) => {
-      if (abortError instanceof ApiClientError && abortError.code === "MATCH_VERSION_CONFLICT") await refresh();
-    },
-  });
-  const error = submit.error ?? undo.error ?? abort.error;
   const hasPending = queued.length > 0;
-  const mayControl = canScore && match.status === "IN_PROGRESS" && lock.state === "EIGEN" && !hasPending;
+  // Der Eingabezustand der Fläche gehört der Komponente, das Wissen um Erfolg
+  // oder Misserfolg der Mutation dem Hook. Ohne Callback bleibt der
+  // Erfolgszähler die einzige Möglichkeit, „gerade erfolgreich übertragen"
+  // von „noch nie versucht" zu unterscheiden — angepasst während des Renders
+  // (React-Muster für abgeleiteten Zustand), nicht in einem Effect.
+  const [lastSubmitSuccess, setLastSubmitSuccess] = useState(scoring.submitSucceededAt);
+  if (lastSubmitSuccess !== scoring.submitSucceededAt) {
+    setLastSubmitSuccess(scoring.submitSucceededAt);
+    setPoints("");
+    setCheckoutOpen(false);
+    setCheckoutDouble("");
+    setCheckoutDarts(3);
+  }
+  const [lastAbortSuccess, setLastAbortSuccess] = useState(scoring.abortSucceededAt);
+  if (lastAbortSuccess !== scoring.abortSucceededAt) {
+    setLastAbortSuccess(scoring.abortSucceededAt);
+    setAbortOpen(false);
+  }
   // Im Doppel ist `currentPlayerId` die werfende Person, nicht die erste der
   // Seite. Am Oche steht die Seite mit `isActive`.
   const activeParticipant = match.participants.find((participant) => participant.isActive);
   const openCheckoutOrSubmit = () => {
     const visitPoints = Number(points);
     if (activeParticipant !== undefined && visitPoints === activeParticipant.remaining) {
-      submit.reset();
+      scoring.resetSubmit();
       setCheckoutDouble("");
       setCheckoutDarts(3);
       setCheckoutOpen(true);
       return;
     }
-    submit.mutate({ points: visitPoints, dartsThrown: 3 });
+    scoring.submitVisit({ points: visitPoints, dartsThrown: 3 });
   };
   return (
     <section aria-label="Match-Scoreboard" className="overflow-hidden rounded-2xl border border-emerald-400/30 bg-slate-950 shadow-2xl shadow-emerald-950/20">
@@ -214,32 +110,32 @@ export function MatchScoreboard({ organizationId, match, canAbort, canScore }: {
         ))}
       </div>
       {canScore && match.status === "IN_PROGRESS" ? <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-900 px-4 py-3 text-body"><span>{lock.state === "EIGEN" ? "Dieses Gerät steuert das Board · Verbindung aktiv" : lock.state === "FREMD" ? "Ein anderes Gerät steuert dieses Board" : "Board-Steuerung wird übernommen …"}</span>{lock.state === "FREMD" ? <Button onClick={lock.takeOver} variant="outline">Steuerung übernehmen</Button> : null}</div> : null}
-      {hasPending ? <div className="border-t border-amber-400/40 bg-amber-300/10 p-4" role="status"><p className="font-semibold text-amber-100">{queued.length} Aufnahme wartet dauerhaft gespeichert auf die Übertragung.</p>{queued.map((command) => <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-body text-amber-100" key={command.commandId}><span>{command.label} · {command.status === "CONFLICT" ? command.error : online ? "Wiederholung läuft" : "Offline"}</span>{command.status === "CONFLICT" ? <Button onClick={() => void removeOfflineCommand(command.commandId).then(refreshQueue).then(refresh)} variant="outline">Verwerfen und synchronisieren</Button> : <Button disabled={!online || replaying} onClick={() => void replay()} variant="outline">Jetzt übertragen</Button>}</div>)}</div> : null}
+      {hasPending ? <div className="border-t border-amber-400/40 bg-amber-300/10 p-4" role="status"><p className="font-semibold text-amber-100">{queued.length} Aufnahme wartet dauerhaft gespeichert auf die Übertragung.</p>{queued.map((command) => <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-body text-amber-100" key={command.commandId}><span>{command.label} · {command.status === "CONFLICT" ? command.error : online ? "Wiederholung läuft" : "Offline"}</span>{command.status === "CONFLICT" ? <Button onClick={() => scoring.discardQueued(command.commandId)} variant="outline">Verwerfen und synchronisieren</Button> : <Button disabled={!online || replaying} onClick={() => scoring.replay()} variant="outline">Jetzt übertragen</Button>}</div>)}</div> : null}
       {match.status === "COMPLETED" ? <div className="border-t border-emerald-400/30 bg-emerald-400/10 p-5 text-center"><p className="text-body uppercase tracking-[0.12em] text-emerald-300">Match beendet</p><p className="mt-1 font-numerals text-title font-bold text-white">{winnerName(match)} gewinnt</p></div> : canScore ? (
         <form className="grid gap-3 border-t border-slate-800 p-4 sm:grid-cols-[1fr_auto]" onSubmit={(event) => { event.preventDefault(); openCheckoutOrSubmit(); }}>
           <input aria-label="Aufnahmescore" autoFocus className={inputClassName} disabled={!mayControl} inputMode="numeric" min="0" max="180" placeholder="Score" required type="number" value={points} onChange={(event) => setPoints(event.target.value)} />
-          <Button disabled={submit.isPending || !mayControl || checkoutOpen} type="submit">Erfassen</Button>
+          <Button disabled={scoring.submitPending || !mayControl || checkoutOpen} type="submit">Erfassen</Button>
         </form>
       ) : null}
       <CheckoutDialog
         darts={checkoutDarts}
-        error={checkoutOpen && submit.isError ? mutationMessage(submit.error) : null}
+        error={checkoutOpen && scoring.submitError !== null ? mutationMessage(scoring.submitError) : null}
         field={checkoutDouble}
-        onCancel={() => { submit.reset(); setCheckoutOpen(false); }}
+        onCancel={() => { scoring.resetSubmit(); setCheckoutOpen(false); }}
         onDartsChange={setCheckoutDarts}
         onFieldChange={setCheckoutDouble}
-        onSubmit={() => submit.mutate({ points: Number(points), dartsThrown: checkoutDarts, checkoutDouble: Number(checkoutDouble) })}
+        onSubmit={() => scoring.submitVisit({ points: Number(points), dartsThrown: checkoutDarts, checkoutDouble: Number(checkoutDouble) })}
         open={checkoutOpen}
-        pending={submit.isPending}
+        pending={scoring.submitPending}
         points={Number(points)}
       />
-      <AbortMatchDialog error={abort.isError ? mutationMessage(abort.error) : null} onCancel={() => { abort.reset(); setAbortOpen(false); }} onSubmit={(reason) => abort.mutate(reason)} open={abortOpen} pending={abort.isPending} queuedCount={queued.length} />
+      <AbortMatchDialog error={scoring.abortError !== null ? mutationMessage(scoring.abortError) : null} onCancel={() => { scoring.resetAbort(); setAbortOpen(false); }} onSubmit={(reason) => scoring.abortMatch(reason)} open={abortOpen} pending={scoring.abortPending} queuedCount={queued.length} />
       <div className="border-t border-slate-800 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h4 className="font-numerals text-title-sm font-bold text-slate-200">Letzte Aufnahmen</h4>
           <div className="flex flex-wrap gap-2">
-            {mayControl && match.visits.some((visit) => !visit.reverted) ? <Button disabled={undo.isPending || !online} onClick={() => undo.mutate()} variant="outline">Letzte Aufnahme zurücknehmen</Button> : null}
-            {canAbort && match.status === "IN_PROGRESS" ? <Button className="border border-rose-500/60 bg-rose-600 text-white hover:bg-rose-500" disabled={!online || lock.state !== "EIGEN" || abort.isPending} onClick={() => { abort.reset(); setAbortOpen(true); }}>Match abbrechen</Button> : null}
+            {mayControl && match.visits.some((visit) => !visit.reverted) ? <Button disabled={scoring.undoPending || !online} onClick={() => scoring.undoVisit()} variant="outline">Letzte Aufnahme zurücknehmen</Button> : null}
+            {canAbort && match.status === "IN_PROGRESS" ? <Button className="border border-rose-500/60 bg-rose-600 text-white hover:bg-rose-500" disabled={!online || lock.state !== "EIGEN" || scoring.abortPending} onClick={() => { scoring.resetAbort(); setAbortOpen(true); }}>Match abbrechen</Button> : null}
           </div>
         </div>
         {error && !checkoutOpen ? <p className="mt-3 text-body text-rose-300" role="alert">{mutationMessage(error)}</p> : null}
