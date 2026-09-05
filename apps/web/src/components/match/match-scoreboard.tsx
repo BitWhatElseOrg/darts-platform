@@ -60,7 +60,8 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   // (siehe Design-Spec, Randfälle) — ein sofortiges Zurücksetzen würde sie
   // beim Fehlschlag verlieren, obwohl niemand sie neu tippen sollte.
   const [lastSubmitSuccess, setLastSubmitSuccess] = useState(scoring.submitSucceededAt);
-  if (lastSubmitSuccess !== scoring.submitSucceededAt) {
+  const submitJustSucceeded = lastSubmitSuccess !== scoring.submitSucceededAt;
+  if (submitJustSucceeded) {
     setLastSubmitSuccess(scoring.submitSucceededAt);
     setPoints("");
     setCheckoutOpen(false);
@@ -154,6 +155,27 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     }
   }
 
+  // Review-Befund 1: schlägt das automatische Senden ohne Bestätigung fehl
+  // (Versionskonflikt, 4xx/5xx), bleibt `entry.darts` unverändert stehen —
+  // der Effekt unten hängt an `entry.darts` und feuert deshalb nie wieder,
+  // und der Reducer verwirft jeden weiteren Tastendruck stumm, weil die
+  // Aufnahme schon `complete` ist. Ohne Gegenmassnahme gäbe es dann keinen
+  // Weg mehr zum erneuten Absenden ausser Rücktaste-und-neu-Tippen. Sobald
+  // ein Sendeversuch endet (pending → nicht mehr pending), OHNE dass er
+  // erfolgreich war (sonst hätte der Block oben schon zurückgesetzt), wird
+  // dieselbe Bestätigungsfläche als Wiederholungsangebot eingeblendet —
+  // `WEITER` versucht denselben Versuch erneut, `‹` lässt die Würfe für die
+  // Rücktaste stehen. Im Bestätigungsmodus (`confirmScore`) ist das nicht
+  // nötig: dort bleibt die Fläche ohnehin offen, bis `WEITER` gelingt.
+  const [lastSubmitPending, setLastSubmitPending] = useState(scoring.submitPending);
+  if (lastSubmitPending !== scoring.submitPending) {
+    const submitJustSettledWithoutSuccess = lastSubmitPending && !scoring.submitPending && !submitJustSucceeded;
+    setLastSubmitPending(scoring.submitPending);
+    if (submitJustSettledWithoutSuccess && completedEntryPreview !== null && !settings.confirmScore) {
+      setPendingConfirmation(completedEntryPreview);
+    }
+  }
+
   // Automatisches Senden ohne Bestätigung: ruft die Mutation auf, sobald
   // eine neue abgeschlossene Aufnahme erscheint. Absichtlich nur an
   // `entry.darts` gehängt, damit ein unveränderter, bereits gesendeter
@@ -231,72 +253,86 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
         pendingDarts={settings.mode === "DART" ? entry.darts : []}
         showDartBand={settings.mode === "DART"}
       />
-      <div className="min-h-0 overflow-y-auto">
-        {hasPending ? (
-          <div className="border-b border-amber-400/40 bg-amber-300/10 p-4">
-            {queued.map((command) => (
-              <div className="flex flex-wrap items-center justify-between gap-3 text-body text-amber-100" key={command.commandId}>
-                <span>{command.label} · {command.status === "CONFLICT" ? command.error : online ? "Wiederholung läuft" : "Offline"}</span>
-                {command.status === "CONFLICT" ? (
-                  <Button onClick={() => scoring.discardQueued(command.commandId)} variant="outline">Verwerfen und synchronisieren</Button>
-                ) : (
-                  <Button disabled={!online || replaying} onClick={() => scoring.replay()} variant="outline">Jetzt übertragen</Button>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : null}
-        {match.status === "COMPLETED" ? (
-          <div className="border-b border-emerald-400/30 bg-emerald-400/10 p-5 text-center">
-            <p className="text-body uppercase tracking-[0.12em] text-emerald-300">Match beendet</p>
-            <p className="mt-1 font-numerals text-title font-bold text-white">{winnerName(match)} gewinnt</p>
-          </div>
-        ) : canScore && settings.mode === "DART" ? (
-          <div className="relative min-h-[26rem] border-b border-slate-800 p-3">
-            <DartKeypad
-              disabled={!mayControl || activeParticipant === undefined || pendingConfirmation !== null || scoring.submitPending}
-              modifier={entry.modifier}
-              onBackspace={handleDartBackspace}
-              onModifier={(multiplier) => dispatchEntry({ type: "MODIFIER", multiplier })}
-              onSegment={handleDartSegment}
-            />
-            {pendingConfirmation !== null ? (
-              <VisitConfirmation
-                bust={pendingConfirmation.outcome === "BUST"}
-                onBack={() => setPendingConfirmation(null)}
-                onConfirm={confirmPendingVisit}
-                points={pendingConfirmation.points}
-              />
-            ) : null}
-          </div>
-        ) : canScore ? (
-          <form className="grid gap-3 border-b border-slate-800 p-4 sm:grid-cols-[1fr_auto]" onSubmit={(event) => { event.preventDefault(); openCheckoutOrSubmit(); }}>
-            <input aria-label="Aufnahmescore" autoFocus className={inputClassName} disabled={!mayControl} inputMode="numeric" min="0" max="180" placeholder="Score" required type="number" value={points} onChange={(event) => setPoints(event.target.value)} />
-            <Button disabled={scoring.submitPending || !mayControl || checkoutOpen} type="submit">Erfassen</Button>
-          </form>
-        ) : null}
-        <CheckoutDialog
-          darts={checkoutDarts}
-          error={checkoutOpen && scoring.submitError !== null ? mutationMessage(scoring.submitError) : null}
-          field={checkoutDouble}
-          onCancel={() => { scoring.resetSubmit(); setCheckoutOpen(false); }}
-          onDartsChange={setCheckoutDarts}
-          onFieldChange={setCheckoutDouble}
-          onSubmit={() => scoring.submitVisit({ points: Number(points), dartsThrown: checkoutDarts, checkoutDouble: Number(checkoutDouble) })}
-          open={checkoutOpen}
-          pending={scoring.submitPending}
-          points={Number(points)}
-        />
-        <AbortMatchDialog error={scoring.abortError !== null ? mutationMessage(scoring.abortError) : null} onCancel={() => { scoring.resetAbort(); setAbortOpen(false); }} onSubmit={(reason) => scoring.abortMatch(reason)} open={abortOpen} pending={scoring.abortPending} queuedCount={queued.length} />
-        <div className="p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h4 className="font-numerals text-title-sm font-bold text-slate-200">Letzte Aufnahmen</h4>
-            <div className="flex flex-wrap gap-2">
-              {mayControl && match.visits.some((visit) => !visit.reverted) ? <Button disabled={scoring.undoPending || !online} onClick={() => scoring.undoVisit()} variant="outline">Letzte Aufnahme zurücknehmen</Button> : null}
-              {canAbort && match.status === "IN_PROGRESS" ? <Button className="border border-rose-500/60 bg-rose-600 text-white hover:bg-rose-500" disabled={!online || lock.state !== "EIGEN" || scoring.abortPending} onClick={() => { scoring.resetAbort(); setAbortOpen(true); }}>Match abbrechen</Button> : null}
+      {/* Review-Befund 3: drei feste Reihen statt eines einzigen scrollenden
+          Blocks — sonst bekommt das Keypad je nach Inhalt der ersten Reihe
+          (Warteschlangen-Banner vorhanden oder nicht) mal die 1fr-Spur, mal
+          gar keine. So bleibt seine Reihe unabhängig davon immer die
+          mittlere, bekommt also immer den verbleibenden Platz; nur wenn der
+          Gesamtinhalt trotzdem nicht passt (z. B. sehr niedriges Gerät),
+          scrollt diese Fläche für sich, ohne dass die Seite selbst wächst. */}
+      <div className="grid min-h-0 grid-rows-[auto_1fr_auto] overflow-y-auto">
+        <div>
+          {hasPending ? (
+            <div className="border-b border-amber-400/40 bg-amber-300/10 p-4">
+              {queued.map((command) => (
+                <div className="flex flex-wrap items-center justify-between gap-3 text-body text-amber-100" key={command.commandId}>
+                  <span>{command.label} · {command.status === "CONFLICT" ? command.error : online ? "Wiederholung läuft" : "Offline"}</span>
+                  {command.status === "CONFLICT" ? (
+                    <Button onClick={() => scoring.discardQueued(command.commandId)} variant="outline">Verwerfen und synchronisieren</Button>
+                  ) : (
+                    <Button disabled={!online || replaying} onClick={() => scoring.replay()} variant="outline">Jetzt übertragen</Button>
+                  )}
+                </div>
+              ))}
             </div>
+          ) : null}
+        </div>
+        <div className="min-h-0">
+          {match.status === "COMPLETED" ? (
+            <div className="border-b border-emerald-400/30 bg-emerald-400/10 p-5 text-center">
+              <p className="text-body uppercase tracking-[0.12em] text-emerald-300">Match beendet</p>
+              <p className="mt-1 font-numerals text-title font-bold text-white">{winnerName(match)} gewinnt</p>
+            </div>
+          ) : canScore && settings.mode === "DART" ? (
+            <div className="relative h-full min-h-0 border-b border-slate-800 p-3">
+              <DartKeypad
+                disabled={!mayControl || activeParticipant === undefined || pendingConfirmation !== null || scoring.submitPending}
+                modifier={entry.modifier}
+                onBackspace={handleDartBackspace}
+                onModifier={(multiplier) => dispatchEntry({ type: "MODIFIER", multiplier })}
+                onSegment={handleDartSegment}
+                segmentsLocked={completedEntryPreview !== null}
+              />
+              {pendingConfirmation !== null ? (
+                <VisitConfirmation
+                  bust={pendingConfirmation.outcome === "BUST"}
+                  onBack={() => setPendingConfirmation(null)}
+                  onConfirm={confirmPendingVisit}
+                  points={pendingConfirmation.points}
+                />
+              ) : null}
+            </div>
+          ) : canScore ? (
+            <form className="grid gap-3 border-b border-slate-800 p-4 sm:grid-cols-[1fr_auto]" onSubmit={(event) => { event.preventDefault(); openCheckoutOrSubmit(); }}>
+              <input aria-label="Aufnahmescore" autoFocus className={inputClassName} disabled={!mayControl} inputMode="numeric" min="0" max="180" placeholder="Score" required type="number" value={points} onChange={(event) => setPoints(event.target.value)} />
+              <Button disabled={scoring.submitPending || !mayControl || checkoutOpen} type="submit">Erfassen</Button>
+            </form>
+          ) : null}
+        </div>
+        <div>
+          <CheckoutDialog
+            darts={checkoutDarts}
+            error={checkoutOpen && scoring.submitError !== null ? mutationMessage(scoring.submitError) : null}
+            field={checkoutDouble}
+            onCancel={() => { scoring.resetSubmit(); setCheckoutOpen(false); }}
+            onDartsChange={setCheckoutDarts}
+            onFieldChange={setCheckoutDouble}
+            onSubmit={() => scoring.submitVisit({ points: Number(points), dartsThrown: checkoutDarts, checkoutDouble: Number(checkoutDouble) })}
+            open={checkoutOpen}
+            pending={scoring.submitPending}
+            points={Number(points)}
+          />
+          <AbortMatchDialog error={scoring.abortError !== null ? mutationMessage(scoring.abortError) : null} onCancel={() => { scoring.resetAbort(); setAbortOpen(false); }} onSubmit={(reason) => scoring.abortMatch(reason)} open={abortOpen} pending={scoring.abortPending} queuedCount={queued.length} />
+          <div className="p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h4 className="font-numerals text-title-sm font-bold text-slate-200">Letzte Aufnahmen</h4>
+              <div className="flex flex-wrap gap-2">
+                {mayControl && match.visits.some((visit) => !visit.reverted) ? <Button disabled={scoring.undoPending || !online} onClick={() => scoring.undoVisit()} variant="outline">Letzte Aufnahme zurücknehmen</Button> : null}
+                {canAbort && match.status === "IN_PROGRESS" ? <Button className="border border-rose-500/60 bg-rose-600 text-white hover:bg-rose-500" disabled={!online || lock.state !== "EIGEN" || scoring.abortPending} onClick={() => { scoring.resetAbort(); setAbortOpen(true); }}>Match abbrechen</Button> : null}
+              </div>
+            </div>
+            <div className="mt-3 space-y-2">{match.visits.slice(0, 8).map((visit) => <div className={cn("flex min-h-11 items-center justify-between rounded-lg bg-slate-900 px-3 text-body", visit.reverted && "opacity-40 line-through")} key={visit.id}><span className="text-slate-300">{visit.playerDisplayName} · {visit.dartsThrown} Darts</span><span className="font-bold text-white">{visit.outcome === "BUST" ? `BUST (${visit.points})` : `${visit.appliedPoints} → ${visit.scoreAfter}`}</span></div>)}</div>
           </div>
-          <div className="mt-3 space-y-2">{match.visits.slice(0, 8).map((visit) => <div className={cn("flex min-h-11 items-center justify-between rounded-lg bg-slate-900 px-3 text-body", visit.reverted && "opacity-40 line-through")} key={visit.id}><span className="text-slate-300">{visit.playerDisplayName} · {visit.dartsThrown} Darts</span><span className="font-bold text-white">{visit.outcome === "BUST" ? `BUST (${visit.points})` : `${visit.appliedPoints} → ${visit.scoreAfter}`}</span></div>)}</div>
         </div>
       </div>
     </section>

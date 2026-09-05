@@ -42,9 +42,18 @@ const sideKeys: readonly (number | "backspace" | null)[] = ["backspace", 0, 25, 
  * meldet nur die gedrückte Taste; welcher Wurf daraus wird (insbesondere die
  * Abbildung der Bullseye-Taste auf Doppel 25) entscheidet der Reducer aus
  * `dart-entry.ts`.
+ *
+ * `disabled` sperrt die ganze Fläche (Segmente, Umschalter, Rücktaste) —
+ * etwa während die Bestätigung eingeblendet ist oder ohne Steuerungsrecht.
+ * `segmentsLocked` sperrt NUR die Segmenttasten (1–20, Fehlwurf, Bull,
+ * Bullseye): die laufende Aufnahme ist bereits abgeschlossen (Checkout oder
+ * Bust), der Reducer verwirft jeden weiteren Wurf ohnehin stumm — sichtbar
+ * gesperrt statt wirkungslos aktiv. Die Rücktaste bleibt dabei bedienbar,
+ * denn sie ist der einzige Weg, die Aufnahme zu korrigieren (Review-Befund 2).
  */
-export function DartKeypad({ disabled, modifier, onSegment, onModifier, onBackspace }: {
+export function DartKeypad({ disabled, segmentsLocked, modifier, onSegment, onModifier, onBackspace }: {
   readonly disabled: boolean;
+  readonly segmentsLocked: boolean;
   readonly modifier: 1 | 2 | 3;
   readonly onSegment: (segment: number) => void;
   readonly onModifier: (multiplier: 2 | 3) => void;
@@ -52,7 +61,7 @@ export function DartKeypad({ disabled, modifier, onSegment, onModifier, onBacksp
 }) {
   const segmentButton = (segment: number) => {
     const available = isSegmentAvailable(segment, modifier);
-    const isDisabled = disabled || !available;
+    const isDisabled = disabled || segmentsLocked || !available;
     return (
       <button
         aria-disabled={isDisabled}
@@ -97,7 +106,7 @@ export function DartKeypad({ disabled, modifier, onSegment, onModifier, onBacksp
       </div>
       <div className="grid grid-cols-2 gap-2">
         <button
-          aria-label="Umschalter Doppel"
+          aria-label="Umschalter DOUBLE"
           aria-pressed={modifier === 2}
           className={cn(keyClassName, modifier === 2 ? "bg-emerald-500 text-slate-950" : "bg-slate-800 hover:enabled:bg-slate-700")}
           disabled={disabled}
@@ -107,7 +116,7 @@ export function DartKeypad({ disabled, modifier, onSegment, onModifier, onBacksp
           DOUBLE
         </button>
         <button
-          aria-label="Umschalter Triple"
+          aria-label="Umschalter TRIPLE"
           aria-pressed={modifier === 3}
           className={cn(keyClassName, modifier === 3 ? "bg-emerald-500 text-slate-950" : "bg-slate-800 hover:enabled:bg-slate-700")}
           disabled={disabled}
