@@ -5,6 +5,7 @@ import {
   createX01Match,
   executeX01Command,
   isAttainableScore,
+  previewVisitOutcome,
   projectX01Match,
   type Dart,
   type InRule,
@@ -624,5 +625,78 @@ describe("X01 mit Einzelwürfen", () => {
     });
     expect(result.state.visits.at(-1)?.outcome).toBe("MATCH_WON");
     expect(result.state.visits.at(-1)?.darts).toEqual([]);
+  });
+});
+
+describe("previewVisitOutcome", () => {
+  it("zaehlt bei Double In erst ab dem ersten Doppel, wie die Engine auch", () => {
+    // Reglement-Fall aus Task-8-Review: T20/T20/D20 bei Rest 501 mit Double
+    // In. Die Engine zaehlt (siehe "zählt bei Double In erst ab dem ersten
+    // Doppel" oben) nur ab dem Doppel: hier 40 Punkte, nicht 160.
+    const preview = previewVisitOutcome({
+      darts: [
+        { segment: 20, multiplier: 3 },
+        { segment: 20, multiplier: 3 },
+        { segment: 20, multiplier: 2 },
+      ],
+      remaining: 501,
+      rules: { startingScore: 501, inRule: "DOUBLE", outRule: "DOUBLE" },
+    });
+    expect(preview).toMatchObject({ points: 40, remaining: 461, complete: true, outcome: "SCORED" });
+  });
+
+  it("rechnet bei Double In ohne Doppel nichts an, ohne zu scheitern", () => {
+    const preview = previewVisitOutcome({
+      darts: [
+        { segment: 20, multiplier: 1 },
+        { segment: 20, multiplier: 1 },
+        { segment: 20, multiplier: 1 },
+      ],
+      remaining: 501,
+      rules: { startingScore: 501, inRule: "DOUBLE", outRule: "DOUBLE" },
+    });
+    expect(preview).toMatchObject({ points: 0, remaining: 501, complete: true, outcome: "SCORED" });
+  });
+
+  it("behandelt eine bereits eroeffnete Seite bei Double In wie Straight In", () => {
+    // Rest 461 statt 501: die Seite hat das Leg schon in einer frueheren
+    // Aufnahme eroeffnet, der Reststand ist deshalb unter den Startwert
+    // gesunken. Alle Wuerfe dieser Aufnahme zaehlen wieder normal.
+    const preview = previewVisitOutcome({
+      darts: [{ segment: 20, multiplier: 1 }],
+      remaining: 461,
+      rules: { startingScore: 501, inRule: "DOUBLE", outRule: "DOUBLE" },
+    });
+    expect(preview).toMatchObject({ points: 20, remaining: 441, complete: false, outcome: "OPEN" });
+  });
+
+  it("erkennt einen Checkout bereits nach dem zweiten Wurf, ohne auf den dritten zu warten", () => {
+    const preview = previewVisitOutcome({
+      darts: [
+        { segment: 20, multiplier: 1 },
+        { segment: 20, multiplier: 2 },
+      ],
+      remaining: 60,
+      rules: { startingScore: 501, inRule: "STRAIGHT", outRule: "DOUBLE" },
+    });
+    expect(preview).toMatchObject({ complete: true, outcome: "CHECKOUT", remaining: 0 });
+  });
+
+  it("erkennt den Bust unter null", () => {
+    const preview = previewVisitOutcome({
+      darts: [{ segment: 20, multiplier: 3 }],
+      remaining: 40,
+      rules: { startingScore: 501, inRule: "STRAIGHT", outRule: "DOUBLE" },
+    });
+    expect(preview).toMatchObject({ complete: true, outcome: "BUST", remaining: 40 });
+  });
+
+  it("wertet ein Single-Finish bei Double Out als Bust", () => {
+    const preview = previewVisitOutcome({
+      darts: [{ segment: 20, multiplier: 1 }],
+      remaining: 20,
+      rules: { startingScore: 501, inRule: "STRAIGHT", outRule: "DOUBLE" },
+    });
+    expect(preview.outcome).toBe("BUST");
   });
 });
