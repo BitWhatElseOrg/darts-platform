@@ -61,7 +61,10 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 - Spielerverwaltung inklusive revisionssicherer Archivierung
 - Board- und Matchverwaltung, tenant-sicher
 - vollständiges 501-Double-Out-Match: Legs, Bust, Checkout, Dart Count, Best of Legs, Undo
-- touchfreundliches Scoreboard für Smartphone und Tablet
+- Vollbild-Scoreboard für Smartphone und Tablet mit zwei umschaltbaren
+  Eingabearten – Wurf für Wurf (Standard, mit Bestätigungsfläche) und
+  Rundensumme (mit Checkout-Schritt) –, dauerhafter Einzelwurf-Speicherung
+  und geräteweiten Schnellwerten
 - Audit- und Outbox-Einträge in derselben Transaktion wie die Mutation
 - vollständiger Tournament MVP: Round Robin, Gruppen, Setzung, K.-o., Byes,
   Ranking, Board-Zuweisung, Dashboard und auditierte Result Correction

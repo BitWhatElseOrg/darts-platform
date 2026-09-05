@@ -5,6 +5,7 @@ import {
   createRegistrationInvitation,
   type RegistrationInvitationSeed,
 } from "./registration-invitation";
+import { openAbortDialog, selectCheckoutDarts, switchInputMode, typeRoundScore } from "./scoreboard-entry";
 
 const registrationSeeds: RegistrationInvitationSeed[] = [];
 
@@ -276,10 +277,13 @@ test("a club can complete a match and start a generated tournament match", async
   // "Verbindung aktiv"-Dauermeldung entfällt deshalb.
   await expect(page.getByRole("status")).toHaveCount(1);
   await expect(page.getByRole("status")).toBeEmpty();
-  await expect(page.getByLabel("Aufnahmescore")).toBeEnabled();
-  await expect(page.getByLabel("Geworfene Darts")).toHaveCount(0);
-  await expect(page.getByLabel("Checkout-Double")).toHaveCount(0);
-  await expect(page.getByLabel("Doppelversuche")).toHaveCount(0);
+  // Task 15: das frühere Freitext-Formular „Aufnahmescore" samt optionalen
+  // Zusatzfeldern für Geworfene Darts, Checkout-Double und Doppelversuche
+  // gibt es nicht mehr — der Moduswechsel (Task 8/9) hat es vollständig
+  // durch die zwei Keypads ersetzt, ein Umschalten auf ein Freitextfeld
+  // existiert in keinem der beiden Modi. Dart ist die neue Standardeingabe;
+  // ihr Keypad steht bereit, sobald die Fläche lädt.
+  await expect(page.getByRole("button", { name: "Single 20" })).toBeEnabled();
 
   // Task 11 Spec: die Vollbildfläche füllt 100dvh und scrollt nicht. Geprüft
   // auf einem Mobilviewport in Hoch- und Querformat, danach zurück auf die
@@ -293,10 +297,16 @@ test("a club can complete a match and start a generated tournament match", async
   expect(await overflowsViewport(), "Querformat überläuft 100dvh").toBe(false);
   await page.setViewportSize({ width: 1280, height: 720 });
 
-  await page.getByLabel("Aufnahmescore").fill("100");
-  await page.getByRole("button", { name: "Erfassen" }).click();
+  // Der Rundenmodus bleibt für den Rest des Tests der bequemere Weg,
+  // beliebige Aufnahmesummen zu erfassen; der Wurf-für-Wurf-Modus samt dem
+  // Moduswechsel selbst ist eigens in scoreboard.spec.ts abgedeckt.
+  await switchInputMode(page, "Runde");
+  await typeRoundScore(page, 100);
   await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("401");
-  await page.getByRole("button", { name: "Match abbrechen" }).click();
+  // Task 15: Seit Task 14 gibt es keinen direkten "Match abbrechen"-Knopf
+  // mehr auf der Fläche — der Weg führt über das Einstellungs-Modal
+  // ("SPIEL BEENDEN"), das beim Abbruch-Dialog absichtlich offen bleibt.
+  await openAbortDialog(page);
   const abortDialog = page.getByRole("dialog", { name: "Match abbrechen" });
   await expect(abortDialog).toContainText("0 lokal gespeicherte Aufnahmen werden verworfen");
   await abortDialog.getByLabel("Abbruchgrund").fill("Board versehentlich falsch zugewiesen");
@@ -316,13 +326,12 @@ test("a club can complete a match and start a generated tournament match", async
     expectedRest: number,
     checkout?: { readonly field: number; readonly darts: 1 | 2 | 3 },
   ) => {
-    await page.getByLabel("Aufnahmescore").fill(String(score));
-    await page.getByRole("button", { name: "Erfassen" }).click();
+    await typeRoundScore(page, score);
     if (checkout !== undefined) {
       const dialog = page.getByRole("dialog", { name: "Checkout erfassen" });
       await expect(dialog).toBeVisible();
       await dialog.getByLabel("Checkout-Feld").selectOption(String(checkout.field));
-      await dialog.getByLabel("Benötigte Darts").selectOption(String(checkout.darts));
+      await selectCheckoutDarts(dialog, checkout.darts);
       await dialog.getByRole("button", { name: "Checkout speichern" }).click();
     }
     await expect(page.getByLabel(`E2E Player One, Restscore`)).toHaveText(String(expectedRest));
@@ -330,8 +339,7 @@ test("a club can complete a match and start a generated tournament match", async
 
   await page.context().setOffline(true);
   await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(false);
-  await page.getByLabel("Aufnahmescore").fill("180");
-  await page.getByRole("button", { name: "Erfassen" }).click();
+  await typeRoundScore(page, 180);
   await expect(page.getByText(/Aufnahme wartet dauerhaft gespeichert/u)).toBeVisible();
   await page.context().setOffline(false);
   await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(true);
@@ -339,28 +347,36 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByRole("button", { name: "Letzte Aufnahme zurücknehmen" }).click();
   await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("501");
   await record(180, 321);
-  await expect(page.getByText("E2E Player One · 3 Darts").first()).toBeVisible();
-  await page.getByLabel("Aufnahmescore").fill("60");
-  await page.getByRole("button", { name: "Erfassen" }).click();
+  // Seit Task 14 steht "Letzte Aufnahmen" im Einstellungs-Modal, nicht mehr
+  // direkt auf der Fläche — derselbe Beleg (drei Darts je Aufnahme kommen
+  // im Zustand an) über den neuen Weg.
+  await page.getByRole("button", { name: "Einstellungen" }).click();
+  const recentVisitsDialog = page.getByRole("dialog", { name: "Einstellungen" });
+  await expect(recentVisitsDialog).toBeVisible();
+  await expect(recentVisitsDialog.getByText("E2E Player One · 3 Darts").first()).toBeVisible();
+  await recentVisitsDialog.getByRole("button", { name: "Spiel fortsetzen" }).click();
+  await expect(recentVisitsDialog).toHaveCount(0);
+  await typeRoundScore(page, 60);
   await expect(page.getByLabel("E2E Player Two, Restscore")).toHaveText("441");
   await record(180, 141);
-  await page.getByLabel("Aufnahmescore").fill("60");
-  await page.getByRole("button", { name: "Erfassen" }).click();
+  await typeRoundScore(page, 60);
   await expect(page.getByLabel("E2E Player Two, Restscore")).toHaveText("381");
   await record(91, 50);
-  await page.getByLabel("Aufnahmescore").fill("60");
-  await page.getByRole("button", { name: "Erfassen" }).click();
+  await typeRoundScore(page, 60);
   await expect(page.getByLabel("E2E Player Two, Restscore")).toHaveText("321");
-  await page.getByLabel("Aufnahmescore").fill("50");
-  await page.getByRole("button", { name: "Erfassen" }).click();
+  await typeRoundScore(page, 50);
   const checkoutDialog = page.getByRole("dialog", { name: "Checkout erfassen" });
   await expect(checkoutDialog).toBeVisible();
   await checkoutDialog.getByRole("button", { name: "Abbrechen" }).click();
   await expect(checkoutDialog).toHaveCount(0);
   await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("50");
-  await page.getByRole("button", { name: "Erfassen" }).click();
+  // Der Wert bleibt im Ziffernfeld stehen (nur `resetSubmit`, kein
+  // Zurücksetzen des Eingabewerts) — deshalb genügt ein erneuter Klick auf
+  // „Aufnahme erfassen" ohne die 50 neu zu tippen, um den Checkout-Schritt
+  // ein zweites Mal auszulösen.
+  await page.getByRole("button", { name: "Aufnahme erfassen" }).click();
   await checkoutDialog.getByLabel("Checkout-Feld").selectOption("25");
-  await checkoutDialog.getByLabel("Benötigte Darts").selectOption("1");
+  await selectCheckoutDarts(checkoutDialog, 1);
   await checkoutDialog.getByRole("button", { name: "Checkout speichern" }).click();
   await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("0");
   await expect(page.getByText("Match beendet")).toBeVisible();
@@ -396,15 +412,15 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByRole("link").filter({ hasText: "läuft" }).first().click();
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
   const scoreTournamentVisit = async (score: number, checkoutDouble?: number) => {
-    const visitScore = page.getByLabel("Aufnahmescore");
-    await visitScore.fill(String(score));
-    await page.getByRole("button", { name: "Erfassen" }).click();
+    await typeRoundScore(page, score);
     if (checkoutDouble === undefined) {
-      await expect(visitScore).toHaveValue("");
+      // Nach erfolgreicher Übernahme setzt die Fläche das Ziffernfeld
+      // zurück; ohne Wert ist „Aufnahme erfassen" wieder gesperrt.
+      await expect(page.getByRole("button", { name: "Aufnahme erfassen" })).toBeDisabled();
     } else {
       const dialog = page.getByRole("dialog", { name: "Checkout erfassen" });
       await dialog.getByLabel("Checkout-Feld").selectOption(String(checkoutDouble));
-      await dialog.getByLabel("Benötigte Darts").selectOption("3");
+      await selectCheckoutDarts(dialog, 3);
       await dialog.getByRole("button", { name: "Checkout speichern" }).click();
       await expect(page.getByText("Match beendet")).toBeVisible();
     }
