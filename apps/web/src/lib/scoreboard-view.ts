@@ -1,4 +1,4 @@
-import type { MatchLiveTarget } from "@darts-platform/schemas";
+import type { Dart, MatchLiveTarget } from "@darts-platform/schemas";
 
 /**
  * Die drei Darstellungsbausteine der Vollbildfläche (Kopfzeile, Statuszeile,
@@ -47,6 +47,39 @@ export function liveHref(input: {
   return input.boardId === null
     ? `/live/${input.liveTarget.tournamentId}`
     : `/live/${input.liveTarget.tournamentId}/board/${input.boardId}`;
+}
+
+/**
+ * Kurzbeschriftung eines tatsächlich geworfenen Darts im Dart-Band: `T 5`,
+ * `D 20`, `20`, `—` für den Fehlwurf. Segment 25 trägt keinen Ring und
+ * bekommt deshalb eigene Wörter statt `D 25`/`25`: `Bull` für den einfachen,
+ * `Bullseye` für den doppelten Treffer.
+ *
+ * Zusammengeführt aus der ursprünglich in `scoreboard-sides.tsx` (Task 11)
+ * inline definierten, dort nie aktivierten Fassung: die kannte Segment 25
+ * nicht gesondert und zeigte für Bullseye fälschlich „D 25“.
+ */
+export function dartLabel(dart: Dart): string {
+  if (dart.segment === 0) return "—";
+  if (dart.segment === 25) return dart.multiplier === 2 ? "Bullseye" : "Bull";
+  if (dart.multiplier === 1) return `${dart.segment}`;
+  return `${dart.multiplier === 3 ? "T" : "D"} ${dart.segment}`;
+}
+
+/**
+ * Ausgeschriebene Tastenbeschriftung des Dart-Keypads (`aria-label`), z. B.
+ * für Screenreader. `segment` ist hier der Tastenwert (0–20, 25, 50), nicht
+ * zwingend ein tatsächlich geworfener Dart: die Taste `50` steht für
+ * Bullseye, ihre Abbildung auf `{ segment: 25, multiplier: 2 }` übernimmt
+ * der Reducer aus `dart-entry.ts`. Bull und Bullseye tragen keinen
+ * Umschalter-Zusatz, weil ihre Tasten den Multiplikator schon im Wert
+ * tragen.
+ */
+export function dartKeypadLabel(segment: number, modifier: 1 | 2 | 3): string {
+  if (segment === 0) return "Fehlwurf";
+  if (segment === 50) return "Bullseye";
+  if (segment === 25) return "Bull";
+  return modifier === 3 ? `Triple ${segment}` : modifier === 2 ? `Doppel ${segment}` : `Single ${segment}`;
 }
 
 /**

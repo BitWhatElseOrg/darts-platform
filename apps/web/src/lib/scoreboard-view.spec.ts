@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentRoundNumber, liveHref, threeDartAverage } from "./scoreboard-view";
+import { currentRoundNumber, dartKeypadLabel, dartLabel, liveHref, threeDartAverage } from "./scoreboard-view";
 
 describe("currentRoundNumber", () => {
   it("beginnt bei eins ohne Aufnahme im Leg", () => {
@@ -47,6 +47,63 @@ describe("liveHref", () => {
   it("führt bei einer Begegnung auf die öffentliche Begegnung", () => {
     expect(liveHref({ boardId: null, liveTarget: { kind: "ENCOUNTER", publicId: "e1" } }))
       .toBe("/live/begegnungen/e1");
+  });
+});
+
+describe("dartLabel", () => {
+  it("beschriftet einen Fehlwurf mit einem Gedankenstrich", () => {
+    expect(dartLabel({ segment: 0, multiplier: 1 })).toBe("—");
+  });
+
+  it("beschriftet einen Single mit der reinen Zahl", () => {
+    expect(dartLabel({ segment: 20, multiplier: 1 })).toBe("20");
+  });
+
+  it("beschriftet ein Doppel mit D", () => {
+    expect(dartLabel({ segment: 20, multiplier: 2 })).toBe("D 20");
+  });
+
+  it("beschriftet ein Triple mit T", () => {
+    expect(dartLabel({ segment: 5, multiplier: 3 })).toBe("T 5");
+  });
+
+  it("beschriftet Bull (Segment 25, Multiplikator 1) als Bull", () => {
+    expect(dartLabel({ segment: 25, multiplier: 1 })).toBe("Bull");
+  });
+
+  /**
+   * Bekannter Fehler vor dieser Zusammenführung: die alte Fassung in
+   * scoreboard-sides.tsx behandelte Segment 25 nicht gesondert und zeigte
+   * fuer den Bullseye-Treffer faelschlich "D 25" statt "Bullseye".
+   */
+  it("beschriftet Bullseye (Segment 25, Multiplikator 2) als Bullseye, nicht als D 25", () => {
+    expect(dartLabel({ segment: 25, multiplier: 2 })).toBe("Bullseye");
+  });
+});
+
+describe("dartKeypadLabel", () => {
+  it("beschriftet den Fehlwurf ausgeschrieben", () => {
+    expect(dartKeypadLabel(0, 1)).toBe("Fehlwurf");
+  });
+
+  it("beschriftet die Bullseye-Taste unabhaengig vom Umschalter", () => {
+    expect(dartKeypadLabel(50, 1)).toBe("Bullseye");
+  });
+
+  it("beschriftet die Bull-Taste unabhaengig vom Umschalter", () => {
+    expect(dartKeypadLabel(25, 1)).toBe("Bull");
+  });
+
+  it("beschriftet ein Segment ohne Umschalter als Single", () => {
+    expect(dartKeypadLabel(5, 1)).toBe("Single 5");
+  });
+
+  it("beschriftet ein Segment mit aktivem Doppel-Umschalter", () => {
+    expect(dartKeypadLabel(5, 2)).toBe("Doppel 5");
+  });
+
+  it("beschriftet ein Segment mit aktivem Triple-Umschalter", () => {
+    expect(dartKeypadLabel(5, 3)).toBe("Triple 5");
   });
 });
 

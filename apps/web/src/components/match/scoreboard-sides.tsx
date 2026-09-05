@@ -2,7 +2,7 @@
 
 import type { Dart, MatchStateResponse } from "@darts-platform/schemas";
 import { cn } from "@darts-platform/ui";
-import { threeDartAverage } from "@/lib/scoreboard-view";
+import { dartLabel, threeDartAverage } from "@/lib/scoreboard-view";
 
 type Participant = MatchStateResponse["participants"][number];
 
@@ -20,13 +20,6 @@ function lastVisitPoints(match: MatchStateResponse, participant: Participant): n
       && participant.players.some((person) => person.playerId === candidate.playerId),
   );
   return visit === undefined ? null : visit.appliedPoints;
-}
-
-/** Beschriftung eines einzelnen Wurfs im Dart-Band: `T 5`, `D 20`, `20`, `—` für den Fehlwurf. */
-function dartLabel(dart: Dart): string {
-  if (dart.segment === 0) return "—";
-  if (dart.multiplier === 1) return `${dart.segment}`;
-  return `${dart.multiplier === 3 ? "T" : "D"} ${dart.segment}`;
 }
 
 /**

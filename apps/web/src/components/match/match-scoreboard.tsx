@@ -1,13 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { type MatchStateResponse } from "@darts-platform/schemas";
 import { Button, cn } from "@darts-platform/ui";
 import { userFacingErrorMessage } from "@/lib/api-client";
+import { dartEntryReducer, emptyDartEntry, previewDartEntry, type DartEntryPreview } from "@/lib/dart-entry";
+import { defaultScoreboardSettings, readScoreboardSettings, subscribeScoreboardSettings } from "@/lib/scoreboard-settings";
+import { DartKeypad } from "./dart-keypad";
 import { ScoreboardHeader } from "./scoreboard-header";
 import { ScoreboardSides } from "./scoreboard-sides";
 import { ScoreboardStatus } from "./scoreboard-status";
 import { useMatchScoring } from "./use-match-scoring";
+import { VisitConfirmation } from "./visit-confirmation";
 
 const inputClassName = "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
 
@@ -34,17 +38,27 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
 }) {
   const scoring = useMatchScoring({ organizationId, match, canScore });
   const { lock, queued, online, replaying, mayControl, error } = scoring;
+  const settings = useSyncExternalStore(subscribeScoreboardSettings, readScoreboardSettings, () => defaultScoreboardSettings);
   const [points, setPoints] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutDouble, setCheckoutDouble] = useState("");
   const [checkoutDarts, setCheckoutDarts] = useState<1 | 2 | 3>(3);
   const [abortOpen, setAbortOpen] = useState(false);
+  const [entry, dispatchEntry] = useReducer(dartEntryReducer, emptyDartEntry);
+  const [pendingConfirmation, setPendingConfirmation] = useState<DartEntryPreview | null>(null);
+  const autoConfirmTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasPending = queued.length > 0;
   // Der Eingabezustand der Fläche gehört der Komponente, das Wissen um Erfolg
   // oder Misserfolg der Mutation dem Hook. Ohne Callback bleibt der
   // Erfolgszähler die einzige Möglichkeit, „gerade erfolgreich übertragen"
   // von „noch nie versucht" zu unterscheiden — angepasst während des Renders
   // (React-Muster für abgeleiteten Zustand), nicht in einem Effect.
+  //
+  // Dieselbe Stelle setzt auch die Dart-Aufnahme zurück: erst bei
+  // tatsächlichem Erfolg der Mutation, nicht sofort nach dem Absenden. Ein
+  // Versionskonflikt lässt die geworfenen Darts sonst ausdrücklich stehen
+  // (siehe Design-Spec, Randfälle) — ein sofortiges Zurücksetzen würde sie
+  // beim Fehlschlag verlieren, obwohl niemand sie neu tippen sollte.
   const [lastSubmitSuccess, setLastSubmitSuccess] = useState(scoring.submitSucceededAt);
   if (lastSubmitSuccess !== scoring.submitSucceededAt) {
     setLastSubmitSuccess(scoring.submitSucceededAt);
@@ -52,6 +66,8 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     setCheckoutOpen(false);
     setCheckoutDouble("");
     setCheckoutDarts(3);
+    dispatchEntry({ type: "RESET" });
+    setPendingConfirmation(null);
   }
   const [lastAbortSuccess, setLastAbortSuccess] = useState(scoring.abortSucceededAt);
   if (lastAbortSuccess !== scoring.abortSucceededAt) {
@@ -72,6 +88,119 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     }
     scoring.submitVisit({ points: visitPoints, dartsThrown: 3 });
   };
+
+  // Wechselt durch die Serverantwort die werfende Person oder das Leg,
+  // gehörte eine angefangene Dart-Aufnahme zu einem vergangenen Zustand und
+  // wird verworfen. Angepasst während des Renders (dasselbe Muster wie
+  // `lastSubmitSuccess` oben), nicht in einem Effect: reines Zurücksetzen
+  // von Zustand anhand veränderter Props gehört laut React nicht in einen
+  // Effect (`react-hooks/set-state-in-effect`) — ein Effect wäre hier ein
+  // zusätzlicher, unnötiger Render. Bewusst nicht an `match.version`
+  // gehängt: ein Versionskonflikt allein lässt die Würfe stehen.
+  const turnKey = `${match.currentPlayerId ?? ""}:${match.currentLegNumber}`;
+  const [lastTurnKey, setLastTurnKey] = useState(turnKey);
+  if (lastTurnKey !== turnKey) {
+    setLastTurnKey(turnKey);
+    dispatchEntry({ type: "RESET" });
+    setPendingConfirmation(null);
+  }
+
+  const submitEntry = (preview: DartEntryPreview) => {
+    scoring.submitVisit({
+      points: preview.points,
+      dartsThrown: entry.darts.length as 1 | 2 | 3,
+      darts: entry.darts,
+    });
+  };
+
+  const confirmPendingVisit = () => {
+    if (pendingConfirmation === null || scoring.submitPending) return;
+    if (autoConfirmTimeout.current !== null) {
+      clearTimeout(autoConfirmTimeout.current);
+      autoConfirmTimeout.current = null;
+    }
+    submitEntry(pendingConfirmation);
+  };
+
+  // Vorschau der laufenden Aufnahme — reine Berechnung, jeden Render neu.
+  // Reststand und Regeln bleiben für die ganze Aufnahme gleich
+  // (VisitContext-Vertrag aus Task 8): `remaining` ist hier immer der Stand
+  // VOR der Aufnahme, weil `activeParticipant.remaining` erst durch eine
+  // erfolgreich übernommene Serverantwort weiterrückt.
+  const completedEntryPreview = activeParticipant === undefined || entry.darts.length === 0
+    ? null
+    : (() => {
+        const preview = previewDartEntry({
+          darts: entry.darts,
+          remaining: activeParticipant.remaining,
+          startingScore: match.startingScore,
+          inRule: match.inRule,
+          outRule: match.outRule,
+        });
+        return preview.complete ? preview : null;
+      })();
+
+  // Erscheint eine neue abgeschlossene Aufnahme (drittem Wurf, Checkout oder
+  // Bust) und ist eine Bestätigung verlangt, wird sie eingeblendet — reines
+  // Setzen von Zustand, deshalb während des Renders wie oben, nicht im
+  // Effect. Ohne die Einstellung geht die Aufnahme direkt raus; das ruft
+  // die Mutation auf und ist ein echter Seiteneffekt, deshalb unten im
+  // eigenen Effect statt hier.
+  const [previewedDarts, setPreviewedDarts] = useState(entry.darts);
+  if (previewedDarts !== entry.darts) {
+    setPreviewedDarts(entry.darts);
+    if (completedEntryPreview !== null && settings.confirmScore) {
+      setPendingConfirmation(completedEntryPreview);
+    }
+  }
+
+  // Automatisches Senden ohne Bestätigung: ruft die Mutation auf, sobald
+  // eine neue abgeschlossene Aufnahme erscheint. Absichtlich nur an
+  // `entry.darts` gehängt, damit ein unveränderter, bereits gesendeter
+  // Checkout nicht ein zweites Mal rausgeht.
+  useEffect(() => {
+    if (completedEntryPreview !== null && !settings.confirmScore) {
+      submitEntry(completedEntryPreview);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry.darts]);
+
+  // Automatisches Bestätigen: 1200 ms nach dem Einblenden senden, sofern die
+  // Bestätigung nicht vorher manuell oder per Tipp auf die Fläche ausgelöst
+  // wurde. Das Timeout räumt sich beim Verlassen (Effekt-Cleanup) und beim
+  // manuellen Bestätigen (`confirmPendingVisit`) auf.
+  useEffect(() => {
+    if (pendingConfirmation === null || !settings.autoConfirm) return;
+    autoConfirmTimeout.current = setTimeout(() => {
+      confirmPendingVisit();
+    }, 1200);
+    return () => {
+      if (autoConfirmTimeout.current !== null) clearTimeout(autoConfirmTimeout.current);
+      autoConfirmTimeout.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingConfirmation, settings.autoConfirm]);
+
+  const handleDartSegment = (segment: number) => {
+    if (activeParticipant === undefined) return;
+    dispatchEntry({
+      type: "SEGMENT",
+      segment,
+      remaining: activeParticipant.remaining,
+      startingScore: match.startingScore,
+      inRule: match.inRule,
+      outRule: match.outRule,
+    });
+  };
+
+  const handleDartBackspace = () => {
+    if (entry.darts.length === 0) {
+      scoring.undoVisit();
+      return;
+    }
+    dispatchEntry({ type: "BACKSPACE" });
+  };
+
   return (
     <section aria-label="Match-Scoreboard" className="grid h-[100dvh] grid-rows-[auto_auto_auto_1fr] bg-slate-950 text-white">
       {/* Ohne Seitentitel ist das die einzige Überschrift der Fläche und der
@@ -97,7 +226,11 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
         onTakeOver={lock.takeOver}
         queuedCount={queued.length}
       />
-      <ScoreboardSides match={match} pendingDarts={[]} showDartBand={false} />
+      <ScoreboardSides
+        match={match}
+        pendingDarts={settings.mode === "DART" ? entry.darts : []}
+        showDartBand={settings.mode === "DART"}
+      />
       <div className="min-h-0 overflow-y-auto">
         {hasPending ? (
           <div className="border-b border-amber-400/40 bg-amber-300/10 p-4">
@@ -117,6 +250,24 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
           <div className="border-b border-emerald-400/30 bg-emerald-400/10 p-5 text-center">
             <p className="text-body uppercase tracking-[0.12em] text-emerald-300">Match beendet</p>
             <p className="mt-1 font-numerals text-title font-bold text-white">{winnerName(match)} gewinnt</p>
+          </div>
+        ) : canScore && settings.mode === "DART" ? (
+          <div className="relative min-h-[26rem] border-b border-slate-800 p-3">
+            <DartKeypad
+              disabled={!mayControl || activeParticipant === undefined || pendingConfirmation !== null || scoring.submitPending}
+              modifier={entry.modifier}
+              onBackspace={handleDartBackspace}
+              onModifier={(multiplier) => dispatchEntry({ type: "MODIFIER", multiplier })}
+              onSegment={handleDartSegment}
+            />
+            {pendingConfirmation !== null ? (
+              <VisitConfirmation
+                bust={pendingConfirmation.outcome === "BUST"}
+                onBack={() => setPendingConfirmation(null)}
+                onConfirm={confirmPendingVisit}
+                points={pendingConfirmation.points}
+              />
+            ) : null}
           </div>
         ) : canScore ? (
           <form className="grid gap-3 border-b border-slate-800 p-4 sm:grid-cols-[1fr_auto]" onSubmit={(event) => { event.preventDefault(); openCheckoutOrSubmit(); }}>
