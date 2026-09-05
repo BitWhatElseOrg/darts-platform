@@ -6,8 +6,10 @@ import {
   executeX01Command,
   isAttainableScore,
   projectX01Match,
+  type Dart,
   type InRule,
   type OutRule,
+  type SubmitVisitCommand,
   type X01Rules,
   type X01Side,
 } from "./x01.js";
@@ -519,5 +521,108 @@ describe("X01 sides", () => {
     expect(() =>
       createX01Match({ sides: [{ seat: 1, playerIds: ["a"] }, { seat: 2, playerIds: ["a"] }] }),
     ).toThrow(ScoringValidationError);
+  });
+});
+
+describe("X01 mit Einzelwürfen", () => {
+  const sides = singles("p1", "p2");
+
+  const submit = (
+    commandId: string,
+    throwerPlayerId: string,
+    seat: 1 | 2,
+    darts: readonly Dart[],
+  ): SubmitVisitCommand => ({
+    type: "SUBMIT_VISIT", commandId, seat, throwerPlayerId,
+    points: darts.reduce((sum, dart) => sum + dart.segment * dart.multiplier, 0),
+    dartsThrown: darts.length as 1 | 2 | 3,
+    darts,
+  });
+
+  it("lehnt eine Aufnahme ab, deren Würfe nicht zur Punktzahl passen", () => {
+    const match = createX01Match({ rules: rules(), sides, startingSeat: 1 });
+    expect(() => executeX01Command(match, {
+      type: "SUBMIT_VISIT", commandId: "c1", seat: 1, throwerPlayerId: "p1",
+      points: 100, dartsThrown: 3,
+      darts: [{ segment: 20, multiplier: 1 }, { segment: 20, multiplier: 1 }, { segment: 20, multiplier: 1 }],
+    })).toThrow(ScoringValidationError);
+  });
+
+  it("lehnt eine andere Wurfzahl als dartsThrown ab", () => {
+    const match = createX01Match({ rules: rules(), sides, startingSeat: 1 });
+    expect(() => executeX01Command(match, {
+      type: "SUBMIT_VISIT", commandId: "c1", seat: 1, throwerPlayerId: "p1",
+      points: 60, dartsThrown: 3,
+      darts: [{ segment: 20, multiplier: 3 }],
+    })).toThrow(ScoringValidationError);
+  });
+
+  it("schliesst das Leg auf dem tatsächlich geworfenen Doppel", () => {
+    const match = createX01Match({ rules: rules({ startingScore: 40 }), sides, startingSeat: 1 });
+    const result = executeX01Command(match, submit("c1", "p1", 1, [{ segment: 20, multiplier: 2 }]));
+    const visit = result.state.visits.at(-1);
+    expect(visit?.outcome).toBe("MATCH_WON");
+    expect(visit?.checkoutDouble).toBe(20);
+    expect(visit?.darts).toHaveLength(1);
+  });
+
+  it("wertet einen Single-Finish bei Double Out als Bust", () => {
+    const match = createX01Match({ rules: rules({ startingScore: 20 }), sides, startingSeat: 1 });
+    const result = executeX01Command(match, submit("c1", "p1", 1, [{ segment: 20, multiplier: 1 }]));
+    expect(result.state.visits.at(-1)?.outcome).toBe("BUST");
+  });
+
+  it("lässt Master Out auf einem Triple schliessen", () => {
+    const match = createX01Match({ rules: rules({ startingScore: 60, outRule: "MASTER" }), sides, startingSeat: 1 });
+    const result = executeX01Command(match, submit("c1", "p1", 1, [{ segment: 20, multiplier: 3 }]));
+    const visit = result.state.visits.at(-1);
+    expect(visit?.outcome).toBe("MATCH_WON");
+    expect(visit?.checkoutDouble).toBeNull();
+  });
+
+  it("zählt bei Double In erst ab dem ersten Doppel", () => {
+    const match = createX01Match({ rules: rules({ startingScore: 501, inRule: "DOUBLE" }), sides, startingSeat: 1 });
+    const result = executeX01Command(match, submit("c1", "p1", 1, [
+      { segment: 20, multiplier: 1 },
+      { segment: 10, multiplier: 2 },
+      { segment: 5, multiplier: 1 },
+    ]));
+    const visit = result.state.visits.at(-1);
+    expect(visit?.points).toBe(45);
+    expect(visit?.appliedPoints).toBe(25);
+    expect(visit?.scoreAfter).toBe(476);
+  });
+
+  it("rechnet bei Double In ohne Doppel nichts an, ohne zu scheitern", () => {
+    const match = createX01Match({ rules: rules({ startingScore: 501, inRule: "DOUBLE" }), sides, startingSeat: 1 });
+    const result = executeX01Command(match, submit("c1", "p1", 1, [
+      { segment: 20, multiplier: 1 }, { segment: 20, multiplier: 1 }, { segment: 20, multiplier: 1 },
+    ]));
+    const visit = result.state.visits.at(-1);
+    expect(visit?.appliedPoints).toBe(0);
+    expect(visit?.scoreAfter).toBe(501);
+    expect(visit?.outcome).toBe("SCORED");
+  });
+
+  it("zählt Würfe auf ein Finishfeld als Checkout-Versuche", () => {
+    const match = createX01Match({ rules: rules({ startingScore: 40 }), sides, startingSeat: 1 });
+    const result = executeX01Command(match, submit("c1", "p1", 1, [
+      { segment: 20, multiplier: 1 },
+      { segment: 20, multiplier: 1 },
+      { segment: 0, multiplier: 1 },
+    ]));
+    // Rest 40 vor dem ersten Wurf, Rest 20 vor dem zweiten: zwei Positionen,
+    // auf denen ein Doppel geschlossen haette.
+    expect(result.state.visits.at(-1)?.checkoutAttempts).toBe(2);
+  });
+
+  it("bleibt ohne Würfe beim bisherigen Verhalten", () => {
+    const match = createX01Match({ rules: rules({ startingScore: 40 }), sides, startingSeat: 1 });
+    const result = executeX01Command(match, {
+      type: "SUBMIT_VISIT", commandId: "c1", seat: 1, throwerPlayerId: "p1",
+      points: 40, dartsThrown: 2, checkoutDouble: 20,
+    });
+    expect(result.state.visits.at(-1)?.outcome).toBe("MATCH_WON");
+    expect(result.state.visits.at(-1)?.darts).toEqual([]);
   });
 });

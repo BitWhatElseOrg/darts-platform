@@ -24,6 +24,15 @@ export interface X01Side {
   readonly playerIds: readonly string[];
 }
 
+export interface Dart {
+  readonly segment: number;
+  readonly multiplier: 1 | 2 | 3;
+}
+
+export function dartValue(dart: Dart): number {
+  return dart.segment * dart.multiplier;
+}
+
 export interface SubmitVisitCommand {
   readonly type: "SUBMIT_VISIT";
   readonly commandId: string;
@@ -33,6 +42,7 @@ export interface SubmitVisitCommand {
   readonly dartsThrown: 1 | 2 | 3;
   readonly checkoutDouble?: number;
   readonly checkoutAttempts?: number;
+  readonly darts?: readonly Dart[];
 }
 
 export interface UndoVisitCommand {
@@ -96,6 +106,7 @@ export interface AppliedVisit {
   readonly checkoutDouble: number | null;
   readonly checkoutAttempts: number;
   readonly outcome: VisitOutcome;
+  readonly darts: readonly Dart[];
 }
 
 export interface X01SideState {
@@ -306,6 +317,59 @@ function closesLeg(
   }
 }
 
+function isValidDart(dart: Dart): boolean {
+  if (!Number.isInteger(dart.segment) || dart.segment < 0) return false;
+  if (dart.segment > 20 && dart.segment !== 25) return false;
+  if (dart.segment === 0) return dart.multiplier === 1;
+  if (dart.segment === 25) return dart.multiplier <= 2;
+  return true;
+}
+
+function dartsTotal(darts: readonly Dart[]): number {
+  return darts.reduce((sum, dart) => sum + dartValue(dart), 0);
+}
+
+/**
+ * Double In: die Aufnahme zaehlt erst ab dem ersten Doppel. Wuerfe davor sind
+ * keine Regelverletzung, sie zaehlen bloss nicht. Segment 0 traegt nie einen
+ * Multiplikator, ein Doppel ist deshalb immer ein Treffer.
+ */
+function openingDartIndex(darts: readonly Dart[]): number {
+  return darts.findIndex((dart) => dart.multiplier === 2);
+}
+
+/**
+ * Ein Rest, den ein Doppel schliessen kann. Grundlage fuer die Zaehlung der
+ * Checkout-Versuche; bei Master Out gilt dieselbe Definition, weil der
+ * Doppelversuch die berichtete Groesse ist.
+ */
+function isFinishPosition(remaining: number): boolean {
+  return remaining === 50 || (remaining > 0 && remaining <= 40 && remaining % 2 === 0);
+}
+
+function checkoutAttemptsFromDarts(scoreBefore: number, darts: readonly Dart[], outRule: OutRule): number {
+  if (outRule === "SINGLE") return 0;
+  let remaining = scoreBefore;
+  let attempts = 0;
+  for (const dart of darts) {
+    if (isFinishPosition(remaining)) attempts += 1;
+    remaining -= dartValue(dart);
+    if (remaining < 0) break;
+  }
+  return attempts;
+}
+
+function closesLegWithDarts(outRule: OutRule, finishing: Dart): boolean {
+  switch (outRule) {
+    case "SINGLE":
+      return true;
+    case "DOUBLE":
+      return finishing.multiplier === 2;
+    case "MASTER":
+      return finishing.multiplier >= 2;
+  }
+}
+
 function validateVisit(command: SubmitVisitCommand): void {
   if (!isAttainableScore(command.points, command.dartsThrown)) {
     throw new ScoringValidationError("INVALID_VISIT_SCORE", `${command.points} cannot be scored with ${command.dartsThrown} dart(s).`);
@@ -315,6 +379,17 @@ function validateVisit(command: SubmitVisitCommand): void {
   }
   if (command.checkoutAttempts !== undefined && (!Number.isInteger(command.checkoutAttempts) || command.checkoutAttempts < 0 || command.checkoutAttempts > command.dartsThrown)) {
     throw new ScoringValidationError("INVALID_CHECKOUT_ATTEMPTS", "Checkout attempts must be between zero and the number of darts thrown.");
+  }
+  if (command.darts !== undefined) {
+    if (command.darts.length !== command.dartsThrown) {
+      throw new ScoringValidationError("INVALID_DART_COUNT", "The number of darts must match the darts thrown.");
+    }
+    if (!command.darts.every(isValidDart)) {
+      throw new ScoringValidationError("INVALID_DART", "A dart must hit 0-20 or bull, with a valid multiplier.");
+    }
+    if (dartsTotal(command.darts) !== command.points) {
+      throw new ScoringValidationError("DART_SUM_MISMATCH", "The darts must add up to the visit score.");
+    }
   }
 }
 
@@ -516,21 +591,35 @@ export function projectX01Match(match: X01Match): X01MatchState {
     if (command.throwerPlayerId !== expectedThrower) {
       throw new ScoringValidationError("INVALID_THROWER", "The visit does not belong to the person whose turn it is.");
     }
-    if (!side.openedInLeg && command.points > 0 && !opensOnDouble(command.points, command.dartsThrown)) {
-      throw new ScoringValidationError(
-        "DOUBLE_IN_REQUIRED",
-        "The first scoring visit of a leg must start on a double.",
-      );
+    const darts = command.darts;
+    let countedPoints = command.points;
+    if (!side.openedInLeg) {
+      if (darts === undefined) {
+        if (command.points > 0 && !opensOnDouble(command.points, command.dartsThrown)) {
+          throw new ScoringValidationError(
+            "DOUBLE_IN_REQUIRED",
+            "The first scoring visit of a leg must start on a double.",
+          );
+        }
+      } else {
+        const opening = openingDartIndex(darts);
+        countedPoints = opening === -1 ? 0 : dartsTotal(darts.slice(opening));
+      }
     }
-    const openedInLeg = side.openedInLeg || command.points > 0;
+    const openedInLeg = side.openedInLeg || countedPoints > 0;
     const scoreBefore = side.remaining;
-    const tentative = scoreBefore - command.points;
+    const tentative = scoreBefore - countedPoints;
     const doubleValue = command.checkoutDouble === undefined ? null : checkoutValue(command.checkoutDouble);
+    const finishingDart = darts === undefined ? null : (darts.at(-1) ?? null);
     const validDoubleCheckout =
       doubleValue !== null &&
       command.points >= doubleValue &&
       attainableTotals(command.dartsThrown - 1).has(command.points - doubleValue);
-    const validCheckout = tentative === 0 && closesLeg(match.rules.outRule, command, validDoubleCheckout);
+    const validCheckout =
+      tentative === 0 &&
+      (finishingDart === null
+        ? closesLeg(match.rules.outRule, command, validDoubleCheckout)
+        : closesLegWithDarts(match.rules.outRule, finishingDart));
     const bust =
       tentative < 0 ||
       (match.rules.outRule !== "SINGLE" && tentative === 1) ||
@@ -554,19 +643,28 @@ export function projectX01Match(match: X01Match): X01MatchState {
       sides = replaceSide(sides, activeIndex, { ...side, remaining: tentative, openedInLeg });
     }
 
+    const derivedCheckoutDouble =
+      finishingDart !== null && validCheckout && finishingDart.multiplier === 2
+        ? finishingDart.segment
+        : null;
+
     visits.push({
       commandId: command.commandId,
       seat: command.seat,
       throwerPlayerId: command.throwerPlayerId,
       legNumber,
       points: command.points,
-      appliedPoints: bust ? 0 : command.points,
+      appliedPoints: bust ? 0 : countedPoints,
       dartsThrown: command.dartsThrown,
       scoreBefore,
       scoreAfter,
-      checkoutDouble: command.checkoutDouble ?? null,
-      checkoutAttempts: command.checkoutAttempts ?? (command.checkoutDouble === undefined ? 0 : 1),
+      checkoutDouble: darts === undefined ? (command.checkoutDouble ?? null) : derivedCheckoutDouble,
+      checkoutAttempts:
+        darts === undefined
+          ? (command.checkoutAttempts ?? (command.checkoutDouble === undefined ? 0 : 1))
+          : checkoutAttemptsFromDarts(scoreBefore, darts, match.rules.outRule),
       outcome,
+      darts: darts ?? [],
     });
 
     visitsInLeg =

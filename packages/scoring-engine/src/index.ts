@@ -1,10 +1,12 @@
 export {
   ScoringValidationError,
   createX01Match,
+  dartValue,
   executeX01Command,
   isAttainableScore,
   projectX01Match,
   type AppliedVisit,
+  type Dart,
   type DecideLegByBullCommand,
   type DecideLegStartCommand,
   type ExecuteX01Result,
