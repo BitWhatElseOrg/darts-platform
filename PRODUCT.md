@@ -78,7 +78,8 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
   Teams mit Kader und Captain, Ligawettbewerb mit Begegnungsvorlage, beidseitige
   Aufstellung, 18 beziehungsweise 19 Einzel- und Doppelspiele auf mehreren
   Boards, automatische Wertung der Begegnung und Ligatabelle nach Punkten,
-  Spiel- und Satzdifferenz
+  Spiel- und Legdifferenz (das Reglement und die Ligaoberfläche nennen ein Leg
+  „Satz"; Sets im Sinne von Best of Sets gibt es in der Begegnung nicht)
 
 **Geplant, Reihenfolge festgelegt** (siehe [ROADMAP.md](ROADMAP.md)): Multi-Tenant-SaaS-Ausbau (7) → Autoscoring-Adapter (8) → Liga-Vollausbau (9: Saison, Divisionen, Spielplangenerierung, Auf- und Abstieg, Transfers) → Turnierserie (10) → Benachrichtigungen (11) → Public API (12).
 
