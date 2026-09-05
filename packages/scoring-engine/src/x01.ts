@@ -396,6 +396,47 @@ function closesLegWithDarts(outRule: OutRule, finishing: Dart): boolean {
 }
 
 /**
+ * Der Wurf, der das Leg schliesst — wurfweise statt ueber die Gesamtsumme.
+ * Geliefert wird der Index des ersten Wurfs, der den Rest auf null bringt UND
+ * die Ausgangsregel erfuellt (`closesLegWithDarts`: SINGLE jeder Wurf, DOUBLE
+ * nur ein Doppel, MASTER Doppel oder Triple); `-1`, wenn keiner das tut.
+ *
+ * Double In: vor dem eroeffnenden Doppel zaehlt kein Wurf (`openingDartIndex`,
+ * dieselbe Zaehlung wie in `projectX01Match`), also kann ein Wurf davor das Leg
+ * auch dann nicht schliessen, wenn die Summe passte.
+ *
+ * Abbruch bei Bust: ueberwirft ein Wurf oder laesst er Rest eins stehen, endet
+ * die Aufnahme fachlich. Ein spaeterer Wurf kann den Rest ohnehin nicht mehr
+ * auf null zurueckholen (Wurfwerte sind nie negativ), der Abbruch ist also nur
+ * ausgesprochen, was die Rechnung ohnehin ergibt. Bewusst NICHT abgelehnt
+ * werden Wuerfe NACH einem solchen Bust: die Engine wertet die Aufnahme als
+ * Ganzes und kommt dabei zum selben Bust — es entsteht kein falscher Zustand,
+ * waehrend eine Ablehnung bereits gespeicherte, korrekt gewertete Kommandos im
+ * Replay scheitern liesse. Abgelehnt wird nur, was heute falsch gewertet wird:
+ * ein Wurf nach dem Legabschluss.
+ */
+function legClosingDartIndex(input: {
+  readonly darts: readonly Dart[];
+  readonly scoreBefore: number;
+  readonly openedInLeg: boolean;
+  readonly outRule: OutRule;
+}): number {
+  let remaining = input.scoreBefore;
+  let counting = input.openedInLeg;
+  for (const [index, dart] of input.darts.entries()) {
+    if (!counting) {
+      if (dart.multiplier !== 2) continue;
+      counting = true;
+    }
+    remaining -= dartValue(dart);
+    if (remaining === 0 && closesLegWithDarts(input.outRule, dart)) return index;
+    if (remaining <= 0) break;
+    if (input.outRule !== "SINGLE" && remaining === 1) break;
+  }
+  return -1;
+}
+
+/**
  * Ein Rest unter null ist immer Bust; ein Rest von genau eins ist es bei
  * jeder Ausgangsregel ausser Straight Out, weil ihn kein einzelner Wurf mehr
  * regelkonform schliesst; ein Rest von genau null ist Bust, wenn der
@@ -741,6 +782,28 @@ export function projectX01Match(match: X01Match): X01MatchState {
     }
     const openedInLeg = side.openedInLeg || countedPoints > 0;
     const scoreBefore = side.remaining;
+    // Kommandovalidierung mit Regelkontext: was `validateVisit` prueft, kommt
+    // ohne Matchzustand aus, diese Regel nicht — sie braucht Reststand,
+    // Eroeffnungsstand und Ausgangsregel. Schliesst ein Wurf das Leg, darf kein
+    // weiterer folgen. Die Flaeche verhindert das schon in der Eingabe
+    // (`dartEntryReducer`), aber ein handgebautes Kommando oder ein
+    // Score-Provider-Adapter ist daran nicht gebunden — und die Wertung ueber
+    // die Gesamtsumme wuerde daraus faelschlich einen Bust machen
+    // (Rest 40, `[D20, Fehlwurf]` unter Double Out).
+    if (darts !== undefined) {
+      const closingIndex = legClosingDartIndex({
+        darts,
+        scoreBefore,
+        openedInLeg: side.openedInLeg,
+        outRule: match.rules.outRule,
+      });
+      if (closingIndex !== -1 && closingIndex < darts.length - 1) {
+        throw new ScoringValidationError(
+          "DARTS_AFTER_LEG_CLOSED",
+          "No dart can follow the dart that closes the leg.",
+        );
+      }
+    }
     const tentative = scoreBefore - countedPoints;
     const doubleValue = command.checkoutDouble === undefined ? null : checkoutValue(command.checkoutDouble);
     const finishingDart = darts === undefined ? null : (darts.at(-1) ?? null);

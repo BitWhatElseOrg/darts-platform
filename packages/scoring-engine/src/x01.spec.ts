@@ -666,6 +666,158 @@ describe("X01 mit Einzelwürfen", () => {
   });
 });
 
+/**
+ * Befund des PR-Agenten: die Wertung über Gesamtsumme und letzten Wurf nimmt
+ * Aufnahmen an, die über den Legabschluss hinaus weitergeworfen wurden. Die
+ * Fläche verhindert das schon in der Eingabe, ein handgebautes Kommando oder
+ * ein Score-Provider-Adapter (Autodarts, Scolia) ist daran nicht gebunden.
+ */
+describe("X01 Würfe nach dem Legabschluss", () => {
+  const sides = singles("p1", "p2");
+
+  const submit = (
+    commandId: string,
+    throwerPlayerId: string,
+    seat: 1 | 2,
+    darts: readonly Dart[],
+  ): SubmitVisitCommand => ({
+    type: "SUBMIT_VISIT", commandId, seat, throwerPlayerId,
+    points: darts.reduce((sum, dart) => sum + dart.segment * dart.multiplier, 0),
+    dartsThrown: darts.length as 1 | 2 | 3,
+    darts,
+  });
+
+  const expectRejection = (match: ReturnType<typeof createX01Match>, command: SubmitVisitCommand): void => {
+    try {
+      executeX01Command(match, command);
+      expect.unreachable("Die Aufnahme hätte abgelehnt werden müssen.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ScoringValidationError);
+      expect((error as ScoringValidationError).code).toBe("DARTS_AFTER_LEG_CLOSED");
+    }
+  };
+
+  it("lehnt bei Double Out einen Fehlwurf nach dem schliessenden Doppel ab", () => {
+    // Der gemeldete Fall: Rest 40, D20 gewinnt das Leg — der Fehlwurf danach
+    // wurde bisher als Finish-Wurf gelesen und die Aufnahme zum Bust.
+    const match = createX01Match({ rules: rules({ startingScore: 40 }), sides, startingSeat: 1 });
+    expectRejection(match, submit("c1", "p1", 1, [
+      { segment: 20, multiplier: 2 },
+      { segment: 0, multiplier: 1 },
+    ]));
+  });
+
+  it("lehnt bei Single Out einen Wurf nach dem schliessenden Single ab", () => {
+    const match = createX01Match({ rules: rules({ startingScore: 40, outRule: "SINGLE" }), sides, startingSeat: 1 });
+    expectRejection(match, submit("c1", "p1", 1, [
+      { segment: 20, multiplier: 1 },
+      { segment: 20, multiplier: 1 },
+      { segment: 0, multiplier: 1 },
+    ]));
+  });
+
+  it("lehnt bei Master Out einen Wurf nach dem schliessenden Triple ab", () => {
+    const match = createX01Match({ rules: rules({ startingScore: 60, outRule: "MASTER" }), sides, startingSeat: 1 });
+    expectRejection(match, submit("c1", "p1", 1, [
+      { segment: 20, multiplier: 3 },
+      { segment: 0, multiplier: 1 },
+    ]));
+  });
+
+  it("lehnt bei Double In einen Wurf nach dem schliessenden Doppel ab", () => {
+    const match = createX01Match({ rules: rules({ startingScore: 40, inRule: "DOUBLE" }), sides, startingSeat: 1 });
+    expectRejection(match, submit("c1", "p1", 1, [
+      { segment: 20, multiplier: 2 },
+      { segment: 0, multiplier: 1 },
+    ]));
+  });
+
+  it("gewinnt bei Double Out weiterhin auf dem letzten Wurf", () => {
+    const match = createX01Match({ rules: rules({ startingScore: 100 }), sides, startingSeat: 1 });
+    const result = executeX01Command(match, submit("c1", "p1", 1, [
+      { segment: 20, multiplier: 3 },
+      { segment: 20, multiplier: 2 },
+    ]));
+    expect(result.state.visits.at(-1)?.outcome).toBe("MATCH_WON");
+    expect(result.state.visits.at(-1)?.checkoutDouble).toBe(20);
+  });
+
+  it("gewinnt bei Single Out weiterhin auf dem letzten Wurf", () => {
+    const match = createX01Match({ rules: rules({ startingScore: 60, outRule: "SINGLE" }), sides, startingSeat: 1 });
+    const result = executeX01Command(match, submit("c1", "p1", 1, [
+      { segment: 20, multiplier: 1 },
+      { segment: 20, multiplier: 1 },
+      { segment: 20, multiplier: 1 },
+    ]));
+    expect(result.state.visits.at(-1)?.outcome).toBe("MATCH_WON");
+  });
+
+  it("gewinnt bei Master Out weiterhin auf dem letzten Wurf", () => {
+    const match = createX01Match({ rules: rules({ startingScore: 100, outRule: "MASTER" }), sides, startingSeat: 1 });
+    const result = executeX01Command(match, submit("c1", "p1", 1, [
+      { segment: 20, multiplier: 1 },
+      { segment: 20, multiplier: 1 },
+      { segment: 20, multiplier: 3 },
+    ]));
+    expect(result.state.visits.at(-1)?.outcome).toBe("MATCH_WON");
+  });
+
+  it("gewinnt bei Double In auf dem eröffnenden Doppel, das zugleich schliesst", () => {
+    const match = createX01Match({ rules: rules({ startingScore: 40, inRule: "DOUBLE" }), sides, startingSeat: 1 });
+    const result = executeX01Command(match, submit("c1", "p1", 1, [
+      { segment: 20, multiplier: 1 },
+      { segment: 20, multiplier: 2 },
+    ]));
+    expect(result.state.visits.at(-1)?.outcome).toBe("MATCH_WON");
+  });
+
+  it("lässt bei Double In einen Wurf vor der Eröffnung nicht schliessen", () => {
+    // Master Out, Rest 60: das T20 würde die Ausgangsregel erfüllen, zählt vor
+    // dem ersten Doppel aber nicht — es kann das Leg also nicht schliessen, und
+    // das folgende Doppel ist kein Wurf "nach dem Legabschluss".
+    const match = createX01Match({
+      rules: rules({ startingScore: 60, inRule: "DOUBLE", outRule: "MASTER" }),
+      sides,
+      startingSeat: 1,
+    });
+    const result = executeX01Command(match, submit("c1", "p1", 1, [
+      { segment: 20, multiplier: 3 },
+      { segment: 20, multiplier: 2 },
+    ]));
+    const visit = result.state.visits.at(-1);
+    expect(visit?.outcome).toBe("SCORED");
+    expect(visit?.appliedPoints).toBe(40);
+    expect(visit?.scoreAfter).toBe(20);
+  });
+
+  it("nimmt Würfe nach einem Bust weiterhin an", () => {
+    // Bewusste Grenze der Prüfung: nach einem Überwurf ist die Aufnahme
+    // fachlich zu Ende, die Engine wertet sie aber als Ganzes und kommt zum
+    // selben Bust. Es entsteht kein falscher Zustand — eine Ablehnung würde
+    // bloss bereits gespeicherte, korrekt gewertete Kommandos im Replay
+    // scheitern lassen.
+    const match = createX01Match({ rules: rules({ startingScore: 30 }), sides, startingSeat: 1 });
+    const result = executeX01Command(match, submit("c1", "p1", 1, [
+      { segment: 20, multiplier: 3 },
+      { segment: 20, multiplier: 1 },
+    ]));
+    expect(result.state.visits.at(-1)?.outcome).toBe("BUST");
+    expect(result.state.sides[0].remaining).toBe(30);
+  });
+
+  it("lässt ein Kommando ohne Würfe unverändert gewinnen", () => {
+    // Rückwärtskompatibilität: dieselbe Aufnahme ohne `darts` (D20 plus zwei
+    // Fehlwürfe, gemeldet als 40 aus drei Darts) gewinnt weiterhin — die neue
+    // Prüfung greift nur, wo Würfe vorliegen.
+    const match = createX01Match({ rules: rules({ startingScore: 40 }), sides, startingSeat: 1 });
+    const result = executeX01Command(match, {
+      type: "SUBMIT_VISIT", commandId: "c1", seat: 1, throwerPlayerId: "p1",
+      points: 40, dartsThrown: 3, checkoutDouble: 20,
+    });
+    expect(result.state.visits.at(-1)?.outcome).toBe("MATCH_WON");
+  });
+});
+
 describe("previewVisitOutcome", () => {
   it("zaehlt bei Double In erst ab dem ersten Doppel, wie die Engine auch", () => {
     // Reglement-Fall aus Task-8-Review: T20/T20/D20 bei Rest 501 mit Double
