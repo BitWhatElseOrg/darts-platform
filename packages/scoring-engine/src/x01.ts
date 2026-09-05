@@ -358,6 +358,20 @@ function isFinishPosition(remaining: number): boolean {
   return remaining === 50 || (remaining > 0 && remaining <= 40 && remaining % 2 === 0);
 }
 
+/**
+ * Zaehlt die DARTS, die aus einer Finish-Position abgegeben wurden — die
+ * uebliche Definition des Nenners der Checkout-Quote.
+ *
+ * ACHTUNG, Einheitenbruch: `checkoutAttempts` traegt damit je nach Aufnahme
+ * eine andere Einheit. Ohne Einzelwuerfe uebernimmt die Engine den Wert des
+ * Kommandos, und die Flaeche meldet dort 0 oder 1 — also eine AUFNAHMENZAHL.
+ * Mit Einzelwuerfen steht hier eine WURFZAHL von 0 bis 3. Beides landet in
+ * derselben Spalte `visits.checkout_attempts`; Karrierewerte ueber den
+ * Umstellungszeitpunkt hinweg mischen die beiden Einheiten. Bewusst so
+ * belassen: fuer Aufnahmen ohne Wurfdaten laesst sich die Wurfzahl nicht
+ * rekonstruieren. Siehe DATABASE_SCHEMA.md, Abschnitt 10
+ * („Visit-Kommando: `checkoutAttempts` — zwei Einheiten in einer Spalte").
+ */
 function checkoutAttemptsFromDarts(scoreBefore: number, darts: readonly Dart[], outRule: OutRule): number {
   if (outRule === "SINGLE") return 0;
   let remaining = scoreBefore;
