@@ -43,6 +43,7 @@ const storedSubmitSchema = z.object({
   seat: seatSchema.optional(), throwerPlayerId: z.uuid().optional(), points: z.number().int(),
   dartsThrown: z.union([z.literal(1), z.literal(2), z.literal(3)]), checkoutDouble: z.number().int().optional(), checkoutAttempts: z.number().int().min(0).max(3).default(0),
   darts: z.array(storedDartSchema).min(1).max(3).optional(),
+  checkoutMissed: z.boolean().optional(),
 });
 const storedUndoSchema = z.object({ type: z.literal("UNDO_LAST_VISIT"), commandId: z.uuid(), targetCommandId: z.uuid() });
 const storedAbortSchema = z.object({ type: z.literal("ABORT_MATCH"), commandId: z.uuid(), tournamentMatchId: z.uuid().nullable() });
@@ -84,6 +85,7 @@ function parseStoredCommand(payload: unknown, seatOfPlayer: (playerId: string) =
     checkoutAttempts: parsed.checkoutAttempts,
     ...(parsed.checkoutDouble === undefined ? {} : { checkoutDouble: parsed.checkoutDouble }),
     ...(parsed.darts === undefined ? {} : { darts: parsed.darts }),
+    ...(parsed.checkoutMissed === undefined ? {} : { checkoutMissed: parsed.checkoutMissed }),
   };
 }
 
@@ -361,6 +363,7 @@ export class MatchesRepository {
         checkoutAttempts: input.data.checkoutAttempts ?? 0,
         ...(input.data.checkoutDouble === undefined || input.data.checkoutDouble === null ? {} : { checkoutDouble: input.data.checkoutDouble }),
         ...(input.data.darts === undefined ? {} : { darts: input.data.darts }),
+        ...(input.data.checkoutMissed === true ? { checkoutMissed: true } : {}),
       };
       const result = executeX01Command(aggregate, command);
       const applied = result.state.visits.at(-1);

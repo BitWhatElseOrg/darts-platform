@@ -31,12 +31,17 @@ export const submitVisitSchema = z.object({
   checkoutAttempts: z.number().int().min(0).max(3).optional(),
   controllerId: z.uuid().optional(),
   darts: z.array(dartSchema).min(1).max(3).optional(),
+  // Ausdrueckliche Meldung "kein gueltiges Finish", unabhaengig von der
+  // Ausgangsregel -- siehe x01.ts, SubmitVisitCommand.checkoutMissed.
+  checkoutMissed: z.boolean().optional(),
 }).refine((value) => (value.checkoutAttempts ?? 0) <= value.dartsThrown, { message: "Checkout attempts cannot exceed darts thrown.", path: ["checkoutAttempts"] })
   .refine((value) => value.darts === undefined || value.darts.length === value.dartsThrown, { message: "The number of darts must match dartsThrown.", path: ["darts"] })
   .refine(
     (value) => value.darts === undefined || value.darts.reduce((sum, dart) => sum + dart.segment * dart.multiplier, 0) === value.points,
     { message: "The darts must add up to the visit score.", path: ["darts"] },
-  );
+  )
+  .refine((value) => !(value.checkoutMissed === true && value.checkoutDouble !== undefined && value.checkoutDouble !== null), { message: "Checkout missed cannot be combined with a checkout double.", path: ["checkoutMissed"] })
+  .refine((value) => !(value.checkoutMissed === true && value.darts !== undefined), { message: "Checkout missed cannot be combined with recorded darts.", path: ["checkoutMissed"] });
 export const undoVisitSchema = z.object({ commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), controllerId: z.uuid().optional() });
 /**
  * Reglement 2.2.9: ab Leg drei entscheidet ein Wurf auf Bull, wer beginnt.

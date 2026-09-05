@@ -279,6 +279,53 @@ describe("persistent X01 match", () => {
     expect(thirdVisit?.scoreBefore).toBe(456);
   });
 
+  it("replays a stored checkoutMissed command correctly under master out", async () => {
+    // Ohne das Feld faellt Master Out ohne checkoutDouble auf die Heuristik
+    // finishesOnMasterSegment zurueck, die bei Rest 40 faelschlich ein Finish
+    // erkennen wuerde. checkoutMissed:true muss das explizit verhindern -
+    // und muss das auch nach einem Rueckrechnen ueber aggregate() (der
+    // naechste Visit zwingt dazu) noch tun, sonst waere das Match hier
+    // faelschlich beendet statt weiterzulaufen.
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    await databaseService.database
+      .update(matches)
+      .set({ outRule: "MASTER" })
+      .where(and(eq(matches.organizationId, organizationId), eq(matches.id, matchId)));
+
+    let state = created;
+    const score = async (playerId: string, points: number) => {
+      state = await service.submitVisit({ organizationId, matchId, auth, audit, data: { commandId: randomUUID(), expectedVersion: state.version, playerId, points, dartsThrown: 3 } });
+    };
+    await score(playerOneId, 180); // 501 -> 321
+    await score(playerTwoId, 0);
+    await score(playerOneId, 180); // 321 -> 141
+    await score(playerTwoId, 0);
+    await score(playerOneId, 101); // 141 -> 40
+    await score(playerTwoId, 0);
+
+    state = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: { commandId: randomUUID(), expectedVersion: state.version, playerId: playerOneId, points: 40, dartsThrown: 3, checkoutMissed: true },
+    });
+    expect(state.status).toBe("IN_PROGRESS");
+    expect(state.participants.find((participant) => participant.playerId === playerOneId)?.remaining).toBe(40);
+    expect(state.visits[0]?.outcome).toBe("BUST");
+
+    // Ein weiterer Visit zwingt `aggregate()`, den gespeicherten
+    // checkoutMissed-Befehl erneut ueber `parseStoredCommand` zu lesen.
+    state = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: { commandId: randomUUID(), expectedVersion: state.version, playerId: playerTwoId, points: 0, dartsThrown: 3 },
+    });
+    expect(state.status).toBe("IN_PROGRESS");
+    expect(state.participants.find((participant) => participant.playerId === playerOneId)?.remaining).toBe(40);
+  });
+
   it("names no live target for a match without a competition", async () => {
     const created = await service.create({
       organizationId,

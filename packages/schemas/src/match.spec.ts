@@ -95,3 +95,31 @@ describe("submitVisitSchema mit Einzelwürfen", () => {
     expect(submitVisitSchema.safeParse(base).success).toBe(true);
   });
 });
+
+describe("submitVisitSchema mit checkoutMissed", () => {
+  const base = {
+    commandId: "11111111-1111-4111-8111-111111111111",
+    expectedVersion: 3,
+    playerId: "22222222-2222-4222-8222-222222222222",
+    points: 40,
+    dartsThrown: 3 as const,
+  };
+
+  it("nimmt checkoutMissed allein an", () => {
+    expect(submitVisitSchema.safeParse({ ...base, checkoutMissed: true }).success).toBe(true);
+  });
+
+  it("lehnt checkoutMissed zusammen mit einem Checkout-Doppel ab", () => {
+    const result = submitVisitSchema.safeParse({ ...base, checkoutMissed: true, checkoutDouble: 20 });
+    expect(result.success).toBe(false);
+  });
+
+  it("lehnt checkoutMissed zusammen mit Einzelwürfen ab", () => {
+    const result = submitVisitSchema.safeParse({
+      ...base,
+      checkoutMissed: true,
+      darts: [{ segment: 20, multiplier: 2 }, { segment: 0, multiplier: 1 }, { segment: 0, multiplier: 1 }],
+    });
+    expect(result.success).toBe(false);
+  });
+});

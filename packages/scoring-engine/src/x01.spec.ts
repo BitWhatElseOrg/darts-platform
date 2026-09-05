@@ -94,6 +94,44 @@ describe("X01 scoring", () => {
     expect(result.state.status).toBe("COMPLETED");
   });
 
+  it("without checkoutMissed, master out still relies on the segment heuristic (backwards compatibility)", () => {
+    const result = executeX01Command(
+      createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 40, outRule: "MASTER" }) }),
+      { type: "SUBMIT_VISIT", commandId: "master-heuristic", seat: 1, throwerPlayerId: "one", points: 40, dartsThrown: 3 },
+    );
+    expect(result.state.status).toBe("COMPLETED");
+    expect(result.state.winnerSeat).toBe(1);
+  });
+
+  it("with checkoutMissed, master out busts even though the segment heuristic alone would finish", () => {
+    const result = executeX01Command(
+      createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 40, outRule: "MASTER" }) }),
+      { type: "SUBMIT_VISIT", commandId: "master-missed", seat: 1, throwerPlayerId: "one", points: 40, dartsThrown: 3, checkoutMissed: true },
+    );
+    expect(result.outcome).toBe("BUST");
+    expect(result.state.status).toBe("IN_PROGRESS");
+    expect(result.state.sides[0].remaining).toBe(40);
+  });
+
+  it("rejects checkoutMissed combined with a checkout double", () => {
+    expect(() =>
+      executeX01Command(
+        createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 40, outRule: "MASTER" }) }),
+        { type: "SUBMIT_VISIT", commandId: "contradiction-double", seat: 1, throwerPlayerId: "one", points: 40, dartsThrown: 3, checkoutMissed: true, checkoutDouble: 20 },
+      ),
+    ).toThrow(ScoringValidationError);
+  });
+
+  it("rejects checkoutMissed combined with recorded darts", () => {
+    const darts: readonly Dart[] = [{ segment: 20, multiplier: 3 }, { segment: 20, multiplier: 3 }, { segment: 20, multiplier: 1 }];
+    expect(() =>
+      executeX01Command(
+        createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 140, outRule: "MASTER" }) }),
+        { type: "SUBMIT_VISIT", commandId: "contradiction-darts", seat: 1, throwerPlayerId: "one", points: 140, dartsThrown: 3, checkoutMissed: true, darts },
+      ),
+    ).toThrow(ScoringValidationError);
+  });
+
   it("busts on a remainder of one unless the out rule is single", () => {
     for (const outRule of ["DOUBLE", "MASTER"] as const satisfies readonly OutRule[]) {
       const result = executeX01Command(

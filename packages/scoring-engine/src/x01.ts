@@ -43,6 +43,17 @@ export interface SubmitVisitCommand {
   readonly checkoutDouble?: number;
   readonly checkoutAttempts?: number;
   readonly darts?: readonly Dart[];
+  /**
+   * Ausdrueckliche Meldung, dass die Aufnahme trotz Rest null KEIN gueltiges
+   * Finish war (kein Doppel unter DOUBLE, kein Doppel/Triple unter MASTER
+   * getroffen). Ohne dieses Feld gilt weiterhin der bisherige Rueckfall: unter
+   * DOUBLE ohne `checkoutDouble` ein Bust, unter MASTER ohne `checkoutDouble`
+   * die Heuristik `finishesOnMasterSegment`, unter SINGLE immer ein Finish.
+   * Das Feld entscheidet nur explizit gegen ein Finish, es kann keins
+   * herbeifuehren — deshalb aendert ein fehlendes Feld nichts an bereits
+   * gespeicherten Kommandos (Replay-Sicherheit).
+   */
+  readonly checkoutMissed?: boolean;
 }
 
 export interface UndoVisitCommand {
@@ -462,6 +473,12 @@ function validateVisit(command: SubmitVisitCommand): void {
   if (command.checkoutAttempts !== undefined && (!Number.isInteger(command.checkoutAttempts) || command.checkoutAttempts < 0 || command.checkoutAttempts > command.dartsThrown)) {
     throw new ScoringValidationError("INVALID_CHECKOUT_ATTEMPTS", "Checkout attempts must be between zero and the number of darts thrown.");
   }
+  if (command.checkoutMissed === true && command.checkoutDouble !== undefined) {
+    throw new ScoringValidationError("INVALID_CHECKOUT_MISSED", "Checkout missed cannot be combined with a checkout double.");
+  }
+  if (command.checkoutMissed === true && command.darts !== undefined) {
+    throw new ScoringValidationError("INVALID_CHECKOUT_MISSED", "Checkout missed cannot be combined with recorded darts.");
+  }
   if (command.darts !== undefined) {
     if (command.darts.length !== command.dartsThrown) {
       throw new ScoringValidationError("INVALID_DART_COUNT", "The number of darts must match the darts thrown.");
@@ -699,6 +716,7 @@ export function projectX01Match(match: X01Match): X01MatchState {
       attainableTotals(command.dartsThrown - 1).has(command.points - doubleValue);
     const validCheckout =
       tentative === 0 &&
+      command.checkoutMissed !== true &&
       (finishingDart === null
         ? closesLeg(match.rules.outRule, command, validDoubleCheckout)
         : closesLegWithDarts(match.rules.outRule, finishingDart));
@@ -740,7 +758,7 @@ export function projectX01Match(match: X01Match): X01MatchState {
       checkoutDouble: darts === undefined ? (command.checkoutDouble ?? null) : derivedCheckoutDouble,
       checkoutAttempts:
         darts === undefined
-          ? (command.checkoutAttempts ?? (command.checkoutDouble === undefined ? 0 : 1))
+          ? (command.checkoutAttempts ?? (command.checkoutDouble === undefined && command.checkoutMissed !== true ? 0 : 1))
           : checkoutAttemptsFromDarts(scoreBefore, darts, match.rules.outRule),
       outcome,
       darts: darts ?? [],

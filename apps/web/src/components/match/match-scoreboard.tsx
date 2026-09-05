@@ -108,8 +108,12 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     }
     scoring.submitVisit({ points: visitPoints, dartsThrown: 3 });
   };
+  // Die gewaehlte Dartzahl im Dialog gilt fuer einen ERFOLGREICHEN Checkout;
+  // fuer den Bust ist sie bedeutungslos und darf ihn nicht blockieren
+  // (`checkoutDarts` koennte z. B. auf 1 stehen, obwohl 141 Punkte nur mit
+  // drei Darts werfbar sind) -- deshalb immer drei Darts.
   const handleCheckoutBust = () => {
-    scoring.submitVisit({ points: Number(roundValue), dartsThrown: checkoutDarts });
+    scoring.submitVisit({ points: Number(roundValue), dartsThrown: 3, checkoutMissed: true });
   };
 
   // Wechselt durch die Serverantwort die werfende Person oder das Leg,
