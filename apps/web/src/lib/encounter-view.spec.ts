@@ -322,6 +322,26 @@ describe("preStartHint", () => {
     expect(hint).toBe("Es fehlt noch die Meldung der Gastmannschaft.");
   });
 
+  it("uses the lineup positions, not the shorthanded minimum, as the threshold", () => {
+    // Unterscheidbare Zahlen: die Ausnahmemeldung erlaubt drei von vier
+    // Positionen, und genau diese drei lösen die kampflosen Spiele aus. Eine
+    // Meldung unter der Ausnahmegrenze weist bereits die Engine ab
+    // (`NOT_ENOUGH_NOMINATIONS`), sie erreicht den Start nie.
+    const hint = preStartHint(
+      encounter({
+        status: "READY",
+        lineupPositions: 4,
+        minNominationsShorthanded: 3,
+        home: { ...encounter().home, submitted: true },
+        away: { ...encounter().away, submitted: true },
+      }),
+    );
+
+    expect(hint).toBe(
+      "Meldet eine Seite weniger als 4 Positionen, gelten deren Einzel und ein Doppel beim Start sofort als kampflos verloren.",
+    );
+  });
+
   it("explains the shorthanded rule with the numbers of this competition", () => {
     // Der Hinweis stand fest auf drei Positionen und log bei jeder anderen
     // Aufstellungsgrösse.
