@@ -101,8 +101,10 @@ vorhandenen Würfen aber serverseitig aus ihnen abgeleitet statt vom Client
 
 `SubmitVisitCommand` bekommt `darts?: readonly Dart[]`. Liegen Würfe vor:
 
-- **Double In** prüft den ersten Wurf der eröffnenden Aufnahme auf
-  `multiplier === 2` statt über `opensOnDouble`.
+- **Double In** wertet die Aufnahme ab dem ersten Doppel: Würfe davor zählen
+  nicht, und eine Aufnahme ganz ohne Doppel ist kein Fehler, sondern eine
+  Aufnahme mit null angerechneten Punkten. `points` bleibt die rohe Summe,
+  `appliedPoints` die angerechnete. Ohne Würfe gilt weiter `opensOnDouble`.
 - **Double Out** prüft den letzten Wurf auf `multiplier === 2` (Bull `25×2`
   zählt), **Master Out** auf `multiplier >= 2`.
 - **`checkoutDouble`** ist das Segment des letzten Wurfs, **`checkoutAttempts`**
@@ -131,7 +133,8 @@ Audit und der Outbox-Pfad.
 
 ### Schnellwerte
 
-Neu: `GET /api/v1/organizations/{organizationId}/statistics/players/{playerId}/frequent-scores`
+Neu: `GET /api/v1/organizations/{organizationId}/players/{playerId}/statistics/frequent-scores`
+— unter dem bestehenden Statistik-Pfad, damit es nur eine Konvention gibt.
 
 Antwort:
 
