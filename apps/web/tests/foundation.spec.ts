@@ -5,7 +5,9 @@ import {
   createRegistrationInvitation,
   type RegistrationInvitationSeed,
 } from "./registration-invitation";
-import { openAbortDialog, selectCheckoutDarts, switchInputMode, typeRoundScore } from "./scoreboard-entry";
+import {
+  openAbortDialog, selectCheckoutDarts, setScoreboardSwitch, switchInputMode, typeRoundScore,
+} from "./scoreboard-entry";
 
 const registrationSeeds: RegistrationInvitationSeed[] = [];
 
@@ -433,8 +435,10 @@ test("a club can complete a match and start a generated tournament match", async
       await expect(page.getByRole("button", { name: "Aufnahme erfassen" })).toBeDisabled();
     } else {
       const dialog = page.getByRole("dialog", { name: "Checkout erfassen" });
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByText("Benötigte Darts")).toHaveCount(0);
+      await expect(dialog.getByRole("button", { name: "3 Darts" })).toHaveCount(0);
       await dialog.getByLabel("Checkout-Feld").selectOption(String(checkoutDouble));
-      await selectCheckoutDarts(dialog, 3);
       await dialog.getByRole("button", { name: "Checkout speichern" }).click();
       await expect(page.getByText("Match beendet")).toBeVisible();
     }
@@ -443,6 +447,11 @@ test("a club can complete a match and start a generated tournament match", async
   await scoreTournamentVisit(0);
   await scoreTournamentVisit(180);
   await scoreTournamentVisit(0);
+  // „Checkout-Darts bestätigen" AUS: der Checkout-Schritt fragt nur noch nach
+  // dem getroffenen Feld und sendet drei Darts — dasselbe Ergebnis wie die
+  // ausdrückliche Wahl „3 Darts" darüber, aber ohne die zusätzliche Frage.
+  // Die Einstellung war bis zur Abschlussrunde folgenlos gespeichert.
+  await setScoreboardSwitch(page, "Checkout-Darts bestätigen", false);
   await scoreTournamentVisit(141, 12);
 
   await page.goto(tournamentUrl);

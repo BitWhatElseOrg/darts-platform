@@ -23,8 +23,16 @@ const dartsButtonClassName =
  * Double Out nur ein Doppel. Das Dialog öffnet ohnehin nie unter Single Out
  * (siehe `handleRoundSubmit`), deshalb ist `outRule` hier bereits auf die
  * beiden tatsächlich vorkommenden Werte eingeschränkt.
+ *
+ * `confirmDarts` ist die Einstellung „Checkout-Darts bestätigen". Sie
+ * steuert die Abfrage der DART-ZAHL, nicht die des Segments: ist sie aus,
+ * fragt der Dialog nur nach dem getroffenen Feld (oder meldet, dass keins
+ * sass), und die aufrufende Fläche sendet drei Darts. Das Segment bleibt in
+ * jedem Fall nötig — ohne erkanntes Checkout-Feld wertet die Engine ein
+ * Double-/Master-Out als Bust (siehe `handleRoundSubmit`).
  */
 export function CheckoutDialog({
+  confirmDarts,
   darts,
   error,
   field,
@@ -38,6 +46,7 @@ export function CheckoutDialog({
   pending,
   points,
 }: {
+  readonly confirmDarts: boolean;
   readonly darts: 1 | 2 | 3;
   readonly error: string | null;
   readonly field: string;
@@ -66,7 +75,8 @@ export function CheckoutDialog({
         <div>
           <h4 className="font-numerals text-title font-bold" id="checkout-dialog-title">Checkout erfassen</h4>
           <p className="mt-2 text-body text-slate-300">
-            {points} Punkte auf 0. Wähle das letzte {triples.length === 0 ? "Doppel" : "Doppel oder Triple"} und die benötigten Darts — oder melde, dass keins sass.
+            {points} Punkte auf 0. Wähle das letzte {triples.length === 0 ? "Doppel" : "Doppel oder Triple"}
+            {confirmDarts ? " und die benötigten Darts" : ""} — oder melde, dass keins sass.
           </p>
         </div>
         <label className="block space-y-2 text-body font-semibold text-slate-200">
@@ -87,23 +97,25 @@ export function CheckoutDialog({
             )}
           </select>
         </label>
-        <div className="space-y-2 text-body font-semibold text-slate-200">
-          <span>Benötigte Darts</span>
-          <div className="grid grid-cols-3 gap-3">
-            {([1, 2, 3] as const).map((count) => (
-              <button
-                aria-label={`${count} ${count === 1 ? "Dart" : "Darts"}`}
-                aria-pressed={darts === count}
-                className={cn(dartsButtonClassName, darts === count ? "bg-emerald-500 text-slate-950" : "bg-slate-800 text-white hover:bg-slate-700")}
-                key={count}
-                onClick={() => onDartsChange(count)}
-                type="button"
-              >
-                {count}
-              </button>
-            ))}
+        {confirmDarts ? (
+          <div className="space-y-2 text-body font-semibold text-slate-200">
+            <span>Benötigte Darts</span>
+            <div className="grid grid-cols-3 gap-3">
+              {([1, 2, 3] as const).map((count) => (
+                <button
+                  aria-label={`${count} ${count === 1 ? "Dart" : "Darts"}`}
+                  aria-pressed={darts === count}
+                  className={cn(dartsButtonClassName, darts === count ? "bg-emerald-500 text-slate-950" : "bg-slate-800 text-white hover:bg-slate-700")}
+                  key={count}
+                  onClick={() => onDartsChange(count)}
+                  type="button"
+                >
+                  {count}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : null}
         {error ? <p className="text-body text-rose-300" role="alert">{error}</p> : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <Button disabled={pending} onClick={onCancel} type="button" variant="outline">Abbrechen</Button>

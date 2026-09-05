@@ -171,11 +171,16 @@ export function ScoreboardSettingsDialog({
               />
             </div>
           ) : (
-            <SettingSwitch
-              checked={settings.confirmCheckoutDarts}
-              label="Checkout-Darts bestätigen"
-              onToggle={() => onChange({ ...settings, confirmCheckoutDarts: !settings.confirmCheckoutDarts })}
-            />
+            <div className="space-y-2">
+              <SettingSwitch
+                checked={settings.confirmCheckoutDarts}
+                label="Checkout-Darts bestätigen"
+                onToggle={() => onChange({ ...settings, confirmCheckoutDarts: !settings.confirmCheckoutDarts })}
+              />
+              <p className="text-caption text-slate-400">
+                Aus: der Checkout-Schritt fragt nur nach dem getroffenen Feld und wertet drei Darts.
+              </p>
+            </div>
           )}
         </section>
 

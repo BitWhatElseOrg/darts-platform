@@ -122,6 +122,13 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     }
     scoring.submitVisit({ points: visitPoints, dartsThrown: 3 });
   };
+  // Die Einstellung „Checkout-Darts bestaetigen" steuert die Abfrage der
+  // Dart-ZAHL, nicht die des Segments: ist sie aus, blendet der Dialog die
+  // Dartwahl aus (checkout-dialog.tsx) und die Aufnahme geht mit drei Darts
+  // raus. Das Segment bleibt in beiden Faellen noetig, sonst wertet die
+  // Engine den Legabschluss unter Double/Master Out als Bust (siehe
+  // `handleRoundSubmit`).
+  const checkoutDartsThrown: 1 | 2 | 3 = settings.confirmCheckoutDarts ? checkoutDarts : 3;
   // Die gewaehlte Dartzahl im Dialog gilt fuer einen ERFOLGREICHEN Checkout;
   // fuer den Bust ist sie bedeutungslos und darf ihn nicht blockieren
   // (`checkoutDarts` koennte z. B. auf 1 stehen, obwohl 141 Punkte nur mit
@@ -136,7 +143,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     const checkoutDouble = checkoutDoubleFromField(checkoutField);
     scoring.submitVisit({
       checkoutAttempted: true,
-      dartsThrown: checkoutDarts,
+      dartsThrown: checkoutDartsThrown,
       points: Number(roundValue),
       ...(checkoutDouble === undefined ? {} : { checkoutDouble }),
     });
@@ -391,6 +398,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
         </div>
         <div>
           <CheckoutDialog
+            confirmDarts={settings.confirmCheckoutDarts}
             darts={checkoutDarts}
             error={checkoutOpen && scoring.submitError !== null ? mutationMessage(scoring.submitError) : null}
             field={checkoutField}

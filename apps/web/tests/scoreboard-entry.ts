@@ -17,6 +17,25 @@ export async function switchInputMode(page: Page, mode: "Dart" | "Runde"): Promi
 }
 
 /**
+ * Schaltet einen der Schalter im Einstellungs-Modal um. Der zugängliche Name
+ * trägt den Zustand mit (`scoreboard-settings-dialog.tsx`, `SettingSwitch`:
+ * „<Name>: JA" / „<Name>: NEIN"), deshalb wartet diese Funktion erst auf den
+ * erwarteten Ausgangszustand und danach auf den erreichten Zielzustand — ein
+ * Klick ins Blaue würde einen bereits passenden Schalter verstellen.
+ */
+export async function setScoreboardSwitch(page: Page, label: string, enabled: boolean): Promise<void> {
+  await page.getByRole("button", { name: "Einstellungen" }).click();
+  const dialog = page.getByRole("dialog", { name: "Einstellungen" });
+  await expect(dialog).toBeVisible();
+  const before = dialog.getByRole("switch", { name: `${label}: ${enabled ? "NEIN" : "JA"}` });
+  await expect(before).toBeVisible();
+  await before.click();
+  await expect(dialog.getByRole("switch", { name: `${label}: ${enabled ? "JA" : "NEIN"}` })).toBeVisible();
+  await dialog.getByRole("button", { name: "Spiel fortsetzen" }).click();
+  await expect(dialog).toHaveCount(0);
+}
+
+/**
  * Tippt eine Rundensumme über das Ziffernfeld des Runden-Keypads und sendet
  * sie ab — der Nachfolger des früheren Freitextfelds `Aufnahmescore`
  * (`.fill(...)` + „Erfassen"), das der Moduswechsel (Task 8/9) durch die
