@@ -1,23 +1,21 @@
 "use client";
 
 import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { frequentScoresSchema, type MatchStateResponse } from "@darts-platform/schemas";
+import { type MatchStateResponse } from "@darts-platform/schemas";
 import { Button, cn } from "@darts-platform/ui";
-import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
+import { userFacingErrorMessage } from "@/lib/api-client";
 import { dartEntryReducer, emptyDartEntry, previewDartEntry, type DartEntryPreview } from "@/lib/dart-entry";
 import { appendRoundDigit, isRoundEntrySubmittable, onlyPossibleDouble, removeRoundDigit } from "@/lib/round-entry";
 import { defaultScoreboardSettings, readScoreboardSettings, subscribeScoreboardSettings } from "@/lib/scoreboard-settings";
+import { CheckoutDialog } from "./checkout-dialog";
 import { DartKeypad } from "./dart-keypad";
 import { RoundKeypad } from "./round-keypad";
 import { ScoreboardHeader } from "./scoreboard-header";
 import { ScoreboardSides } from "./scoreboard-sides";
 import { ScoreboardStatus } from "./scoreboard-status";
 import { useMatchScoring } from "./use-match-scoring";
+import { useQuickScores } from "./use-quick-scores";
 import { VisitConfirmation } from "./visit-confirmation";
-
-/** Ohne Historie der Person oder der Organisation greift dieser feste Satz. */
-const defaultQuickScores: readonly number[] = [26, 41, 45, 60, 81, 85];
 
 /** Eine Seite kann zwei Personen tragen; ihr Name ist beider Name. */
 function sideNames(participant: MatchStateResponse["participants"][number]): string {
@@ -43,24 +41,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   const scoring = useMatchScoring({ organizationId, match, canScore });
   const { lock, queued, online, replaying, mayControl, error } = scoring;
   const settings = useSyncExternalStore(subscribeScoreboardSettings, readScoreboardSettings, () => defaultScoreboardSettings);
-  // Schnellwerte fuer die werfende Person, gestuft ueber Person, Organisation
-  // und Standardsatz (Task 6). Nur im Runden-Modus aktiv: im Dart-Modus gibt
-  // es keine Rundensumme, die davon profitieren koennte. Der feste
-  // Standardsatz steht als Fallback bereit, damit ein Ausfall der Abfrage
-  // (kein Netz, Serverfehler) die Eingabe nicht anfasst — die Person tippt
-  // in dem Moment weiter mit sinnvollen, wenn auch generischen, Tasten.
-  const quickScoresQuery = useQuery({
-    queryKey: ["frequent-scores", organizationId, match.currentPlayerId],
-    queryFn: ({ signal }) => apiRequest({
-      path: `/organizations/${organizationId}/players/${match.currentPlayerId ?? ""}/statistics/frequent-scores`,
-      schema: frequentScoresSchema,
-      signal,
-    }),
-    enabled: match.currentPlayerId !== null && settings.mode === "ROUND",
-    staleTime: 10 * 60 * 1000,
-  });
-  const quickScores = quickScoresQuery.data?.scores ?? defaultQuickScores;
-  const quickScoresSource = quickScoresQuery.data?.source ?? "DEFAULT";
+  const quickScores = useQuickScores({ organizationId, playerId: match.currentPlayerId, enabled: settings.mode === "ROUND" });
   const [roundValue, setRoundValue] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutDouble, setCheckoutDouble] = useState("");
@@ -110,16 +91,14 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     }
     setRoundValue((current) => removeRoundDigit(current));
   };
-  // Entspricht die Eingabe genau dem Restscore und verlangt die Einstellung
-  // eine Bestaetigung der Checkout-Darts, oeffnet der Checkout-Schritt statt
-  // sofort abzusenden; das vorbelegte Doppelfeld (`onlyPossibleDouble`) ist
-  // nur eine Bestaetigungshilfe, keine Vorentscheidung der Engine. Ist die
-  // Einstellung aus, geht die Aufnahme direkt mit drei Darts und ohne
-  // Doppelangabe raus (Task-Auftrag, Schritt 3).
+  // Erzwingt den Checkout-Schritt bei einem Ausgang mit Doppel (alles ausser
+  // SINGLE), unabhaengig von "Checkout-Darts bestaetigen": ohne
+  // `checkoutDouble` wertet die Engine ein Double-/Master-Out sonst als
+  // Bust (x01.ts, closesLeg). `onlyPossibleDouble` liefert nur die Vorbelegung.
   const handleRoundSubmit = () => {
     if (activeParticipant === undefined) return;
     const visitPoints = Number(roundValue);
-    if (visitPoints === activeParticipant.remaining && settings.confirmCheckoutDarts) {
+    if (visitPoints === activeParticipant.remaining && match.outRule !== "SINGLE") {
       scoring.resetSubmit();
       const preset = onlyPossibleDouble(visitPoints);
       setCheckoutDouble(preset === null ? "" : String(preset));
@@ -128,6 +107,9 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
       return;
     }
     scoring.submitVisit({ points: visitPoints, dartsThrown: 3 });
+  };
+  const handleCheckoutBust = () => {
+    scoring.submitVisit({ points: Number(roundValue), dartsThrown: checkoutDarts });
   };
 
   // Wechselt durch die Serverantwort die werfende Person oder das Leg,
@@ -145,6 +127,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     dispatchEntry({ type: "RESET" });
     setPendingConfirmation(null);
     setRoundValue("");
+    setCheckoutOpen(false);
   }
 
   const submitEntry = (preview: DartEntryPreview) => {
@@ -344,14 +327,8 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
               ) : null}
             </div>
           ) : canScore && settings.mode === "ROUND" ? (
-            // Das Keypad braucht mit Anzeige, Schnellwert-Herkunft, sechs
-            // Schnellwerten und neun Ziffern spuerbar mehr Hoehe als das
-            // Dart-Keypad. Passt es bei kleiner Fensterhoehe trotz
-            // `min-h-14`-Tasten nicht in die verbleibende Reihe, ueberlaeuft
-            // es sonst sichtbar in die "Letzte Aufnahmen"-Reihe darunter und
-            // faengt deren Klicks ab (live per E2E gefunden). `overflow-y-auto`
-            // haelt den Overflow innerhalb dieser Flaeche, statt Tasten zu
-            // verkleinern (bindende Touch-Ziel-Vorgabe).
+            // overflow-y-auto: das Keypad braucht mehr Hoehe als das
+            // Dart-Keypad und ueberlief sonst sichtbar in "Letzte Aufnahmen".
             <div className="h-full min-h-0 overflow-y-auto border-b border-slate-800 p-3">
               <RoundKeypad
                 disabled={!mayControl || activeParticipant === undefined || scoring.submitPending || checkoutOpen}
@@ -359,8 +336,8 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
                 onDigit={handleRoundDigit}
                 onQuickScore={handleRoundQuickScore}
                 onSubmit={handleRoundSubmit}
-                quickScores={quickScores}
-                quickScoresSource={quickScoresSource}
+                quickScores={quickScores.scores}
+                quickScoresSource={quickScores.source}
                 submittable={isRoundEntrySubmittable(roundValue)}
                 value={roundValue}
               />
@@ -372,6 +349,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
             darts={checkoutDarts}
             error={checkoutOpen && scoring.submitError !== null ? mutationMessage(scoring.submitError) : null}
             field={checkoutDouble}
+            onBust={handleCheckoutBust}
             onCancel={() => { scoring.resetSubmit(); setCheckoutOpen(false); }}
             onDartsChange={setCheckoutDarts}
             onFieldChange={setCheckoutDouble}
@@ -435,100 +413,6 @@ function AbortMatchDialog({ error, onCancel, onSubmit, open, pending, queuedCoun
         <div className="grid gap-3 sm:grid-cols-2">
           <Button disabled={pending} onClick={onCancel} type="button" variant="outline">Zurück zum Match</Button>
           <Button className="bg-rose-600 text-white hover:bg-rose-500" disabled={pending || reason.trim().length < 3} type="submit">Match endgültig abbrechen</Button>
-        </div>
-      </form>
-    </dialog>
-  );
-}
-
-function CheckoutDialog({
-  darts,
-  error,
-  field,
-  onCancel,
-  onDartsChange,
-  onFieldChange,
-  onSubmit,
-  open,
-  pending,
-  points,
-}: {
-  readonly darts: 1 | 2 | 3;
-  readonly error: string | null;
-  readonly field: string;
-  readonly onCancel: () => void;
-  readonly onDartsChange: (darts: 1 | 2 | 3) => void;
-  readonly onFieldChange: (field: string) => void;
-  readonly onSubmit: () => void;
-  readonly open: boolean;
-  readonly pending: boolean;
-  readonly points: number;
-}) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog === null) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-    return () => {
-      if (dialog.open) dialog.close();
-    };
-  }, [open]);
-
-  if (!open) return null;
-
-  const fieldSelectClassName = "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
-
-  return (
-    <dialog
-      aria-labelledby="checkout-dialog-title"
-      className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-emerald-400/40 bg-slate-950 p-0 text-white shadow-2xl backdrop:bg-slate-950/80"
-      onCancel={(event) => { event.preventDefault(); onCancel(); }}
-      ref={dialogRef}
-    >
-      <form className="space-y-5 p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
-        <div>
-          <h4 className="font-numerals text-title font-bold" id="checkout-dialog-title">Checkout erfassen</h4>
-          <p className="mt-2 text-body text-slate-300">{points} Punkte auf 0. Wähle das letzte Doppel und die benötigten Darts.</p>
-        </div>
-        {/* Nur bei rechnerisch genau einer Möglichkeit (`onlyPossibleDouble`
-            in der aufrufenden Fläche) steht dieses Feld schon vorbelegt da —
-            eine Bestätigungshilfe, keine Vorentscheidung: die Person kann das
-            Feld weiterhin ändern, und die Engine prüft den tatsächlichen
-            Checkout serverseitig unverändert nach. */}
-        <label className="block space-y-2 text-body font-semibold text-slate-200">
-          <span>Checkout-Feld</span>
-          <select autoFocus className={fieldSelectClassName} required value={field} onChange={(event) => onFieldChange(event.target.value)}>
-            <option value="">Doppel wählen</option>
-            {Array.from({ length: 20 }, (_, index) => index + 1).map((double) => <option key={double} value={double}>D{double}</option>)}
-            <option value={25}>Bull (Double 25)</option>
-          </select>
-        </label>
-        <div className="space-y-2 text-body font-semibold text-slate-200">
-          <span>Benötigte Darts</span>
-          <div className="grid grid-cols-3 gap-3">
-            {([1, 2, 3] as const).map((count) => (
-              <button
-                aria-label={`${count} ${count === 1 ? "Dart" : "Darts"}`}
-                aria-pressed={darts === count}
-                className={cn(
-                  "min-h-14 rounded-lg text-title-sm font-numerals font-bold tabular transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400",
-                  darts === count ? "bg-emerald-500 text-slate-950" : "bg-slate-800 text-white hover:bg-slate-700",
-                )}
-                key={count}
-                onClick={() => onDartsChange(count)}
-                type="button"
-              >
-                {count}
-              </button>
-            ))}
-          </div>
-        </div>
-        {error ? <p className="text-body text-rose-300" role="alert">{error}</p> : null}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Button disabled={pending} onClick={onCancel} type="button" variant="outline">Abbrechen</Button>
-          <Button disabled={pending || field === ""} type="submit">Checkout speichern</Button>
         </div>
       </form>
     </dialog>

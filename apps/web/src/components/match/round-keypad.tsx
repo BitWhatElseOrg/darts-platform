@@ -63,10 +63,19 @@ export function RoundKeypad({ value, quickScores, quickScoresSource, submittable
 }) {
   const quickScoreRows = [quickScores.slice(0, 3), quickScores.slice(3, 6)];
 
+  // Leer zeigt "–", nicht "0": die Rücktaste wirkt bei beidem anders (leer
+  // -> Server-Undo, getippte Null -> nimmt nur die Ziffer zurück) und muss
+  // dafür sichtbar UND für die Live-Region hörbar unterscheidbar bleiben.
   return (
     <div className="grid h-full grid-rows-[auto_auto_1fr_auto] gap-2">
-      <p aria-live="polite" className="text-center font-numerals text-display font-bold tabular text-white">
-        {value === "" ? "0" : value}
+      <p
+        aria-live="polite"
+        className={cn(
+          "text-center font-numerals text-display font-bold tabular",
+          value === "" ? "text-slate-600" : "text-white",
+        )}
+      >
+        {value === "" ? "–" : value}
       </p>
       <div className="space-y-1">
         <p className="text-center text-caption uppercase tracking-[0.08em] text-slate-400">
