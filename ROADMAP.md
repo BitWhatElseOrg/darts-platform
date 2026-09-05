@@ -4,9 +4,11 @@
 
 Die Roadmap führt vom technischen Fundament bis zum Vollausbau als Multi-Tenant Dart-Plattform.
 
-**Aktueller Stand (31. August 2026):** Phasen 0 bis 6 sind implementiert. Der
-nächste geplante Produktabschnitt ist Phase 7. Registrierung neuer Konten ist
-bereits heute einladungsgebunden; Turnierverwaltung wird nur Rollen mit der
+**Aktueller Stand (5. September 2026):** Phasen 0 bis 6 sind implementiert.
+Zusätzlich ist der Ligabetrieb mit Team-Begegnungen und Ligatabelle nach
+VFC-Reglement umgesetzt; Phase 9 ist damit teilweise abgedeckt. Der nächste
+geplante Produktabschnitt bleibt Phase 7. Registrierung neuer Konten ist bereits
+heute einladungsgebunden; Turnierverwaltung wird nur Rollen mit der
 entsprechenden Permission angeboten.
 
 ---
@@ -403,23 +405,37 @@ Realtime
 
 # Phase 9 – League Platform
 
+**Status:** Teilweise umgesetzt – Teams mit Kader und Captain, Ligawettbewerbe
+mit Begegnungsvorlage, Begegnungen mit Spieltag, Heim/Gast, Termin und Ort,
+beidseitige Aufstellung, Ausspielen der Einzel und Doppel auf mehreren Boards,
+automatische Wertung und die daraus gerechnete Ligatabelle sind umgesetzt.
+Saison, Divisionen, automatische Spielplangenerierung, Auf- und Abstieg,
+Transfers und Saisonstatistik bleiben offen.
+
 ## Ziel
 
 Liga- und Saisonbetrieb.
 
 ## Scope
 
+- Teams (implementiert)
+- Team Rosters (implementiert)
+- League (Wettbewerb mit Begegnungsvorlage implementiert)
+- Team-Begegnungen: Aufstellung, Einzel/Doppel, Wertung (implementiert)
+- Home/Away je Begegnung (implementiert)
+- League Tables (implementiert)
+- Fixtures (Begegnungen werden manuell angesetzt; Spielplangenerierung offen)
 - Season
-- League
 - Division
-- Teams
-- Fixtures
-- Home/Away
-- Team Rosters
-- League Tables
 - Promotion / Relegation
 - Transfers
 - Season Statistics
+
+## Grundlagen
+
+Fachliche Grundlage der umgesetzten Team-Begegnung ist das
+[VFC-Liga-Reglement](./LIGA-REGLEMENT.md); die Umsetzung beschreibt die
+[Design-Spec](./docs/superpowers/specs/2026-09-02-team-encounter-league-design.md).
 
 ---
 

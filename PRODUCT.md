@@ -25,7 +25,7 @@ Ein Dartturnier vollständig durchführen – von der Teilnehmerliste über Grup
 
 Erfolg heisst: eine Turnierleitung führt das Referenzturnier (32 Spieler, 8 Boards) von Anfang bis Ende im System durch, ohne daneben eine zweite Wahrheit zu pflegen, und ohne dass ein Score verloren geht.
 
-Langfristig erweitert sich derselbe Datenbestand auf Liga- und Saisonbetrieb, Turnierserien und Karrierestatistik.
+Derselbe Datenbestand trägt bereits den wöchentlichen Ligabetrieb über Team-Begegnungen und erweitert sich langfristig auf Saisonbetrieb, Turnierserien und Karrierestatistik.
 
 ## Positioning
 
@@ -33,7 +33,7 @@ Drei bestätigte Unterscheidungsmerkmale:
 
 1. **Vollständiger Turnierbetrieb statt Einzelmatch-Zähler.** Gruppen, Setzung, K.-o.-Baum, Board-Zuweisung, Ergebniskorrektur und Audit gehören zum Kern – nicht das Scoreboard allein.
 2. **Scoring-Quelle austauschbar.** Manuelle Eingabe, Autodarts und Scolia laufen über Adapter in dieselbe Domain. Ein Turnier darf Boards mit und ohne Autoscoring mischen; die Turnierlogik merkt keinen Unterschied.
-3. **Eine durchgehende Datenbasis über das Einzelturnier hinaus.** Liga, Saison, Turnierserie, Rankings und Karrierestatistik greifen auf dieselben Match- und Visit-Daten zurück, nicht auf nachträglich abgetippte Ergebnisse.
+3. **Eine durchgehende Datenbasis über das Einzelturnier hinaus.** Liga, Saison, Turnierserie, Rankings und Karrierestatistik greifen auf dieselben Match- und Visit-Daten zurück, nicht auf nachträglich abgetippte Ergebnisse. Die Team-Begegnung nutzt das bereits: Jedes Einzel und Doppel einer Ligabegegnung ist ein reguläres, voll gescortes Match.
 
 Nicht als Positionierung bestätigt, aber als technische Eigenschaft vorhanden: Multi-Tenancy mit Rollen und Tenant-Isolation ab Tag 1 (siehe Capabilities).
 
@@ -51,7 +51,7 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 
 ## Capabilities and Constraints
 
-**Heute nutzbar (Phase 0–6, Stand 26.08.2026)**
+**Heute nutzbar (Phase 0–6 sowie Team-Begegnungen als Ligamodus, Stand 05.09.2026)**
 
 - Registrierung ausschliesslich für gültig eingeladene E-Mail-Adressen, Login,
   Logout und persistente HttpOnly-Sessions (Better Auth)
@@ -74,8 +74,13 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 - Spielerprofile mit Match History, Average, First 9, Checkout-Quote, 180ern,
   High Finish, Best Leg, Darts pro Leg, Head-to-Head und Rankingverlauf sowie
   asynchron aktualisierten Karriereaggregaten
+- Team-Begegnungen als Ligamodus nach [VFC-Reglement](LIGA-REGLEMENT.md):
+  Teams mit Kader und Captain, Ligawettbewerb mit Begegnungsvorlage, beidseitige
+  Aufstellung, 18 beziehungsweise 19 Einzel- und Doppelspiele auf mehreren
+  Boards, automatische Wertung der Begegnung und Ligatabelle nach Punkten,
+  Spiel- und Satzdifferenz
 
-**Geplant, Reihenfolge festgelegt** (siehe [ROADMAP.md](ROADMAP.md)): Multi-Tenant-SaaS-Ausbau (7) → Autoscoring-Adapter (8) → Liga (9) → Turnierserie (10) → Benachrichtigungen (11) → Public API (12).
+**Geplant, Reihenfolge festgelegt** (siehe [ROADMAP.md](ROADMAP.md)): Multi-Tenant-SaaS-Ausbau (7) → Autoscoring-Adapter (8) → Liga-Vollausbau (9: Saison, Divisionen, Spielplangenerierung, Auf- und Abstieg, Transfers) → Turnierserie (10) → Benachrichtigungen (11) → Public API (12).
 
 **Harte Constraints, die jede Fläche einhält** (verbindlich in [AGENTS.md](AGENTS.md))
 
@@ -83,11 +88,11 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 - Score- und Match-Commands sind idempotent (`commandId`); Wiederholung erzeugt keinen zweiten Visit.
 - Aktive Matches und Legs sind versioniert; Konflikt liefert HTTP 409 samt aktuellem Serverzustand – das UI muss diesen Zustand sichtbar auflösen, nicht verschweigen.
 - Realtime-Events erst nach erfolgreichem Commit; WebSockets sind kein Write-Kanal für Business Commands.
-- Scoring-, Turnier- und Scheduling-Logik bleiben infrastrukturfrei; keine Turnier- oder Scoring-Logik in React-Komponenten.
+- Scoring-, Turnier-, Liga- und Scheduling-Logik bleiben infrastrukturfrei; keine Turnier- oder Scoring-Logik in React-Komponenten.
 - Verbindungsstatus, Fehlerzustände und Offline-Queue sind sichtbar. Kein versteckter Datenverlust.
 - Fehlerformat einheitlich (`error.code`, `error.message`, `correlationId`), keine Stacktraces an Clients.
 
-**Fachbegriffe, die im Produkt so heissen** (nicht eindeutschen): Leg, Set, Visit, Aufnahme, Bust, Checkout, Double Out, Best of Legs, Dart Count, Board, Stage, Seeding, Bye, Average, First 9, Checkout-Quote, 180, High Finish, Head-to-Head.
+**Fachbegriffe, die im Produkt so heissen** (nicht eindeutschen): Leg, Set, Visit, Aufnahme, Bust, Checkout, Double Out, Best of Legs, Dart Count, Board, Stage, Seeding, Bye, Average, First 9, Checkout-Quote, 180, High Finish, Head-to-Head, Begegnung, Aufstellung, Doppel.
 
 **Ausdrücklich offen**
 
