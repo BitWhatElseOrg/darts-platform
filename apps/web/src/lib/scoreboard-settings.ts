@@ -58,6 +58,7 @@ function readRawSettings(): string | null {
 }
 
 export function readScoreboardSettings(): ScoreboardSettings {
+  if (typeof window === "undefined") return defaultScoreboardSettings;
   if (snapshot !== null) return snapshot;
   snapshot = parseScoreboardSettings(readRawSettings());
   return snapshot;

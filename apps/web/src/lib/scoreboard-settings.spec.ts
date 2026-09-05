@@ -1,10 +1,34 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   defaultScoreboardSettings,
   parseScoreboardSettings,
   readScoreboardSettings,
   writeScoreboardSettings,
 } from "./scoreboard-settings";
+
+/**
+ * `apps/web` testet ohne jsdom (kein `vitest.config.*`, keine bestehende Spec
+ * nutzt `window`); das Paket bringt `jsdom` nicht mit. Fuer die Faelle, die
+ * einen vorhandenen `window` brauchen, wird hier gezielt ein minimaler
+ * Speicher untergeschoben – ohne neue Abhaengigkeit und ohne Produktionscode
+ * anzufassen.
+ */
+function withStubbedLocalStorage<T>(run: () => T): T {
+  const store = new Map<string, string>();
+  vi.stubGlobal("window", {
+    localStorage: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+    },
+  });
+  try {
+    return run();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+}
 
 describe("parseScoreboardSettings", () => {
   it("liefert die Standardwerte ohne gespeicherten Wert", () => {
@@ -37,9 +61,14 @@ describe("readScoreboardSettings", () => {
     expect(readScoreboardSettings()).toBe(readScoreboardSettings());
   });
 
-  it("liefert nach dem Schreiben den neuen Stand", () => {
-    const next = { mode: "ROUND", confirmScore: false, autoConfirm: false, confirmCheckoutDarts: false } as const;
-    writeScoreboardSettings(next);
-    expect(readScoreboardSettings()).toEqual(next);
+  it("liefert nach dem Schreiben den neuen Stand und eine neue Objektreferenz", () => {
+    withStubbedLocalStorage(() => {
+      const before = readScoreboardSettings();
+      const next = { mode: "ROUND", confirmScore: false, autoConfirm: false, confirmCheckoutDarts: false } as const;
+      writeScoreboardSettings(next);
+      const after = readScoreboardSettings();
+      expect(after).toEqual(next);
+      expect(after).not.toBe(before);
+    });
   });
 });
