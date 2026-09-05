@@ -229,4 +229,53 @@ describe("persistent X01 match", () => {
       .where(and(eq(visitDarts.organizationId, organizationId), eq(visitDarts.visitId, first.visits[0]!.id)));
     expect(stored).toHaveLength(3);
   });
+
+  it("replays a stored visit's darts through aggregate() before applying the next visit", async () => {
+    // Reglement/Engine: bei Double In zählt eine Aufnahme erst ab dem ersten
+    // Doppel. Fehlten die Einzelwürfe beim Nachrechnen über `aggregate()`
+    // (z. B. weil `darts` aus dem gespeicherten Kommando entfernt würde),
+    // zählte die Engine dort den vollen `points`-Wert statt der Teilwertung -
+    // ein stiller Fehler im projizierten Reststand.
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    await databaseService.database
+      .update(matches)
+      .set({ inRule: "DOUBLE" })
+      .where(and(eq(matches.organizationId, organizationId), eq(matches.id, matchId)));
+
+    // Eröffnungsaufnahme von Spieler eins: der Fehlwurf vor dem Doppel zählt
+    // nicht mit. Gewertet werden dürfen nur 45 (40 + 5), nicht die vollen 46.
+    const afterFirstVisit = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: {
+        commandId: randomUUID(), expectedVersion: 0, playerId: playerOneId,
+        points: 46, dartsThrown: 3,
+        darts: [{ segment: 1, multiplier: 1 }, { segment: 20, multiplier: 2 }, { segment: 5, multiplier: 1 }],
+      },
+    });
+    expect(afterFirstVisit.participants[0].remaining).toBe(456);
+
+    // Spieler zwei eröffnet nicht (kein Doppel getroffen); reine Turnwechsel-Aufnahme.
+    const afterSecondVisit = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: { commandId: randomUUID(), expectedVersion: afterFirstVisit.version, playerId: playerTwoId, points: 0, dartsThrown: 3 },
+    });
+
+    // Die dritte Aufnahme (wieder Spieler eins) zwingt `aggregate()`, die
+    // erste gespeicherte Aufnahme über `parseStoredCommand` erneut
+    // durchzurechnen. Der `scoreBefore` dieser Aufnahme deckt auf, ob die
+    // Würfe der ersten Aufnahme den Round-Trip überstanden haben.
+    const afterThirdVisit = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: { commandId: randomUUID(), expectedVersion: afterSecondVisit.version, playerId: playerOneId, points: 0, dartsThrown: 3 },
+    });
+
+    const thirdVisit = afterThirdVisit.visits[0];
+    expect(thirdVisit?.playerId).toBe(playerOneId);
+    expect(thirdVisit?.scoreBefore).toBe(456);
+  });
 });
