@@ -404,6 +404,13 @@ Competition
 
 Das Modell erlaubt später Liga und Turnierserie, ohne den Turnierkern neu zu bauen.
 
+Der Ligamodus ist als Team-Begegnung umgesetzt: Ein Wettbewerb vom Typ `LEAGUE`
+trägt eine Begegnungsvorlage, aus der jede Begegnung ihre Slots als
+eingefrorene Kopie erhält. Fachliche Grundlage dieser Regeln – Spielvarianten,
+Aufstellung, Rundenfolge und Wertung – ist das
+[VFC-Liga-Reglement](./LIGA-REGLEMENT.md); `league-engine` bildet es
+infrastrukturfrei ab.
+
 ---
 
 ## 10. Tournament-Modell

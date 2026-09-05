@@ -197,7 +197,9 @@ Diese Regeln halten das Budget ein. Sie sind Teil des Plans, nicht Beiwerk.
 6. Grosse Dateien gezielt lesen. `apps/api/src/tournaments` am Stück sind 33k
    Tokens, `apps/api/src/matches` 22k.
 7. Das Reglement-PDF nicht erneut anhängen; es kostet allein 35–45k. Die Spec
-   trägt alle Paragraphenverweise.
+   trägt alle Paragraphenverweise, der Volltext liegt als
+   [LIGA-REGLEMENT.md](../../../LIGA-REGLEMENT.md) im Repository und wird
+   gezielt gelesen, nicht am Stück.
 8. Bei etwa 60 Prozent Verbrauch: Zwischenstand committen, Session beenden.
    Eine Kompaktierung mitten in einer Phase zahlt man doppelt.
 

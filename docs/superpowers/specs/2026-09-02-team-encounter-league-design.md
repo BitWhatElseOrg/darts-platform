@@ -5,8 +5,10 @@
 **Geltungsbereich:** Teams, Ligawettbewerbe, Team-Begegnungen, Doppelspiele,
 Seitenmodell im Match, Scoring- und Scheduling-Engine
 **Grundlagen:** VFC-Ligareglement im Electronic Dart, Ausgabe 2026 / S2,
-inklusive Anhang 1 bis 6; abgeglichen mit der laufenden Saison der Gruppe
-STSO S 2 (<https://www.vfc.ch/ligarang.php?gruppe=STSO%20S%202>)
+inklusive Anhang 1 bis 6, im Repository unter
+[LIGA-REGLEMENT.md](../../../LIGA-REGLEMENT.md); abgeglichen mit der laufenden
+Saison der Gruppe STSO S 2
+(<https://www.vfc.ch/ligarang.php?gruppe=STSO%20S%202>)
 
 ## Ziel
 
