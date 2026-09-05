@@ -959,3 +959,60 @@ describe("previewVisitOutcome", () => {
     expect(preview).toEqual({ points: 120, appliedPoints: 120, remaining: 101, complete: true, outcome: "BUST" });
   });
 });
+
+describe("X01 Audit-Korrekturen", () => {
+  /**
+   * Befund K1: Mit dem Satzgewinn beginnt die Legzaehlung fuer BEIDE Seiten
+   * neu. Vorher behielt die unterlegene Seite ihre Legs aus dem verlorenen
+   * Satz und gewann den naechsten mit entsprechend weniger Legs.
+   */
+  it("setzt die Legzaehlung beim Satzgewinn auf beiden Seiten zurueck", () => {
+    let match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 40, legsToWinSet: 3, setsToWin: 2 }),
+    });
+    // Satz 1 geht A B A B A: der Legbeginn wechselt, die beginnende Seite
+    // checkt jeweils mit D20 aus.
+    const setOne: readonly (readonly [string, 1 | 2, string])[] = [
+      ["leg1", 1, "one"],
+      ["leg2", 2, "two"],
+      ["leg3", 1, "one"],
+      ["leg4", 2, "two"],
+      ["leg5", 1, "one"],
+    ];
+    for (const [commandId, seat, playerId] of setOne) {
+      match = executeX01Command(match, visit(commandId, seat, playerId, 40, 1, 20)).match;
+    }
+    const afterSet = projectX01Match(match);
+    expect(afterSet.setNumber).toBe(2);
+    expect(afterSet.sides[0].setsWon).toBe(1);
+    expect(afterSet.sides[0].legsWonInSet).toBe(0);
+    expect(afterSet.sides[1].legsWonInSet).toBe(0);
+
+    // Satz 2, erstes Leg an die im ersten Satz unterlegene Seite: ein Leg
+    // allein darf den Satz nicht entscheiden.
+    const next = executeX01Command(match, visit("set2-leg1", 2, "two", 40, 1, 20));
+    expect(next.outcome).toBe("LEG_WON");
+    expect(next.state.sides[1].legsWonInSet).toBe(1);
+    expect(next.state.sides[1].setsWon).toBe(0);
+    expect(next.state.setNumber).toBe(2);
+  });
+
+  it("wertet einen Satz ohne Gegenlegs unveraendert", () => {
+    let match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 40, legsToWinSet: 3, setsToWin: 2 }),
+    });
+    match = executeX01Command(match, visit("leg1", 1, "one", 40, 1, 20)).match;
+    // Leg 2 beginnt die Gastseite; sie wirft daneben, danach checkt die
+    // Heimseite aus.
+    match = executeX01Command(match, visit("leg2-miss", 2, "two", 0, 3)).match;
+    match = executeX01Command(match, visit("leg2", 1, "one", 40, 1, 20)).match;
+    const third = executeX01Command(match, visit("leg3", 1, "one", 40, 1, 20));
+    expect(third.outcome).toBe("SET_WON");
+    expect(third.state.sides[0].setsWon).toBe(1);
+    expect(third.state.sides[0].legsWonInSet).toBe(0);
+    expect(third.state.sides[1].legsWonInSet).toBe(0);
+    expect(third.state.sides[0].totalLegsWon).toBe(3);
+  });
+});

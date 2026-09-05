@@ -655,14 +655,24 @@ function winLeg(
   const setWon = legsWonInSet >= rules.legsToWinSet;
   const setsWon = side.setsWon + (setWon ? 1 : 0);
   const matchWon = setsWon >= rules.setsToWin;
+  const winner = replaceSide(sides, index, {
+    ...side,
+    remaining: 0,
+    legsWonInSet: setWon ? 0 : legsWonInSet,
+    totalLegsWon: side.totalLegsWon + 1,
+    setsWon,
+  });
+  // Mit dem Satzgewinn beginnt die Legzaehlung des Satzes fuer BEIDE Seiten
+  // neu. Wurde nur die gewinnende Seite zurueckgesetzt, nahm die unterlegene
+  // ihre Legs aus dem verlorenen Satz in den naechsten mit und gewann ihn mit
+  // entsprechend weniger Legs (Satz 1 mit 3:2 verloren, Satz 2 danach mit
+  // einem einzigen Leg gewonnen).
+  const loserIndex = other(index);
+  const sidesAfterSet = setWon
+    ? replaceSide(winner, loserIndex, { ...winner[loserIndex], legsWonInSet: 0 })
+    : winner;
   return {
-    sides: replaceSide(sides, index, {
-      ...side,
-      remaining: 0,
-      legsWonInSet: setWon ? 0 : legsWonInSet,
-      totalLegsWon: side.totalLegsWon + 1,
-      setsWon,
-    }),
+    sides: sidesAfterSet,
     outcome: matchWon ? "MATCH_WON" : setWon ? "SET_WON" : "LEG_WON",
     setWon,
     matchWon,
