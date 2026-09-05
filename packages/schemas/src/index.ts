@@ -5,7 +5,7 @@ export {
   type ServiceHealthStatus,
 } from "./health";
 export { apiErrorSchema, type ApiErrorResponse } from "./api-error";
-export { careerStatisticsSchema, playerStatisticsProfileSchema, type PlayerStatisticsProfile } from "./statistics";
+export { careerStatisticsSchema, frequentScoresSchema, frequentScoresSourceSchema, playerStatisticsProfileSchema, type FrequentScores, type PlayerStatisticsProfile } from "./statistics";
 export {
   advancedFormatPreviewInputSchema,
   advancedFormatPreviewSchema,

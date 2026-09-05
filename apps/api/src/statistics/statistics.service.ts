@@ -1,10 +1,15 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { calculatePlayerStatistics, type StatisticsMatch } from "@darts-platform/statistics";
-import { playerStatisticsProfileSchema, type PlayerStatisticsProfile } from "@darts-platform/schemas";
+import { frequentScoresSchema, playerStatisticsProfileSchema, type FrequentScores, type PlayerStatisticsProfile } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
 import { MatchesRepository } from "../matches/matches.repository.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { StatisticsRepository } from "./statistics.repository.js";
+
+/** Fallback-Werte, wenn weder Spieler noch Organisation genug Aufnahmen fuer eine Auswertung haben. */
+const DEFAULT_SCORES = [26, 41, 45, 60, 81, 85] as const;
+/** Ab dieser Aufnahmenanzahl gelten die eigenen Werte einer Person als aussagekraeftig genug. */
+const MINIMUM_VISITS = 30;
 
 @Injectable()
 export class StatisticsService {
@@ -44,5 +49,26 @@ export class StatisticsService {
       ...aggregate,
       generatedAt: new Date(),
     });
+  }
+
+  /**
+   * Die Schnellwerte fuer das Runden-Keypad: bevorzugt die haeufigsten
+   * Aufnahmesummen der Person selbst, sonst der Organisation, sonst ein
+   * fixer Default-Satz. `getData` waere hier ueberdimensioniert - das laedt
+   * alle Matches, Legs und Visits der Person, nur um ihre Existenz zu klaeren.
+   */
+  public async frequentScores(input: { readonly organizationId: string; readonly playerId: string; readonly auth: AuthContext }): Promise<FrequentScores> {
+    await this.access.requirePermission({ organizationId: input.organizationId, userId: input.auth.user.id, permission: "statistics:read" });
+    if (!(await this.repository.playerExists(input.organizationId, input.playerId))) {
+      throw new NotFoundException("Spieler nicht gefunden.");
+    }
+    const own = await this.repository.visitCount(input.organizationId, input.playerId);
+    const rows =
+      own >= MINIMUM_VISITS
+        ? await this.repository.frequentScores({ organizationId: input.organizationId, playerId: input.playerId, limit: 6 })
+        : await this.repository.frequentScores({ organizationId: input.organizationId, playerId: null, limit: 6 });
+    const source = rows.length < 6 ? "DEFAULT" : own >= MINIMUM_VISITS ? "PLAYER" : "ORGANIZATION";
+    const scores = source === "DEFAULT" ? [...DEFAULT_SCORES] : rows.map((row) => row.points).sort((a, b) => a - b);
+    return frequentScoresSchema.parse({ scores, source });
   }
 }

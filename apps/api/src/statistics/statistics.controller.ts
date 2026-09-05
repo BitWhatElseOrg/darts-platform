@@ -1,5 +1,5 @@
 import { Controller, Get, Inject, Param, ParseUUIDPipe } from "@nestjs/common";
-import type { PlayerStatisticsProfile } from "@darts-platform/schemas";
+import type { FrequentScores, PlayerStatisticsProfile } from "@darts-platform/schemas";
 import { CurrentAuth } from "../auth/current-auth.decorator.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { StatisticsService } from "./statistics.service.js";
@@ -10,5 +10,14 @@ export class StatisticsController {
   @Get()
   public profile(@Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("playerId", ParseUUIDPipe) playerId: string, @CurrentAuth() auth: AuthContext): Promise<PlayerStatisticsProfile> {
     return this.service.profile({ organizationId, playerId, auth });
+  }
+
+  @Get("frequent-scores")
+  public frequentScores(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("playerId", ParseUUIDPipe) playerId: string,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<FrequentScores> {
+    return this.service.frequentScores({ organizationId, playerId, auth });
   }
 }
