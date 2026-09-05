@@ -37,7 +37,11 @@ export function VisitConfirmation({ points, thrownPoints, bust, onBack, onConfir
   readonly onConfirm: () => void;
 }) {
   const confirmRef = useRef<HTMLButtonElement>(null);
-  const partiallyCounted = !bust && thrownPoints !== points;
+  // Auch ein Bust kann angerechnete und geworfene Summe auseinanderlaufen
+  // lassen: unter Double In eroeffnet ein Doppel mitten in der Aufnahme, und
+  // die Wuerfe davor zaehlen nicht. Dann gehoeren beide Zahlen auf die
+  // Flaeche, nicht nur eine.
+  const partiallyCounted = thrownPoints !== points;
 
   useEffect(() => {
     confirmRef.current?.focus();
