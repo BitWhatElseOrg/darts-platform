@@ -1,3 +1,11 @@
+/**
+ * Die League-Engine bildet den Ligabetrieb als reine Domänenlogik ab:
+ * Begegnungsvorlage, Aufstellung, Wertung und Tabelle. Verbindliche fachliche
+ * Grundlage ist das VFC-Liga-Reglement im Repository-Root
+ * (`LIGA-REGLEMENT.md`); Regelverweise im Code nennen die jeweilige Ziffer,
+ * zum Beispiel `Reglement 2.2.8` für die Reihenfolge der Spiele.
+ */
+
 export { LeagueValidationError } from "./errors.js";
 export {
   validateEncounterTemplate,

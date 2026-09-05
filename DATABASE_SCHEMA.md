@@ -209,6 +209,10 @@ valid_to timestamptz
 PRIMARY KEY (team_id, player_id)
 ```
 
+Kader und Spielberechtigung folgen dem
+[VFC-Liga-Reglement](./LIGA-REGLEMENT.md); dort steht auch, welche Rolle eine
+Mannschaft je Begegnung genau einmal besetzt.
+
 ---
 
 # 4. Competitions
@@ -855,7 +859,10 @@ UNIQUE (organization_id, scope, key)
 
 # 20. Spätere Liga-Tabellen
 
-Ab Phase 9:
+Die Team-Begegnung selbst ist bereits umgesetzt (`competitions` vom Typ
+`LEAGUE`, Begegnungsvorlage, `encounters` und `encounter_slots`) und folgt dem
+[VFC-Liga-Reglement](./LIGA-REGLEMENT.md). Offen bleiben die Saison- und
+Tabellenstrukturen, ab Phase 9:
 
 ```text
 seasons

@@ -145,9 +145,12 @@ Kernmodule:
 ```text
 Organization
 Player
+Team
 Competition
 Tournament
 TournamentStage
+League
+Encounter
 Match
 Scoring
 Board
@@ -160,6 +163,14 @@ Audit
 ```
 
 Jedes Modul besitzt eine klar definierte öffentliche Schnittstelle.
+
+Verbindliche fachliche Grundlage für League und Encounter – Spielvarianten,
+Spielberechtigung, Aufstellung, Rundenfolge, Wertung und Sanktionen – ist das
+[VFC-Liga-Reglement](./LIGA-REGLEMENT.md) im Repository. Regeln aus diesem
+Dokument werden in `league-engine` abgebildet und im Code mit der jeweiligen
+Ziffer belegt, zum Beispiel `Reglement 2.2.8`. Weicht eine Implementierung
+bewusst davon ab, gehört die Begründung in eine Spec oder ein ADR – nicht in
+einen stillen Sonderfall.
 
 ---
 
