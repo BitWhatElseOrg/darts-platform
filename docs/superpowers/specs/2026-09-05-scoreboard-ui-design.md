@@ -217,11 +217,35 @@ getippte Zahl steht gross über dem Feld. Werte über 180 oder rechnerisch
 unmögliche Summen sperren die Absendetaste, geprüft mit derselben
 Attainability-Regel wie in der Engine. Leere Eingabe plus Rücktaste ist Undo.
 
-Entspricht die Eingabe genau dem Restscore und ist `Checkout-Darts bestätigen`
-an, folgt der bestehende Checkout-Dialog in neuer Gestalt: benötigte Darts als
-drei grosse Tasten, Doppelfeld darunter und vorbelegt, wenn rechnerisch nur eine
-Möglichkeit bleibt. Ist die Einstellung aus, geht die Aufnahme mit drei Darts
-und ohne Doppelangabe raus.
+Trifft die Eingabe rechnerisch genau den Restscore und ist die Ausgangsregel
+nicht `SINGLE`, folgt immer der bestehende Checkout-Dialog in neuer Gestalt —
+unabhängig von `Checkout-Darts bestätigen`. Die Einstellung entscheidet nur
+noch, ob der Dialog zusätzlich die Zahl der benötigten Darts abfragt: aus,
+fragt er lediglich nach dem getroffenen Segment (oder „kein Finish
+getroffen"); an, fragt er zusätzlich die Darts als drei grosse Tasten ab,
+vorbelegt, wenn rechnerisch nur eine Möglichkeit bleibt. Das Doppelfeld ist in
+beiden Fällen Teil des Dialogs. Ohne Segmentangabe sendet der Dialog stets
+drei Darts.
+
+### Abweichung von der ursprünglichen Fassung
+
+Ein früherer Entwurf dieses Abschnitts liess den Checkout-Dialog nur bei
+aktiver Einstellung erscheinen und schickte die Aufnahme sonst mit drei Darts
+und ohne Doppelangabe raus. Unter `outRule: "DOUBLE"` — dem Datenbank-Standard
+jedes Matches — wertet die Scoring-Engine eine solche Aufnahme als Bust:
+`validDoubleCheckout` und `closesLeg("DOUBLE", …)` sind falsch, und `isBust`
+schlägt über `tentative === 0 && !validCheckout` zu, ohne Fehlermeldung und mit
+unverändertem Restscore. Unter der Standardregel liesse sich damit kein Leg
+gewinnen. Der Checkout-Schritt ist deshalb erzwungen, sobald eine Aufnahme
+rechnerisch genau auf null führt und die Ausgangsregel nicht `SINGLE` ist; die
+Einstellung `Checkout-Darts bestätigen` wirkt nur noch auf ihre wörtliche
+Bedeutung, die Frage nach der Dart-Zahl.
+
+Damit unter `MASTER` weiterhin ein Bust auf exakt null erfassbar ist, trägt
+das Visit-Kommando ein optionales Feld `checkoutMissed`, mit dem der Aufrufer
+ausdrücklich sagt, dass kein gültiger Finish-Wurf sass. Ohne das Feld rät die
+Engine unter `MASTER` per Heuristik weiter wie bisher; gespeicherte Kommandos
+werden beim Replay unverändert gewertet.
 
 ### Bestätigung
 
