@@ -954,6 +954,7 @@ EOF
 - Produces:
   - `frequentScoresSchema` mit `{ scores: number[]; source: "PLAYER" | "ORGANIZATION" | "DEFAULT" }`
   - `StatisticsService.frequentScores({ organizationId, playerId, auth }): Promise<FrequentScores>`
+  - `StatisticsRepository.playerExists(organizationId, playerId): Promise<boolean>`
   - Route `GET organizations/:organizationId/players/:playerId/statistics/frequent-scores`
 
 - [ ] **Step 1: Write the failing test**
@@ -1018,6 +1019,15 @@ In `statistics.repository.ts`:
     return rows.map((row) => ({ points: row.points, count: Number(row.count) }));
   }
 
+  public async playerExists(organizationId: string, playerId: string): Promise<boolean> {
+    const [row] = await this.database.database
+      .select({ id: players.id })
+      .from(players)
+      .where(and(eq(players.organizationId, organizationId), eq(players.id, playerId)))
+      .limit(1);
+    return row !== undefined;
+  }
+
   public async visitCount(organizationId: string, playerId: string): Promise<number> {
     const [row] = await this.database.database
       .select({ count: count() })
@@ -1035,8 +1045,11 @@ const MINIMUM_VISITS = 30;
 
   public async frequentScores(input: { readonly organizationId: string; readonly playerId: string; readonly auth: AuthContext }): Promise<FrequentScores> {
     await this.access.requirePermission({ organizationId: input.organizationId, userId: input.auth.user.id, permission: "statistics:read" });
-    const data = await this.repository.getData(input.organizationId, input.playerId);
-    if (data === null) throw new NotFoundException("Spieler nicht gefunden.");
+    // Nicht ueber `getData` pruefen: das laedt alle Matches, Legs und Visits
+    // der Person, nur um ihre Existenz zu klaeren.
+    if (!await this.repository.playerExists(input.organizationId, input.playerId)) {
+      throw new NotFoundException("Spieler nicht gefunden.");
+    }
     const own = await this.repository.visitCount(input.organizationId, input.playerId);
     const rows = own >= MINIMUM_VISITS
       ? await this.repository.frequentScores({ organizationId: input.organizationId, playerId: input.playerId, limit: 6 })
@@ -1108,7 +1121,12 @@ export const scoreboardSettingsStorageKey: string;
 
 ```ts
 import { describe, expect, it } from "vitest";
-import { defaultScoreboardSettings, parseScoreboardSettings } from "./scoreboard-settings";
+import {
+  defaultScoreboardSettings,
+  parseScoreboardSettings,
+  readScoreboardSettings,
+  writeScoreboardSettings,
+} from "./scoreboard-settings";
 
 describe("parseScoreboardSettings", () => {
   it("liefert die Standardwerte ohne gespeicherten Wert", () => {
@@ -1133,6 +1151,18 @@ describe("parseScoreboardSettings", () => {
     expect(defaultScoreboardSettings).toEqual({
       mode: "DART", confirmScore: true, autoConfirm: false, confirmCheckoutDarts: true,
     });
+  });
+});
+
+describe("readScoreboardSettings", () => {
+  it("liefert denselben Schnappschuss, solange nichts geschrieben wurde", () => {
+    expect(readScoreboardSettings()).toBe(readScoreboardSettings());
+  });
+
+  it("liefert nach dem Schreiben den neuen Stand", () => {
+    const next = { mode: "ROUND", confirmScore: false, autoConfirm: false, confirmCheckoutDarts: false } as const;
+    writeScoreboardSettings(next);
+    expect(readScoreboardSettings()).toEqual(next);
   });
 });
 ```
@@ -1184,16 +1214,27 @@ export function subscribeScoreboardSettings(listener: () => void): () => void {
   return () => { listeners.delete(listener); };
 }
 
+/**
+ * `useSyncExternalStore` vergleicht den Schnappschuss per Referenz. Wuerde hier
+ * bei jedem Aufruf ein frisches Objekt entstehen, liefe React endlos neu.
+ * Deshalb haelt das Modul den gelesenen Stand und ersetzt ihn nur beim
+ * Schreiben.
+ */
+let snapshot: ScoreboardSettings | null = null;
+
 export function readScoreboardSettings(): ScoreboardSettings {
   if (typeof window === "undefined") return defaultScoreboardSettings;
+  if (snapshot !== null) return snapshot;
   try {
-    return parseScoreboardSettings(window.localStorage.getItem(scoreboardSettingsStorageKey));
+    snapshot = parseScoreboardSettings(window.localStorage.getItem(scoreboardSettingsStorageKey));
   } catch {
-    return defaultScoreboardSettings;
+    snapshot = defaultScoreboardSettings;
   }
+  return snapshot;
 }
 
 export function writeScoreboardSettings(settings: ScoreboardSettings): void {
+  snapshot = settings;
   if (typeof window !== "undefined") {
     try {
       window.localStorage.setItem(scoreboardSettingsStorageKey, JSON.stringify(settings));
@@ -1497,11 +1538,7 @@ EOF
 ```ts
 export function appendRoundDigit(current: string, digit: number): string;
 export function removeRoundDigit(current: string): string;
-export function isRoundEntrySubmittable(input: {
-  readonly value: string;
-  readonly remaining: number;
-  readonly outRule: "SINGLE" | "DOUBLE" | "MASTER";
-}): boolean;
+export function isRoundEntrySubmittable(value: string): boolean;
 ```
 
 - [ ] **Step 1: Write the failing test**
@@ -1536,27 +1573,27 @@ describe("removeRoundDigit", () => {
 
 describe("isRoundEntrySubmittable", () => {
   it("lehnt eine leere Eingabe ab", () => {
-    expect(isRoundEntrySubmittable({ value: "", remaining: 501, outRule: "DOUBLE" })).toBe(false);
+    expect(isRoundEntrySubmittable("")).toBe(false);
   });
 
   it("lehnt eine mit drei Darts unmögliche Summe ab", () => {
-    expect(isRoundEntrySubmittable({ value: "179", remaining: 501, outRule: "DOUBLE" })).toBe(false);
+    expect(isRoundEntrySubmittable("179")).toBe(false);
   });
 
   it("nimmt 180 an", () => {
-    expect(isRoundEntrySubmittable({ value: "180", remaining: 501, outRule: "DOUBLE" })).toBe(true);
+    expect(isRoundEntrySubmittable("180")).toBe(true);
   });
 
   it("nimmt eine Null an", () => {
-    expect(isRoundEntrySubmittable({ value: "0", remaining: 501, outRule: "DOUBLE" })).toBe(true);
+    expect(isRoundEntrySubmittable("0")).toBe(true);
   });
 
-  it("lehnt mehr Punkte ab, als der Rest hergibt", () => {
-    expect(isRoundEntrySubmittable({ value: "60", remaining: 40, outRule: "DOUBLE" })).toBe(false);
+  it("nimmt eine Überwerfung an, weil der Bust ein gültiger Ausgang ist", () => {
+    expect(isRoundEntrySubmittable("60")).toBe(true);
   });
 
-  it("lehnt einen Rest von eins bei Double Out ab", () => {
-    expect(isRoundEntrySubmittable({ value: "39", remaining: 40, outRule: "DOUBLE" })).toBe(false);
+  it("nimmt einen Rest von eins an, weil auch das ein Bust ist", () => {
+    expect(isRoundEntrySubmittable("39")).toBe(true);
   });
 });
 ```
@@ -1582,22 +1619,16 @@ export function removeRoundDigit(current: string): string {
 }
 
 /**
- * Was die Engine ohnehin ablehnen wuerde, nimmt die Flaeche gar nicht erst an.
- * Der Bust bleibt erlaubt: er ist ein gueltiger Ausgang, keine Fehleingabe.
+ * Gesperrt wird nur, was mit drei Darts gar nicht zu werfen ist. Eine
+ * Ueberwerfung und ein Rest von eins bleiben erlaubt: das sind Busts, also
+ * gueltige Ausgaenge, und wer sie nicht erfassen kann, kann nicht zaehlen.
+ * Ueber den Ausgang entscheidet die Engine.
  */
-export function isRoundEntrySubmittable(input: {
-  readonly value: string;
-  readonly remaining: number;
-  readonly outRule: "SINGLE" | "DOUBLE" | "MASTER";
-}): boolean {
-  if (input.value === "") return false;
-  const points = Number(input.value);
+export function isRoundEntrySubmittable(value: string): boolean {
+  if (value === "") return false;
+  const points = Number(value);
   if (!Number.isInteger(points) || points < 0 || points > 180) return false;
-  if (!isAttainableScore(points, 3)) return false;
-  const tentative = input.remaining - points;
-  if (tentative < 0) return false;
-  if (input.outRule !== "SINGLE" && tentative === 1) return false;
-  return true;
+  return isAttainableScore(points, 3);
 }
 ```
 
@@ -1658,6 +1689,8 @@ export function useMatchScoring(input: {
   readonly canScore: boolean;
 }): MatchScoring;
 ```
+
+`Dart` wird im Hook aus `@darts-platform/schemas` importiert, nicht aus der Engine: der Wert wandert als Teil des HTTP-Bodys hinaus, und das Schema ist die Wahrheit über den Body.
 
 **Diese Aufgabe ändert kein Verhalten.** Sie verschiebt den vorhandenen Zustandscode aus `match-scoreboard.tsx` in den Hook, ohne ihn umzuschreiben — mit einer Ausnahme: `submitVisit` reicht ein optionales `darts` mit, das im Body als `darts` landet, und der Offline-Body trägt es mit.
 
