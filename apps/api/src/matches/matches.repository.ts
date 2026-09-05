@@ -5,7 +5,7 @@ import {
   auditEvents, boardControllerLeases, boards, legs, matches, matchParticipantPlayers, matchParticipants, outboxEvents, players, scoreCommands,
   tournamentCommands, tournamentGroups, tournamentMatches,
   tournaments, tournamentStages,
-  visits,
+  visitDarts, visits,
 } from "@darts-platform/database";
 import { ScoringValidationError, createX01Match, executeX01Command, projectX01Match, type InRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
 import type { AbortMatchInput, AbortMatchResponse, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
@@ -34,10 +34,15 @@ type ActorInput = { readonly organizationId: string; readonly matchId: string; r
 const seatSchema = z.union([z.literal(1), z.literal(2)]);
 // `playerId` stammt aus Kommandos, die vor dem Seitenmodell geschrieben wurden;
 // `seat`/`throwerPlayerId` sind die neue Form. Beide müssen lesbar bleiben.
+const storedDartSchema = z.object({
+  segment: z.number().int().min(0).max(25),
+  multiplier: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+});
 const storedSubmitSchema = z.object({
   type: z.literal("SUBMIT_VISIT"), commandId: z.uuid(), playerId: z.uuid().optional(),
   seat: seatSchema.optional(), throwerPlayerId: z.uuid().optional(), points: z.number().int(),
   dartsThrown: z.union([z.literal(1), z.literal(2), z.literal(3)]), checkoutDouble: z.number().int().optional(), checkoutAttempts: z.number().int().min(0).max(3).default(0),
+  darts: z.array(storedDartSchema).min(1).max(3).optional(),
 });
 const storedUndoSchema = z.object({ type: z.literal("UNDO_LAST_VISIT"), commandId: z.uuid(), targetCommandId: z.uuid() });
 const storedAbortSchema = z.object({ type: z.literal("ABORT_MATCH"), commandId: z.uuid(), tournamentMatchId: z.uuid().nullable() });
@@ -74,7 +79,12 @@ function parseStoredCommand(payload: unknown, seatOfPlayer: (playerId: string) =
     type: parsed.type, commandId: parsed.commandId, seat: parsed.seat ?? seatOfPlayer(throwerPlayerId),
     throwerPlayerId, points: parsed.points, dartsThrown: parsed.dartsThrown,
   } as const;
-  return { ...base, checkoutAttempts: parsed.checkoutAttempts, ...(parsed.checkoutDouble === undefined ? {} : { checkoutDouble: parsed.checkoutDouble }) };
+  return {
+    ...base,
+    checkoutAttempts: parsed.checkoutAttempts,
+    ...(parsed.checkoutDouble === undefined ? {} : { checkoutDouble: parsed.checkoutDouble }),
+    ...(parsed.darts === undefined ? {} : { darts: parsed.darts }),
+  };
 }
 
 interface LoadedSide {
@@ -144,6 +154,19 @@ export class MatchesRepository {
       .where(and(eq(visits.organizationId, organizationId), eq(visits.matchId, matchId)))
       .orderBy(desc(visits.sequence));
 
+    const visitIds = visitRows.map(({ visit }) => visit.id);
+    const dartRows = visitIds.length === 0 ? [] : await this.databaseService.database
+      .select()
+      .from(visitDarts)
+      .where(and(eq(visitDarts.organizationId, organizationId), inArray(visitDarts.visitId, visitIds)))
+      .orderBy(asc(visitDarts.visitId), asc(visitDarts.dartIndex));
+    const dartsByVisit = new Map<string, { readonly segment: number; readonly multiplier: 1 | 2 | 3 }[]>();
+    for (const row of dartRows) {
+      const list = dartsByVisit.get(row.visitId) ?? [];
+      list.push({ segment: row.segment, multiplier: row.multiplier as 1 | 2 | 3 });
+      dartsByVisit.set(row.visitId, list);
+    }
+
     const bySeat = new Map(projection.sides.map((side) => [side.seat, side]));
     // Im Doppel trägt ein Sitz zwei Zeilen; die Seite ist die Einheit, nicht die Zeile.
     const participantState = (seat: 1 | 2) => {
@@ -173,9 +196,10 @@ export class MatchesRepository {
         points: visit.points, appliedPoints: visit.appliedPoints, dartsThrown: visit.dartsThrown,
         scoreBefore: visit.scoreBefore, scoreAfter: visit.scoreAfter, checkoutDouble: visit.checkoutDouble,
         checkoutAttempts: visit.checkoutAttempts,
-        // Die Einzelwuerfe kommen aus `visit_darts`; bis der Lesepfad sie
-        // laedt, traegt jede Aufnahme eine leere Liste.
-        darts: [],
+        // Die Einzelwuerfe kommen aus `visit_darts`; Aufnahmen ohne
+        // gespeicherte Wuerfe (z. B. vor Einfuehrung des Felds) tragen eine
+        // leere Liste.
+        darts: dartsByVisit.get(visit.id) ?? [],
         outcome: visit.outcome as "SCORED" | "BUST" | "LEG_WON" | "SET_WON" | "MATCH_WON",
         reverted: visit.revertedAt !== null, createdAt: visit.createdAt,
       })),
@@ -310,7 +334,13 @@ export class MatchesRepository {
       if (commandSide === undefined) {
         throw new ScoringValidationError("INVALID_MATCH_PARTICIPANTS", "The player does not belong to this match.");
       }
-      const command: X01Command = { type: "SUBMIT_VISIT", commandId: input.data.commandId, seat: commandSide.seat, throwerPlayerId: input.data.playerId, points: input.data.points, dartsThrown: input.data.dartsThrown, checkoutAttempts: input.data.checkoutAttempts ?? 0, ...(input.data.checkoutDouble === undefined || input.data.checkoutDouble === null ? {} : { checkoutDouble: input.data.checkoutDouble }) };
+      const command: X01Command = {
+        type: "SUBMIT_VISIT", commandId: input.data.commandId, seat: commandSide.seat,
+        throwerPlayerId: input.data.playerId, points: input.data.points, dartsThrown: input.data.dartsThrown,
+        checkoutAttempts: input.data.checkoutAttempts ?? 0,
+        ...(input.data.checkoutDouble === undefined || input.data.checkoutDouble === null ? {} : { checkoutDouble: input.data.checkoutDouble }),
+        ...(input.data.darts === undefined ? {} : { darts: input.data.darts }),
+      };
       const result = executeX01Command(aggregate, command);
       const applied = result.state.visits.at(-1);
       if (applied === undefined) throw new Error("Visit projection did not return an applied visit.");
@@ -325,6 +355,18 @@ export class MatchesRepository {
         checkoutAttempts: applied.checkoutAttempts,
       }).returning();
       if (createdVisit === undefined) throw new Error("Visit insert did not return a row.");
+      if (applied.darts.length > 0) {
+        await transaction.insert(visitDarts).values(
+          applied.darts.map((dart, index) => ({
+            organizationId: input.organizationId,
+            visitId: createdVisit.id,
+            dartIndex: index + 1,
+            segment: dart.segment,
+            multiplier: dart.multiplier,
+            value: dart.segment * dart.multiplier,
+          })),
+        );
+      }
       const wonLeg = applied.outcome.endsWith("WON");
       await transaction.update(legs).set({ version: leg.version + 1, ...(wonLeg ? { status: "COMPLETED", winnerSeat: applied.seat, completedAt: new Date() } : {}), updatedAt: new Date() }).where(and(eq(legs.organizationId, input.organizationId), eq(legs.id, leg.id)));
       if (wonLeg && result.state.status === "IN_PROGRESS") await transaction.insert(legs).values({ organizationId: input.organizationId, matchId: input.matchId, legNumber: result.state.legNumber, startingSeat: result.state.legStartingSeat });

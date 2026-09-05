@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { parseApplicationEnvironment } from "@darts-platform/config";
-import { auditEvents, boardControllerLeases, boards, legs, matches, matchParticipantPlayers, memberships, organizations, outboxEvents, players, scoreCommands, users, visits } from "@darts-platform/database";
+import { auditEvents, boardControllerLeases, boards, legs, matches, matchParticipantPlayers, memberships, organizations, outboxEvents, players, scoreCommands, users, visitDarts, visits } from "@darts-platform/database";
 import type { AuthContext } from "../auth/auth.types.js";
 import { DatabaseService } from "../database/database.service.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
@@ -175,5 +175,58 @@ describe("persistent X01 match", () => {
     expect(sideRows.map((side) => side.playerId).sort()).toEqual(
       [playerOneId, playerTwoId].sort(),
     );
+  });
+
+  it("persists the single darts of a visit and returns them", async () => {
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    const commandId = randomUUID();
+    const state = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: {
+        commandId, expectedVersion: 0, playerId: playerOneId,
+        points: 100, dartsThrown: 3,
+        darts: [{ segment: 20, multiplier: 3 }, { segment: 20, multiplier: 2 }, { segment: 0, multiplier: 1 }],
+      },
+    });
+
+    expect(state.visits[0]?.darts).toEqual([
+      { segment: 20, multiplier: 3 },
+      { segment: 20, multiplier: 2 },
+      { segment: 0, multiplier: 1 },
+    ]);
+
+    const stored = await databaseService.database
+      .select()
+      .from(visitDarts)
+      .where(and(eq(visitDarts.organizationId, organizationId), eq(visitDarts.visitId, state.visits[0]!.id)));
+    expect(stored).toHaveLength(3);
+    expect(stored.map((row) => row.value).reduce((sum, value) => sum + value, 0)).toBe(100);
+  });
+
+  it("does not duplicate darts when the same command arrives twice", async () => {
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    const data = {
+      commandId: randomUUID(), expectedVersion: 0, playerId: playerOneId,
+      points: 60, dartsThrown: 3 as const,
+      darts: [{ segment: 20, multiplier: 1 as const }, { segment: 20, multiplier: 1 as const }, { segment: 20, multiplier: 1 as const }],
+    };
+    const first = await service.submitVisit({ organizationId, matchId, auth, audit, data });
+    await service.submitVisit({ organizationId, matchId, auth, audit, data });
+
+    const stored = await databaseService.database
+      .select()
+      .from(visitDarts)
+      .where(and(eq(visitDarts.organizationId, organizationId), eq(visitDarts.visitId, first.visits[0]!.id)));
+    expect(stored).toHaveLength(3);
   });
 });
