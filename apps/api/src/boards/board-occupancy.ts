@@ -30,6 +30,42 @@ export type BoardOccupancyExecutor = Database | DatabaseTransaction;
 export const BOARD_IN_PROGRESS_UNIQUE = "matches_board_in_progress_unique";
 
 /**
+ * Der Name des Unique-Index, der einen doppelten Board-Namen je Organisation
+ * verhindert (`packages/database/src/schema.ts`).
+ */
+export const BOARD_NAME_UNIQUE = "boards_organization_name_unique";
+
+/**
+ * Gemeinsame Hilfsfunktion fuer beide Unique-Indexe dieser Datei: Drizzle
+ * verpackt den Treiberfehler, die Postgres-Kennung (`code`, `constraint_name`)
+ * steht erst in `cause` -- ggf. mehrfach verschachtelt. Ein Vergleich auf
+ * `error.message` ist bruechig, weil die aeussere `DrizzleQueryError`-Meldung
+ * nur die SQL-Anweisung enthaelt, nicht den Constraint-Namen.
+ */
+function matchesUniqueViolation(error: unknown, constraintName: string): boolean {
+  for (let candidate: unknown = error, depth = 0; depth < 5; depth += 1) {
+    if (typeof candidate !== "object" || candidate === null) return false;
+    const row = candidate as {
+      readonly code?: unknown;
+      readonly constraint_name?: unknown;
+      readonly cause?: unknown;
+    };
+    if (row.code === "23505" && row.constraint_name === constraintName) return true;
+    candidate = row.cause;
+  }
+  return false;
+}
+
+/**
+ * Der Unique-Index ist die letzte Klammer, wenn zwei Anfragen gleichzeitig
+ * denselben Board-Namen in derselben Organisation anlegen wollen. Sein
+ * Verstoss ist fachlich ein Namenskonflikt und wird als solcher beantwortet.
+ */
+export function isBoardNameConflict(error: unknown): boolean {
+  return matchesUniqueViolation(error, BOARD_NAME_UNIQUE);
+}
+
+/**
  * Turnier und Liga schreiben in getrennte Tabellen; kein Fremdschluessel
  * verbindet sie. Eine Scheibe gilt deshalb erst dann als frei, wenn weder ein
  * Turniermatch noch ein Ligaslot darauf laeuft. Beide Quellen zaehlen.
@@ -150,16 +186,5 @@ export async function lockPlayers(
  * erreicht den Client nie.
  */
 export function isBoardInProgressConflict(error: unknown): boolean {
-  // Drizzle verpackt den Treiberfehler; die Kennung steht erst in `cause`.
-  for (let candidate: unknown = error, depth = 0; depth < 5; depth += 1) {
-    if (typeof candidate !== "object" || candidate === null) return false;
-    const row = candidate as {
-      readonly code?: unknown;
-      readonly constraint_name?: unknown;
-      readonly cause?: unknown;
-    };
-    if (row.code === "23505" && row.constraint_name === BOARD_IN_PROGRESS_UNIQUE) return true;
-    candidate = row.cause;
-  }
-  return false;
+  return matchesUniqueViolation(error, BOARD_IN_PROGRESS_UNIQUE);
 }

@@ -4,6 +4,7 @@ import { auditEvents, boards } from "@darts-platform/database";
 import { boardListSchema, boardSchema, type BoardResponse, type CreateBoardInput } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
+import { isBoardNameConflict } from "./board-occupancy.js";
 import { DatabaseService } from "../database/database.service.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 
@@ -30,7 +31,9 @@ export class BoardsService {
       });
       return boardSchema.parse(board);
     } catch (error) {
-      if (error instanceof Error && error.message.includes("boards_organization_name_unique")) throw new ConflictException("A board with this name already exists.");
+      if (isBoardNameConflict(error)) {
+        throw new ConflictException({ code: "BOARD_NAME_TAKEN", message: "A board with this name already exists." });
+      }
       throw error;
     }
   }

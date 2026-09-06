@@ -81,20 +81,12 @@ describe("boards", () => {
 
   /**
    * Der Unique-Index `boards_organization_name_unique` ist die eigentliche
-   * Schranke; der Service uebersetzt ihn in 409, damit die Flaeche eine
-   * verstaendliche Meldung zeigt statt einer Datenbankfehlermeldung.
-   */
-  /**
-   * BEKANNTER BEFUND (nicht Teil dieser Aufgabe, siehe Task-6-Report): Die
-   * Erkennung in `boards.service.ts:33` prueft `error.message` auf den Text
-   * `boards_organization_name_unique`. Der reale Treiber liefert hier aber
-   * einen `DrizzleQueryError`, dessen `message` nur "Failed query: insert
-   * into ..." lautet -- der Constraint-Name steckt ausschliesslich in
-   * `error.cause.message`. Die 409-Uebersetzung greift daher nie; ein
-   * Namenskonflikt wirft aktuell ungefangen durch (500 statt 409). Diese
-   * Erwartung bleibt bewusst auf dem korrekten Soll-Verhalten stehen, damit
-   * der Test rot bleibt, bis der Vergleich in `boards.service.ts` auf
-   * `error.cause` umgestellt ist.
+   * Schranke; der Service uebersetzt ihn ueber `isBoardNameConflict`
+   * (`board-occupancy.ts`) in 409, damit die Flaeche eine verstaendliche
+   * Meldung zeigt statt einer Datenbankfehlermeldung. Die Erkennung folgt der
+   * Fehlerkette (`error.cause`), nicht dem aeusseren `error.message` --
+   * Drizzle verpackt den Treiberfehler, dessen Constraint-Name nur in
+   * `cause` steht.
    */
   it("lehnt einen doppelten Namen mit 409 ab", async () => {
     const name = `Doppel ${randomUUID().slice(0, 8)}`;
@@ -102,7 +94,7 @@ describe("boards", () => {
 
     await expect(
       service.create({ organizationId, auth, audit, data: { name } }),
-    ).rejects.toMatchObject({ status: 409 });
+    ).rejects.toMatchObject({ status: 409, response: { code: "BOARD_NAME_TAKEN" } });
 
     // Der abgelehnte zweite Versuch darf weder eine zweite Zeile noch einen
     // zweiten Audit-Datensatz hinterlassen -- die Transaktion muss vollstaendig
