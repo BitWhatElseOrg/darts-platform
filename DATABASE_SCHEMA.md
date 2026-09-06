@@ -1082,6 +1082,13 @@ Index `(published_at, occurred_at)` bleibt für eine im Worker geplante,
 noch nicht implementierte Aufräumregel stehen, die verarbeitete Zeilen nach
 30 Tagen entfernen soll.
 
+Die Aufräumregel (`apps/worker/src/prune-outbox.ts`) läuft stündlich im Worker
+und entfernt Zeilen, die verteilt **und** statistisch erledigt (oder nie
+statistikrelevant) **und** älter als 30 Tage sind. Eine Zeile, die einer der
+drei Bedingungen nicht genügt, bleibt stehen — die Regel darf nie ein
+unverarbeitetes Ereignis verschlucken. Die fachliche Spur eines Vorgangs liegt
+nicht in der Outbox, sondern in `audit_events` und im jeweiligen Kommandostrom.
+
 Bestandscheck vor dem Ausrollen:
 
 ```sql

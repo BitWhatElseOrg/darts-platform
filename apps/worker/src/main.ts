@@ -4,6 +4,7 @@ import { createDatabaseConnection, legs, matches, matchParticipantPlayers, match
 import { calculatePlayerStatistics } from "@darts-platform/statistics";
 
 import { buildStatisticsMatches } from "./statistics/build-statistics-matches.js";
+import { pruneProcessedOutboxEvents } from "./prune-outbox.js";
 
 const environment = parseApplicationEnvironment(process.env);
 const connection = createDatabaseConnection(environment.DATABASE_URL);
@@ -51,7 +52,7 @@ async function run(): Promise<void> {
   if (working) return;
   working = true;
   try {
-    const events = await connection.database.select().from(outboxEvents).where(and(eq(outboxEvents.eventType, "MATCH_COMPLETED"), isNull(outboxEvents.statisticsProcessedAt))).orderBy(asc(outboxEvents.occurredAt)).limit(20);
+    const events = await connection.database.select().from(outboxEvents).where(and(eq(outboxEvents.eventType, "MATCH_COMPLETED"), isNull(outboxEvents.statisticsProcessedAt))).orderBy(asc(outboxEvents.sequence)).limit(20);
     for (const event of events) {
       const participantRows = await connection.database.select({ playerId: matchParticipantPlayers.playerId, participantId: matchParticipantPlayers.participantId }).from(matchParticipantPlayers).where(and(eq(matchParticipantPlayers.organizationId, event.organizationId), eq(matchParticipantPlayers.matchId, event.aggregateId)));
       // Ein Doppel traegt je Sitz mehr als eine Person und zaehlt in der
@@ -67,7 +68,25 @@ async function run(): Promise<void> {
   finally { working = false; }
 }
 
+let pruning = false;
+
+/**
+ * Stuendlich, nicht sekuendlich: die Aufraeumregel raeumt einen Rueckstand von
+ * Tagen ab und muss nicht schneller laufen als er entsteht.
+ */
+async function prune(): Promise<void> {
+  if (pruning) return;
+  pruning = true;
+  try {
+    const removed = await pruneProcessedOutboxEvents(connection.database, new Date());
+    if (removed > 0) console.log(`Outbox aufgeraeumt: ${removed} verarbeitete Zeilen entfernt`);
+  } catch (error) { console.error("Outbox-Aufraeumen fehlgeschlagen", error); }
+  finally { pruning = false; }
+}
+
 setInterval(() => void run(), 1_000);
 void run();
+setInterval(() => void prune(), 3_600_000);
+void prune();
 process.on("SIGTERM", () => void connection.close().finally(() => process.exit(0)));
 process.on("SIGINT", () => void connection.close().finally(() => process.exit(0)));
