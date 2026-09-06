@@ -73,4 +73,65 @@ describe("Spielerstatistiken", () => {
     // Zwei Darts auf ein Finish, ein erfolgreiches Checkout -> 50 %.
     expect(career).toMatchObject({ checkoutAttempts: 2, checkouts: 1, checkoutPercentage: 50 });
   });
+
+  it("rechnet den Rankingverlauf gegen die Bewertung des tatsaechlichen Gegners", () => {
+    const between = (id: string, completedAt: string, winnerPlayerId: string): StatisticsMatch => ({
+      id, completedAt: new Date(completedAt), winnerPlayerId, outRule: "DOUBLE",
+      participants: [
+        { playerId: "a", displayName: "Anna", legsWon: winnerPlayerId === "a" ? 1 : 0, setsWon: winnerPlayerId === "a" ? 1 : 0 },
+        { playerId: "b", displayName: "Beat", legsWon: winnerPlayerId === "b" ? 1 : 0, setsWon: winnerPlayerId === "b" ? 1 : 0 },
+      ],
+      legs: [],
+      visits: [],
+    });
+    const history = calculatePlayerStatistics("a", [
+      between("m1", "2026-03-01T20:00:00Z", "a"),
+      between("m2", "2026-03-08T20:00:00Z", "a"),
+      between("m3", "2026-03-15T20:00:00Z", "b"),
+    ]).rankingHistory;
+
+    // Von Hand gerechnet, K = 24, Start 1500: nach zwei Siegen gegen eine
+    // schwaecher gewordene Gegnerin bringt der zweite Sieg weniger als der
+    // erste (11 statt 12 Punkte), die Niederlage danach kostet 14.
+    expect(history.map((entry) => entry.rating)).toEqual([1512, 1523, 1509]);
+    expect(history.map((entry) => entry.matchId)).toEqual(["m1", "m2", "m3"]);
+  });
+
+  it("ordnet gleichzeitig beendete Matches deterministisch nach ihrer Id", () => {
+    const sameMoment = (id: string, winnerPlayerId: string): StatisticsMatch => ({
+      id, completedAt: new Date("2026-04-01T20:00:00Z"), winnerPlayerId, outRule: "DOUBLE",
+      participants: [
+        { playerId: "a", displayName: "Anna", legsWon: 0, setsWon: 0 },
+        { playerId: "b", displayName: "Beat", legsWon: 0, setsWon: 0 },
+      ],
+      legs: [],
+      visits: [],
+    });
+    const forwards = calculatePlayerStatistics("a", [sameMoment("m-b", "b"), sameMoment("m-a", "a")]).rankingHistory;
+    const backwards = calculatePlayerStatistics("a", [sameMoment("m-a", "a"), sameMoment("m-b", "b")]).rankingHistory;
+
+    expect(forwards).toEqual(backwards);
+    expect(forwards.map((entry) => entry.matchId)).toEqual(["m-a", "m-b"]);
+  });
+
+  it("sortiert den direkten Vergleich ohne Abhaengigkeit von der Laufzeit-Kollation", () => {
+    const against = (id: string, opponentId: string, opponentName: string): StatisticsMatch => ({
+      id, completedAt: new Date(`2026-05-0${id.slice(-1)}T20:00:00Z`), winnerPlayerId: "a", outRule: "DOUBLE",
+      participants: [
+        { playerId: "a", displayName: "Anna", legsWon: 1, setsWon: 1 },
+        { playerId: opponentId, displayName: opponentName, legsWon: 0, setsWon: 0 },
+      ],
+      legs: [],
+      visits: [],
+    });
+    const headToHead = calculatePlayerStatistics("a", [
+      against("m1", "z", "Zora"),
+      against("m2", "o", "Örs"),
+      against("m3", "b", "Beat"),
+    ]).headToHead;
+
+    // Gleiche Zahl Begegnungen -> Reihenfolge nach der Spieler-Id, nicht nach
+    // einer ICU-Kollation, die je nach Laufzeit anders sortiert.
+    expect(headToHead.map((entry) => entry.opponentPlayerId)).toEqual(["b", "o", "z"]);
+  });
 });

@@ -845,6 +845,14 @@ Beispiel Gruppenranking:
 
 Ranking-Logik darf nicht im Frontend liegen.
 
+Der `rankingHistory`-Verlauf aus `packages/statistics` ist eine
+**Karriereauswertung, keine ligaweite Rangliste**: er rechnet Elo mit K = 24 ab
+1500 paarweise über die Matches der betrachteten Person und führt dabei die
+Bewertung des tatsächlichen Gegners mit. Weil die Eingabe nur die Matches dieser
+Person enthält, bewegt sich die Gegnerbewertung nur in den gemeinsamen
+Begegnungen. Eine ligaweite, konfigurierbare Rangliste gehört in
+`packages/ranking-engine` (ROADMAP Phase 10) und existiert noch nicht.
+
 ---
 
 ## 24. Statistics

@@ -40,8 +40,28 @@ export interface PlayerStatisticsAggregate { readonly career: CareerStatistics; 
 const rounded = (value: number): number => Math.round(value * 100) / 100;
 const average = (points: number, darts: number): number => darts === 0 ? 0 : rounded(points / darts * 3);
 
+/**
+ * Elo-Parameter des Rankingverlaufs. `RATING_K` ist der Ausschlag je Match,
+ * `RATING_START` die Bewertung einer Person ohne Historie.
+ */
+const RATING_K = 24;
+const RATING_START = 1_500;
+
+/**
+ * Reihenfolge der Matches. Sie entscheidet über jede Bewertung, muss also
+ * eindeutig sein: nach Abschlusszeitpunkt, bei Gleichstand nach Id. Der
+ * Vergleich läuft über Code-Units statt `localeCompare` — eine ICU-Kollation
+ * kann je nach Laufzeit anders sortieren, und Server, Worker und Test müssen
+ * dieselbe Zahl liefern.
+ */
+function compareByCompletion(left: StatisticsMatch, right: StatisticsMatch): number {
+  const byTime = left.completedAt.getTime() - right.completedAt.getTime();
+  if (byTime !== 0) return byTime;
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+}
+
 export function calculatePlayerStatistics(playerId: string, matches: readonly StatisticsMatch[]): PlayerStatisticsAggregate {
-  const ordered = [...matches].sort((left, right) => left.completedAt.getTime() - right.completedAt.getTime());
+  const ordered = [...matches].sort(compareByCompletion);
   let totalPoints = 0;
   let totalDarts = 0;
   let firstNinePoints = 0;
@@ -55,7 +75,19 @@ export function calculatePlayerStatistics(playerId: string, matches: readonly St
   const history: MatchHistoryEntry[] = [];
   const headToHead = new Map<string, HeadToHeadEntry>();
   const rankingHistory: RankingHistoryEntry[] = [];
-  let rating = 1_500;
+  /**
+   * Die Bewertung jeder Person, die in dieser Eingabe vorkommt. Beide Seiten
+   * werden je Match fortgeschrieben, damit in der Elo-Formel die Bewertung des
+   * TATSAECHLICHEN Gegners steht und nicht eine feste Zahl.
+   *
+   * Reichweite, die man kennen muss: die Eingabe enthaelt nur Matches der
+   * betrachteten Person. Die Bewertung eines Gegners bewegt sich hier also nur
+   * in den gemeinsamen Begegnungen — sie ist keine ligaweite Elo-Zahl. Die
+   * gehoert in eine eigene Ranking Engine (ARCHITECTURE §23, ROADMAP Phase 10)
+   * und nicht in diese Karriereauswertung.
+   */
+  const ratings = new Map<string, number>();
+  const ratingOf = (id: string): number => ratings.get(id) ?? RATING_START;
 
   for (const match of ordered) {
     const player = match.participants.find((participant) => participant.playerId === playerId);
@@ -99,9 +131,17 @@ export function calculatePlayerStatistics(playerId: string, matches: readonly St
     history.push({ matchId: match.id, playedAt: match.completedAt, opponentPlayerId: opponent.playerId, opponentDisplayName: opponent.displayName, won, legsWon: player.legsWon, legsLost: opponent.legsWon, setsWon: player.setsWon, setsLost: opponent.setsWon, threeDartAverage: average(matchPoints, matchDarts) });
     const previous = headToHead.get(opponent.playerId);
     headToHead.set(opponent.playerId, { opponentPlayerId: opponent.playerId, opponentDisplayName: opponent.displayName, matchesPlayed: (previous?.matchesPlayed ?? 0) + 1, wins: (previous?.wins ?? 0) + (won ? 1 : 0), losses: (previous?.losses ?? 0) + (won ? 0 : 1) });
-    const expected = 1 / (1 + 10 ** ((1_500 - rating) / 400));
-    rating = Math.round(rating + 24 * ((won ? 1 : 0) - expected));
-    rankingHistory.push({ matchId: match.id, recordedAt: match.completedAt, rating });
+    const playerRating = ratingOf(playerId);
+    const opponentRating = ratingOf(opponent.playerId);
+    // Beide Erwartungswerte stehen auf den Bewertungen VOR diesem Match; erst
+    // danach wird geschrieben, sonst rechnete die zweite Seite gegen die
+    // bereits aktualisierte erste.
+    const expected = 1 / (1 + 10 ** ((opponentRating - playerRating) / 400));
+    const nextPlayerRating = Math.round(playerRating + RATING_K * ((won ? 1 : 0) - expected));
+    const nextOpponentRating = Math.round(opponentRating + RATING_K * ((won ? 0 : 1) - (1 - expected)));
+    ratings.set(playerId, nextPlayerRating);
+    ratings.set(opponent.playerId, nextOpponentRating);
+    rankingHistory.push({ matchId: match.id, recordedAt: match.completedAt, rating: nextPlayerRating });
   }
   const wins = history.filter((match) => match.won).length;
   const completedLegCount = ordered.reduce((sum, match) => sum + match.legs.filter((leg) => leg.winnerPlayerId !== null).length, 0);
@@ -120,7 +160,14 @@ export function calculatePlayerStatistics(playerId: string, matches: readonly St
       oneEighties, highFinish, bestLeg: legDarts.length === 0 ? null : Math.min(...legDarts), dartsPerLeg: completedLegCount === 0 ? 0 : rounded(totalDarts / completedLegCount),
     },
     matchHistory: [...history].reverse(),
-    headToHead: [...headToHead.values()].sort((left, right) => right.matchesPlayed - left.matchesPlayed || left.opponentDisplayName.localeCompare(right.opponentDisplayName)),
+    headToHead: [...headToHead.values()].sort(
+      (left, right) =>
+        right.matchesPlayed - left.matchesPlayed ||
+        // Kein `localeCompare`: die ICU-Kollation der Laufzeit darf die
+        // Reihenfolge einer Domaenenauswertung nicht bestimmen. Die Fläche kann
+        // fuer die Anzeige sprachrichtig nachsortieren.
+        (left.opponentPlayerId < right.opponentPlayerId ? -1 : left.opponentPlayerId > right.opponentPlayerId ? 1 : 0),
+    ),
     rankingHistory,
   };
 }
