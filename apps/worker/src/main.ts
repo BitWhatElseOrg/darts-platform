@@ -12,6 +12,12 @@ const outboxLogger: OutboxLogger = {
   emit: (level, fields) => logger.emit(level, fields),
 };
 
+// Startsignal. Der Worker hat keinen Health-Endpunkt; ohne diese Zeile ist von
+// aussen -- im CI-Rauchtest wie im Railway-Log -- nicht zu erkennen, ob er die
+// Umgebung gelesen und die Verbindung aufgebaut hat oder sofort gescheitert
+// ist.
+logger.emit("log", { event: "worker_started" });
+
 let working = false;
 
 async function tick(): Promise<void> {
