@@ -309,10 +309,13 @@ describe("publishOutboxBatch", () => {
   }, 30_000);
 
   /**
-   * Der ganze Stapel ist beim Senden bereits gestempelt: ein Fehlschlag beim
-   * Senden darf trotzdem nicht die uebrigen Ereignisse des Stapels verschlucken.
+   * At-least-once (Ruling 9): gesendet wird vor dem Stempeln, damit ein
+   * Absturz zwischen Versand und Commit nichts verliert. Ein fehlschlagender
+   * Sendevorgang darf trotzdem nicht die uebrigen Ereignisse des Stapels
+   * verschlucken — er bleibt aber selbst ungestempelt, damit der naechste
+   * Durchlauf ihn erneut versucht.
    */
-  it("sendet die uebrigen Ereignisse trotz eines fehlschlagenden Sendevorgangs und wirft gesammelt", async () => {
+  it("sendet die uebrigen Ereignisse trotz eines fehlschlagenden Sendevorgangs, laesst das fehlgeschlagene aber ungestempelt", async () => {
     const created = await database
       .insert(outboxEvents)
       .values(
@@ -326,6 +329,7 @@ describe("publishOutboxBatch", () => {
       )
       .returning({ id: outboxEvents.id });
     const failingId = created[0]?.id ?? "";
+    const succeedingIds = created.slice(1).map((row) => row.id);
     const sent: Recorded[] = [];
     const broadcaster: RealtimeBroadcaster = {
       emit(room, event, payload) {
@@ -343,7 +347,7 @@ describe("publishOutboxBatch", () => {
     );
     expect(ownDelivered).toHaveLength(2);
     const stored = await database
-      .select({ publishedAt: outboxEvents.publishedAt })
+      .select({ id: outboxEvents.id, publishedAt: outboxEvents.publishedAt })
       .from(outboxEvents)
       .where(
         inArray(
@@ -351,6 +355,9 @@ describe("publishOutboxBatch", () => {
           created.map((row) => row.id),
         ),
       );
-    expect(stored.every((row) => row.publishedAt !== null)).toBe(true);
+    const failing = stored.find((row) => row.id === failingId);
+    expect(failing?.publishedAt).toBeNull();
+    const succeeding = stored.filter((row) => succeedingIds.includes(row.id));
+    expect(succeeding.every((row) => row.publishedAt !== null)).toBe(true);
   });
 });

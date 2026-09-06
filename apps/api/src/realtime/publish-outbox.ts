@@ -74,19 +74,34 @@ export async function resolveScope(
 }
 
 /**
- * Beansprucht einen Stapel unpublizierter Ereignisse, stempelt ihn in
- * derselben Transaktion und sendet erst nach dem Commit.
+ * Beansprucht einen Stapel unpublizierter Ereignisse und sendet innerhalb
+ * derselben Transaktion, bevor gestempelt wird.
  *
  * `FOR UPDATE SKIP LOCKED` macht den Stapel exklusiv: eine zweite Replik
  * ueberspringt die gesperrten Zeilen, statt sie ein zweites Mal zu senden
- * (Befund I8). Der Stempel faellt vor dem Commit — nicht danach —, damit kein
- * Fenster bleibt, in dem ein Ereignis gesendet, aber nicht gestempelt ist. Er
- * faellt auch dann, wenn kein Raum zustaendig ist; sonst liefe der Poller ewig
- * gegen dieselbe Zeile.
+ * (Befund I8).
  *
- * Gesendet wird erst NACH dem Commit (AGENTS.md 16): scheitert die
- * Transaktion, hat niemand etwas empfangen, und der naechste Durchlauf nimmt
- * denselben Stapel erneut.
+ * Der Kanal ist bewusst At-least-once, nicht At-most-once: `socket.io.emit`
+ * ist synchron und feuert-und-vergisst, traegt also keine Bestaetigung. Eine
+ * Zeile erst zu stempeln und danach zu senden hiesse, bei einem Absturz
+ * zwischen Commit und Versand bis zu `limit` Ereignisse endgueltig zu
+ * verlieren — und zwei Web-Ansichten stellen ihr Polling ein, solange der
+ * Socket verbunden ist (`apps/web/src/components/live/live-tournament.tsx`,
+ * `apps/web/src/components/league/use-encounter-command.ts`), ein verlorenes
+ * Ereignis liesse sie einfrieren. Deshalb wird zuerst gesendet und erst bei
+ * Erfolg gestempelt: ein Absturz zwischen Versand und Commit sendet beim
+ * naechsten Durchlauf noch einmal. Die Duplikate sind harmlos, weil die
+ * UI-Zustaende, die sie aktualisieren, idempotent sind. Schlaegt der Versand
+ * fehl, bleibt die Zeile ungestempelt und wird im naechsten Durchlauf erneut
+ * versucht; ein dauerhaft fehlschlagendes Ereignis wuerde so bei jedem
+ * Durchlauf erneut versucht — eine Dead-Letter-Behandlung dafuer ist ein
+ * separater, geplanter Schritt.
+ *
+ * Jedes Ereignis wird einzeln abgesichert, damit ein Fehler in der Mitte des
+ * Stapels nur dieses eine Ereignis kostet statt den ganzen Rest zu blockieren.
+ * Ein Ereignis ohne zustaendigen Raum (`resolveScope` liefert `null`) wird wie
+ * bisher gestempelt, ohne gesendet zu werden — sonst liefe der Poller ewig
+ * gegen dieselbe Zeile.
  *
  * Sortiert wird nach `sequence`, nicht nach `occurred_at`: letzteres ist
  * `now()` und damit die Transaktions-STARTzeit, eine laengere Transaktion, die
@@ -97,7 +112,7 @@ export async function publishOutboxBatch(
   broadcaster: RealtimeBroadcaster,
   limit = 100,
 ): Promise<number> {
-  const pending: RealtimeBroadcast[] = [];
+  const failures: { outboxId: string; error: unknown }[] = [];
   const claimed = await database.transaction(async (transaction) => {
     const events = await transaction
       .select()
@@ -107,41 +122,38 @@ export async function publishOutboxBatch(
       .limit(limit)
       .for("update", { skipLocked: true });
     if (events.length === 0) return 0;
+
+    const stampable: string[] = [];
     for (const event of events) {
       const broadcast = toBroadcast(event, await resolveScope(transaction, event));
-      if (broadcast !== null) pending.push(broadcast);
+      if (broadcast === null) {
+        stampable.push(event.id);
+        continue;
+      }
+      try {
+        broadcaster.emit(broadcast.room, broadcast.event, broadcast.payload);
+        stampable.push(event.id);
+      } catch (error) {
+        failures.push({ outboxId: event.id, error });
+      }
     }
-    // isNull ist unter der Zeilensperre redundant, bleibt aber als defensive
-    // Absicherung stehen.
-    await transaction
-      .update(outboxEvents)
-      .set({ publishedAt: new Date() })
-      .where(
-        and(
-          inArray(outboxEvents.id, events.map((event) => event.id)),
-          isNull(outboxEvents.publishedAt),
-        ),
-      );
+
+    if (stampable.length > 0) {
+      // isNull ist unter der Zeilensperre redundant, bleibt aber als defensive
+      // Absicherung stehen.
+      await transaction
+        .update(outboxEvents)
+        .set({ publishedAt: new Date() })
+        .where(and(inArray(outboxEvents.id, stampable), isNull(outboxEvents.publishedAt)));
+    }
     return events.length;
   });
 
-  // Der ganze Stapel ist bereits gestempelt, bevor gesendet wird — das ist
-  // der bewusste At-most-once-Kompromiss dieses Vorgehens. Jedes Ereignis
-  // wird einzeln abgesichert, damit ein Fehler in der Mitte des Stapels nur
-  // dieses eine Ereignis kostet statt den ganzen Rest der Sendung abzubrechen.
-  const failures: { eventId: string; error: unknown }[] = [];
-  for (const broadcast of pending) {
-    try {
-      broadcaster.emit(broadcast.room, broadcast.event, broadcast.payload);
-    } catch (error) {
-      failures.push({ eventId: broadcast.payload.eventId ?? "", error });
-    }
-  }
   if (failures.length > 0) {
     throw new AggregateError(
       failures.map((failure) => failure.error),
       `Realtime-Zustellung fuer ${failures.length} Outbox-Events fehlgeschlagen: ${failures
-        .map((failure) => failure.eventId)
+        .map((failure) => failure.outboxId)
         .join(", ")}`,
     );
   }
