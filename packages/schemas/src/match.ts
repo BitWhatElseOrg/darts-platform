@@ -31,6 +31,14 @@ export const submitVisitSchema = z.object({
   checkoutAttempts: z.number().int().min(0).max(3).optional(),
   controllerId: z.uuid().optional(),
   darts: z.array(dartSchema).min(1).max(3).optional(),
+  /**
+   * Das abschliessende Segment einer Aufnahme ohne Einzelwuerfe, mit
+   * Multiplikator. Verallgemeinert `checkoutDouble`, das per `checkoutValue`
+   * nur D1-D20 und Bull tragen kann und damit kein Triple-Finish unter Master
+   * Out belegen konnte. Optional und rueckwaertskompatibel: fehlt das Feld,
+   * wertet die Engine die Aufnahme unveraendert.
+   */
+  checkoutSegment: dartSchema.optional(),
   // Ausdrueckliche Meldung "kein gueltiges Finish", unabhaengig von der
   // Ausgangsregel -- siehe x01.ts, SubmitVisitCommand.checkoutMissed.
   checkoutMissed: z.boolean().optional(),
@@ -41,7 +49,15 @@ export const submitVisitSchema = z.object({
     { message: "The darts must add up to the visit score.", path: ["darts"] },
   )
   .refine((value) => !(value.checkoutMissed === true && value.checkoutDouble !== undefined && value.checkoutDouble !== null), { message: "Checkout missed cannot be combined with a checkout double.", path: ["checkoutMissed"] })
-  .refine((value) => !(value.checkoutMissed === true && value.darts !== undefined), { message: "Checkout missed cannot be combined with recorded darts.", path: ["checkoutMissed"] });
+  .refine((value) => !(value.checkoutMissed === true && value.darts !== undefined), { message: "Checkout missed cannot be combined with recorded darts.", path: ["checkoutMissed"] })
+  // Das Checkout-Segment ist der Beleg fuer eine Aufnahme OHNE Einzelwuerfe.
+  // Liegen Wuerfe vor, entscheidet der letzte Wurf; ein zweiter, moeglicher-
+  // weise widersprechender Beleg daneben waere nicht entscheidbar. Dieselbe
+  // Ueberlegung gilt gegen `checkoutMissed` (Finish und Nicht-Finish) und
+  // gegen `checkoutDouble` (zwei Segmentangaben zur selben Aufnahme).
+  .refine((value) => !(value.checkoutSegment !== undefined && value.darts !== undefined), { message: "A checkout segment cannot be combined with recorded darts.", path: ["checkoutSegment"] })
+  .refine((value) => !(value.checkoutSegment !== undefined && value.checkoutMissed === true), { message: "A checkout segment cannot be combined with a missed checkout.", path: ["checkoutSegment"] })
+  .refine((value) => !(value.checkoutSegment !== undefined && value.checkoutDouble !== undefined && value.checkoutDouble !== null), { message: "A checkout segment cannot be combined with a checkout double.", path: ["checkoutSegment"] });
 export const undoVisitSchema = z.object({ commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), controllerId: z.uuid().optional() });
 /**
  * Reglement 2.2.9: ab Leg drei entscheidet ein Wurf auf Bull, wer beginnt.
@@ -86,6 +102,15 @@ export const matchParticipantStateSchema = z.object({
   players: z.array(matchSidePlayerSchema).min(1).max(2),
   playerId: z.uuid(), displayName: z.string(), remaining: z.number().int().nonnegative(),
   legsWon: z.number().int().nonnegative(), legsWonInSet: z.number().int().nonnegative(), setsWon: z.number().int().nonnegative(), isActive: z.boolean(),
+  /**
+   * Hat diese Seite im laufenden Leg eroeffnet? Unter Straight In immer wahr,
+   * unter Double In erst ab dem eroeffnenden Doppel. Die Flaeche braucht die
+   * Angabe, um die Eroeffnungsaufnahme Wurf fuer Wurf zu verlangen
+   * (x01.ts, `assertWritableVisit`); der Rueckfall ueber `remaining` waere
+   * unscharf, weil Eroeffnung und Bust in derselben Aufnahme den Reststand
+   * auf dem Startwert stehen lassen.
+   */
+  openedInLeg: z.boolean(),
 });
 export const matchVisitSchema = z.object({
   id: z.uuid(), commandId: z.uuid(), playerId: z.uuid(), playerDisplayName: z.string(),
