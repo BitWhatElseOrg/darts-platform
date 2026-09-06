@@ -1,5 +1,7 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
+
+import { Logger } from "@nestjs/common";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 
@@ -42,4 +44,37 @@ describe("Redis-gestuetzter Rate-Limit-Zaehler", () => {
     expect((await storage.consume(firstKey, rule)).allowed).toBe(false);
     expect((await storage.consume(secondKey, rule)).allowed).toBe(true);
   }, 30_000);
+});
+
+describe("Fail-open bei Redis-Ausfall", () => {
+  it("laesst die Anfrage durch und protokolliert genau einen Fehler", async () => {
+    const errorSpy = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => undefined);
+
+    // Ein Stub statt eines echten geschlossenen Clients: ein `RedisService`,
+    // dessen Verbindung beendet wurde, versucht bei der naechsten Anfrage
+    // erneut zu verbinden (`ensureConnected`) und haengt dabei unter
+    // `reconnectStrategy: false` unzuverlaessig lange — ungeeignet fuer einen
+    // deterministischen Test. Der Stub bildet exakt den Fehlerfall nach, den
+    // `createRedisRateLimitStorage` abfangen soll, ohne einen Seam im
+    // Produktionscode einzufuehren.
+    const rejectingRedisService = {
+      consumeRateLimit: () =>
+        Promise.reject(new Error("Redis nicht erreichbar (Test)")),
+    } as unknown as RedisService;
+    const failOpenStorage = createRedisRateLimitStorage(rejectingRedisService);
+
+    try {
+      const decision = await failOpenStorage.consume(`spec-${randomUUID()}`, {
+        window: 60,
+        max: 1,
+      });
+
+      expect(decision).toEqual({ allowed: true, retryAfter: null });
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
 });

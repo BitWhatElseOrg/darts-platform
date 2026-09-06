@@ -14,9 +14,10 @@ export interface RateLimitDecision {
 
 /**
  * Die Form, die Better Auth als `rateLimit.customStorage` erwartet. Bewusst
- * strukturell nachgebaut statt aus `@better-auth/core` importiert: der Typ
- * liegt dort in einem internen Unterpfad, und die Struktur ist klein genug,
- * dass ein Bruch beim Aktualisieren sofort als Typfehler auffaellt.
+ * strukturell nachgebaut statt aus `@better-auth/core` importiert: das Paket
+ * ist in `apps/api` nur eine transitive Abhaengigkeit (Phantom-Dependency
+ * unter pnpm), und die Struktur ist klein genug, dass ein Bruch beim
+ * Aktualisieren sofort als Typfehler auffaellt.
  */
 export interface RateLimitStorage {
   consume(key: string, rule: RateLimitRule): Promise<RateLimitDecision>;

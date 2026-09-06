@@ -60,10 +60,13 @@ export class RedisService implements OnApplicationShutdown {
   }
 
   /**
-   * Zaehlt eine Anfrage gegen `key` im rollenden Fenster und sagt, ob sie
-   * durchgeht. `INCR` ist atomar; die Lebensdauer wird nur beim ersten
-   * Treffer gesetzt, damit das Fenster nicht bei jeder Anfrage neu beginnt
-   * und ein Dauerbeschuss die Sperre nicht endlos verlaengert.
+   * Zaehlt eine Anfrage gegen `key` in einem festen Fenster und sagt, ob sie
+   * durchgeht. `INCR` ist atomar; die Ablaufzeit wird mit dem Modus `NX`
+   * gesetzt, greift also nur, wenn der Schluessel noch keine Ablaufzeit hat.
+   * Das Fenster beginnt dadurch nicht bei jeder Anfrage neu — und ein
+   * Schluessel, der seine Ablaufzeit verloren hat (etwa weil der Prozess
+   * zwischen `INCR` und `EXPIRE` abgestuerzt ist), heilt sich bei der
+   * naechsten Anfrage von selbst, statt fuer immer gesperrt zu bleiben.
    */
   public async consumeRateLimit(
     key: string,
@@ -74,10 +77,7 @@ export class RedisService implements OnApplicationShutdown {
 
     const namespacedKey = `rate-limit:${key}`;
     const count = await this.client.incr(namespacedKey);
-
-    if (count === 1) {
-      await this.client.expire(namespacedKey, windowSeconds);
-    }
+    await this.client.expire(namespacedKey, windowSeconds, "NX");
 
     if (count <= max) {
       return { allowed: true, retryAfter: null };
