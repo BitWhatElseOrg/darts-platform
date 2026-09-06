@@ -47,4 +47,25 @@ export default tseslint.config(
       "@next/next/no-html-link-for-pages": "off",
     },
   },
+  {
+    // Rollenlisten gehoeren nicht in die Oberflaeche. Vor dieser Regel
+    // pruefte die Oberflaeche an neun Stellen ["OWNER", "ADMIN", ...]
+    // .includes(role) -- eine Kopie des Berechtigungsmodells, die bei jeder
+    // Aenderung an `rolePermissions` von Hand nachzuziehen waere
+    // (AGENTS.md §4, §25). Der Selektor trifft nur Array-Literale, die einen
+    // Rollennamen enthalten; ein gewoehnliches `[a, b].includes(c)` bleibt
+    // erlaubt.
+    files: ["apps/web/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            'MemberExpression[property.name="includes"] > ArrayExpression > Literal[value=/^(OWNER|ADMIN|TOURNAMENT_DIRECTOR|SCORER|MEMBER|VIEWER)$/]',
+          message:
+            "Rollenliste in der Oberflaeche: hasOrganizationPermission(organization.role, \"<permission>\") aus @darts-platform/domain verwenden statt eine Rollenliste zu kopieren.",
+        },
+      ],
+    },
+  },
 );
