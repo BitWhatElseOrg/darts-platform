@@ -593,6 +593,31 @@ ohne dieses Feld werden unverändert gewertet wie bisher. Es schliesst sich
 mit `checkoutDouble` und mit explizit übergebenen Einzelwürfen (`darts`)
 gegenseitig aus.
 
+### Visit-Kommando: `checkoutSegment`
+
+Dasselbe Kommando trägt ausserdem das optionale Feld `checkoutSegment`
+(`{ segment, multiplier }` wie ein einzelner Wurf). Es benennt das
+abschliessende Segment einer Aufnahme **ohne** Einzelwürfe und verallgemeinert
+damit `checkoutDouble`, das über `checkoutValue` nur D1–D20 und Bull kodieren
+kann: ein Triple-Finish unter der Ausgangsregel `MASTER` (Reglement 1.1,
+Klasse B) liess sich vorher gar nicht belegen.
+
+Gewertet wird es wie der letzte Wurf der Aufnahme — `closesLegWithDarts`
+entscheidet über den Legabschluss —, zusätzlich muss sein Wert in der
+Rundensumme enthalten und der Rest mit den übrigen Darts erreichbar sein. Ein
+gemeldetes Doppel füllt weiterhin `visits.checkout_double`; ein Triple lässt
+die Spalte auf `NULL`, sie kann kein Triple tragen.
+
+`checkoutSegment` ist optional und abwärtskompatibel: gespeicherte Kommandos
+ohne dieses Feld werden unverändert gewertet. Es schliesst sich mit `darts`,
+`checkoutMissed` und `checkoutDouble` gegenseitig aus — zwei Belege zur
+selben Aufnahme wären nicht entscheidbar.
+
+Die Scoringfläche sendet es unter `MASTER` für Doppel wie Triple, unter
+`DOUBLE` bleibt es beim bestehenden `checkoutDouble`
+(`checkoutCommandFields` in
+[`apps/web/src/lib/round-entry.ts`](apps/web/src/lib/round-entry.ts)).
+
 ### Visit-Kommando: `checkoutAttempts` — zwei Einheiten in einer Spalte
 
 `checkoutAttempts` trägt seit der Einführung der Einzelwürfe **je nach
