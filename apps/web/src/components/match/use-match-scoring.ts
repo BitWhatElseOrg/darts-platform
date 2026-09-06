@@ -13,8 +13,8 @@ import {
   nextReplayable,
   queueBlocksControl,
   queueSaveFailureMessage,
+  replayChained,
   replayFailure,
-  replayWithCurrentVersion,
   withCurrentExpectedVersion,
   type ReplayOutcome,
 } from "@/lib/offline-replay";
@@ -126,13 +126,10 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     replayingRef.current = true;
     setReplaying(true);
     // Zaehlt, wie viele Kommandos in diesem Durchgang tatsaechlich uebertragen
-    // wurden -- der Effekt unten feuert `replay()` bei jeder Versionsaenderung
-    // erneut (auch nach einer online abgesetzten Aufnahme, deren Mutation
-    // `refresh()` schon selbst ausgeloest hat). Ohne diese Zaehlung invalidiert
-    // das `finally` unten die fuenf Query-Gruppen ein zweites Mal, obwohl die
-    // Warteschlange in diesem Durchgang leer war -- doppelte Refetch-Last auf
-    // der gepollten Scoringflaeche fuer nichts (Re-Review-Befund F2, "doppelter
-    // Refresh").
+    // wurden. Bei einem leeren Durchgang bleibt er 0, und das `finally`
+    // invalidiert die fuenf Query-Gruppen gar nicht erst -- ohne diese
+    // Zaehlung gab es eine doppelte Refetch-Last auf der gepollten
+    // Scoringflaeche fuer nichts (Re-Review-Befund F2, "doppelter Refresh").
     let sentCount = 0;
     // Ob das Lesen dieses Durchgangs geklappt hat. Scheitert es, darf das
     // `finally` unten nicht sofort erneut lesen: gelingt der zweite Versuch,
@@ -153,19 +150,25 @@ export function useMatchScoring({ organizationId, match, canScore }: {
       // entschieden hat. Ein Filter uebersprang ihn beim naechsten Auslauf und
       // setzte seinen Nachfolger in falscher Reihenfolge ab.
       //
-      // `replayWithCurrentVersion` haelt die `expectedVersion` jeder Aufnahme
-      // aktuell: die erste bekommt `match.version`, jede folgende die Version
-      // aus der Antwort auf die vorherige. Vorher trug jede Aufnahme dieselbe,
-      // beim Erfassen eingefrorene `match.version` in ihrer gespeicherten
-      // Nutzlast -- nur die erste kam durch, alle folgenden konfligierten
-      // sofort (PR-Agent-Befund F2 / Gesamtaudit C11, "Stale Versions").
-      ({ sentCount } = await replayWithCurrentVersion(nextReplayable(commands), match.version, async (command, expectedVersion): Promise<ReplayOutcome> => {
+      // `replayChained` verkettet die `expectedVersion`: die erste Aufnahme
+      // sendet die beim Erfassen gespeicherte Version -- den Serverstand, auf
+      // dem sie fachlich beruht --, jede folgende die Version aus der Antwort
+      // auf die vorherige. Vorher trug jede Aufnahme dieselbe eingefrorene
+      // Version, und nur die erste kam durch (PR-Agent-Befund F2 /
+      // Gesamtaudit C11, "Stale Versions"); danach bekam umgekehrt die erste
+      // die aktuelle `match.version` untergeschoben und ging auch dann durch,
+      // wenn inzwischen ein anderes Geraet gescort hatte -- die
+      // Divergenzerkennung war fuer den Kopf ausgehebelt (Runde 8, Befund A).
+      ({ sentCount } = await replayChained(nextReplayable(commands), async (command, chainedVersion): Promise<ReplayOutcome> => {
         let result: MatchStateResponse;
         try {
           result = await apiRequest({
             path: command.path,
             method: "POST",
-            body: withCurrentExpectedVersion(command.body, expectedVersion),
+            // Kopf (`chainedVersion === null`): gespeicherte Version
+            // unveraendert. Nachfolger: die Version aus der Antwort auf den
+            // Vorgaenger.
+            body: chainedVersion === null ? command.body : withCurrentExpectedVersion(command.body, chainedVersion),
             schema: matchStateSchema,
           });
         } catch (error) {
@@ -203,18 +206,17 @@ export function useMatchScoring({ organizationId, match, canScore }: {
       }));
     } finally {
       if (queueWasRead) await refreshQueue();
-      // Kein Refresh bei leerem Durchgang: sonst verdoppelt der Versions-
-      // Effekt unten (Abhaengigkeit `match.version`) nach jeder online
-      // gesendeten Aufnahme den Refetch-Sturm -- die Mutation hat den
-      // Serverstand schon selbst invalidiert (`onSuccess` in `submit`/`undo`/
-      // `abort`), und diese Wiedergabe findet danach eine leere Warteschlange
-      // vor. Bei tatsaechlich gesendeten Kommandos bleibt der Refresh wie
-      // gehabt bestehen.
+      // Kein Refresh bei leerem Durchgang: die Mutationen invalidieren den
+      // Serverstand schon selbst (`onSuccess` in `submit`/`undo`/`abort`), und
+      // eine Wiedergabe ohne Warteschlange haette nichts nachzuladen.
       if (sentCount > 0) await refresh();
       setReplaying(false);
       replayingRef.current = false;
     }
-  }, [markQueuedOutcome, match.version, readQueue, refresh, refreshQueue, removeAcceptedQueued]);
+    // `match.version` steht bewusst nicht mehr in den Abhaengigkeiten: die
+    // Wiedergabe liest die Version nicht mehr, und der Effekt unten soll nicht
+    // bei jeder Versionsaenderung erneut feuern.
+  }, [markQueuedOutcome, readQueue, refresh, refreshQueue, removeAcceptedQueued]);
 
   useEffect(() => {
     const becameOnline = () => { setOnline(true); void replay(); };

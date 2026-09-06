@@ -25,19 +25,23 @@ export interface AssignmentQueueEntry {
   readonly matchId: string;
   readonly boardId: string;
   /**
-   * Die beim Einreihen gespeicherte Version -- nur ein Anzeigehinweis und
-   * kann veraltet sein. Gesendet wird sie nicht mehr: seit PR-Agent-Befund F2
-   * ("Stale Versions") baut die Wiedergabe die tatsaechliche
-   * `expectedVersion` aus dem zuletzt bestaetigten Serverstand
-   * (`offline-replay.ts`, `replayWithCurrentVersion`).
+   * Die beim Einreihen gespeicherte Version: der Turnierstand, den die
+   * Zentrale zuletzt gesehen hat. Seit PR-Agent-Befund F2 ("Stale Versions")
+   * ist sie NIE ein um wartende Kommandos hochgerechneter Wert.
+   *
+   * Die Wiedergabe sendet sie fuer den KOPF der Kette unveraendert -- nur so
+   * konfligiert eine waehrend der Offline-Zeit unabhaengig veraenderte
+   * Turnierversion, statt stillschweigend uebernommen zu werden (Runde 8,
+   * Befund A). Die Nachfolger bekommen ihre `expectedVersion` aus der Antwort
+   * auf ihre Vorgaengerin (`offline-replay.ts`, `replayChained`).
    */
   readonly expectedVersion: number;
 }
 
 /**
  * Nutzlast einer Zuweisung fuer die API. `expectedVersion` wird immer
- * explizit uebergeben, nie aus der Warteschlange gelesen -- die dort
- * gespeicherte Version ist nur ein Anzeigehinweis, kein Sendewert (siehe
+ * explizit uebergeben, nie hier aus der Warteschlange gelesen: welche Version
+ * gilt, entscheidet die Aufruferin (Kopf oder Nachfolger der Kette, siehe
  * `AssignmentQueueEntry.expectedVersion`). Dieselbe Funktion baut sowohl die
  * Nutzlast fuer das direkte Senden als auch fuer das Einreihen, damit beide
  * dieselbe Form erzeugen.

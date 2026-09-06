@@ -191,20 +191,30 @@ export interface ReplayResult {
 }
 
 /**
- * Ueberträgt eine geordnete Folge wartender Kommandos und haelt dabei die
- * `expectedVersion` jedes Kommandos aktuell: das erste bekommt `startVersion`
- * -- den zuletzt bestaetigten Serverstand --, jedes folgende die Version aus
- * der erfolgreichen Antwort auf das vorherige.
+ * Ueberträgt eine geordnete Folge wartender Kommandos und verkettet dabei die
+ * `expectedVersion`: der KOPF sendet die beim Einreihen gespeicherte Version
+ * -- die letzte Serverversion, die dieses Geraet gesehen hat --, jeder
+ * Nachfolger die Version aus der erfolgreichen Antwort auf seinen Vorgaenger.
+ * Der Kopf ist daran erkennbar, dass `send` fuer ihn `null` als verkettete
+ * Version bekommt; er nimmt dann seine eigene, gespeicherte.
  *
- * Eine beim Einreihen gespeicherte, moeglicherweise eingefrorene
- * `expectedVersion` fliesst hier bewusst nicht ein. Vorher trug jedes
- * Kommando seine beim Einreihen berechnete Version fest in sich, ohne
- * Ruecksicht auf inzwischen verworfene Vorgaenger: ein verworfenes Kommando
- * wurde trotzdem mitgezaehlt, und die Nachfolger sendeten eine Version, die
- * der Server nie erreichen konnte -- sie konfligierten sofort, obwohl sich
- * am echten Serverzustand nichts geaendert hatte (PR-Agent-Befund F2,
- * "Stale Versions"). Ein Konflikt entsteht mit dieser Kette nur noch, wenn
- * tatsaechlich jemand anderes den Zustand veraendert hat.
+ * Warum der Kopf seine gespeicherte Version behaelt: sie ist der Stand, auf
+ * dem die Aufnahme fachlich beruht. Hat sich der Server waehrend der
+ * Offline-Zeit unabhaengig bewegt -- ein anderes Geraet hat gescort, eine
+ * Korrektur wurde gebucht --, MUSS die Wiedergabe daran konfligieren, damit
+ * die Person entscheidet, statt eine veraltete Aufnahme stillschweigend auf
+ * einen fremden Zustand zu setzen (ADR 0008: „Versionskonflikte werden nie
+ * automatisch verworfen"; AGENTS.md §12). Vorher bekam der Kopf den frisch
+ * geladenen Serverstand untergeschoben und ging deshalb IMMER durch -- fuer
+ * ihn war die Divergenzerkennung ausgehebelt (Runde 8, Befund A).
+ *
+ * Das Verwerfen eines konfliktbehafteten Kopfes bleibt damit vertraeglich:
+ * der nachrueckende Kopf traegt ebenfalls die zuletzt gesehene Serverversion.
+ * Steht der Server noch dort, geht er durch; hat er sich bewegt, konfligiert
+ * er zu Recht. Eine um die Zahl wartender Kommandos hochgerechnete Version
+ * speichert beim Einreihen niemand mehr (PR-Agent-Befund F2, „Stale
+ * Versions"); die Nachfolger ketten ausschliesslich aus tatsaechlichen
+ * Antworten.
  *
  * Bricht beim ersten Fehlschlag ab: die Reihenfolge ist verbindlich, kein
  * Nachfolger darf vor seinem Vorgaenger ankommen.
@@ -213,29 +223,30 @@ export interface ReplayResult {
  * Scoringflaeche (Einzelaufnahmen) -- beide reihen Kommandos in derselben
  * IndexedDB-Warteschlange ein und muessen dieselbe Versionskette bilden.
  */
-export async function replayWithCurrentVersion<T>(
+export async function replayChained<T>(
   commands: readonly T[],
-  startVersion: number,
-  send: (command: T, expectedVersion: number) => Promise<ReplayOutcome>,
+  send: (command: T, chainedVersion: number | null) => Promise<ReplayOutcome>,
 ): Promise<ReplayResult> {
-  let version = startVersion;
+  let chainedVersion: number | null = null;
   let sentCount = 0;
   for (const command of commands) {
-    const outcome = await send(command, version);
+    const outcome = await send(command, chainedVersion);
     if (!outcome.successful) break;
     sentCount += 1;
-    version = outcome.version;
+    chainedVersion = outcome.version;
   }
   return { sentCount };
 }
 
 /**
  * Ersetzt die `expectedVersion` einer gespeicherten Kommando-Nutzlast durch
- * die waehrend der Wiedergabe aufgebaute, aktuelle Version. Die gespeicherte
- * Version ist seit PR-Agent-Befund F2 ("Stale Versions") nur noch ein
- * Anzeigehinweis und kann veraltet sein -- etwa weil ein davorstehendes
- * Kommando inzwischen verworfen wurde. Alle uebrigen Felder der Nutzlast
- * (Punkte, Einzelwuerfe, Checkout-Angaben, ...) bleiben unveraendert.
+ * die waehrend der Wiedergabe aufgebaute, verkettete Version. Gilt nur fuer
+ * NACHFOLGER: deren gespeicherte Version kann veraltet sein, weil ein
+ * davorstehendes Kommando verworfen wurde oder weil der Vorgaenger den
+ * Serverstand gerade selbst weitergeschoben hat. Der Kopf sendet seine
+ * gespeicherte Version unveraendert (`replayChained`). Alle uebrigen Felder
+ * der Nutzlast (Punkte, Einzelwuerfe, Checkout-Angaben, ...) bleiben
+ * unveraendert.
  */
 export function withCurrentExpectedVersion(
   body: Readonly<Record<string, unknown>>,

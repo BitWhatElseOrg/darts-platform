@@ -17,8 +17,8 @@ import { type OfflineCommand } from "@/lib/offline-command-queue";
 import {
   nextReplayable,
   queuedCommandNotice,
+  replayChained,
   replayFailure,
-  replayWithCurrentVersion,
   type ReplayOutcome,
 } from "@/lib/offline-replay";
 import { useOfflineQueue } from "@/lib/use-offline-queue";
@@ -47,10 +47,13 @@ import { StandingsSheet } from "./standings-sheet";
 interface PendingCommand {
   readonly commandId: string;
   /**
-   * Version bei Erfassung -- nur ein Anzeigehinweis fuer die gespeicherte
-   * Nutzlast. Gesendet wird sie nicht: `sendAssignment` bekommt die
-   * tatsaechliche `expectedVersion` separat uebergeben (siehe
-   * `tournament-assignment-queue.ts`, PR-Agent-Befund F2 "Stale Versions").
+   * Der Serverstand, den die Zentrale beim Erfassen zuletzt gesehen hat --
+   * nie ein um wartende Kommandos hochgerechneter Wert (PR-Agent-Befund F2,
+   * "Stale Versions"). `sendAssignment` bekommt die zu sendende
+   * `expectedVersion` weiterhin separat uebergeben; die Wiedergabe reicht
+   * dafuer beim KOPF der Kette genau diese gespeicherte Version durch und
+   * kettet erst die Nachfolger aus den Serverantworten (Runde 8, Befund A,
+   * siehe `replayChained`).
    */
   readonly expectedVersion: number;
   readonly matchId: string;
@@ -309,13 +312,15 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         ? (readyQueue.find((item) => item.matchId === options.matchId) ?? null)
         : (readyQueue[0] ?? null);
       if (board === null || entry === null) return;
-      // `expectedVersion` ist hier nur der Anzeigehinweis fuer die
-      // Warteschlange (siehe `PendingCommand`); gesendet wird beim Online-Pfad
-      // unten der aktuelle `dashboard.tournament.version` direkt, nicht ein um
-      // die Anzahl wartender Kommandos hochgerechneter Wert. Diese
-      // Hochrechnung war der Befund: ein zwischendurch verworfenes Kommando
-      // zaehlte weiter mit, und die Nachfolger sendeten eine Version, die der
-      // Server nie erreichen konnte (PR-Agent-Befund F2, "Stale Versions").
+      // `expectedVersion` ist der aktuelle `dashboard.tournament.version` --
+      // der zuletzt gesehene Serverstand, nicht ein um die Anzahl wartender
+      // Kommandos hochgerechneter Wert. Diese Hochrechnung war der Befund: ein
+      // zwischendurch verworfenes Kommando zaehlte weiter mit, und die
+      // Nachfolger sendeten eine Version, die der Server nie erreichen konnte
+      // (PR-Agent-Befund F2, "Stale Versions"). Der Online-Pfad unten sendet
+      // sie direkt; steht die Zuweisung offline in der Warteschlange, sendet
+      // die Wiedergabe genau diesen Wert, wenn sie Kopf der Kette ist
+      // (Runde 8, Befund A).
       const command: PendingCommand = {
         commandId: generateId(),
         expectedVersion: dashboard.tournament.version,
@@ -387,15 +392,21 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
 
   /**
    * Uebertraegt die wartenden Zuweisungen in ihrer Reihenfolge. Beim ersten
-   * Fehlschlag wird abgebrochen: die Reihenfolge ist verbindlich. Die
-   * erwartete Turnierversion jeder Zuweisung baut nicht mehr auf der beim
-   * Einreihen eingefrorenen `expectedVersion` auf, sondern auf einem frisch
-   * geladenen Serverstand und danach auf der jeweils vorherigen erfolgreichen
-   * Antwort (`replayWithCurrentVersion`) -- der zwischengespeicherte
-   * `dashboard` koennte waehrend der Offline-Phase veraltet sein, und ein
-   * zwischendurch verworfenes Kommando zaehlt so nicht mehr in der
-   * Versionsrechnung der folgenden mit (PR-Agent-Befund F2, "Stale
-   * Versions").
+   * Fehlschlag wird abgebrochen: die Reihenfolge ist verbindlich.
+   *
+   * Die erste Zuweisung sendet die beim Einreihen gespeicherte
+   * `expectedVersion` -- den Turnierstand, den die Zentrale zuletzt gesehen
+   * hat --, jede folgende die Version aus der Antwort auf ihre Vorgaengerin
+   * (`replayChained`). Ein zwischendurch verworfenes Kommando zaehlt damit
+   * nicht mehr in der Versionsrechnung der folgenden mit (PR-Agent-Befund F2,
+   * "Stale Versions"), und ein Turnier, das sich waehrend der Offline-Phase
+   * unabhaengig bewegt hat, laesst die Kette am Kopf konfligieren statt sie
+   * stillschweigend auf den neuen Stand zu heben (Runde 8, Befund A).
+   *
+   * Der Refetch bleibt: er haelt die ANZEIGE frisch, bevor die Zuweisungen
+   * abgehen. Eine Startversion liefert er nicht mehr. Scheitert er, wird
+   * nichts uebertragen -- die Verbindung ist dann offenkundig gestoert, und
+   * die Zentrale wuerde einen veralteten Stand zeigen, waehrend sie schreibt.
    */
   const flushPending = useCallback(async () => {
     if (commandBusy || connection === "offline") return;
@@ -403,20 +414,20 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
     try {
       const refreshed = await dashboardQuery.refetch();
       // Ein gescheiterter Refetch liefert weiterhin den zwischengespeicherten
-      // Stand. Dessen Version kann waehrend der Offline-Phase veraltet sein --
-      // die ganze Kette liefe damit sofort in einen Versionskonflikt. Lieber
-      // nichts uebertragen und es sagen (PR-Agent-Runde 5, Durchsicht).
+      // Stand -- die Zentrale schriebe dann blind gegen eine Anzeige, die sie
+      // nicht bestaetigen konnte. Lieber nichts uebertragen und es sagen
+      // (PR-Agent-Runde 5, Durchsicht).
       if (refreshed.isError) {
         setCommandError(userFacingErrorMessage(refreshed.error, "Serverstand konnte nicht geladen werden; es wurde nichts übertragen."));
         return;
       }
-      const startVersion = refreshed.data?.tournament.version;
-      if (startVersion === undefined) return;
-      const { sentCount } = await replayWithCurrentVersion<AssignmentQueueEntry>(
+      const { sentCount } = await replayChained<AssignmentQueueEntry>(
         replayable,
-        startVersion,
-        async (entry, expectedVersion): Promise<ReplayOutcome> => {
-          const version = await sendAssignment(pendingCommandOf(entry), expectedVersion, entry.command);
+        // Kopf (`chainedVersion === null`): die gespeicherte Version der
+        // Zuweisung. Nachfolger: die Version aus der Antwort auf die
+        // Vorgaengerin.
+        async (entry, chainedVersion): Promise<ReplayOutcome> => {
+          const version = await sendAssignment(pendingCommandOf(entry), chainedVersion ?? entry.expectedVersion, entry.command);
           return version === null ? { successful: false } : { successful: true, version };
         },
       );
