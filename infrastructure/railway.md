@@ -469,7 +469,9 @@ ein Ereignis im Dead Letter liegt:
 Realtime hinkt dann nach, der Spielbetrieb über HTTP läuft weiter — ein
 Neustart oder ein abgewiesenes Deployment würde die Lage nur verschlimmern.
 Vorgehen: Logs nach `outbox.dead_letter` durchsuchen und die betroffenen
-Zeilen nach `DATABASE_SCHEMA.md` §18 behandeln.
+Zeilen nach `DATABASE_SCHEMA.md` §18 behandeln. Solange `deadLettered` grösser
+als null ist, bleibt der Status `degraded`, bis die betroffene Zeile requeued
+oder gelöscht wird — der Wert sinkt nicht von selbst.
 
 Am 31. August 2026 lieferten beide öffentlichen Smoke-Tests HTTP 200. Der
 API-Health-Endpunkt meldete PostgreSQL und Redis jeweils als `ok`.

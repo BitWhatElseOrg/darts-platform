@@ -1115,11 +1115,15 @@ nach `sequence`.
 
 Migration `0025_outbox_dead_letter` ergänzt je Konsument einen Versuchszähler,
 eine früheste Wiederholzeit und einen Dead-Letter-Stempel (`recordOutboxFailure`
-in `packages/database/src/outbox.ts`). Nach `OUTBOX_MAX_ATTEMPTS` (5)
+in `packages/database/src/outbox.ts`). Nach `OUTBOX_MAX_ATTEMPTS` (8)
 Fehlversuchen setzt ein Poller `publish_dead_lettered_at` bzw.
 `statistics_dead_lettered_at` statt einer weiteren Wiederholzeit; die Wartezeit
-zwischen Versuchen verdoppelt sich exponentiell ab einer Sekunde, gedeckelt bei
-fünf Minuten (`outboxRetryDelayMs`). `outboxPending(consumer, now)` liefert das
+zwischen Versuchen verdoppelt sich exponentiell ab einer Sekunde (1 s, 2 s, 4 s,
+8 s, 16 s, 32 s, 64 s) — in Summe rund 127 s, knapp über zwei Minuten, bis ein
+dauerhaft scheiterndes Ereignis ins Dead Letter wandert. `OUTBOX_BACKOFF_CAP_MS`
+deckelt die Wartezeit weiterhin bei fünf Minuten, greift bei acht Versuchen
+aber nicht — der Deckel bleibt stehen, falls die Obergrenze künftig steigt
+(`outboxRetryDelayMs`). `outboxPending(consumer, now)` liefert das
 Auswahlprädikat je Konsument: nicht verarbeitet, nicht im Dead Letter, Backoff
 abgelaufen.
 
@@ -1183,10 +1187,24 @@ set publish_attempts = 0,
     publish_last_error = null
 where id = :id;
 
+-- Spiegelbildlich für den Statistik-Konsumenten
+update outbox_events
+set statistics_attempts = 0,
+    statistics_not_before = null,
+    statistics_dead_lettered_at = null,
+    statistics_last_error = null
+where id = :id;
+
 -- Manuelles Löschen, wenn ein Ereignis endgültig verworfen wird
 -- (z. B. nach Klärung mit dem Betrieb, dass die Verteilung entfällt)
 delete from outbox_events where id = :id;
 ```
+
+Eine Zeile kann in genau einem der beiden Konsumenten hängen bleiben, während
+der andere sie längst erledigt hat — verteilt, aber statistisch dead-gelettet,
+oder umgekehrt. Sie bleibt in diesem halb verarbeiteten Zustand stehen, bis
+sie von Hand requeued oder gelöscht wird; keine der beiden Requeue-Anweisungen
+oben rührt an der Spalte des jeweils anderen Konsumenten.
 
 Bestandscheck vor dem Ausrollen:
 
@@ -1211,9 +1229,10 @@ einen Default.
 
 ## Dead Letter finden und erneut einreihen
 
-Nach fünf Fehlversuchen mit exponentiellem Backoff (1 s, 2 s, 4 s, 8 s,
-gedeckelt bei 5 min) setzt der betroffene Konsument `*_dead_lettered_at` und
-überspringt die Zeile fortan (Befund F-1: ein einzelnes dauerhaft
+Nach acht Fehlversuchen mit exponentiellem Backoff (1 s, 2 s, 4 s, 8 s, 16 s,
+32 s, 64 s — in Summe rund 127 s, knapp über zwei Minuten, `OUTBOX_BACKOFF_CAP_MS`
+von 5 min bleibt ungenutzt) setzt der betroffene Konsument `*_dead_lettered_at`
+und überspringt die Zeile fortan (Befund F-1: ein einzelnes dauerhaft
 fehlschlagendes Ereignis blockiert damit weder den Rest des Stapels noch
 künftige Durchläufe). Jeder Fehlversuch erzeugt über den jeweiligen
 `OutboxLogger` einen strukturierten Log-Eintrag — `outbox.retry_scheduled`
@@ -1221,12 +1240,21 @@ künftige Durchläufe). Jeder Fehlversuch erzeugt über den jeweiligen
 soeben ins Dead Letter gelegten Fehlversuch. Beide nennen `eventId`,
 `eventType`, `aggregateId`, `attempts` und die letzte Fehlermeldung
 (`lastError`, auf 500 Zeichen gekürzt) — bewusst ohne `payload`, damit kein
-Nutzdaten- oder Personenbezug ins Log gelangt. In der API-Produktion
-protokolliert der Anwendungslogger (`realtime.service.ts`) diese Einträge als
-JSON, in Railway also per Suche nach `"event":"outbox.dead_letter"` auffindbar.
+Nutzdaten- oder Personenbezug ins Log gelangt. `*_last_error` wird auf dieselbe
+Länge gekürzt, aber nicht inhaltlich bereinigt: eine Constraint-Fehlermeldung
+aus Postgres kann Spaltenwerte der betroffenen Zeile eingebettet enthalten. In
+der API-Produktion protokolliert der Anwendungslogger (`realtime.service.ts`)
+diese Einträge als JSON, in Railway also per Suche nach
+`"event":"outbox.dead_letter"` auffindbar.
 
 Auffinden und Requeue laufen über die SQL-Beispiele weiter oben in diesem
-Abschnitt.
+Abschnitt — die Requeue-Anweisung dort existiert je Konsument einmal.
+
+Solange mindestens eine Zeile dead-gelettet **und** von ihrem jeweiligen
+Konsumenten noch unverarbeitet ist (`deadLettered > 0` im Health-Endpunkt,
+siehe `infrastructure/railway.md`), bleibt der Gesundheitsstatus `degraded` —
+requeuen oder Löschen der betroffenen Zeile ist die einzige Möglichkeit, ihn
+wieder auf `healthy` zurückzubringen.
 
 ---
 
