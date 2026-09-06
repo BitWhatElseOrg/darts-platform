@@ -2,7 +2,8 @@
  * Die Ligatabelle. Reine Domänenlogik: sie bekommt die abgeschlossenen
  * Begegnungen und gibt die geordnete Tabelle zurück — keine Datenbank, keine
  * Sortierung nach Namen, damit dieselbe Rechnung im Server, im Worker und im
- * Test identisch läuft.
+ * Test identisch läuft. Rangkriterien nach `Reglement A1.5`, Punktevergabe
+ * nach `Reglement A1.4`.
  */
 
 export type StandingsEncounterStatus =
@@ -33,6 +34,14 @@ export interface StandingsRow {
   readonly drawn: number;
   readonly lost: number;
   readonly points: number;
+  /**
+   * Reglement A1.4/A1.5, zweites Rangierungskriterium. Die Minuspunkte einer
+   * Begegnung sind die Pluspunkte des Gegners: 3:3 bei klarem Ausgang, 1:1 beim
+   * Unentschieden, dazu 1 Zusatzpunkt und 1 Minuspunkt aus dem sudden death.
+   * Abgeleitet statt aus der Punkteregel gerechnet, damit die Tabelle auch bei
+   * abweichender Punktevergabe stimmt.
+   */
+  readonly minusPoints: number;
   readonly gamesFor: number;
   readonly gamesAgainst: number;
   readonly gameDifference: number;
@@ -53,6 +62,7 @@ interface Tally {
   drawn: number;
   lost: number;
   points: number;
+  minusPoints: number;
   gamesFor: number;
   gamesAgainst: number;
   legsFor: number;
@@ -61,14 +71,33 @@ interface Tally {
 
 function emptyTally(): Tally {
   return {
-    played: 0, won: 0, drawn: 0, lost: 0, points: 0,
+    played: 0, won: 0, drawn: 0, lost: 0, points: 0, minusPoints: 0,
     gamesFor: 0, gamesAgainst: 0, legsFor: 0, legsAgainst: 0,
   };
 }
 
-/** Die Reihenfolge der Sortierschlüssel ist zugleich die Reihenfolge der Rangkriterien. */
+/**
+ * Reglement A1.5: Rangierungskriterien in abnehmender Gewichtung — 1. Pluspunkte,
+ * 2. Minuspunkte, 3. gewonnene Spiele, 4. verlorene Spiele, 5. gewonnene Sätze,
+ * 6. verlorene Sätze. Kriterien, bei denen weniger besser ist, stehen negiert im
+ * Schlüssel, damit `compareKeys` durchgehend absteigend vergleicht.
+ *
+ * Eine Differenz kennt A1.5 an keiner Stelle; `gameDifference` und
+ * `legDifference` bleiben Anzeigewerte auf der Zeile und bestimmen keinen Rang.
+ *
+ * „Sätze" des Reglements sind die Legs dieser Engine: A1.2 spielt jedes Spiel
+ * auf zwei Gewinnsätze, A1.3 kommt darum bei 18 Spielen auf höchstens 36 —
+ * genau die Zahl, die `legsFor`/`legsAgainst` je Begegnung tragen.
+ */
 function sortKeys(row: StandingsRow): readonly number[] {
-  return [row.points, row.gameDifference, row.gamesFor, row.legDifference, row.legsFor];
+  return [
+    row.points,
+    -row.minusPoints,
+    row.gamesFor,
+    -row.gamesAgainst,
+    row.legsFor,
+    -row.legsAgainst,
+  ];
 }
 
 function compareKeys(first: StandingsRow, second: StandingsRow): number {
@@ -90,6 +119,7 @@ export function calculateStandings(input: StandingsInput): readonly StandingsRow
       {
         tally: tallies.get(encounter.homeTeamId),
         points: encounter.homePoints,
+        pointsAgainst: encounter.awayPoints,
         gamesFor: encounter.homeGames,
         gamesAgainst: encounter.awayGames,
         legsFor: encounter.homeLegs,
@@ -99,6 +129,7 @@ export function calculateStandings(input: StandingsInput): readonly StandingsRow
       {
         tally: tallies.get(encounter.awayTeamId),
         points: encounter.awayPoints,
+        pointsAgainst: encounter.homePoints,
         gamesFor: encounter.awayGames,
         gamesAgainst: encounter.homeGames,
         legsFor: encounter.awayLegs,
@@ -112,6 +143,7 @@ export function calculateStandings(input: StandingsInput): readonly StandingsRow
       if (side.tally === undefined) continue;
       side.tally.played += 1;
       side.tally.points += side.points;
+      side.tally.minusPoints += side.pointsAgainst;
       side.tally.gamesFor += side.gamesFor;
       side.tally.gamesAgainst += side.gamesAgainst;
       side.tally.legsFor += side.legsFor;
@@ -131,6 +163,7 @@ export function calculateStandings(input: StandingsInput): readonly StandingsRow
       drawn: tally.drawn,
       lost: tally.lost,
       points: tally.points,
+      minusPoints: tally.minusPoints,
       gamesFor: tally.gamesFor,
       gamesAgainst: tally.gamesAgainst,
       gameDifference: tally.gamesFor - tally.gamesAgainst,

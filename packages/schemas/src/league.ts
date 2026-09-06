@@ -120,6 +120,8 @@ export const standingsRowSchema = z.object({
   drawn: z.number().int().nonnegative(),
   lost: z.number().int().nonnegative(),
   points: z.number().int().nonnegative(),
+  /** Reglement A1.5, zweites Rangierungskriterium. */
+  minusPoints: z.number().int().nonnegative(),
   gamesFor: z.number().int().nonnegative(),
   gamesAgainst: z.number().int().nonnegative(),
   gameDifference: z.number().int(),
