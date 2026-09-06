@@ -490,6 +490,29 @@ Spielbetriebs. Wächst `matches` deutlich, ist die Migration auf
 `CREATE UNIQUE INDEX CONCURRENTLY` umzustellen (dann ausserhalb einer
 Transaktion, mit anschliessender Prüfung auf `INVALID`).
 
+Commit `5a9c260` korrigiert in `winLeg`, dass `legsWonInSet` beim Satzgewinn
+auf beiden Seiten zurückgesetzt wird — vorher nahm die unterlegene Seite ihre
+Legs aus dem verlorenen Satz in den nächsten Satz mit. Das ist die einzige
+Änderung dieses Branches, die gespeicherte Matches beim nächsten Lesen anders
+wertet: bei `sets_to_win > 1` kann sich der projizierte Zustand eines bereits
+abgeschlossenen Matches ändern (anderer Satzstand, im Extremfall anderer
+Sieger), während `matches.status`, `matches.winner_seat` und ein
+fortgeschriebener Turnierbaum den alten Stand tragen — `syncProjection` läuft
+nur bei Mutationen, nicht beim Lesen.
+
+Vor dem Deploy auf Staging **und** Produktion prüfen:
+
+```sql
+select count(*) from matches where sets_to_win > 1;
+```
+
+- Ergebnis 0: K1 folgenlos, kein weiterer Schritt nötig.
+- Ergebnis > 0: vor dem Ausrollen prüfen, ob unter diesen Matches eines
+  `COMPLETED` ist, dessen Neuprojektion einen anderen Sieger ergibt. Das wäre
+  eine Ergebniskorrektur und eine menschliche Entscheidung nach dem Muster
+  `correctTournamentResult`, keine Deploy-Nebenwirkung. In der Dev-DB: 0
+  solche Matches.
+
 ---
 
 ## match_participants
