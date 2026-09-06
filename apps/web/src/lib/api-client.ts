@@ -2,26 +2,14 @@ import { z } from "zod";
 
 import { apiErrorSchema } from "@darts-platform/schemas";
 
+import { ApiClientError } from "./api-error";
+
 import { publicEnvironment } from "./environment";
 
-export class ApiClientError extends Error {
-  public readonly code: string;
-  public readonly correlationId: string | null;
-  public readonly details: unknown;
-
-  public constructor(
-    message: string,
-    code = "REQUEST_FAILED",
-    correlationId: string | null = null,
-    details?: unknown,
-  ) {
-    super(message);
-    this.name = "ApiClientError";
-    this.code = code;
-    this.correlationId = correlationId;
-    this.details = details;
-  }
-}
+// Die Fehlerklasse liegt in einem eigenen Modul, damit reine Regeln (z. B.
+// `offline-replay.ts`) sie pruefen koennen, ohne die Client-Umgebung zu
+// laden. Fuer aufrufende Stellen bleibt sie hier importierbar.
+export { ApiClientError };
 
 function localizedMessage(code: string): string {
   const messages: Readonly<Record<string, string>> = {
@@ -31,6 +19,10 @@ function localizedMessage(code: string): string {
     BOARD_CONTROLLER_CONFLICT: "Ein anderes Gerät steuert dieses Board.",
     NOT_ACTIVE_PLAYER: "Die Aufnahme gehört nicht zum aktiven Spieler.",
     INVALID_VISIT_SCORE: "Dieser Score ist mit der gewählten Dartanzahl nicht möglich.",
+    DARTS_REQUIRED_FOR_DOUBLE_IN:
+      "Unter Double In wird die Eröffnungsaufnahme Wurf für Wurf erfasst.",
+    CHECKOUT_DETAIL_REQUIRED:
+      "Unter Master Out braucht der Abschluss das getroffene Feld oder die Meldung, dass keins sass.",
     NOTHING_TO_UNDO: "Es gibt keine aktive Aufnahme zum Zurücknehmen.",
     UNAUTHORIZED: "Bitte melde dich an.",
     FORBIDDEN: "Dir fehlt die Berechtigung für diese Aktion.",
