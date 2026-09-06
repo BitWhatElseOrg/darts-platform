@@ -48,12 +48,53 @@ describe("pruneProcessedOutboxEvents", () => {
       .returning({ id: outboxEvents.id });
     const ids = rows.map((row) => row.id);
 
-    await pruneProcessedOutboxEvents(connection.database, now);
+    const removed = await pruneProcessedOutboxEvents(connection.database, now);
 
+    // Mind. die beiden eigenen Treffer: der Rueckstand im geteilten Dev-Setup
+    // ist nicht kontrollierbar, deshalb keine exakte Zahl.
+    expect(removed).toBeGreaterThanOrEqual(2);
     const remaining = await connection.database
       .select({ id: outboxEvents.id })
       .from(outboxEvents)
       .where(inArray(outboxEvents.id, ids));
     expect(new Set(remaining.map((row) => row.id))).toEqual(new Set([ids[1], ids[3], ids[4]]));
+  }, 30_000);
+
+  /**
+   * M4: ein Lauf begrenzt sich auf einen Batch, statt die gesamte
+   * Treffermenge in einer Anweisung zu loeschen. Fuenf eigene Zeilen mit
+   * `batchSize` 2 belegen das direkt ueber den Rueckgabewert — der darf den
+   * Batch nie ueberschreiten — und darueber, dass von den eigenen Zeilen nie
+   * mehr als der Batch verschwindet.
+   */
+  it("begrenzt einen Lauf auf die Batchgroesse", async () => {
+    const batchSize = 2;
+    const rows = await connection.database
+      .insert(outboxEvents)
+      .values(
+        Array.from({ length: 5 }, () => ({
+          organizationId,
+          aggregateType: "Match",
+          aggregateId: randomUUID(),
+          eventType: "VISIT_RECORDED",
+          payload: {},
+          occurredAt: old,
+          publishedAt: old,
+        })),
+      )
+      .returning({ id: outboxEvents.id });
+    const ids = rows.map((row) => row.id);
+
+    const removed = await pruneProcessedOutboxEvents(connection.database, now, OUTBOX_RETENTION_DAYS, batchSize);
+
+    expect(removed).toBeLessThanOrEqual(batchSize);
+    const remaining = await connection.database
+      .select({ id: outboxEvents.id })
+      .from(outboxEvents)
+      .where(inArray(outboxEvents.id, ids));
+    expect(remaining.length).toBeGreaterThanOrEqual(ids.length - batchSize);
+
+    // Aufraeumen: die Zeilen, die der begrenzte Lauf absichtlich stehen liess.
+    await connection.database.delete(outboxEvents).where(inArray(outboxEvents.id, ids));
   }, 30_000);
 });

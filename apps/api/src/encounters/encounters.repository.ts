@@ -890,6 +890,7 @@ export class EncountersRepository {
               and(
                 eq(visits.organizationId, input.organizationId),
                 eq(visits.matchId, slot.matchId),
+                isNull(visits.revertedAt),
               ),
             )
             .limit(1);

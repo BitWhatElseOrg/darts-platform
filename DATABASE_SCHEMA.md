@@ -1043,23 +1043,22 @@ correlation_id
 
 ```text
 id uuid PK
-organization_id uuid
-event_type varchar NOT NULL
-aggregate_type varchar NOT NULL
+organization_id uuid FK organizations NOT NULL
+sequence bigserial NOT NULL
+aggregate_type varchar(100) NOT NULL
 aggregate_id uuid NOT NULL
+event_type varchar(100) NOT NULL
 payload jsonb NOT NULL
-created_at timestamptz NOT NULL
+occurred_at timestamptz NOT NULL DEFAULT now()
 published_at timestamptz
-attempts integer NOT NULL DEFAULT 0
-last_error varchar
+statistics_processed_at timestamptz
 ```
 
-Index:
-
-```text
-published_at
-created_at
-```
+Die Verteilung ist At-least-once: gesendet wird zuerst, gestempelt (`published_at`)
+erst danach, und beansprucht wird über `FOR UPDATE SKIP LOCKED`, damit zwei
+Repliken sich nicht gegenseitig doppelt zustellen. Ein Absturz zwischen Versand
+und Commit sendet ein Ereignis beim nächsten Durchlauf erneut — die
+UI-Zustände, die es aktualisiert, sind idempotent.
 
 Migration `0023_tier2_integrity_constraints` ergänzt die Spalte `sequence`
 (`bigserial`, unique) und zwei partielle Indexe. `occurred_at` ist `now()` und
@@ -1078,15 +1077,20 @@ unique (sequence)                                    -- outbox_events_sequence_u
 
 Der Statistik-Poller im Worker lief bis dahin sekündlich als Seq Scan über die
 ganze Tabelle. Der zweite partielle Index deckt genau seinen Filter. Der ältere
-Index `(published_at, occurred_at)` bleibt für die Aufräumregel im Worker
-stehen, die im nächsten Absatz beschrieben ist.
+Index `outbox_events_unpublished_idx` (`published_at, occurred_at`) beschleunigt
+die Auswahl der Aufräumregel nicht mehr allein — die Regel begrenzt sich pro
+Lauf selbst auf einen Batch, siehe nächster Absatz.
 
 Die Aufräumregel (`apps/worker/src/prune-outbox.ts`) läuft stündlich im Worker
 und entfernt Zeilen, die verteilt **und** statistisch erledigt (oder nie
 statistikrelevant) **und** älter als 30 Tage sind. Eine Zeile, die einer der
 drei Bedingungen nicht genügt, bleibt stehen — die Regel darf nie ein
-unverarbeitetes Ereignis verschlucken. Die fachliche Spur eines Vorgangs liegt
-nicht in der Outbox, sondern in `audit_events` und im jeweiligen Kommandostrom.
+unverarbeitetes Ereignis verschlucken. Ein Lauf löscht höchstens einen
+begrenzten Batch (1000 Zeilen) statt der gesamten Treffermenge auf einmal — bei
+einem grossen Rückstand verteilt sich das Löschen so über mehrere Läufe, statt
+eine lang laufende Transaktion gegen die Tabelle zu sperren. Die fachliche Spur
+eines Vorgangs liegt nicht in der Outbox, sondern in `audit_events` und im
+jeweiligen Kommandostrom.
 
 Bestandscheck vor dem Ausrollen:
 
