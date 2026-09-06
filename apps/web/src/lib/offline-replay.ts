@@ -114,6 +114,22 @@ export function localCleanupFailureMessage(error: unknown): string {
 }
 
 /**
+ * Meldung fuer den Offline-Zweig, bevor ueberhaupt ein Server beteiligt war:
+ * das Kommando sollte in die lokale Warteschlange (IndexedDB) gelegt werden,
+ * doch schon das Ablegen scheiterte -- etwa weil IndexedDB nicht verfuegbar
+ * ist, blockiert oder die Quota ueberschritten wurde.
+ *
+ * Anders als `localCleanupFailureMessage` liegt hier noch KEIN Urteil vor:
+ * das Kommando ist weder gesendet noch gespeichert. Ohne sichtbare Meldung
+ * verschwindet es kommentarlos -- versteckter Datenverlust (AGENTS.md §18,
+ * PR-Agent-Runde 3, Befund A).
+ */
+export function queueSaveFailureMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message : "unbekannter Fehler";
+  return `Zuweisung konnte nicht in die Warteschlange gelegt werden (${detail}). Bitte Verbindung wiederherstellen und erneut versuchen.`;
+}
+
+/**
  * Ergebnis eines einzelnen Wiedergabeversuchs. `version` ist die vom Server
  * bestaetigte neue Version -- nur bei Erfolg vorhanden, weil ein
  * Fehlschlag kein Urteil ueber die Version liefert.

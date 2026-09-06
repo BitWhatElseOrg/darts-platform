@@ -24,6 +24,7 @@ import {
 import {
   localCleanupFailureMessage,
   nextReplayable,
+  queueSaveFailureMessage,
   queuedCommandNotice,
   replayFailure,
   replayWithCurrentVersion,
@@ -299,8 +300,16 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         label: `${entry.participants[0].displayName} – ${entry.participants[1].displayName} auf ${board.boardName}`,
       };
       if (connection === "offline") {
-        await saveOfflineCommand(queuedCommandOf(command, scope, assignmentPath));
-        await refreshQueue();
+        try {
+          await saveOfflineCommand(queuedCommandOf(command, scope, assignmentPath));
+          await refreshQueue();
+        } catch (error) {
+          // Weder gesendet noch gespeichert -- ohne diese Meldung verschwaende
+          // die Zuweisung kommentarlos (PR-Agent-Runde 3, Befund A).
+          setCommandError(queueSaveFailureMessage(error));
+          return;
+        }
+        setCommandError(null);
         setAnnouncement(`Zuweisung auf ${board.boardName} wartet auf die Verbindung.`);
         return;
       }

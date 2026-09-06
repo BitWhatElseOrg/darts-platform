@@ -6,6 +6,7 @@ import {
   localCleanupFailureMessage,
   nextReplayable,
   queueBlocksControl,
+  queueSaveFailureMessage,
   queuedCommandNotice,
   replayFailure,
   replayWithCurrentVersion,
@@ -162,6 +163,26 @@ describe("localCleanupFailureMessage", () => {
   it("faellt auf einen generischen Hinweis zurueck, wenn kein Error-Objekt vorliegt", () => {
     expect(localCleanupFailureMessage("kaputt")).toBe(
       "Der Server hat den Befehl angenommen, die lokale Warteschlange konnte aber nicht aktualisiert werden (unbekannter Fehler). Bitte Seite neu laden.",
+    );
+  });
+});
+
+describe("queueSaveFailureMessage", () => {
+  /**
+   * PR-Agent-Runde 3, Befund A: Scheitert schon das Ablegen in der lokalen
+   * Warteschlange (z.B. IndexedDB nicht verfuegbar), ist das Kommando weder
+   * gesendet noch gespeichert. Ohne diese Meldung verschwaende es
+   * kommentarlos -- versteckter Datenverlust (AGENTS.md §18).
+   */
+  it("benennt den Fehler als gescheiterte Warteschlangen-Ablage", () => {
+    expect(queueSaveFailureMessage(new Error("IndexedDB nicht verfügbar"))).toBe(
+      "Zuweisung konnte nicht in die Warteschlange gelegt werden (IndexedDB nicht verfügbar). Bitte Verbindung wiederherstellen und erneut versuchen.",
+    );
+  });
+
+  it("faellt auf einen generischen Hinweis zurueck, wenn kein Error-Objekt vorliegt", () => {
+    expect(queueSaveFailureMessage("kaputt")).toBe(
+      "Zuweisung konnte nicht in die Warteschlange gelegt werden (unbekannter Fehler). Bitte Verbindung wiederherstellen und erneut versuchen.",
     );
   });
 });
