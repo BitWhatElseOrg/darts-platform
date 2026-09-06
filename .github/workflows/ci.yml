@@ -173,7 +173,9 @@ jobs:
 
       - name: Remove API container
         if: always()
-        run: docker rm --force api-smoke || true
+        run: |
+          docker rm --force api-smoke || true
+          docker image rm --force darts-api:ci || true
 
       - name: Build web deployment image
         uses: docker/build-push-action@v7
@@ -215,7 +217,9 @@ jobs:
 
       - name: Remove web container
         if: always()
-        run: docker rm --force web-smoke || true
+        run: |
+          docker rm --force web-smoke || true
+          docker image rm --force darts-web:ci || true
 
       - name: Build worker deployment image
         uses: docker/build-push-action@v7
@@ -228,6 +232,11 @@ jobs:
           cache-from: type=gha,scope=worker
           cache-to: type=gha,mode=max,scope=worker
 
+      # Der Worker legt selbst keine Migrationen an -- er setzt voraus, dass
+      # das Schema bereits steht. In diesem Job wandert es einzig ueber
+      # `scripts/start-api.mjs` in der Smoke-test-API-image-Stufe oben in die
+      # gemeinsame Postgres-Instanz; ohne einen erfolgreichen API-Rauchtest
+      # zuvor liefe dieser Schritt gegen eine leere Datenbank.
       - name: Smoke-test worker image
         run: |
           docker run --detach --name worker-smoke --network host \
@@ -256,9 +265,15 @@ jobs:
           # Sekunden ohne Fehlerzeile belegen, dass er nicht nur gestartet ist,
           # sondern auch arbeitet.
           sleep 10
-          # Strukturierte Fehlerereignisse des Workers (Teil D): ein Tick-Fehler
-          # oder eine gescheiterte Fehlerbuchung im Beobachtungsfenster ist rot.
-          if docker logs worker-smoke 2>&1 | grep --quiet -E "statistics\.tick_failed|outbox\.failure_booking_failed"; then
+          # Strukturierte Fehlerereignisse des Workers (Teil D): jedes
+          # Fehlerereignis des Workers (tick_failed, failure_booking_failed,
+          # prune_failed, ...) ist rot. `createStructuredLogEmitter`
+          # (packages/config/src/structured-logger.ts) schreibt fuer jeden
+          # Aufruf mit Level "error" das Feld `"level":"error"` in die
+          # JSON-Zeile -- der Level traegt das Urteil, nicht der Ereignisname,
+          # und ein kuenftiges Fehlerereignis braucht deshalb keine Ergaenzung
+          # dieser Namensliste mehr.
+          if docker logs worker-smoke 2>&1 | grep --quiet '"level":"error"'; then
             echo "Worker meldet Fehler."
             exit 1
           fi
@@ -273,4 +288,6 @@ jobs:
 
       - name: Remove worker container
         if: always()
-        run: docker rm --force worker-smoke || true
+        run: |
+          docker rm --force worker-smoke || true
+          docker image rm --force darts-worker:ci || true
