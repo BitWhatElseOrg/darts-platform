@@ -10,12 +10,14 @@ const PUBLIC_PATH_PREFIX = "/api/v1/public/";
 const HEALTH_PATH = "/api/v1/health";
 
 /**
- * Routen, die ein Geheimnis ausgeben oder pruefen: die Einladung liefert ein
- * gueltiges Claim-Token zurueck, `accept` prueft eines, und die
- * Auth-Endpunkte pruefen Passwoerter (Audit B, I-6).
+ * Routen, die ein Geheimnis pruefen: `accept` prueft ein Claim-Token, die
+ * Auth-Endpunkte pruefen Passwoerter (Audit B, I-6). Das Ausstellen einer
+ * Einladung (`POST /organizations/:id/invitations`) gehoert bewusst nicht
+ * mehr dazu (Ruling B14): die Route prueft kein Geheimnis, sondern erzeugt
+ * eines nur fuer bereits ueber `organization:manage_members` autorisierte
+ * Personen — die allgemeine Stufe reicht dafuer.
  */
 const SENSITIVE_PATH_PATTERNS: readonly RegExp[] = [
-  /^\/api\/v1\/organizations\/[^/]+\/invitations$/u,
   /^\/api\/v1\/invitations\/[^/]+\/accept$/u,
   /^\/api\/v1\/auth\/sign-in\//u,
   /^\/api\/v1\/auth\/sign-up\//u,

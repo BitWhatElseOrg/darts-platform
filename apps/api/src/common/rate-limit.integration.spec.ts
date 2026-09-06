@@ -120,3 +120,57 @@ describe("Rate Limiting je Stufe und Client", () => {
     expect(secondAllowed.statusCode).not.toBe(429);
   }, 30_000);
 });
+
+describe("Stufenzuordnung je Route (Ruling B14)", () => {
+  let isolatedApp: NestFastifyApplication;
+
+  beforeAll(async () => {
+    // Zwei deutlich unterschiedliche Obergrenzen: die Zaehler-Kopfzeile
+    // verraet zuverlaessig, welche Stufe eine Route tatsaechlich traegt, ohne
+    // die Grenze erst ausschoepfen zu muessen.
+    isolatedApp = await createApiTestApplication({
+      RATE_LIMIT_MAX_PER_MINUTE: 42,
+      RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: 7,
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    await isolatedApp.close();
+  });
+
+  it("ordnet das Ausstellen einer Einladung der allgemeinen Stufe zu", async () => {
+    const response = await isolatedApp.inject({
+      method: "POST",
+      url: `/api/v1/organizations/${randomUUID()}/invitations`,
+      payload: {},
+    });
+
+    expect(response.headers["x-ratelimit-limit"]).toBe("42");
+  }, 30_000);
+
+  it("belaesst die Annahme einer Einladung auf der sensiblen Stufe", async () => {
+    const response = await isolatedApp.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${randomUUID()}/accept`,
+      payload: {},
+    });
+
+    expect(response.headers["x-ratelimit-limit"]).toBe("7");
+  }, 30_000);
+
+  it("belaesst Anmeldung und Registrierung auf der sensiblen Stufe", async () => {
+    const signIn = await isolatedApp.inject({
+      method: "POST",
+      url: "/api/v1/auth/sign-in/email",
+      payload: {},
+    });
+    expect(signIn.headers["x-ratelimit-limit"]).toBe("7");
+
+    const signUp = await isolatedApp.inject({
+      method: "POST",
+      url: "/api/v1/auth/sign-up/email",
+      payload: {},
+    });
+    expect(signUp.headers["x-ratelimit-limit"]).toBe("7");
+  }, 30_000);
+});

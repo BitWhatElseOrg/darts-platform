@@ -92,7 +92,7 @@ describe("parseApplicationEnvironment", () => {
     const environment = parseApplicationEnvironment(validEnvironment);
 
     expect(environment.RATE_LIMIT_MAX_PER_MINUTE).toBe(300);
-    expect(environment.RATE_LIMIT_PUBLIC_MAX_PER_MINUTE).toBe(120);
+    expect(environment.RATE_LIMIT_PUBLIC_MAX_PER_MINUTE).toBe(600);
     expect(environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE).toBe(10);
   });
 

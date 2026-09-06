@@ -64,12 +64,17 @@ export const applicationEnvironmentSchema = z.object({
   /** Obergrenze je IP und Minute fuer alle nicht gesondert geregelten Routen. */
   RATE_LIMIT_MAX_PER_MINUTE: rateLimitMaxSchema.default(300),
   /**
-   * Obergrenze fuer `/api/v1/public/**`. Bewusst hoeher als die sensible
-   * Grenze: eine ganze Halle sitzt hinter einer einzigen oeffentlichen
-   * IP-Adresse, und die TV-Wand fragt im Sekundentakt nach.
+   * Obergrenze fuer `/api/v1/public/**`. `live-tournament.tsx` pollt nur,
+   * solange der Socket unten ist, alle 5 Sekunden — 12 Anfragen je Minute und
+   * Client. Eine ganze Halle sitzt dabei hinter einer einzigen oeffentlichen
+   * NAT-Adresse: bei rund 50 Handys ergibt das ~600 Anfragen je Minute.
    */
-  RATE_LIMIT_PUBLIC_MAX_PER_MINUTE: rateLimitMaxSchema.default(120),
-  /** Obergrenze fuer Anmeldung, Registrierung und die Einladungsrouten. */
+  RATE_LIMIT_PUBLIC_MAX_PER_MINUTE: rateLimitMaxSchema.default(600),
+  /**
+   * Obergrenze fuer Anmeldung, Registrierung und die Annahme einer Einladung.
+   * Das Ausstellen einer Einladung zaehlt seit Ruling B14 zur allgemeinen
+   * Stufe (`RATE_LIMIT_MAX_PER_MINUTE`), nicht mehr hierher.
+   */
   RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: rateLimitMaxSchema.default(10),
   /**
    * Anzahl vertrauter Reverse-Proxy-Hops vor der Anwendung — lokal `0`

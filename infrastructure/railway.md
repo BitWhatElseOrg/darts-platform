@@ -136,8 +136,8 @@ Mindestens diese Shared beziehungsweise Service-Variablen werden benötigt:
 | `DATABASE_URL` | Railway-Referenz auf PostgreSQL | persistente Production-Datenbank |
 | `REDIS_URL` | Railway-Referenz auf Redis | Cache, Queue und Realtime |
 | `RATE_LIMIT_MAX_PER_MINUTE` | `300` | Obergrenze je IP und Minute für alle übrigen Routen (optional, Vorgabe 300) |
-| `RATE_LIMIT_PUBLIC_MAX_PER_MINUTE` | `120` | Obergrenze für `/api/v1/public/**` (optional, Vorgabe 120) |
-| `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE` | `10` | Obergrenze für Anmeldung, Registrierung und Einladungsrouten (optional, Vorgabe 10) |
+| `RATE_LIMIT_PUBLIC_MAX_PER_MINUTE` | `600` | Obergrenze für `/api/v1/public/**` (optional, Vorgabe 600) |
+| `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE` | `10` | Obergrenze für Anmeldung, Registrierung und die Annahme einer Einladung (optional, Vorgabe 10) |
 | `TRUST_PROXY_HOPS` | `1` | **Pflicht.** Anzahl vertrauter Reverse-Proxy-Hops vor der Anwendung |
 | `ALLOW_SELF_SERVICE_ORGANIZATIONS` | nicht gesetzt (`false`) | öffnet `POST /organizations` für jede angemeldete Person; in Production bewusst aus |
 
