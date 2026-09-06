@@ -13,26 +13,15 @@ import { NavLink, PageNav } from "@/components/page-nav";
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { ApiClientError } from "@/lib/api-error";
 import { generateId } from "@/lib/id";
+import { type OfflineCommand } from "@/lib/offline-command-queue";
 import {
-  listOfflineCommands,
-  markOfflineCommandConflict,
-  markOfflineCommandRejected,
-  removeOfflineCommand,
-  saveOfflineCommand,
-  type OfflineCommand,
-} from "@/lib/offline-command-queue";
-import {
-  localCleanupFailureMessage,
   nextReplayable,
-  queueReadFailureMessage,
-  queueSaveFailureMessage,
-  queueUpdateFailureMessage,
   queuedCommandNotice,
   replayFailure,
   replayWithCurrentVersion,
-  type ReplayFailure,
   type ReplayOutcome,
 } from "@/lib/offline-replay";
+import { useOfflineQueue } from "@/lib/use-offline-queue";
 import {
   assignmentQueueEntries,
   assignmentRequestBody,
@@ -135,55 +124,33 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
   const dashboard = dashboardQuery.data;
   const [connection, setConnection] = useState<"live" | "offline">("live");
   const [realtimeConnection, setRealtimeConnection] = useState<RealtimeConnection>("verbindet");
-  const [queued, setQueued] = useState<readonly OfflineCommand[]>([]);
   const [landedBoardId, setLandedBoardId] = useState<string | null>(null);
   const [conflict, setConflict] = useState<VersionConflict | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
-  /**
-   * Fehler der lokalen Warteschlange selbst (lesen, aendern) -- bewusst
-   * getrennt von `commandError`, das einen einzelnen Befehl betrifft. Beide
-   * koennen gleichzeitig zutreffen, und keiner darf den anderen
-   * ueberschreiben.
-   */
-  const [queueError, setQueueError] = useState<string | null>(null);
   const [commandBusy, setCommandBusy] = useState(false);
   const [announcement, setAnnouncement] = useState("");
 
   const scope = tournamentQueueScope(organizationId, tournamentId);
   const assignmentPath = `/organizations/${organizationId}/tournaments/${tournamentId}/assignments`;
   /**
-   * Liest die Warteschlange neu und macht ein Scheitern des Lesens sichtbar.
-   *
-   * Das Lesen selbst kann scheitern (IndexedDB nicht verfuegbar, blockiert).
-   * Frueher warf `refreshQueue` in diesem Fall an ihre Aufruferinnen weiter --
-   * je nach Aufrufstelle als unbehandelte Rejection oder als Fehler, der
-   * faelschlich wie ein Uebertragungsfehler aussah. Jetzt faengt der eine
-   * Helfer den Fall an einer Stelle ab und setzt `queueError`; sie wirft nie.
+   * Die lokale Warteschlange samt ihren beiden Fehlerkanaelen. Lesefehler und
+   * Schreibfehler sind getrennt, weil auf fast jedes Schreiben ein
+   * `refreshQueue()` folgt: mit einem gemeinsamen Zustand loeschte das
+   * erfolgreiche Lesen die Meldung des gescheiterten Schreibens im selben Tick
+   * wieder (Re-Review, "Wipe-Bug"). Beide sind ausserdem getrennt von
+   * `commandError`, das einen einzelnen Befehl betrifft; alle drei koennen
+   * gleichzeitig zutreffen und keiner darf einen anderen ueberschreiben.
    */
-  const refreshQueue = useCallback(async (): Promise<void> => {
-    try {
-      setQueued(await listOfflineCommands(scope));
-      setQueueError(null);
-    } catch (error) {
-      setQueueError(queueReadFailureMessage(error));
-    }
-  }, [scope]);
-  // Die Warteschlange liegt in IndexedDB und wird beim Betreten der Zentrale
-  // gelesen: eine offline erfasste Zuweisung ueberlebt damit ein Neuladen.
-  //
-  // Der Rejection-Zweig ist Pflicht: ohne ihn entstand bei nicht verfuegbarer
-  // oder blockierter IndexedDB eine unbehandelte Rejection, und die Zentrale
-  // zeigte eine leere Warteschlange -- die Person hielt sie fuer leer, obwohl
-  // wartende Zuweisungen darin standen (AGENTS.md §18, PR-Agent-Runde 5,
-  // Befund b).
-  useEffect(() => {
-    let active = true;
-    void listOfflineCommands(scope).then(
-      (commands) => { if (active) setQueued(commands); },
-      (error: unknown) => { if (active) setQueueError(queueReadFailureMessage(error)); },
-    );
-    return () => { active = false; };
-  }, [scope]);
+  const {
+    queued,
+    readError: queueReadError,
+    writeError: queueWriteError,
+    refreshQueue,
+    persist: persistQueuedAssignment,
+    markOutcome: markQueuedOutcome,
+    remove: removeQueued,
+    removeAccepted: removeAcceptedQueued,
+  } = useOfflineQueue(scope);
 
   useEffect(() => {
     const update = () => setConnection(navigator.onLine ? "live" : "offline");
@@ -237,55 +204,6 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
   );
 
   /**
-   * Legt eine Zuweisung in der IndexedDB-Warteschlange ab und macht ein
-   * Scheitern dabei sichtbar (blockierte oder ueberschrittene IndexedDB).
-   * Vorher konnte genau dieser Fehler unbehandelt aus dem Offline-Zweig von
-   * `sendAssignment` (Fall `RETRY`) entkommen: die Zuweisung war dann weder
-   * vom Server angenommen noch lokal gespeichert, ohne jede Meldung
-   * (PR-Agent-Runde 4, Befund A). Ein einziger Helfer fuer beide
-   * Aufrufstellen (hier und in `assign`) stellt sicher, dass keine neue
-   * Stelle diesen Fall wieder vergisst.
-   *
-   * Gibt `true` zurueck, wenn das Kommando gespeichert ist -- nur dann darf
-   * die Aufruferin eine Erfolgsmeldung ("wartet auf Verbindung"/"bleibt in
-   * der Warteschlange") zeigen. Bei `false` steht bereits eine sichtbare
-   * Fehlermeldung in `commandError`, die die Aufruferin nicht ueberschreiben
-   * darf.
-   */
-  const persistQueuedAssignment = useCallback(async (command: OfflineCommand): Promise<boolean> => {
-    try {
-      await saveOfflineCommand(command);
-      return true;
-    } catch (error) {
-      setCommandError(queueSaveFailureMessage(error));
-      return false;
-    }
-  }, []);
-
-  /**
-   * Schreibt den Ausgang eines Serverurteils (Konflikt, Ablehnung) in den
-   * Warteschlangeneintrag und macht ein Scheitern dieses Schreibens sichtbar.
-   *
-   * Ohne den Helfer entkam ein IndexedDB-Fehler aus dem `catch` von
-   * `sendAssignment`, bevor dort ueberhaupt eine Fehlermeldung gesetzt war:
-   * die Person sah nichts, und aus `flushPending` heraus wurde daraus eine
-   * unbehandelte Rejection. Derselbe Griff wie `persistQueuedAssignment` --
-   * eine Stelle statt zweier inline gezogener Aufrufe.
-   */
-  const markQueuedOutcome = useCallback(
-    async (command: OfflineCommand, failure: Extract<ReplayFailure, { readonly kind: "CONFLICT" | "REJECTED" }>): Promise<void> => {
-      try {
-        await (failure.kind === "CONFLICT"
-          ? markOfflineCommandConflict(command, failure.code, failure.message)
-          : markOfflineCommandRejected(command, failure.code, failure.message));
-      } catch (error) {
-        setQueueError(queueUpdateFailureMessage(error));
-      }
-    },
-    [],
-  );
-
-  /**
    * Sendet eine Zuweisung mit einer explizit uebergebenen `expectedVersion`
    * -- nie mit der beim Einreihen gespeicherten (`command.expectedVersion`
    * ist nur ein Anzeigehinweis, siehe `PendingCommand`). `queuedCommand` ist
@@ -322,9 +240,9 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         // `queuedLocally` bleibt fuer CONFLICT/REJECTED auf `true` -- dort
         // wird nichts (neu) in die Warteschlange gelegt, die abschliessende
         // Fehlermeldung unten gilt unveraendert wie vorher. Nur im Fall
-        // `RETRY` kann das Ablegen selbst scheitern; dann hat
-        // `persistQueuedAssignment` bereits die passende Meldung gesetzt, und
-        // die generische unten darf sie nicht ueberschreiben.
+        // `RETRY` kann das Ablegen selbst scheitern; dann steht die passende
+        // Meldung bereits in `queue.writeError`, und die generische unten
+        // darf sie nicht verdraengen.
         let queuedLocally = true;
         switch (failure.kind) {
           case "RETRY":
@@ -333,9 +251,9 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
             if (queuedLocally) setAnnouncement("Verbindung unterbrochen. Der Befehl bleibt in der Warteschlange.");
             break;
           // Beide Ausgaenge schreiben denselben Eintrag, nur mit anderem
-          // Status -- `markQueuedOutcome` faengt dabei einen Schreibfehler ab,
-          // damit er nicht am `setCommandError` unten vorbei nach aussen
-          // entkommt (PR-Agent-Runde 5, Durchsicht).
+          // Status -- `markOutcome` faengt dabei einen Schreibfehler ab, damit
+          // er nicht am `setCommandError` unten vorbei nach aussen entkommt
+          // (PR-Agent-Runde 5, Durchsicht).
           case "CONFLICT":
           case "REJECTED":
             if (queuedCommand !== null) await markQueuedOutcome(queuedCommand, failure);
@@ -352,15 +270,15 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
       setLandedBoardId(command.boardId);
       setCommandError(null);
       setAnnouncement(`${command.label} läuft.`);
-      try {
-        if (queuedCommand !== null) await removeOfflineCommand(queuedCommand.commandId);
-        await refreshQueue();
-      } catch (localError) {
-        setCommandError(localCleanupFailureMessage(localError));
-      }
+      // `removeAccepted` traegt die eigene Meldung fuer genau diesen Fall
+      // (`localCleanupFailureMessage`): der Server hat angenommen, nur das
+      // lokale Aufraeumen scheiterte. Sie steht in `queue.writeError` und
+      // ueberlebt das `refreshQueue()` darunter.
+      if (queuedCommand !== null) await removeAcceptedQueued(queuedCommand.commandId);
+      await refreshQueue();
       return next.tournament.version;
     },
-    [assignmentPath, markQueuedOutcome, persistQueuedAssignment, queryClient, queryKey, refreshQueue, scope],
+    [assignmentPath, markQueuedOutcome, persistQueuedAssignment, queryClient, queryKey, refreshQueue, removeAcceptedQueued, scope],
   );
 
   const assign = useCallback(
@@ -516,16 +434,17 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
     if (commandBusy) return;
     setCommandBusy(true);
     try {
-      await removeOfflineCommand(commandId);
+      // Scheitert das Entfernen, steht die Meldung in `queue.writeError` und
+      // der Eintrag unveraendert weiter in der Liste -- dann wird weder der
+      // Serverstand nachgeladen noch "verworfen" gemeldet.
+      if (!(await removeQueued(commandId))) return;
       await refreshQueue();
       await queryClient.invalidateQueries({ queryKey });
       setAnnouncement("Befehl verworfen; der Serverstand wird nachgeladen.");
-    } catch (error) {
-      setQueueError(queueUpdateFailureMessage(error));
     } finally {
       setCommandBusy(false);
     }
-  }, [commandBusy, queryClient, queryKey, refreshQueue]);
+  }, [commandBusy, queryClient, queryKey, refreshQueue, removeQueued]);
 
   const correctResult = useCallback(async (matchId: string, reason: string) => {
     if (dashboard === undefined || commandBusy || connection === "offline") return;
@@ -641,14 +560,22 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
           * Die Warteschlange muss auch dann sichtbar sein, wenn genau ihr
           * Lesen oder Aendern scheitert -- sonst zeigt die Zentrale eine leere
           * Liste und die Person haelt sie fuer leer (AGENTS.md §18). Eigene
-          * Flaeche neben `commandError`: der Fehler betrifft die Warteschlange
-          * als Ganzes, nicht einen einzelnen Befehl, und beide koennen
-          * gleichzeitig zutreffen.
+          * Flaechen neben `commandError`: der Fehler betrifft die
+          * Warteschlange als Ganzes, nicht einen einzelnen Befehl. Lesen und
+          * Schreiben stehen getrennt, weil sie Unterschiedliches bedeuten und
+          * gleichzeitig zutreffen koennen.
           */}
-        {queueError !== null ? (
+        {queueReadError !== null ? (
           <Wedge className="mt-5 p-4" tone="alarm">
             <SheetLabel as="h2" tone="alarm">Warteschlange nicht gelesen</SheetLabel>
-            <p className="mt-1.5 font-plate text-body text-wedge-900">{queueError}</p>
+            <p className="mt-1.5 font-plate text-body text-wedge-900">{queueReadError}</p>
+          </Wedge>
+        ) : null}
+
+        {queueWriteError !== null ? (
+          <Wedge className="mt-5 p-4" tone="alarm">
+            <SheetLabel as="h2" tone="alarm">Warteschlange nicht geändert</SheetLabel>
+            <p className="mt-1.5 font-plate text-body text-wedge-900">{queueWriteError}</p>
           </Wedge>
         ) : null}
 

@@ -8,26 +8,17 @@ import {
 import { apiRequest } from "@/lib/api-client";
 import { ApiClientError } from "@/lib/api-error";
 import { generateId } from "@/lib/id";
-import {
-  listOfflineCommands,
-  markOfflineCommandConflict,
-  markOfflineCommandRejected,
-  removeOfflineCommand,
-  removeOfflineCommandsForScope,
-  saveOfflineCommand,
-  type OfflineCommand,
-} from "@/lib/offline-command-queue";
+import { removeOfflineCommand, saveOfflineCommand, type OfflineCommand } from "@/lib/offline-command-queue";
 import {
   nextReplayable,
   queueBlocksControl,
-  queueReadFailureMessage,
-  queueUpdateFailureMessage,
   replayFailure,
   replayWithCurrentVersion,
   withCurrentExpectedVersion,
   type ReplayOutcome,
 } from "@/lib/offline-replay";
 import { useBoardControllerLock } from "@/lib/use-board-controller-lock";
+import { useOfflineQueue } from "@/lib/use-offline-queue";
 
 /**
  * Scoringzustand einer Match-Fläche: Board-Steuerung, Offline-Queue und die
@@ -47,8 +38,15 @@ import { useBoardControllerLock } from "@/lib/use-board-controller-lock";
 export interface MatchScoring {
   readonly lock: ReturnType<typeof useBoardControllerLock>;
   readonly queued: readonly OfflineCommand[];
-  /** Meldung, wenn die lokale Warteschlange selbst nicht gelesen oder geaendert werden konnte. */
-  readonly queueError: string | null;
+  /** Meldung, wenn die lokale Warteschlange selbst nicht GELESEN werden konnte. */
+  readonly queueReadError: string | null;
+  /**
+   * Meldung, wenn eine Aenderung an der lokalen Warteschlange nicht
+   * geschrieben werden konnte. Getrennt vom Lesefehler: ein erfolgreiches
+   * Lesen beweist nicht, dass die Aenderung angekommen ist, und darf die
+   * Meldung deshalb nicht loeschen (siehe `use-offline-queue.ts`).
+   */
+  readonly queueWriteError: string | null;
   readonly online: boolean;
   readonly replaying: boolean;
   readonly mayControl: boolean;
@@ -84,19 +82,27 @@ export function useMatchScoring({ organizationId, match, canScore }: {
 }): MatchScoring {
   const queryClient = useQueryClient();
   const lock = useBoardControllerLock(organizationId, match.id, canScore && match.status === "IN_PROGRESS");
-  const [queued, setQueued] = useState<readonly OfflineCommand[]>([]);
+  const scope = `match:${organizationId}:${match.id}`;
   /**
-   * Fehler der lokalen Warteschlange selbst (lesen, aendern) -- getrennt von
-   * `error`, das aus den Mutationen kommt. Vorher hatte diese Klasse Fehler
-   * hier gar keinen Kanal und brach still ab.
+   * Die lokale Warteschlange -- derselbe Hook wie in der Kommandozentrale.
+   * Ihre beiden Fehlerkanaele sind getrennt von `error` aus den Mutationen:
+   * ein Fehler der Warteschlange selbst ist kein Uebertragungsfehler.
    */
-  const [queueError, setQueueError] = useState<string | null>(null);
+  const {
+    queued,
+    readError: queueReadError,
+    writeError: queueWriteError,
+    readQueue,
+    refreshQueue,
+    markOutcome: markQueuedOutcome,
+    remove: removeQueued,
+    clearScope: clearQueuedScope,
+  } = useOfflineQueue(scope);
   const [replaying, setReplaying] = useState(false);
   const replayingRef = useRef(false);
   const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
   const [submitSucceededAt, setSubmitSucceededAt] = useState(0);
   const [abortSucceededAt, setAbortSucceededAt] = useState(0);
-  const scope = `match:${organizationId}:${match.id}`;
   const refresh = useCallback(async () => { await Promise.all([
     queryClient.invalidateQueries({ queryKey: ["matches", organizationId] }),
     queryClient.invalidateQueries({ queryKey: ["match", organizationId, match.id] }),
@@ -104,33 +110,6 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     queryClient.invalidateQueries({ queryKey: ["tournament-dashboard", organizationId] }),
     queryClient.invalidateQueries({ queryKey: ["tournaments", organizationId] }),
   ]); }, [organizationId, queryClient, match.id]);
-  /**
-   * Liest die Warteschlange neu und macht ein Scheitern des Lesens sichtbar,
-   * statt es an die Aufruferin weiterzuwerfen (dieselbe Form wie in
-   * `command-centre.tsx`). Wirft nie.
-   */
-  const refreshQueue = useCallback(async (): Promise<void> => {
-    try {
-      setQueued(await listOfflineCommands(scope));
-      setQueueError(null);
-    } catch (error) {
-      setQueueError(queueReadFailureMessage(error));
-    }
-  }, [scope]);
-  // Der Rejection-Zweig ist Pflicht: ohne ihn entstand bei nicht verfuegbarer
-  // oder blockierter IndexedDB eine unbehandelte Rejection, und die Flaeche
-  // zeigte eine leere Warteschlange. Das ist hier schwerer als in der
-  // Kommandozentrale: `queueBlocksControl` gaebe die Bedienung frei, obwohl
-  // aeltere Aufnahmen noch ungesendet in IndexedDB liegen -- die neue Aufnahme
-  // liefe an ihnen vorbei (AGENTS.md §18, PR-Agent-Runde 5, Durchsicht).
-  useEffect(() => {
-    let active = true;
-    void listOfflineCommands(scope).then(
-      (commands) => { if (active) setQueued(commands); },
-      (error: unknown) => { if (active) setQueueError(queueReadFailureMessage(error)); },
-    );
-    return () => { active = false; };
-  }, [scope]);
 
   const replay = useCallback(async () => {
     if (!navigator.onLine || replayingRef.current) return;
@@ -149,15 +128,10 @@ export function useMatchScoring({ organizationId, match, canScore }: {
       // Auch das Lesen kann scheitern. Vorher trug dieser Wurf durch das
       // `finally` hindurch nach draussen -- an `void replay()` im Effekt und
       // am Knopf "Jetzt uebertragen" wurde daraus eine unbehandelte Rejection
-      // ohne jede Meldung (PR-Agent-Runde 5, Durchsicht).
-      let commands: readonly OfflineCommand[];
-      try {
-        commands = await listOfflineCommands(scope);
-      } catch (error) {
-        setQueueError(queueReadFailureMessage(error));
-        return;
-      }
-      setQueueError(null);
+      // ohne jede Meldung (PR-Agent-Runde 5, Durchsicht). `readQueue` faengt
+      // ihn und meldet ihn als Lesefehler; `null` heisst: nicht gelesen.
+      const commands = await readQueue();
+      if (commands === null) return;
       // `nextReplayable` statt eines Filters: ein abgelehnter oder
       // konfliktbehafteter Kopf haelt die ganze Warteschlange an, bis jemand
       // entschieden hat. Ein Filter uebersprang ihn beim naechsten Auslauf und
@@ -186,23 +160,11 @@ export function useMatchScoring({ organizationId, match, canScore }: {
           // ab: die Reihenfolge der Aufnahmen ist verbindlich.
           const failure = replayFailure(error);
           // Das Markieren schreibt selbst nach IndexedDB und kann scheitern.
-          // Ohne diesen `catch` verliess der Fehler die Wiedergabe als
+          // `markOutcome` faengt das und meldet es als Schreibfehler; ohne
+          // diese Behandlung verliess der Fehler die Wiedergabe als
           // unbehandelte Rejection, und die Person sah weder den Serverfehler
           // noch den Schreibfehler (PR-Agent-Runde 5, Durchsicht).
-          try {
-            switch (failure.kind) {
-              case "CONFLICT":
-                await markOfflineCommandConflict(command, failure.code, failure.message);
-                break;
-              case "REJECTED":
-                await markOfflineCommandRejected(command, failure.code, failure.message);
-                break;
-              case "RETRY":
-                break;
-            }
-          } catch (markError) {
-            setQueueError(queueUpdateFailureMessage(markError));
-          }
+          if (failure.kind !== "RETRY") await markQueuedOutcome(command, failure);
           return { successful: false };
         }
         // Der Server hat das Kommando angenommen -- ab hier ist ein Fehler
@@ -232,7 +194,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
       setReplaying(false);
       replayingRef.current = false;
     }
-  }, [scope, match.version, refresh, refreshQueue]);
+  }, [markQueuedOutcome, match.version, readQueue, refresh, refreshQueue]);
 
   useEffect(() => {
     const becameOnline = () => { setOnline(true); void replay(); };
@@ -270,6 +232,13 @@ export function useMatchScoring({ organizationId, match, canScore }: {
         ...(visit.checkoutSegment === undefined ? {} : { checkoutSegment: visit.checkoutSegment }),
         ...(visit.checkoutMissed === true ? { checkoutMissed: true } : {}),
       };
+      // Bewusst `saveOfflineCommand` direkt statt `persist` aus dem Hook: hier
+      // ist das Ablegen der EINZIGE Weg, auf dem die Aufnahme ueberlebt.
+      // Scheitert es, muss die Mutation scheitern -- sonst meldete
+      // `onSuccess` einen Erfolg, die Flaeche leerte das Ziffernfeld und die
+      // Aufnahme waere weg. Der Wurf landet in `submit.error` und ist
+      // angezeigt; `persist` wuerde ihn nur nach `queueWriteError` melden und
+      // die Mutation trotzdem gelingen lassen.
       if (!navigator.onLine) {
         await saveOfflineCommand({ commandId, scope, path, body, label: `${visit.points} Punkte`, createdAt: new Date().toISOString(), status: "PENDING", error: null });
         await refreshQueue();
@@ -305,8 +274,11 @@ export function useMatchScoring({ organizationId, match, canScore }: {
       schema: abortMatchResponseSchema,
     }),
     onSuccess: async () => {
-      await removeOfflineCommandsForScope(scope);
-      setQueued([]);
+      // Der Abbruch ist serverseitig durch. Scheitert das Leeren der lokalen
+      // Warteschlange, ist das ein Schreibfehler der Warteschlange und kein
+      // gescheiterter Abbruch -- er darf den Abbruch-Dialog nicht in den
+      // Fehlerzustand ziehen, sondern gehoert in `queueWriteError`.
+      await clearQueuedScope();
       setAbortSucceededAt((value) => value + 1);
       await refresh();
     },
@@ -323,25 +295,22 @@ export function useMatchScoring({ organizationId, match, canScore }: {
   // Kommando koennen weitere warten, die jetzt an der Reihe sind.
   const discardQueued = useCallback((commandId: string) => {
     void (async () => {
-      // Scheitert das Entfernen, bleibt der Eintrag stehen. Vorher endete die
-      // Kette hier als unbehandelte Rejection, und die Person klickte auf einen
-      // Knopf, der nichts tat und nichts sagte (PR-Agent-Runde 5, Durchsicht).
-      try {
-        await removeOfflineCommand(commandId);
-      } catch (error) {
-        setQueueError(queueUpdateFailureMessage(error));
-        return;
-      }
+      // Scheitert das Entfernen, bleibt der Eintrag stehen und die Meldung
+      // steht in `queueWriteError`. Vorher endete die Kette hier als
+      // unbehandelte Rejection, und die Person klickte auf einen Knopf, der
+      // nichts tat und nichts sagte (PR-Agent-Runde 5, Durchsicht).
+      if (!(await removeQueued(commandId))) return;
       await refreshQueue();
       await refresh();
       await replay();
     })();
-  }, [refreshQueue, refresh, replay]);
+  }, [refreshQueue, refresh, removeQueued, replay]);
 
   return {
     lock,
     queued,
-    queueError,
+    queueReadError,
+    queueWriteError,
     online,
     replaying,
     mayControl,
