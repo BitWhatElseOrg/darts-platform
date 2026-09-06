@@ -17,7 +17,7 @@ import {
   saveOfflineCommand,
   type OfflineCommand,
 } from "@/lib/offline-command-queue";
-import { queueBlocksControl, replayFailure } from "@/lib/offline-replay";
+import { nextReplayable, queueBlocksControl, replayFailure } from "@/lib/offline-replay";
 import { useBoardControllerLock } from "@/lib/use-board-controller-lock";
 
 /**
@@ -99,7 +99,11 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     replayingRef.current = true;
     setReplaying(true);
     const commands = await listOfflineCommands(scope);
-    for (const command of commands.filter((candidate) => candidate.status === "PENDING")) {
+    // `nextReplayable` statt eines Filters: ein abgelehnter oder
+    // konfliktbehafteter Kopf haelt die ganze Warteschlange an, bis jemand
+    // entschieden hat. Ein Filter uebersprang ihn beim naechsten Auslauf und
+    // setzte seinen Nachfolger in falscher Reihenfolge ab.
+    for (const command of nextReplayable(commands)) {
       try {
         await apiRequest({ path: command.path, method: "POST", body: command.body, schema: matchStateSchema });
         await removeOfflineCommand(command.commandId);
@@ -112,7 +116,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
         const failure = replayFailure(error);
         switch (failure.kind) {
           case "CONFLICT":
-            await markOfflineCommandConflict(command, failure.message);
+            await markOfflineCommandConflict(command, failure.code, failure.message);
             break;
           case "REJECTED":
             await markOfflineCommandRejected(command, failure.code, failure.message);

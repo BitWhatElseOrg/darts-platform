@@ -99,9 +99,16 @@ export async function apiRequest<T>(input: {
         error.data.error.code,
         error.data.error.correlationId,
         error.data.error.details,
+        response.status,
       );
     }
-    throw new ApiClientError(`Die API hat mit HTTP ${response.status} geantwortet.`);
+    throw new ApiClientError(
+      `Die API hat mit HTTP ${response.status} geantwortet.`,
+      "REQUEST_FAILED",
+      null,
+      undefined,
+      response.status,
+    );
   }
 
   return input.schema.parse(payload);

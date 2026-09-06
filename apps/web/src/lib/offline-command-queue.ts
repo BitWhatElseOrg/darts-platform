@@ -71,8 +71,13 @@ export async function removeOfflineCommandsForScope(scope: string): Promise<numb
   return commands.length;
 }
 
-export async function markOfflineCommandConflict(command: OfflineCommand, message: string): Promise<void> {
-  await saveOfflineCommand({ ...command, status: "CONFLICT", error: message });
+/**
+ * Beide Marker schreiben Status, Meldung UND Code -- sonst bliebe der Code
+ * eines frueheren Ausgangs stehen und benannte einen anderen Fehler als die
+ * Meldung daneben.
+ */
+export async function markOfflineCommandConflict(command: OfflineCommand, code: string, message: string): Promise<void> {
+  await saveOfflineCommand({ ...command, status: "CONFLICT", error: message, code });
 }
 
 export async function markOfflineCommandRejected(command: OfflineCommand, code: string, message: string): Promise<void> {

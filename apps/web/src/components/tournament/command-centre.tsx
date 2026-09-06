@@ -21,7 +21,7 @@ import {
   saveOfflineCommand,
   type OfflineCommand,
 } from "@/lib/offline-command-queue";
-import { queuedCommandNotice, replayFailure } from "@/lib/offline-replay";
+import { nextReplayable, queuedCommandNotice, replayFailure } from "@/lib/offline-replay";
 import {
   assignmentQueueEntries,
   tournamentQueueScope,
@@ -156,6 +156,10 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
   );
 
   const queueEntries = useMemo(() => assignmentQueueEntries(queued), [queued]);
+  // Uebertragbar ist nur der fuehrende Block wartender Zuweisungen: ein
+  // abgelehnter oder konfliktbehafteter Kopf haelt die Reihenfolge an, ueber
+  // den einzelnen Durchgang hinaus (siehe offline-replay.ts).
+  const replayable = useMemo(() => assignmentQueueEntries(nextReplayable(queued)), [queued]);
   // Nur unuebertragene Zuweisungen belegen Board und Match; eine abgelehnte
   // ist nie geschehen und gibt beides wieder frei.
   const pending = useMemo(() => unsentAssignments(queueEntries), [queueEntries]);
@@ -220,7 +224,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
             setAnnouncement("Verbindung unterbrochen. Der Befehl bleibt in der Warteschlange.");
             break;
           case "CONFLICT":
-            if (queuedCommand !== null) await markOfflineCommandConflict(queuedCommand, failure.message);
+            if (queuedCommand !== null) await markOfflineCommandConflict(queuedCommand, failure.code, failure.message);
             break;
           case "REJECTED":
             if (queuedCommand !== null) await markOfflineCommandRejected(queuedCommand, failure.code, failure.message);
@@ -309,14 +313,14 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
     if (commandBusy || connection === "offline") return;
     setCommandBusy(true);
     let sent = 0;
-    for (const entry of pending.filter((candidate) => candidate.command.status === "PENDING")) {
+    for (const entry of replayable) {
       const successful = await sendAssignment(pendingCommandOf(entry), entry.command);
       if (!successful) break;
       sent += 1;
     }
     setAnnouncement(`${sent} Befehl${sent === 1 ? "" : "e"} übertragen.`);
     setCommandBusy(false);
-  }, [commandBusy, connection, pending, sendAssignment]);
+  }, [commandBusy, connection, replayable, sendAssignment]);
 
   /** Verwirft eine Zuweisung, die nur noch im Weg steht. */
   const discardQueued = useCallback(async (commandId: string) => {
@@ -453,7 +457,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
                 })}
               </ul>
             </div>
-            <Control disabled={commandBusy || connection === "offline" || pending.length === 0} onClick={() => void flushPending()} variant="plate">Jetzt übertragen</Control>
+            <Control disabled={commandBusy || connection === "offline" || replayable.length === 0} onClick={() => void flushPending()} variant="plate">Jetzt übertragen</Control>
           </Wedge>
         ) : null}
 

@@ -1,5 +1,5 @@
 import { ApiClientError } from "./api-error";
-import type { OfflineCommand } from "./offline-command-queue";
+import type { OfflineCommand, OfflineCommandStatus } from "./offline-command-queue";
 
 /**
  * Was mit einem Kommando geschieht, dessen Wiedergabe fehlgeschlagen ist.
@@ -14,6 +14,11 @@ import type { OfflineCommand } from "./offline-command-queue";
  *   Kommando ist tot und muss verworfen werden. Vor dieser Unterscheidung
  *   blieb ein solches Kommando dauerhaft `PENDING` und sperrte ueber
  *   `queueBlocksControl` das ganze Board (Befund F2).
+ *
+ * Endgueltig ist nur, was der Server auch beurteilt hat. Ein Neustart oder
+ * eine voruebergehende Stoerung (5xx), ein Zeitablauf (408) und eine
+ * Drosselung (429) sind kein Urteil -- eine echte, von Hand erfasste Aufnahme
+ * darf daran nicht verloren gehen.
  */
 export type ReplayFailure =
   | { readonly kind: "RETRY" }
@@ -30,11 +35,46 @@ const conflictMessages: Readonly<Record<string, string>> = {
   TOURNAMENT_VERSION_CONFLICT: "Der Turnierzustand hat sich geändert. Übernimm den Serverstand und weise erneut zu.",
 };
 
+/**
+ * Statuscodes, die zum erneuten Versuch einladen: alles ab 500 (der Server
+ * kam gar nicht dazu zu urteilen), 408 (Zeitablauf) und 429 (Drosselung).
+ * Ein fehlender Status (`null`) zaehlt ebenfalls dazu -- ohne Status ist
+ * nicht belegt, dass ein Urteil vorliegt.
+ */
+function retryableStatus(status: number | null): boolean {
+  if (status === null) return true;
+  return status >= 500 || status === 408 || status === 429;
+}
+
 export function replayFailure(error: unknown): ReplayFailure {
+  // Kein `ApiClientError`: Netzwerkfehler, abgebrochene Verbindung oder eine
+  // Antwort, die sich nicht als JSON lesen liess (`SyntaxError`).
   if (!(error instanceof ApiClientError)) return { kind: "RETRY" };
   const conflict = conflictMessages[error.code];
   if (conflict !== undefined) return { kind: "CONFLICT", code: error.code, message: conflict };
+  if (retryableStatus(error.status)) return { kind: "RETRY" };
   return { kind: "REJECTED", code: error.code, message: error.message };
+}
+
+/**
+ * Die Kommandos, die jetzt uebertragen werden duerfen: der fuehrende Block
+ * wartender Kommandos. Beim ersten Eintrag, der nicht `PENDING` ist, endet
+ * die Wiedergabe.
+ *
+ * Ein Filter statt eines Abbruchs hielte die Reihenfolge nur innerhalb eines
+ * Durchgangs. Beim naechsten Auslöser (Neuladen, `online`-Ereignis, „Jetzt
+ * uebertragen") uebersprang er den abgelehnten oder konfliktbehafteten Kopf
+ * und setzte dessen Nachfolger ab -- der ging durch, weil der Kopf nie
+ * angewendet wurde und die gespeicherte `expectedVersion` deshalb wieder
+ * passte. Ergebnis: die zweite Aufnahme steht in der Datenbank, die erste
+ * nicht. Erst wenn der Kopf verworfen oder synchronisiert ist, geht es
+ * weiter.
+ */
+export function nextReplayable<T extends { readonly status: OfflineCommandStatus }>(
+  commands: readonly T[],
+): readonly T[] {
+  const blocked = commands.findIndex((command) => command.status !== "PENDING");
+  return blocked === -1 ? commands : commands.slice(0, blocked);
 }
 
 /**
