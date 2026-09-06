@@ -291,16 +291,20 @@ export class TournamentsService {
       .filter((participant) => participant.status === "WITHDRAWN")
       .map((participant) => participant.playerId);
     const activeMatches = data.matches.filter((match) => match.status === "IN_PROGRESS");
-    const activePlayers = new Set(
-      activeMatches.flatMap((match) =>
+    // Die Warteschlange darf nichts als „bereit“ zeigen, was `assign` ablehnt.
+    // Der Startpfad prueft vereinsweit — Turnier, Liga und freie Paarungen —,
+    // die Anzeige tut hier dasselbe.
+    const activePlayers = new Set([
+      ...data.activePlayerIds,
+      ...activeMatches.flatMap((match) =>
         [match.participantOneId, match.participantTwoId].filter(
           (playerId): playerId is string => playerId !== null,
         ),
       ),
-    );
-    const availableBoardCount = data.boards.filter(
-      (board) => board.boardStatus === "AVAILABLE",
-    ).length;
+    ]);
+    const isBoardFree = (board: { readonly boardId: string; readonly boardStatus: string }): boolean =>
+      board.boardStatus === "AVAILABLE" && !data.occupiedBoardIds.has(board.boardId);
+    const availableBoardCount = data.boards.filter(isBoardFree).length;
     const generatedAt = new Date();
     const boards = data.boards.map((board) => {
       const scheduled = activeMatches.find((match) => match.boardId === board.boardId);
@@ -358,7 +362,7 @@ export class TournamentsService {
           },
         };
       }
-      const blocked = board.boardStatus !== "AVAILABLE";
+      const blocked = !isBoardFree(board);
       return {
         boardId: board.boardId,
         boardName: board.boardName,
@@ -480,7 +484,7 @@ export class TournamentsService {
       ["COMPLETED", "BYE"].includes(match.status),
     ).length;
     const conflicts = data.boards.flatMap((board) =>
-      board.boardStatus === "AVAILABLE"
+      isBoardFree(board)
         ? []
         : [
             {

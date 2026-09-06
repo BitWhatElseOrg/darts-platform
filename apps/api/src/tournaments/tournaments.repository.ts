@@ -37,6 +37,13 @@ import type {
 import { withdrawTournamentParticipantSchema } from "@darts-platform/schemas";
 
 import type { AuthContext } from "../auth/auth.types.js";
+import {
+  isBoardInProgressConflict,
+  isBoardOccupied,
+  loadActivePlayerIds,
+  loadOccupiedBoardIds,
+  lockPlayers,
+} from "../boards/board-occupancy.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { DatabaseService } from "../database/database.service.js";
 import { abortScoringMatch } from "../matches/abort-match.js";
@@ -81,6 +88,13 @@ export interface TournamentDashboardData {
   readonly groups: readonly (typeof tournamentGroups.$inferSelect)[];
   readonly groupParticipants: readonly (typeof tournamentGroupParticipants.$inferSelect)[];
   readonly matches: readonly (typeof tournamentMatches.$inferSelect)[];
+  /**
+   * Vereinsweit belegte Scheiben und beschaeftigte Personen. Die Anzeige muss
+   * dieselbe Belegt-Menge sehen wie der Startpfad, sonst zeigt die
+   * Warteschlange „bereit“, was `assign` ablehnt.
+   */
+  readonly occupiedBoardIds: ReadonlySet<string>;
+  readonly activePlayerIds: ReadonlySet<string>;
 }
 
 function playerIdFrom(reference: KnockoutParticipantReference | null): string | null {
@@ -264,6 +278,10 @@ export class TournamentsRepository {
             asc(tournamentMatches.position),
           ),
       ]);
+    const [occupiedBoardIds, activePlayerIds] = await Promise.all([
+      loadOccupiedBoardIds(this.databaseService.database, organizationId),
+      loadActivePlayerIds(this.databaseService.database, organizationId),
+    ]);
     return {
       tournament,
       participants: participantRows,
@@ -271,6 +289,8 @@ export class TournamentsRepository {
       groups: groupRows,
       groupParticipants: groupParticipantRows,
       matches: matchRows,
+      occupiedBoardIds,
+      activePlayerIds,
     };
   }
 
@@ -552,7 +572,21 @@ export class TournamentsRepository {
     });
   }
 
-  public assign(input: ActorInput & { readonly data: AssignMatchInput }): Promise<TournamentMutationResult> {
+  public async assign(input: ActorInput & { readonly data: AssignMatchInput }): Promise<TournamentMutationResult> {
+    try {
+      return await this.assignInTransaction(input);
+    } catch (error) {
+      // Der partielle Unique-Index auf `matches` faengt die Zuweisung ab, die
+      // gleichzeitig mit einer zweiten durch die Anwendungspruefung kam. Der
+      // Verstoss ist fachlich eine belegte Scheibe, nicht ein Serverfehler.
+      if (isBoardInProgressConflict(error)) return "board-unavailable";
+      throw error;
+    }
+  }
+
+  private assignInTransaction(
+    input: ActorInput & { readonly data: AssignMatchInput },
+  ): Promise<TournamentMutationResult> {
     return this.databaseService.database.transaction(async (transaction) => {
       const [duplicate] = await transaction
         .select({ organizationId: tournamentCommands.organizationId, tournamentId: tournamentCommands.tournamentId })
@@ -613,6 +647,16 @@ export class TournamentsRepository {
       if (selectedBoard === undefined || selectedBoard.board.status !== "AVAILABLE") {
         return "board-unavailable";
       }
+      // Der Status der Scheibe allein genuegt nicht: die Liga belegt dieselbe
+      // physische Scheibe ueber `encounter_slots`. Beide Quellen zaehlen.
+      if (await isBoardOccupied(transaction, input.organizationId, input.data.boardId)) {
+        return "board-unavailable";
+      }
+      // Erst sperren, dann lesen — sonst saehen zwei Zuweisungen in zwei
+      // Turnieren desselben Vereins dieselbe Person beide als frei.
+      const scheduledPlayerIds = [scheduled.participantOneId, scheduled.participantTwoId];
+      await lockPlayers(transaction, input.organizationId, scheduledPlayerIds);
+      const activePlayerIds = await loadActivePlayerIds(transaction, input.organizationId);
       const [busy] = await transaction
         .select({ id: tournamentMatches.id })
         .from(tournamentMatches)
@@ -621,13 +665,17 @@ export class TournamentsRepository {
             eq(tournamentMatches.organizationId, input.organizationId),
             eq(tournamentMatches.status, "IN_PROGRESS"),
             or(
-              inArray(tournamentMatches.participantOneId, [scheduled.participantOneId, scheduled.participantTwoId]),
-              inArray(tournamentMatches.participantTwoId, [scheduled.participantOneId, scheduled.participantTwoId]),
+              inArray(tournamentMatches.participantOneId, scheduledPlayerIds),
+              inArray(tournamentMatches.participantTwoId, scheduledPlayerIds),
             ),
           ),
         )
         .limit(1);
-      if (busy !== undefined) return "player-busy";
+      // Wer gerade einen Ligaslot oder eine freie Paarung spielt, steht in
+      // `matches` — nicht in `tournament_matches`. Beide Wege sperren.
+      if (busy !== undefined || scheduledPlayerIds.some((playerId) => activePlayerIds.has(playerId))) {
+        return "player-busy";
+      }
 
       const [scoringMatch] = await transaction
         .insert(matches)
@@ -876,19 +924,13 @@ export class TournamentsRepository {
         .for("update")
         .limit(1);
       if (selected === undefined) return "board-unavailable";
-      const [active] = await transaction
-        .select({ id: tournamentMatches.id })
-        .from(tournamentMatches)
-        .where(
-          and(
-            eq(tournamentMatches.organizationId, input.organizationId),
-            eq(tournamentMatches.tournamentId, input.tournamentId),
-            eq(tournamentMatches.boardId, input.data.boardId),
-            eq(tournamentMatches.status, "IN_PROGRESS"),
-          ),
-        )
-        .limit(1);
-      if (active !== undefined) return "board-unavailable";
+      // Freigeben darf nur, wer die Scheibe wirklich frei vorfindet. Ein
+      // laufender Ligaslot steht nicht in `tournament_matches`; wer nur dort
+      // nachsieht, stellt eine belegte Scheibe auf AVAILABLE und laesst die
+      // naechste Zuweisung ein zweites Match darauf starten.
+      if (await isBoardOccupied(transaction, input.organizationId, input.data.boardId)) {
+        return "board-unavailable";
+      }
       const nextVersion = tournament.version + 1;
       await transaction
         .update(boards)
