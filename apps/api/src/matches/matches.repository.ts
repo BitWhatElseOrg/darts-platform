@@ -37,6 +37,8 @@ export type TournamentCorrectionResult =
   | "downstream-started"
   | "board-unavailable";
 type ActorInput = { readonly organizationId: string; readonly matchId: string; readonly auth: AuthContext; readonly audit: AuditContext };
+/** Der Transaktionsrumpf, wie ihn Drizzle an den Callback uebergibt. */
+type DatabaseTransaction = Parameters<Parameters<DatabaseService["database"]["transaction"]>[0]>[0];
 /** Der Live-Bezug eines Matches ohne den Fall "kein Bezug" (das traegt `null`). */
 type LiveTarget = NonNullable<MatchStateResponse["liveTarget"]>;
 
@@ -386,14 +388,13 @@ export class MatchesRepository {
 
   public submitVisit(input: ActorInput & { readonly data: SubmitVisitInput }): Promise<MutationResult> {
     return this.databaseService.database.transaction(async (transaction): Promise<MutationResult> => {
-      const [duplicate] = await transaction.select({ organizationId: scoreCommands.organizationId, matchId: scoreCommands.matchId }).from(scoreCommands)
-        .where(eq(scoreCommands.commandId, input.data.commandId)).limit(1);
-      if (duplicate !== undefined) {
-        if (duplicate.organizationId === input.organizationId && duplicate.matchId === input.matchId) return "ok";
-        throw new ScoringValidationError("COMMAND_ID_ALREADY_USED", "The command ID has already been used for another match.");
-      }
+      if (await this.findDuplicateScoreCommand(transaction, input.organizationId, input.matchId, input.data.commandId) !== null) return "ok";
       await lockTournamentScoringContext(transaction, input.organizationId, input.matchId);
       const [match] = await transaction.select().from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
+      // Zweite Pruefung, jetzt unter der Sperre. Sie steht vor der
+      // Versionspruefung, damit eine gleichzeitige Wiederholung die
+      // Bestaetigung bekommt und nicht den Konflikt.
+      if (await this.findDuplicateScoreCommand(transaction, input.organizationId, input.matchId, input.data.commandId) !== null) return "ok";
       if (match === undefined) return "not-found";
       if (match.version !== input.data.expectedVersion) return "version-conflict";
       const [lease] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
@@ -510,24 +511,7 @@ export class MatchesRepository {
     readonly audit: AuditContext;
   }): Promise<TournamentCorrectionResult> {
     return this.databaseService.database.transaction(async (transaction) => {
-      const [duplicate] = await transaction
-        .select({
-          organizationId: tournamentCommands.organizationId,
-          tournamentId: tournamentCommands.tournamentId,
-        })
-        .from(tournamentCommands)
-        .where(eq(tournamentCommands.commandId, input.data.commandId))
-        .limit(1);
-      if (duplicate !== undefined) {
-        if (
-          duplicate.organizationId === input.organizationId &&
-          duplicate.tournamentId === input.tournamentId
-        ) return "ok";
-        throw new ScoringValidationError(
-          "COMMAND_ID_ALREADY_USED",
-          "The command ID has already been used for another tournament.",
-        );
-      }
+      if (await this.findDuplicateTournamentCommand(transaction, input.organizationId, input.tournamentId, input.data.commandId) !== null) return "ok";
 
       const [tournament] = await transaction
         .select()
@@ -540,6 +524,8 @@ export class MatchesRepository {
         )
         .for("update")
         .limit(1);
+      // Zweite Pruefung unter der Sperre — siehe `findDuplicateTournamentCommand`.
+      if (await this.findDuplicateTournamentCommand(transaction, input.organizationId, input.tournamentId, input.data.commandId) !== null) return "ok";
       if (tournament === undefined) return "not-found";
       if (tournament.version !== input.data.expectedVersion) return "version-conflict";
 
@@ -879,13 +865,13 @@ export class MatchesRepository {
 
   private undoInTransaction(input: ActorInput & { readonly data: UndoVisitInput }): Promise<UndoMutationResult> {
     return this.databaseService.database.transaction(async (transaction): Promise<UndoMutationResult> => {
-      const [duplicate] = await transaction.select({ organizationId: scoreCommands.organizationId, matchId: scoreCommands.matchId }).from(scoreCommands).where(eq(scoreCommands.commandId, input.data.commandId)).limit(1);
-      if (duplicate !== undefined) {
-        if (duplicate.organizationId === input.organizationId && duplicate.matchId === input.matchId) return "ok";
-        throw new ScoringValidationError("COMMAND_ID_ALREADY_USED", "The command ID has already been used for another match.");
-      }
+      if (await this.findDuplicateScoreCommand(transaction, input.organizationId, input.matchId, input.data.commandId) !== null) return "ok";
       await lockTournamentScoringContext(transaction, input.organizationId, input.matchId);
       const [match] = await transaction.select().from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
+      // Zweite Pruefung, jetzt unter der Sperre. Sie steht vor der
+      // Versionspruefung, damit eine gleichzeitige Wiederholung die
+      // Bestaetigung bekommt und nicht den Konflikt.
+      if (await this.findDuplicateScoreCommand(transaction, input.organizationId, input.matchId, input.data.commandId) !== null) return "ok";
       if (match === undefined) return "not-found";
       if (match.version !== input.data.expectedVersion) return "version-conflict";
       const [lease] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
@@ -978,13 +964,13 @@ export class MatchesRepository {
     command: X01Command,
   ): Promise<MutationResult> {
     return this.databaseService.database.transaction(async (transaction): Promise<MutationResult> => {
-      const [duplicate] = await transaction.select({ organizationId: scoreCommands.organizationId, matchId: scoreCommands.matchId }).from(scoreCommands).where(eq(scoreCommands.commandId, envelope.commandId)).limit(1);
-      if (duplicate !== undefined) {
-        if (duplicate.organizationId === input.organizationId && duplicate.matchId === input.matchId) return "ok";
-        throw new ScoringValidationError("COMMAND_ID_ALREADY_USED", "The command ID has already been used for another match.");
-      }
+      if (await this.findDuplicateScoreCommand(transaction, input.organizationId, input.matchId, envelope.commandId) !== null) return "ok";
       await lockTournamentScoringContext(transaction, input.organizationId, input.matchId);
       const [match] = await transaction.select().from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
+      // Zweite Pruefung, jetzt unter der Sperre. Sie steht vor der
+      // Versionspruefung, damit eine gleichzeitige Wiederholung die
+      // Bestaetigung bekommt und nicht den Konflikt.
+      if (await this.findDuplicateScoreCommand(transaction, input.organizationId, input.matchId, envelope.commandId) !== null) return "ok";
       if (match === undefined) return "not-found";
       if (match.version !== envelope.expectedVersion) return "version-conflict";
       const [lease] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
@@ -1298,5 +1284,63 @@ export class MatchesRepository {
         winnerPlayerId,
       },
     });
+  }
+
+  /**
+   * Duplikatpruefung fuer den Kommandostrom eines Matches. Sie laeuft an jeder
+   * Aufrufstelle ZWEIMAL: einmal vor der Aggregatsperre (billig, deckt die
+   * Wiederholung nach Sekunden ab) und einmal darunter. Ohne die zweite
+   * Pruefung verfehlen zwei gleichzeitige Zustellungen desselben Kommandos die
+   * Kommandozeile beide, und die zweite bekaeme nach dem Commit der ersten
+   * einen Versionskonflikt statt der idempotenten Bestaetigung — genau der
+   * Fall, fuer den die commandId da ist (AGENTS.md 11). Vorbild:
+   * `encounters.repository.ts`, `runMutation`.
+   */
+  private async findDuplicateScoreCommand(
+    transaction: DatabaseTransaction,
+    organizationId: string,
+    matchId: string,
+    commandId: string,
+  ): Promise<"ok" | null> {
+    const [duplicate] = await transaction
+      .select({ organizationId: scoreCommands.organizationId, matchId: scoreCommands.matchId })
+      .from(scoreCommands)
+      .where(eq(scoreCommands.commandId, commandId))
+      .limit(1);
+    if (duplicate === undefined) return null;
+    if (duplicate.organizationId === organizationId && duplicate.matchId === matchId) return "ok";
+    throw new ScoringValidationError(
+      "COMMAND_ID_ALREADY_USED",
+      "The command ID has already been used for another match.",
+    );
+  }
+
+  /**
+   * Dasselbe fuer den Turnierkommandostrom, den `correctTournamentResult`
+   * beschreibt. Getrennt vom Scoringstrom, weil Fehlertext und Tabelle andere
+   * sind.
+   */
+  private async findDuplicateTournamentCommand(
+    transaction: DatabaseTransaction,
+    organizationId: string,
+    tournamentId: string,
+    commandId: string,
+  ): Promise<"ok" | null> {
+    const [duplicate] = await transaction
+      .select({
+        organizationId: tournamentCommands.organizationId,
+        tournamentId: tournamentCommands.tournamentId,
+      })
+      .from(tournamentCommands)
+      .where(eq(tournamentCommands.commandId, commandId))
+      .limit(1);
+    if (duplicate === undefined) return null;
+    if (duplicate.organizationId === organizationId && duplicate.tournamentId === tournamentId) {
+      return "ok";
+    }
+    throw new ScoringValidationError(
+      "COMMAND_ID_ALREADY_USED",
+      "The command ID has already been used for another tournament.",
+    );
   }
 }

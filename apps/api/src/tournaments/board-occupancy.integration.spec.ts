@@ -336,4 +336,72 @@ describe("Boardbelegung zwischen Turnier und Liga", () => {
       response: { code: "TOURNAMENT_PLAYER_BUSY" },
     });
   });
+
+  /**
+   * Befund I1: Zuweisung und Board-Freigabe pruefen das Duplikat nur vor der
+   * Sperre. Zwei gleichzeitige Zustellungen desselben Kommandos verfehlen die
+   * Kommandozeile beide; ohne zweite Pruefung unter der Sperre bekaeme die
+   * zweite einen Versionskonflikt fuer ihr eigenes, angekommenes Kommando.
+   */
+  it("beantwortet dieselbe commandId auch gleichzeitig idempotent", async () => {
+    // Eigene, frische Scheiben und Personen statt `freeBoardIds`/`freePlayerIds`:
+    // die vorige Probe belegt genau eine Scheibe und eine Person dauerhaft
+    // (die gewinnende Zuweisung wird nie freigegeben), und `assign` prueft
+    // echte Belegung ueber `tournament_matches`, nicht nur `boards.status` —
+    // ein blosses Zuruecksetzen des Status waere hier irrefuehrend.
+    const idempotencyBoardIds = [randomUUID(), randomUUID()] as const;
+    await databaseService.database.insert(boards).values(
+      idempotencyBoardIds.map((id, index) => ({
+        id,
+        organizationId,
+        name: `Idempotency Board ${index + 1}`,
+      })),
+    );
+    const idempotencyPlayerIds = [randomUUID(), randomUUID()] as const;
+    await databaseService.database.insert(players).values(
+      idempotencyPlayerIds.map((id, index) => ({
+        id,
+        organizationId,
+        displayName: `Idempotency Player ${index + 1}`,
+        status: "ACTIVE",
+      })),
+    );
+
+    const tournamentId = await createTournament(idempotencyPlayerIds, [...idempotencyBoardIds]);
+    const dashboard = await service.dashboard({ organizationId, tournamentId, auth });
+    const ready = dashboard.queue[0];
+    if (ready === undefined) throw new Error("Expected a queued match.");
+
+    const assignCommandId = randomUUID();
+    const assignInput = {
+      organizationId,
+      tournamentId,
+      data: { commandId: assignCommandId, expectedVersion: dashboard.tournament.version, matchId: ready.matchId, boardId: idempotencyBoardIds[0] },
+      auth,
+      audit,
+    } as const;
+    const assigned = await Promise.all(Array.from({ length: 4 }, () => service.assign(assignInput)));
+    expect(assigned.map((result) => result.tournament.version)).toEqual([
+      dashboard.tournament.version + 1,
+      dashboard.tournament.version + 1,
+      dashboard.tournament.version + 1,
+      dashboard.tournament.version + 1,
+    ]);
+
+    const releaseCommandId = randomUUID();
+    const releaseInput = {
+      organizationId,
+      tournamentId,
+      data: { commandId: releaseCommandId, expectedVersion: dashboard.tournament.version + 1, boardId: idempotencyBoardIds[1] },
+      auth,
+      audit,
+    } as const;
+    const released = await Promise.all(Array.from({ length: 4 }, () => service.releaseBoard(releaseInput)));
+    expect(released.map((result) => result.tournament.version)).toEqual([
+      dashboard.tournament.version + 2,
+      dashboard.tournament.version + 2,
+      dashboard.tournament.version + 2,
+      dashboard.tournament.version + 2,
+    ]);
+  }, 30_000);
 });

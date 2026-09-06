@@ -678,4 +678,41 @@ describe("persistent X01 match", () => {
     const unchanged = await service.get({ organizationId, matchId: completedMatchId, auth });
     expect(unchanged).toMatchObject({ status: "COMPLETED", version: completedVersion });
   }, 30_000);
+
+  /**
+   * Befund I1: Original und Client-Wiederholung treffen gleichzeitig ein. Beide
+   * verfehlen die Kommandozeile in der Vorpruefung; ohne eine zweite Pruefung
+   * unter der Aggregatsperre bekaeme die zweite einen Versionskonflikt fuer
+   * eine Aufnahme, die angekommen ist. In der Offline-Wiedergabe landet das
+   * als CONFLICT in der Warteschlange, und der Scorer sieht einen scheinbar
+   * verlorenen Wurf.
+   */
+  it("beantwortet dieselbe commandId auch gleichzeitig idempotent", async () => {
+    const created = await service.create({ organizationId, data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId: null, bestOfLegs: 3, bestOfSets: 1 }, auth, audit });
+    const controllerId = randomUUID();
+    await service.acquireControllerLease({ organizationId, matchId: created.id, controllerId, force: false, auth, audit });
+
+    const visitCommandId = randomUUID();
+    const visitInput = { organizationId, matchId: created.id, data: { commandId: visitCommandId, expectedVersion: created.version, playerId: playerOneId, points: 100, dartsThrown: 3 as const, controllerId }, auth, audit };
+    const visitResults = await Promise.all(Array.from({ length: 4 }, () => service.submitVisit(visitInput)));
+    expect(visitResults.map((state) => state.version)).toEqual([1, 1, 1, 1]);
+    expect(await databaseService.database.select().from(scoreCommands).where(eq(scoreCommands.commandId, visitCommandId))).toHaveLength(1);
+
+    const undoCommandId = randomUUID();
+    const undoInput = { organizationId, matchId: created.id, data: { commandId: undoCommandId, expectedVersion: 1, controllerId }, auth, audit };
+    const undoResults = await Promise.all(Array.from({ length: 4 }, () => service.undo(undoInput)));
+    expect(undoResults.map((state) => state.version)).toEqual([2, 2, 2, 2]);
+    expect(await databaseService.database.select().from(scoreCommands).where(eq(scoreCommands.commandId, undoCommandId))).toHaveLength(1);
+
+    // legNumber muss >= 3 sein: Leg eins gehoert fix der Heim-, Leg zwei der
+    // Gastseite (`LEG_START_FIXED` in x01.ts); erst ab Leg drei laesst sich
+    // die Anwurfseite ueberhaupt per Kommando entscheiden. Fuer diesen Test
+    // zaehlt nur, dass eine gleichzeitige Wiederholung idempotent bleibt, die
+    // konkrete Legnummer ist dafuer beliebig, solange sie zulaessig ist.
+    const legStartCommandId = randomUUID();
+    const legStartInput = { organizationId, matchId: created.id, data: { commandId: legStartCommandId, expectedVersion: 2, legNumber: 3, startingSeat: 2 as const, controllerId }, auth, audit };
+    const legStartResults = await Promise.all(Array.from({ length: 4 }, () => service.decideLegStart(legStartInput)));
+    expect(legStartResults.map((state) => state.version)).toEqual([3, 3, 3, 3]);
+    expect(await databaseService.database.select().from(scoreCommands).where(eq(scoreCommands.commandId, legStartCommandId))).toHaveLength(1);
+  }, 30_000);
 });

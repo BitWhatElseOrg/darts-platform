@@ -68,6 +68,9 @@ interface ActorInput {
   readonly audit: AuditContext;
 }
 
+/** Der Transaktionsrumpf, wie ihn Drizzle an den Callback uebergibt. */
+type DatabaseTransaction = Parameters<Parameters<DatabaseService["database"]["transaction"]>[0]>[0];
+
 export interface TournamentDashboardData {
   readonly tournament: typeof tournaments.$inferSelect;
   readonly participants: readonly {
@@ -588,24 +591,15 @@ export class TournamentsRepository {
     input: ActorInput & { readonly data: AssignMatchInput },
   ): Promise<TournamentMutationResult> {
     return this.databaseService.database.transaction(async (transaction) => {
-      const [duplicate] = await transaction
-        .select({ organizationId: tournamentCommands.organizationId, tournamentId: tournamentCommands.tournamentId })
-        .from(tournamentCommands)
-        .where(eq(tournamentCommands.commandId, input.data.commandId))
-        .limit(1);
-      if (duplicate !== undefined) {
-        if (duplicate.organizationId === input.organizationId && duplicate.tournamentId === input.tournamentId) return "ok";
-        throw new TournamentValidationError(
-          "COMMAND_ID_ALREADY_USED",
-          "The command ID has already been used for another tournament.",
-        );
-      }
+      if (await this.findDuplicateCommand(transaction, input.organizationId, input.tournamentId, input.data.commandId) !== null) return "ok";
       const [tournament] = await transaction
         .select()
         .from(tournaments)
         .where(and(eq(tournaments.organizationId, input.organizationId), eq(tournaments.id, input.tournamentId)))
         .for("update")
         .limit(1);
+      // Zweite Pruefung unter der Sperre — siehe `findDuplicateCommand`.
+      if (await this.findDuplicateCommand(transaction, input.organizationId, input.tournamentId, input.data.commandId) !== null) return "ok";
       if (tournament === undefined) return "not-found";
       if (tournament.version !== input.data.expectedVersion) return "version-conflict";
       const [scheduled] = await transaction
@@ -890,24 +884,15 @@ export class TournamentsRepository {
     input: ActorInput & { readonly data: ReleaseBoardInput },
   ): Promise<TournamentMutationResult> {
     return this.databaseService.database.transaction(async (transaction) => {
-      const [duplicate] = await transaction
-        .select({ organizationId: tournamentCommands.organizationId, tournamentId: tournamentCommands.tournamentId })
-        .from(tournamentCommands)
-        .where(eq(tournamentCommands.commandId, input.data.commandId))
-        .limit(1);
-      if (duplicate !== undefined) {
-        if (duplicate.organizationId === input.organizationId && duplicate.tournamentId === input.tournamentId) return "ok";
-        throw new TournamentValidationError(
-          "COMMAND_ID_ALREADY_USED",
-          "The command ID has already been used for another tournament.",
-        );
-      }
+      if (await this.findDuplicateCommand(transaction, input.organizationId, input.tournamentId, input.data.commandId) !== null) return "ok";
       const [tournament] = await transaction
         .select()
         .from(tournaments)
         .where(and(eq(tournaments.organizationId, input.organizationId), eq(tournaments.id, input.tournamentId)))
         .for("update")
         .limit(1);
+      // Zweite Pruefung unter der Sperre — siehe `findDuplicateCommand`.
+      if (await this.findDuplicateCommand(transaction, input.organizationId, input.tournamentId, input.data.commandId) !== null) return "ok";
       if (tournament === undefined) return "not-found";
       if (tournament.version !== input.data.expectedVersion) return "version-conflict";
       const [selected] = await transaction
@@ -969,5 +954,38 @@ export class TournamentsRepository {
       });
       return "ok";
     });
+  }
+
+  /**
+   * Duplikatpruefung fuer den Turnierkommandostrom. Sie laeuft an jeder
+   * Aufrufstelle ZWEIMAL: einmal vor der Sperre auf der Turnierzeile und
+   * einmal darunter. Ohne die zweite verfehlen zwei gleichzeitige
+   * Zustellungen desselben Kommandos die Kommandozeile beide, und die zweite
+   * bekaeme einen Versionskonflikt fuer ihr eigenes, angekommenes Kommando
+   * (AGENTS.md 11). `withdrawParticipant` loest dasselbe ueber einen
+   * Advisory Lock auf die commandId; hier genuegt die zweite Pruefung.
+   */
+  private async findDuplicateCommand(
+    transaction: DatabaseTransaction,
+    organizationId: string,
+    tournamentId: string,
+    commandId: string,
+  ): Promise<"ok" | null> {
+    const [duplicate] = await transaction
+      .select({
+        organizationId: tournamentCommands.organizationId,
+        tournamentId: tournamentCommands.tournamentId,
+      })
+      .from(tournamentCommands)
+      .where(eq(tournamentCommands.commandId, commandId))
+      .limit(1);
+    if (duplicate === undefined) return null;
+    if (duplicate.organizationId === organizationId && duplicate.tournamentId === tournamentId) {
+      return "ok";
+    }
+    throw new TournamentValidationError(
+      "COMMAND_ID_ALREADY_USED",
+      "The command ID has already been used for another tournament.",
+    );
   }
 }
