@@ -684,6 +684,13 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               {dashboard.boards.map((slot: BoardSlot) => (
                 <BoardWedge
+                  // Waehrend ein Befehl laeuft sind Zuweisen und Freigeben
+                  // wirklich gesperrt, nicht nur durch die Wache in `assign`
+                  // /`release` aus der Render-Closure. Ohne das echte
+                  // `disabled` sehen die Knoepfe bedienbar aus, und die Sperre
+                  // haengt allein daran, dass React diskrete Ereignisse sofort
+                  // flusht (Re-Review, Befund 3).
+                  disabled={commandBusy}
                   justLanded={landedBoardId === slot.boardId}
                   key={slot.boardId}
                   nextUp={slot.state === "FREE" ? (readyQueue[0] ?? null) : null}
@@ -699,7 +706,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
           </section>
 
           <div className="flex flex-col gap-7">
-            <QueuePanel onAssign={(matchId) => void assign({ matchId })} openBoardName={openBoards[0]?.boardName ?? null} queue={dashboard.queue} />
+            <QueuePanel disabled={commandBusy} onAssign={(matchId) => void assign({ matchId })} openBoardName={openBoards[0]?.boardName ?? null} queue={dashboard.queue} />
             <ParticipantDisruptionPanel canWithdraw={canWithdraw} disabled={commandBusy || connection === "offline"} onWithdraw={(playerId, reason) => void withdrawParticipant(playerId, reason)} participants={dashboard.participants} />
             <ResultsPanel busy={commandBusy} canCorrect={canCorrect} onCorrect={(matchId, reason) => void correctResult(matchId, reason)} results={dashboard.recentResults} />
             <DisruptionsPanel conflicts={dashboard.conflicts} />

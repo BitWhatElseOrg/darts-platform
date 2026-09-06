@@ -23,6 +23,12 @@ interface BoardWedgeProps {
   /** Keyboard digit that assigns to this board. */
   readonly shortcut: string;
   readonly pending: boolean;
+  /**
+   * Ein Befehl der Zentrale laeuft gerade: Zuweisen und Freigeben sind
+   * gesperrt. Echtes `disabled` statt einer blossen Wache im Handler -- sonst
+   * sehen die Knoepfe waehrenddessen bedienbar aus (Re-Review, Befund 3).
+   */
+  readonly disabled: boolean;
   /** Landed within the last interaction: gets the one authored motion. */
   readonly justLanded: boolean;
   readonly onAssign: () => void;
@@ -30,6 +36,7 @@ interface BoardWedgeProps {
 }
 
 export function BoardWedge({
+  disabled,
   justLanded,
   nextUp,
   now,
@@ -150,7 +157,7 @@ export function BoardWedge({
           <p className="font-plate text-body text-sisal-300">
             {slot.blockedReason ?? "Grund nicht erfasst."}
           </p>
-          <Control className="self-start" density="tight" onClick={onRelease} variant="wireInk">
+          <Control className="self-start" density="tight" disabled={disabled} onClick={onRelease} variant="wireInk">
             Board freigeben
           </Control>
         </div>
@@ -167,6 +174,7 @@ export function BoardWedge({
           </div>
           <Control
             className="self-start"
+            disabled={disabled}
             icon={<MarkFlight size={13} />}
             onClick={onAssign}
             shortcut={shortcut}
