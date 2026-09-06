@@ -366,14 +366,25 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         label: `${entry.participants[0].displayName} – ${entry.participants[1].displayName} auf ${board.boardName}`,
       };
       if (connection === "offline") {
-        // Weder gesendet noch gespeichert, wenn `persistQueuedAssignment`
-        // scheitert -- ohne diese Meldung verschwaende die Zuweisung
-        // kommentarlos (PR-Agent-Runde 3, Befund A). Der Helfer setzt die
-        // Meldung in diesem Fall bereits selbst; hier nur noch abbrechen.
-        if (!(await persistQueuedAssignment(queuedCommandOf(command, scope, assignmentPath)))) return;
-        await refreshQueue();
-        setCommandError(null);
-        setAnnouncement(`Zuweisung auf ${board.boardName} wartet auf die Verbindung.`);
+        // Gesperrt wird VOR dem Ablegen, nicht erst beim Senden: waehrend des
+        // `await` auf IndexedDB ist `pendingBoardIds` noch nicht aktualisiert
+        // und die Zuweisung noch nirgends sichtbar. Ohne Sperre reihte ein
+        // schneller zweiter Tipp eine zweite Zuweisung fuer dasselbe Board
+        // oder Match ein (PR-Agent-Runde 5, Befund c). Der Online-Zweig unten
+        // sperrt aus demselben Grund; `finally` gibt in jedem Ausgang frei.
+        setCommandBusy(true);
+        try {
+          // Weder gesendet noch gespeichert, wenn `persistQueuedAssignment`
+          // scheitert -- ohne diese Meldung verschwaende die Zuweisung
+          // kommentarlos (PR-Agent-Runde 3, Befund A). Der Helfer setzt die
+          // Meldung in diesem Fall bereits selbst; hier nur noch abbrechen.
+          if (!(await persistQueuedAssignment(queuedCommandOf(command, scope, assignmentPath)))) return;
+          await refreshQueue();
+          setCommandError(null);
+          setAnnouncement(`Zuweisung auf ${board.boardName} wartet auf die Verbindung.`);
+        } finally {
+          setCommandBusy(false);
+        }
         return;
       }
       setCommandBusy(true);
