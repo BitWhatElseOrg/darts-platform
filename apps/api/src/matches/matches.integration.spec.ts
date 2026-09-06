@@ -79,6 +79,12 @@ describe("persistent X01 match", () => {
     await expect(service.abort({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: state.version - 1, controllerId, reason: "Veraltete Version" }, auth, audit })).rejects.toMatchObject({ status: 409 });
     await expect(service.abort({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: state.version, controllerId: randomUUID(), reason: "Falsche Steuerung" }, auth, audit })).rejects.toMatchObject({ status: 409 });
 
+    // Referenzwert vor dem Abbruch: diese Aufnahme wird ohne Einzelwuerfe
+    // uebermittelt (nur points/dartsThrown), darum ist die Zahl hier 0 —
+    // der Abbruch darf sie trotzdem nicht veraendern.
+    const [visitBeforeAbort] = await databaseService.database.select().from(visits).where(and(eq(visits.organizationId, organizationId), eq(visits.matchId, state.id)));
+    const dartsBeforeAbort = await databaseService.database.select().from(visitDarts).where(and(eq(visitDarts.organizationId, organizationId), eq(visitDarts.visitId, visitBeforeAbort?.id ?? "")));
+
     const commandId = randomUUID();
     const input = { organizationId, matchId: state.id, data: { commandId, expectedVersion: state.version, controllerId, reason: "Board neu starten" }, auth, audit };
     await expect(Promise.all(Array.from({ length: 4 }, () => service.abort(input)))).resolves.toEqual(
@@ -93,8 +99,10 @@ describe("persistent X01 match", () => {
     expect(abortedVisits).toHaveLength(1);
     expect(abortedVisits[0]?.revertedAt).not.toBeNull();
     expect(abortedVisits[0]?.revertedByCommandId).toBe(commandId);
+    // Die Einzelwuerfe der Aufnahme muessen den Abbruch unveraendert
+    // ueberstehen (Vergleich mit dem vor dem Abbruch beobachteten Stand).
     const abortedDarts = await databaseService.database.select().from(visitDarts).where(and(eq(visitDarts.organizationId, organizationId), eq(visitDarts.visitId, abortedVisits[0]?.id ?? "")));
-    expect(abortedDarts.length).toBeGreaterThanOrEqual(0);
+    expect(abortedDarts).toHaveLength(dartsBeforeAbort.length);
     const abortedLegs = await databaseService.database.select().from(legs).where(and(eq(legs.organizationId, organizationId), eq(legs.matchId, state.id)));
     expect(abortedLegs).toHaveLength(1);
     // Die Aufnahme wird kein zweites Mal gestempelt, wenn dasselbe Kommando

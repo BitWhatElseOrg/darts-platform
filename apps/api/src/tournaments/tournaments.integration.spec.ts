@@ -239,8 +239,9 @@ describe("persistent tournament MVP", () => {
     expect((await databaseService.database.select().from(matches).where(eq(matches.id, scoring.id)))[0]?.status).toBe("ABORTED");
     // Befund I9: der Rueckzug loest den Abbruch aus, der die Aufnahme
     // entwertet statt sie zu loeschen (siehe abort-match.ts).
-    const [abortedVisit] = await databaseService.database.select().from(visits).where(eq(visits.matchId, scoring.id));
-    expect(abortedVisit?.revertedAt).not.toBeNull();
+    const abortedVisits = await databaseService.database.select().from(visits).where(eq(visits.matchId, scoring.id));
+    expect(abortedVisits).toHaveLength(1);
+    expect(abortedVisits[0]?.revertedAt).not.toBeNull();
     expect((await databaseService.database.select().from(boards).where(eq(boards.id, boardIds[0])))[0]?.status).toBe("AVAILABLE");
 
     const publicDashboard = await service.publicDashboard(created.id);
