@@ -423,6 +423,7 @@ game_type varchar NOT NULL
 starting_score integer
 in_rule varchar NOT NULL
 out_rule varchar NOT NULL
+bull_off_from_leg_one boolean NOT NULL DEFAULT false
 best_of_legs integer
 best_of_sets integer
 
@@ -548,6 +549,19 @@ select id from legs where (status = 'COMPLETED') <> (winner_seat is not null);
 Sperrdauer: `ADD CONSTRAINT … CHECK` ohne `NOT VALID` prüft den Bestand unter
 `ACCESS EXCLUSIVE`. Bei der heutigen Grösse Sekundenbruchteile; das Deployment
 gehört trotzdem ausserhalb des Spielbetriebs.
+
+`bull_off_from_leg_one` bildet die Ausnahme aus Reglement 2.2.9 ab: normalerweise
+beginnt Leg 1 die Heimseite und Leg 2 die Gastseite, erst ab Leg 3 entscheidet
+ein Wurf auf Bull. Beim Entscheidungsdoppel (sudden death) wird der Spielbeginn
+**immer** ausgebullt; `apps/api/src/encounters/encounters.repository.ts` setzt
+das Flag beim Start eines DECIDER-Slots. Es ist eine Match-Regel wie `in_rule`
+und steht bewusst nicht im Kommando: gespeicherte `score_commands` werten
+dadurch unverändert (Migration `0024_league_decider_bull_off.sql`).
+
+Sperrdauer: `ADD COLUMN … boolean NOT NULL DEFAULT false` nimmt ein
+`ACCESS EXCLUSIVE`-Lock auf `matches`, ist aber ab PostgreSQL 11 eine reine
+Metadatenänderung ohne Tabellen-Rewrite — kein Bestandscheck nötig, bestehende
+Zeilen erhalten `false` und verhalten sich unverändert.
 
 ---
 

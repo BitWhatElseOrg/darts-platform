@@ -407,6 +407,9 @@ Erster Fall: `openedInLeg` in `matchParticipantStateSchema`
 Pflichtfeld; `apps/web/src/components/match/match-scoreboard-route.tsx`
 parst die API-Antwort damit.
 
+Zweiter Fall: `bullOffFromLegOne` in `matchStateSchema` (Reglement 2.2.9,
+Tier-2-Task 4) wurde ebenfalls Pflichtfeld — dieselbe Reihenfolge gilt.
+
 Rollback-Detail: Ein Zurückrollen der API allein strippt `checkoutSegment`
 aus gespeicherten Kommandos, da `storedSubmitSchema` nicht `.strict()` ist —
 betroffene Master-Out-Finishes fallen dann auf die alte Heuristik zurück; für
