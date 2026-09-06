@@ -12,6 +12,7 @@ import { parseApplicationEnvironment } from "@darts-platform/config";
 import { AppModule } from "./app.module.js";
 import { ApiExceptionFilter } from "./common/api-exception.filter.js";
 import { ApiLoggingInterceptor } from "./common/api-logging.interceptor.js";
+import { registerSecurityHeaders } from "./common/security-headers.js";
 import { StructuredLogger } from "./common/structured-logger.js";
 import { RealtimeService } from "./realtime/realtime.service.js";
 
@@ -42,6 +43,7 @@ async function bootstrap(): Promise<void> {
       "X-Dartbase-Invitation-Claim",
     ],
   });
+  await registerSecurityHeaders(app);
   app.useGlobalFilters(new ApiExceptionFilter());
   app.useGlobalInterceptors(new ApiLoggingInterceptor(new Logger("HTTP")));
   app.enableShutdownHooks();
