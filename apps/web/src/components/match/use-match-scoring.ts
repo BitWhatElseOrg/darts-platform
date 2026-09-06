@@ -105,6 +105,15 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     if (!navigator.onLine || replayingRef.current) return;
     replayingRef.current = true;
     setReplaying(true);
+    // Zaehlt, wie viele Kommandos in diesem Durchgang tatsaechlich uebertragen
+    // wurden -- der Effekt unten feuert `replay()` bei jeder Versionsaenderung
+    // erneut (auch nach einer online abgesetzten Aufnahme, deren Mutation
+    // `refresh()` schon selbst ausgeloest hat). Ohne diese Zaehlung invalidiert
+    // das `finally` unten die fuenf Query-Gruppen ein zweites Mal, obwohl die
+    // Warteschlange in diesem Durchgang leer war -- doppelte Refetch-Last auf
+    // der gepollten Scoringflaeche fuer nichts (Re-Review-Befund F2, "doppelter
+    // Refresh").
+    let sentCount = 0;
     try {
       const commands = await listOfflineCommands(scope);
       // `nextReplayable` statt eines Filters: ein abgelehnter oder
@@ -118,7 +127,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
       // beim Erfassen eingefrorene `match.version` in ihrer gespeicherten
       // Nutzlast -- nur die erste kam durch, alle folgenden konfligierten
       // sofort (PR-Agent-Befund F2 / Gesamtaudit C11, "Stale Versions").
-      await replayWithCurrentVersion(nextReplayable(commands), match.version, async (command, expectedVersion): Promise<ReplayOutcome> => {
+      ({ sentCount } = await replayWithCurrentVersion(nextReplayable(commands), match.version, async (command, expectedVersion): Promise<ReplayOutcome> => {
         let result: MatchStateResponse;
         try {
           result = await apiRequest({
@@ -159,10 +168,17 @@ export function useMatchScoring({ organizationId, match, canScore }: {
           return { successful: false };
         }
         return { successful: true, version: result.version };
-      });
+      }));
     } finally {
       await refreshQueue();
-      await refresh();
+      // Kein Refresh bei leerem Durchgang: sonst verdoppelt der Versions-
+      // Effekt unten (Abhaengigkeit `match.version`) nach jeder online
+      // gesendeten Aufnahme den Refetch-Sturm -- die Mutation hat den
+      // Serverstand schon selbst invalidiert (`onSuccess` in `submit`/`undo`/
+      // `abort`), und diese Wiedergabe findet danach eine leere Warteschlange
+      // vor. Bei tatsaechlich gesendeten Kommandos bleibt der Refresh wie
+      // gehabt bestehen.
+      if (sentCount > 0) await refresh();
       setReplaying(false);
       replayingRef.current = false;
     }
