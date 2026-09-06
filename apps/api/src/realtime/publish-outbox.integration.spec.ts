@@ -277,4 +277,34 @@ describe("publishOutboxBatch", () => {
     expect(ownRooms(first.sent).length).toBeGreaterThan(0);
     expect(ownRooms(second.sent)).toEqual([]);
   });
+
+  /**
+   * Befund I8: der Poller las ohne `FOR UPDATE SKIP LOCKED`. Zwei Repliken
+   * lasen denselben Stapel und sendeten jedes Ereignis zweimal — der Stempel
+   * war idempotent, der Versand nicht. Zwanzig Ereignisse, damit das Fenster
+   * zwischen Lesen und Stempeln im alten Verhalten sicher getroffen wird.
+   */
+  it("laesst eine zweite Replik denselben Stapel nicht ein zweites Mal senden", async () => {
+    const created = await database
+      .insert(outboxEvents)
+      .values(
+        Array.from({ length: 20 }, () => ({
+          organizationId,
+          aggregateType: "Match",
+          aggregateId: encounterMatchId,
+          eventType: "VISIT_RECORDED",
+          payload: { matchId: encounterMatchId },
+        })),
+      )
+      .returning({ id: outboxEvents.id });
+    const own = new Set(created.map((row) => row.id));
+    const first = recorder();
+    const second = recorder();
+
+    await Promise.all([publishOutboxBatch(database, first), publishOutboxBatch(database, second)]);
+
+    const delivered = [...first.sent, ...second.sent].filter((entry) => own.has(entry.payload.eventId ?? ""));
+    expect(delivered).toHaveLength(20);
+    expect(new Set(delivered.map((entry) => entry.payload.eventId)).size).toBe(20);
+  }, 30_000);
 });

@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 
 import { encounterSlots, outboxEvents, tournamentMatches } from "@darts-platform/database";
 
@@ -6,6 +6,12 @@ import type { DatabaseService } from "../database/database.service.js";
 import { toBroadcast, type RealtimeBroadcast, type RealtimeScope } from "./event-routing.js";
 
 type Database = DatabaseService["database"];
+type DatabaseTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+/**
+ * Die Zuordnung laeuft jetzt innerhalb der Transaktion, die den Stapel
+ * beansprucht — sie muss deshalb beides annehmen.
+ */
+export type OutboxExecutor = Database | DatabaseTransaction;
 
 export interface RealtimeBroadcaster {
   emit(room: string, event: string, payload: RealtimeBroadcast["payload"]): void;
@@ -29,7 +35,7 @@ interface ResolvableEvent {
  * `ENCOUNTER_SLOT_REOPENED`, das dieselbe Transaktion mitschreibt.
  */
 export async function resolveScope(
-  database: Database,
+  executor: OutboxExecutor,
   event: ResolvableEvent,
 ): Promise<RealtimeScope | null> {
   if (event.aggregateType === "Tournament") {
@@ -40,7 +46,7 @@ export async function resolveScope(
   }
   if (event.aggregateType !== "Match") return null;
 
-  const [scheduled] = await database
+  const [scheduled] = await executor
     .select({ tournamentId: tournamentMatches.tournamentId })
     .from(tournamentMatches)
     .where(
@@ -54,7 +60,7 @@ export async function resolveScope(
     return { kind: "tournament", id: scheduled.tournamentId };
   }
 
-  const [slot] = await database
+  const [slot] = await executor
     .select({ encounterId: encounterSlots.encounterId })
     .from(encounterSlots)
     .where(
@@ -68,31 +74,57 @@ export async function resolveScope(
 }
 
 /**
- * Verteilt einen Stapel unpublizierter Ereignisse und stempelt jedes einzeln.
- * Der Stempel fällt auch dann, wenn kein Raum zuständig ist — sonst liefe der
- * Poller ewig gegen dieselbe Zeile.
+ * Beansprucht einen Stapel unpublizierter Ereignisse, stempelt ihn in
+ * derselben Transaktion und sendet erst nach dem Commit.
+ *
+ * `FOR UPDATE SKIP LOCKED` macht den Stapel exklusiv: eine zweite Replik
+ * ueberspringt die gesperrten Zeilen, statt sie ein zweites Mal zu senden
+ * (Befund I8). Der Stempel faellt vor dem Commit — nicht danach —, damit kein
+ * Fenster bleibt, in dem ein Ereignis gesendet, aber nicht gestempelt ist. Er
+ * faellt auch dann, wenn kein Raum zustaendig ist; sonst liefe der Poller ewig
+ * gegen dieselbe Zeile.
+ *
+ * Gesendet wird erst NACH dem Commit (AGENTS.md 16): scheitert die
+ * Transaktion, hat niemand etwas empfangen, und der naechste Durchlauf nimmt
+ * denselben Stapel erneut.
+ *
+ * Sortiert wird nach `sequence`, nicht nach `occurred_at`: letzteres ist
+ * `now()` und damit die Transaktions-STARTzeit, eine laengere Transaktion, die
+ * nach einer kuerzeren committet, wuerde vor ihr publiziert.
  */
 export async function publishOutboxBatch(
   database: Database,
   broadcaster: RealtimeBroadcaster,
   limit = 100,
 ): Promise<number> {
-  const events = await database
-    .select()
-    .from(outboxEvents)
-    .where(isNull(outboxEvents.publishedAt))
-    .orderBy(asc(outboxEvents.occurredAt))
-    .limit(limit);
-
-  for (const event of events) {
-    const broadcast = toBroadcast(event, await resolveScope(database, event));
-    if (broadcast !== null) {
-      broadcaster.emit(broadcast.room, broadcast.event, broadcast.payload);
+  const pending: RealtimeBroadcast[] = [];
+  const claimed = await database.transaction(async (transaction) => {
+    const events = await transaction
+      .select()
+      .from(outboxEvents)
+      .where(isNull(outboxEvents.publishedAt))
+      .orderBy(asc(outboxEvents.sequence))
+      .limit(limit)
+      .for("update", { skipLocked: true });
+    if (events.length === 0) return 0;
+    for (const event of events) {
+      const broadcast = toBroadcast(event, await resolveScope(transaction, event));
+      if (broadcast !== null) pending.push(broadcast);
     }
-    await database
+    await transaction
       .update(outboxEvents)
       .set({ publishedAt: new Date() })
-      .where(and(eq(outboxEvents.id, event.id), isNull(outboxEvents.publishedAt)));
+      .where(
+        and(
+          inArray(outboxEvents.id, events.map((event) => event.id)),
+          isNull(outboxEvents.publishedAt),
+        ),
+      );
+    return events.length;
+  });
+
+  for (const broadcast of pending) {
+    broadcaster.emit(broadcast.room, broadcast.event, broadcast.payload);
   }
-  return events.length;
+  return claimed;
 }
