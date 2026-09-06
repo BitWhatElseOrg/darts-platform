@@ -1,9 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  ConflictException,
-  ForbiddenException,
-  NotFoundException,
-} from "@nestjs/common";
+import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
@@ -46,6 +42,33 @@ const adminUserId = randomUUID();
 const scorerUserId = randomUUID();
 const viewerUserId = randomUUID();
 const foreignUserId = randomUUID();
+
+/** Rolle und Status einer Mitgliedschaft, direkt aus der Datenbank. */
+async function readMembership(userId: string, inOrganizationId = organizationId) {
+  const [row] = await databaseService.database
+    .select({ role: memberships.role, status: memberships.status })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.organizationId, inOrganizationId),
+        eq(memberships.userId, userId),
+      ),
+    );
+  return row;
+}
+
+/** Audit-Zeilen, die diese handelnde Person in dieser Organisation erzeugt hat. */
+async function auditRowsOf(actorUserId: string) {
+  return databaseService.database
+    .select({ action: auditEvents.action })
+    .from(auditEvents)
+    .where(
+      and(
+        eq(auditEvents.organizationId, organizationId),
+        eq(auditEvents.actorUserId, actorUserId),
+      ),
+    );
+}
 
 function authFor(userId: string, name: string): AuthContext {
   return {
@@ -142,29 +165,37 @@ describe("Mitgliedschaften verwalten", () => {
   }, 30_000);
 
   it("schuetzt den letzten aktiven OWNER vor Herabstufung und Deaktivierung", async () => {
+    // Auf Repository-Ebene geprueft: seit `OWNER_CHANGE_REQUIRES_OWNER` weist
+    // der Service eine ADMIN-Hand an einer OWNER-Zeile schon vorher mit 403 ab,
+    // sodass Regel 1 ueber den Service nicht mehr erreichbar waere. Noetig
+    // bleibt sie trotzdem: sie sichert den Wettlauf, in dem die eigene
+    // OWNER-Zeile der handelnden Person zwischen `requirePermission` und der
+    // Organisationssperre herabgestuft wird — dann handelt hier eine Person,
+    // die die Sperre als OWNER betreten hat, waehrend sie der letzte ist.
     await expect(
-      service.updateMembership({
+      repository.updateMembership({
         organizationId,
         targetUserId: ownerUserId,
-        data: { role: "ADMIN" },
-        auth: managerAuth,
+        role: "ADMIN",
+        actorUserId: managerUserId,
+        actorRole: "OWNER",
         audit,
       }),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).resolves.toEqual({ outcome: "last-owner" });
 
     await expect(
-      service.updateMembership({
+      repository.updateMembership({
         organizationId,
         targetUserId: ownerUserId,
-        data: { status: "SUSPENDED" },
-        auth: managerAuth,
+        status: "SUSPENDED",
+        actorUserId: managerUserId,
+        actorRole: "OWNER",
         audit,
       }),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).resolves.toEqual({ outcome: "last-owner" });
 
-    expect(await repository.getActiveMembership({ organizationId, userId: ownerUserId })).toEqual({
-      role: "OWNER",
-    });
+    expect(await readMembership(ownerUserId)).toEqual({ role: "OWNER", status: "ACTIVE" });
+    expect(await auditRowsOf(managerUserId)).toHaveLength(0);
   }, 30_000);
 
   it("laesst ADMIN kein Eigentum vergeben und schreibt dabei nichts", async () => {
@@ -184,19 +215,8 @@ describe("Mitgliedschaften verwalten", () => {
     }
 
     // Keine Schreibwirkung: weder Rolle noch Audit-Eintrag.
-    expect(await repository.getActiveMembership({ organizationId, userId: successorUserId })).toEqual({
-      role: "MEMBER",
-    });
-    const events = await databaseService.database
-      .select({ action: auditEvents.action })
-      .from(auditEvents)
-      .where(
-        and(
-          eq(auditEvents.organizationId, organizationId),
-          eq(auditEvents.actorUserId, managerUserId),
-        ),
-      );
-    expect(events).toHaveLength(0);
+    expect(await readMembership(successorUserId)).toEqual({ role: "MEMBER", status: "ACTIVE" });
+    expect(await auditRowsOf(managerUserId)).toHaveLength(0);
   }, 30_000);
 
   it("laesst OWNER das Eigentum uebertragen und danach den bisherigen OWNER herabstufen", async () => {
@@ -241,30 +261,63 @@ describe("Mitgliedschaften verwalten", () => {
     );
   }, 30_000);
 
+  it("laesst ADMIN eine OWNER-Mitgliedschaft nicht anfassen", async () => {
+    // Zuerst einen zweiten aktiven OWNER herstellen, damit die Abweisung
+    // nachweislich aus `OWNER_CHANGE_REQUIRES_OWNER` stammt und nicht aus dem
+    // Schutz des letzten OWNER.
+    await service.updateMembership({
+      organizationId,
+      targetUserId: ownerUserId,
+      data: { role: "OWNER" },
+      auth: successorAuth,
+      audit,
+    });
+
+    try {
+      await service.updateMembership({
+        organizationId,
+        targetUserId: ownerUserId,
+        data: { role: "ADMIN" },
+        auth: managerAuth,
+        audit,
+      });
+      throw new Error("Die Aenderung haette abgewiesen werden muessen.");
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(ForbiddenException);
+      expect((error as ForbiddenException).getResponse()).toMatchObject({
+        code: "OWNER_CHANGE_REQUIRES_OWNER",
+      });
+    }
+
+    expect(await readMembership(ownerUserId)).toEqual({ role: "OWNER", status: "ACTIVE" });
+    expect(await auditRowsOf(managerUserId)).toHaveLength(0);
+  }, 30_000);
+
   it("weist eine Mitgliedschaft aus einer fremden Organisation ab", async () => {
+    // Den Code `RESOURCE_NOT_FOUND` vergibt der globale Fehlerfilter anhand des
+    // Status; auf der Ausnahme selbst steht er nicht. Geprueft wird deshalb der
+    // Typ — und vor allem, dass nichts geschrieben wurde.
     await expect(
       service.updateMembership({
         organizationId,
         targetUserId: foreignUserId,
         data: { role: "MEMBER" },
-        auth: successorAuth,
+        auth: managerAuth,
         audit,
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
 
-    const untouched = await databaseService.database
-      .select({ role: memberships.role })
-      .from(memberships)
-      .where(
-        and(
-          eq(memberships.organizationId, foreignOrganizationId),
-          eq(memberships.userId, foreignUserId),
-        ),
-      );
-    expect(untouched[0]).toEqual({ role: "ADMIN" });
+    // Die fremde Zeile bleibt unberuehrt, und es entsteht kein Audit-Eintrag.
+    expect(await readMembership(foreignUserId, foreignOrganizationId)).toEqual({
+      role: "ADMIN",
+      status: "ACTIVE",
+    });
+    expect(await auditRowsOf(managerUserId)).toHaveLength(0);
   }, 30_000);
 
   it("weist VIEWER ab", async () => {
+    const before = await readMembership(scorerUserId);
+
     await expect(
       service.updateMembership({
         organizationId,
@@ -274,18 +327,32 @@ describe("Mitgliedschaften verwalten", () => {
         audit,
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(await readMembership(scorerUserId)).toEqual(before);
+    expect(await auditRowsOf(viewerUserId)).toHaveLength(0);
   }, 30_000);
 
   it("laesst niemanden die eigene Mitgliedschaft aendern", async () => {
-    await expect(
-      service.updateMembership({
+    // Handelt: der durchgehend unbeteiligte ADMIN. So bleibt die Zusicherung
+    // „keine einzige Audit-Zeile dieser Person" ueber den ganzen Lauf pruefbar.
+    try {
+      await service.updateMembership({
         organizationId,
-        targetUserId: successorUserId,
-        data: { role: "ADMIN" },
-        auth: successorAuth,
+        targetUserId: managerUserId,
+        data: { role: "MEMBER" },
+        auth: managerAuth,
         audit,
-      }),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+      });
+      throw new Error("Die Aenderung haette abgewiesen werden muessen.");
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(ForbiddenException);
+      expect((error as ForbiddenException).getResponse()).toMatchObject({
+        code: "SELF_MEMBERSHIP_CHANGE_FORBIDDEN",
+      });
+    }
+
+    expect(await readMembership(managerUserId)).toEqual({ role: "ADMIN", status: "ACTIVE" });
+    expect(await auditRowsOf(managerUserId)).toHaveLength(0);
   }, 30_000);
 });
 
