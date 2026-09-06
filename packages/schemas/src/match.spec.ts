@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { abortMatchSchema, dartSchema, submitVisitSchema } from "./match.js";
+import { abortMatchSchema, dartSchema, decideLegStartSchema, submitVisitSchema } from "./match.js";
 
 describe("abort match contract", () => {
   it("accepts an idempotent versioned abort command", () => {
@@ -32,6 +32,22 @@ describe("abort match contract", () => {
         expectedVersion: 0,
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("decideLegStartSchema", () => {
+  const base = {
+    commandId: "33333333-3333-4333-8333-333333333333",
+    expectedVersion: 0,
+    startingSeat: 2 as const,
+  };
+
+  it("laesst Leg eins zu — die Engine entscheidet anhand von bullOffFromLegOne (2.2.9)", () => {
+    expect(decideLegStartSchema.safeParse({ ...base, legNumber: 1 }).success).toBe(true);
+  });
+
+  it("lehnt Leg null ab", () => {
+    expect(decideLegStartSchema.safeParse({ ...base, legNumber: 0 }).success).toBe(false);
   });
 });
 

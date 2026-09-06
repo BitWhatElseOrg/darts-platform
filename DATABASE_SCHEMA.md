@@ -556,7 +556,12 @@ ein Wurf auf Bull. Beim Entscheidungsdoppel (sudden death) wird der Spielbeginn
 **immer** ausgebullt; `apps/api/src/encounters/encounters.repository.ts` setzt
 das Flag beim Start eines DECIDER-Slots. Es ist eine Match-Regel wie `in_rule`
 und steht bewusst nicht im Kommando: gespeicherte `score_commands` werten
-dadurch unverändert (Migration `0024_league_decider_bull_off.sql`).
+dadurch unverändert (Migration `0024_league_decider_bull_off.sql`). Die Spalte
+wird ausschliesslich beim Insert gesetzt und darf danach nicht mehr geändert
+werden — es existiert kein Update-Pfad: ein Wechsel true→false bei einem
+Match mit bereits gespeichertem Leg-1-Anwurf (`DECIDE_LEG_START` für Leg 1)
+machte den Kommandostrom beim nächsten Replay unprojizierbar
+(`activeCommands` lehnt das Kommando dann mit `LEG_START_FIXED` ab).
 
 Sperrdauer: `ADD COLUMN … boolean NOT NULL DEFAULT false` nimmt ein
 `ACCESS EXCLUSIVE`-Lock auf `matches`, ist aber ab PostgreSQL 11 eine reine

@@ -317,20 +317,28 @@ describe("X01 scoring", () => {
     // Reglement 2.2.9: das Flag ist eine Match-Regel, kein Kommandofeld.
     // Ein Bestandsmatch traegt `bullOffFromLegOne: false` und muss ein
     // gespeichertes `DECIDE_LEG_START` fuer Leg drei (vor dieser Aenderung
-    // zulaessig) beim Replay unveraendert werten.
-    const match = createX01Match({
+    // zulaessig) beim Replay unveraendert werten. Verglichen wird der
+    // VOLLSTAENDIGE projizierte Zustand — nicht nur einzelne Felder — gegen
+    // denselben Kommando-Strom, einmal ueber den Schreibpfad
+    // (`executeX01Command`) aufgebaut: beide muessen exakt uebereinstimmen.
+    const initial = createX01Match({
       sides: singles("one", "two"),
       rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, bullOffFromLegOne: false }),
     });
-    const { state } = replay(
-      match,
+    const commands: readonly X01Command[] = [
       visit("leg1", 1, "one", 40, 1, 20),
       visit("leg2-guest", 2, "two", 40, 1, 20),
       { type: "DECIDE_LEG_START", commandId: "bull", legNumber: 3, startingSeat: 2 },
-    );
-    expect(state.legNumber).toBe(3);
-    expect(state.legStartingSeat).toBe(2);
-    expect(state.activeSeat).toBe(2);
+    ];
+
+    let written = initial;
+    for (const command of commands) {
+      written = executeX01Command(written, command).match;
+    }
+    const expectedFullState = projectX01Match(written);
+
+    const { match: replayed } = replay(initial, ...commands);
+    expect(projectX01Match(replayed)).toEqual(expectedFullState);
   });
 
   it("refuses to decide the start of a leg that is already running", () => {
