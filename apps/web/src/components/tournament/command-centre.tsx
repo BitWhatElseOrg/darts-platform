@@ -416,12 +416,24 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
     }
   }, [commandBusy, connection, dashboard?.tournament.version, dashboardQuery, replayable, sendAssignment]);
 
-  /** Verwirft eine Zuweisung, die nur noch im Weg steht. */
+  /**
+   * Verwirft eine Zuweisung, die nur noch im Weg steht -- und holt danach den
+   * Serverstand nach.
+   *
+   * Ein konfliktbehafteter Eintrag entsteht in aller Regel, weil der Server
+   * inzwischen auf einer neueren Version steht. Wird er verworfen, ohne das
+   * Dashboard neu zu laden, rechnet die Zentrale mit derselben veralteten
+   * `dashboard.tournament.version` weiter: die naechste DIREKTE Zuweisung
+   * (Online-Pfad in `assign`) sendet genau diese Version und konfligiert
+   * sofort wieder. Bleibt ein Realtime-Update aus, kaeme die Zentrale ohne
+   * diesen Abgleich nicht mehr aus der Schleife (PR-Agent-Runde 5, Befund a).
+   */
   const discardQueued = useCallback(async (commandId: string) => {
     await removeOfflineCommand(commandId);
     await refreshQueue();
-    setAnnouncement("Befehl verworfen.");
-  }, [refreshQueue]);
+    await queryClient.invalidateQueries({ queryKey });
+    setAnnouncement("Befehl verworfen; der Serverstand wird nachgeladen.");
+  }, [queryClient, queryKey, refreshQueue]);
 
   const correctResult = useCallback(async (matchId: string, reason: string) => {
     if (dashboard === undefined || commandBusy || connection === "offline") return;
