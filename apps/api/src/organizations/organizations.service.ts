@@ -12,13 +12,16 @@ import {
   createdInvitationSchema,
   invitationListSchema,
   organizationListSchema,
+  organizationMemberSchema,
   organizationSummarySchema,
   type AcceptInvitationInput,
   type CreateInvitationInput,
   type CreateOrganizationInput,
   type CreatedInvitation,
   type Invitation,
+  type OrganizationMember,
   type OrganizationSummary,
+  type UpdateMembershipInput,
 } from "@darts-platform/schemas";
 
 import type { AuthContext } from "../auth/auth.types.js";
@@ -137,5 +140,70 @@ export class OrganizationsService {
     }
 
     return { accepted: true };
+  }
+
+  public async updateMembership(input: {
+    readonly organizationId: string;
+    readonly targetUserId: string;
+    readonly data: UpdateMembershipInput;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<OrganizationMember> {
+    // `requirePermission` liefert die Rolle der handelnden Person zurueck —
+    // die wird gleich fuer die Eigentumsuebertragung gebraucht, ohne dass
+    // eine zweite Abfrage noetig waere.
+    const actorRole = await this.organizationAccessService.requirePermission({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      permission: "organization:manage_roles",
+    });
+
+    // Die eigene Mitgliedschaft bleibt aussen vor. „Herabstufung“ ist im
+    // Rollenmodell nicht total geordnet (SCORER und MEMBER lassen sich nicht
+    // vergleichen); ein Verbot der Selbstaenderung ist dagegen exakt und
+    // schliesst die Selbstaussperrung vollstaendig aus. Regel: es bleibt
+    // immer ein aktiver OWNER, der die Aenderung vornehmen kann.
+    if (input.targetUserId === input.auth.user.id) {
+      throw new ForbiddenException({
+        code: "SELF_MEMBERSHIP_CHANGE_FORBIDDEN",
+        message: "Your own membership is changed by another administrator.",
+      });
+    }
+
+    // Eigentum vergibt nur Eigentum. `ADMIN` traegt zwar
+    // `organization:manage_roles` und darf jede andere Rolle setzen, aber
+    // sich nicht selbst zum Miteigentuemer machen, indem er einen Vertrauten
+    // zum OWNER ernennt. Die Uebertragung selbst bleibt moeglich — sonst
+    // waere ein Vorstandswechsel nur noch mit einem manuellen UPDATE auf der
+    // Produktionsdatenbank machbar (AGENTS.md §21).
+    if (input.data.role === "OWNER" && actorRole !== "OWNER") {
+      throw new ForbiddenException({
+        code: "OWNER_GRANT_REQUIRES_OWNER",
+        message: "Only an active owner can grant the owner role.",
+      });
+    }
+
+    const result = await this.organizationsRepository.updateMembership({
+      organizationId: input.organizationId,
+      targetUserId: input.targetUserId,
+      actorUserId: input.auth.user.id,
+      audit: input.audit,
+      ...(input.data.role === undefined ? {} : { role: input.data.role }),
+      ...(input.data.status === undefined ? {} : { status: input.data.status }),
+    });
+
+    switch (result.outcome) {
+      case "not-found":
+        throw new NotFoundException(
+          "This membership does not exist in this organization.",
+        );
+      case "last-owner":
+        throw new ConflictException({
+          code: "LAST_OWNER_PROTECTED",
+          message: "The last active owner cannot be demoted or deactivated.",
+        });
+      case "updated":
+        return organizationMemberSchema.parse(result.member);
+    }
   }
 }

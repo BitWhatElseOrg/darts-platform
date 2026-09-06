@@ -62,6 +62,12 @@ function localizedMessage(code: string): string {
     TEAM_PLAYER_ALREADY_MEMBER: "Diese Person gehört bereits zum Kader.",
     TEAM_CAPTAIN_TAKEN:
       "Diese Mannschaft führt bereits einen Captain. Nimm die Person als Spielerin oder Spieler auf.",
+    LAST_OWNER_PROTECTED:
+      "Die letzte Eigentümerin oder der letzte Eigentümer kann weder herabgestuft noch deaktiviert werden. Ernenne zuerst eine zweite Person.",
+    OWNER_GRANT_REQUIRES_OWNER:
+      "Nur eine aktive Eigentümerin oder ein aktiver Eigentümer kann Eigentum übertragen.",
+    SELF_MEMBERSHIP_CHANGE_FORBIDDEN:
+      "Die eigene Mitgliedschaft ändert eine andere verwaltende Person.",
   };
   const translated = messages[code];
   if (translated !== undefined) return translated;

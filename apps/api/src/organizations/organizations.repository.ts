@@ -1,15 +1,23 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, ne } from "drizzle-orm";
 
 import {
   auditEvents,
   memberships,
   organizationInvitations,
   organizations,
+  users,
 } from "@darts-platform/database";
+import {
+  isMembershipStatus,
+  isOrganizationRole,
+  type MembershipStatus,
+  type OrganizationRole,
+} from "@darts-platform/domain";
 import type {
   CreateInvitationInput,
   CreateOrganizationInput,
+  OrganizationMember,
 } from "@darts-platform/schemas";
 
 import type { AuditContext } from "../common/audit-context.js";
@@ -18,6 +26,11 @@ import {
   generateInvitationClaimToken,
   hashInvitationClaimToken,
 } from "../auth/invitation-claim.js";
+
+export type UpdateMembershipResult =
+  | { readonly outcome: "updated"; readonly member: OrganizationMember }
+  | { readonly outcome: "not-found" }
+  | { readonly outcome: "last-owner" };
 
 interface ActorInput {
   readonly userId: string;
@@ -270,6 +283,128 @@ export class OrganizationsRepository {
       });
 
       return invitation;
+    });
+  }
+
+  /**
+   * Setzt Rolle und/oder Status einer Mitgliedschaft. Lesen, Pruefen,
+   * Schreiben und Auditieren liegen in einer Transaktion; die Zielzeile wird
+   * mit `FOR UPDATE` gesperrt, damit zwei gleichzeitige Anfragen nicht beide
+   * den jeweils anderen OWNER fuer den verbleibenden halten.
+   */
+  public async updateMembership(input: {
+    readonly organizationId: string;
+    readonly targetUserId: string;
+    readonly role?: OrganizationRole;
+    readonly status?: MembershipStatus;
+    readonly actorUserId: string;
+    readonly audit: AuditContext;
+  }): Promise<UpdateMembershipResult> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [current] = await transaction
+        .select({
+          id: memberships.id,
+          role: memberships.role,
+          status: memberships.status,
+          email: users.email,
+          displayName: users.displayName,
+        })
+        .from(memberships)
+        .innerJoin(users, eq(memberships.userId, users.id))
+        .where(
+          and(
+            eq(memberships.organizationId, input.organizationId),
+            eq(memberships.userId, input.targetUserId),
+          ),
+        )
+        .limit(1)
+        .for("update", { of: memberships });
+
+      if (current === undefined) {
+        return { outcome: "not-found" };
+      }
+
+      if (!isOrganizationRole(current.role) || !isMembershipStatus(current.status)) {
+        throw new Error("The stored membership carries an unknown role or status.");
+      }
+
+      const nextRole: OrganizationRole = input.role ?? current.role;
+      const nextStatus: MembershipStatus = input.status ?? current.status;
+      const losesOwnerAccess =
+        current.role === "OWNER" &&
+        current.status === "ACTIVE" &&
+        (nextRole !== "OWNER" || nextStatus !== "ACTIVE");
+
+      if (losesOwnerAccess) {
+        const [remainingOwner] = await transaction
+          .select({ userId: memberships.userId })
+          .from(memberships)
+          .where(
+            and(
+              eq(memberships.organizationId, input.organizationId),
+              eq(memberships.role, "OWNER"),
+              eq(memberships.status, "ACTIVE"),
+              ne(memberships.userId, input.targetUserId),
+            ),
+          )
+          .limit(1)
+          .for("update");
+
+        if (remainingOwner === undefined) {
+          return { outcome: "last-owner" };
+        }
+      }
+
+      await transaction
+        .update(memberships)
+        .set({ role: nextRole, status: nextStatus })
+        .where(
+          and(
+            eq(memberships.organizationId, input.organizationId),
+            eq(memberships.userId, input.targetUserId),
+          ),
+        );
+
+      if (nextRole !== current.role) {
+        await transaction.insert(auditEvents).values({
+          organizationId: input.organizationId,
+          actorUserId: input.actorUserId,
+          action: "USER_ROLE_CHANGED",
+          entityType: "Membership",
+          entityId: current.id,
+          oldValue: { role: current.role },
+          newValue: { role: nextRole },
+          ip: input.audit.ip,
+          userAgent: input.audit.userAgent,
+          correlationId: input.audit.correlationId,
+        });
+      }
+
+      if (nextStatus !== current.status) {
+        await transaction.insert(auditEvents).values({
+          organizationId: input.organizationId,
+          actorUserId: input.actorUserId,
+          action: nextStatus === "ACTIVE" ? "MEMBER_REACTIVATED" : "MEMBER_DEACTIVATED",
+          entityType: "Membership",
+          entityId: current.id,
+          oldValue: { status: current.status },
+          newValue: { status: nextStatus },
+          ip: input.audit.ip,
+          userAgent: input.audit.userAgent,
+          correlationId: input.audit.correlationId,
+        });
+      }
+
+      return {
+        outcome: "updated",
+        member: {
+          userId: input.targetUserId,
+          email: current.email,
+          displayName: current.displayName,
+          role: nextRole,
+          status: nextStatus,
+        },
+      };
     });
   }
 }

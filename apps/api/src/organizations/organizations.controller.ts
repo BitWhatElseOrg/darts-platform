@@ -5,6 +5,7 @@ import {
   Inject,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Req,
 } from "@nestjs/common";
@@ -13,10 +14,13 @@ import type { FastifyRequest } from "fastify";
 import {
   createInvitationSchema,
   createOrganizationSchema,
+  updateMembershipSchema,
   type CreateInvitationInput,
   type CreateOrganizationInput,
   type CreatedInvitation,
+  type OrganizationMember,
   type OrganizationSummary,
+  type UpdateMembershipInput,
 } from "@darts-platform/schemas";
 
 import { CurrentAuth } from "../auth/current-auth.decorator.js";
@@ -66,6 +70,24 @@ export class OrganizationsController {
     const data: CreateInvitationInput = parseBody(createInvitationSchema, body);
     return this.organizationsService.invite({
       organizationId,
+      data,
+      auth,
+      audit: getAuditContext(request),
+    });
+  }
+
+  @Patch(":organizationId/members/:userId")
+  public async updateMember(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("userId", ParseUUIDPipe) userId: string,
+    @Body() body: unknown,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<OrganizationMember> {
+    const data: UpdateMembershipInput = parseBody(updateMembershipSchema, body);
+    return this.organizationsService.updateMembership({
+      organizationId,
+      targetUserId: userId,
       data,
       auth,
       audit: getAuditContext(request),
