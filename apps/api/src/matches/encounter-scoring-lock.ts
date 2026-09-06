@@ -18,10 +18,13 @@ type DatabaseTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0]
  * aufloest. Diese Funktion zieht die beiden Begegnungszeilen im Scoringpfad
  * vor; danach nehmen beide Wege dieselbe Reihenfolge.
  *
- * Der Turnierzweig kollidiert damit nicht: ein Match gehoert entweder zu einem
- * Turnier oder zu einer Begegnung, nie zu beidem
- * (`tournament_matches.scoring_match_id` und `encounter_slots.match_id` sind
- * je unique und schliessen sich fachlich aus).
+ * Der Turnierzweig kollidiert damit nicht: der Scoringpfad sperrt Turnier- vor
+ * Begegnungs- vor Slot- vor Matchzeile, in genau dieser festen Reihenfolge
+ * (siehe `matches.repository.ts`: `lockTournamentScoringContext` vor
+ * `lockEncounterScoringContext` vor der Matchsperre). Selbst ein Match, das
+ * zufaellig in beiden Welten verlinkt waere, koennte darin keinen Zyklus
+ * bilden — die Uniqueness von `tournament_matches.scoring_match_id` und
+ * `encounter_slots.match_id` je fuer sich allein wuerde das nicht verhindern.
  */
 export async function lockEncounterScoringContext(
   transaction: DatabaseTransaction,
