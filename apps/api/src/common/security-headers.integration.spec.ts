@@ -30,6 +30,12 @@ describe("Security Headers", () => {
     expect(response.headers["x-frame-options"]).toBe("DENY");
   }, 30_000);
 
+  it("liefert eine Content-Security-Policy ohne jede Standardquelle (M4)", async () => {
+    const response = await app.inject({ method: "GET", url: "/api/v1/health" });
+
+    expect(response.headers["content-security-policy"]).toContain("default-src 'none'");
+  }, 30_000);
+
   it("nennt keine Server-Kennung", async () => {
     const response = await app.inject({ method: "GET", url: "/api/v1/health" });
 

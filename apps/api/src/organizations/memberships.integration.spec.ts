@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -10,9 +10,11 @@ import {
   organizations,
   users,
 } from "@darts-platform/database";
+import { apiErrorSchema } from "@darts-platform/schemas";
 
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 
+import { AuthService } from "../auth/auth.service.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { DatabaseService } from "../database/database.service.js";
 import { OrganizationAccessService } from "./organization-access.service.js";
@@ -456,5 +458,33 @@ describe("PATCH /organizations/:organizationId/members/:userId", () => {
     expect(response.json()).toMatchObject({
       error: { code: "AUTHENTICATION_REQUIRED" },
     });
+  }, 30_000);
+
+  it("liefert den einheitlichen Fehlerkoerper, wenn die handelnde Person die eigene Mitgliedschaft aendern will", async () => {
+    // Kein eigener Session-Seam im Harness: die Anfrage wird ueber `app.get`
+    // wie in `createApiTestApplication` selbst authentifiziert, indem
+    // `AuthService.getSession` fuer diesen einen Test auf `managerAuth`
+    // gestellt wird — dieselbe handelnde Person wie im gleichnamigen
+    // Unit-Test oben, jetzt aber ueber die echte HTTP-Pipeline inklusive
+    // globalem Fehlerfilter.
+    const authService = app.get(AuthService);
+    const sessionSpy = vi
+      .spyOn(authService, "getSession")
+      .mockResolvedValue(managerAuth);
+
+    try {
+      const response = await app.inject({
+        method: "PATCH",
+        url: `/api/v1/organizations/${organizationId}/members/${managerUserId}`,
+        payload: { role: "MEMBER" },
+      });
+
+      expect(response.statusCode).toBe(403);
+      const parsed = apiErrorSchema.parse(response.json());
+      expect(parsed.error.code).toBe("SELF_MEMBERSHIP_CHANGE_FORBIDDEN");
+      expect(parsed.error.message.length).toBeGreaterThan(0);
+    } finally {
+      sessionSpy.mockRestore();
+    }
   }, 30_000);
 });

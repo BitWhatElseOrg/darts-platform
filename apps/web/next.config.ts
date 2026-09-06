@@ -22,6 +22,12 @@ const websocketOrigin = apiOrigin.replace(/^http/u, "ws");
  * Nonce eine eigene Middleware auf jeder Anfrage voraussetzen wuerde. Alle
  * uebrigen Direktiven sind bereits scharf gestellt und liefern damit ab
  * sofort brauchbare Verstoss-Meldungen.
+ *
+ * Umstellungskriterium (M5): Report-Only bleibt bestehen, bis entweder ein
+ * Report-Endpunkt existiert, der die Verstoss-Meldungen tatsaechlich
+ * entgegennimmt, oder zwei Wochen Betrieb ohne Konsolen-Verletzungen auf den
+ * Hauptseiten dokumentiert sind. Danach erfolgt die Umstellung auf
+ * erzwingend in einem eigenen PR, nicht stillschweigend hier.
  */
 const contentSecurityPolicy = [
   "default-src 'self'",

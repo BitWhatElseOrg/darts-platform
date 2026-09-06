@@ -28,7 +28,15 @@ import { bootstrapProductionOwner } from "../operations/production-bootstrap.js"
 import { RedisService } from "../redis/redis.service.js";
 import { createTemporaryDatabase } from "../testing/temporary-database.js";
 
-const environment = parseApplicationEnvironment(process.env);
+// M8: Better Auths eigener Limiter (`auth.factory.ts`) zaehlt ueber
+// `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE`, unabhaengig vom Fastify-Limiter.
+// Dieser Suite-eigene Wert liegt weit ueber der Produktions-Vorgabe, damit
+// die vielen Sign-up-/Sign-in-Aufrufe unten nicht davon abhaengen, wie oft
+// die Suite innerhalb derselben Minute laeuft.
+const environment = {
+  ...parseApplicationEnvironment(process.env),
+  RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: 100_000,
+};
 const connection = createDatabaseConnection(environment.DATABASE_URL);
 const auth = createAuth(connection.database, environment);
 const email = `auth-test-${randomUUID()}@example.test`;

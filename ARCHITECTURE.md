@@ -975,6 +975,15 @@ Mindestanforderungen:
 - Restore-Tests
 - keine Secrets im Repository
 
+Security Headers: `apps/api/src/common/security-headers.ts` (Helmet, harte
+Content Security Policy) und `apps/web/next.config.ts` (CSP vorerst
+Report-Only, siehe Umstellungskriterium dort). Rate Limiting:
+`apps/api/src/common/rate-limit.ts` setzt einen prozesslokalen Zähler mit
+Stufen (`general`/`public`/`sensitive`) je Route; Better Auths eigener
+`customStorage` über Redis zählt verteilt, aber nur für Sign-in und Sign-up.
+`TRUST_PROXY_HOPS` bestimmt, welcher `X-Forwarded-For`-Eintrag als
+Client-Adresse für beide Zähler gilt und ist in Production Pflicht.
+
 ---
 
 ## 30. Audit Logging
