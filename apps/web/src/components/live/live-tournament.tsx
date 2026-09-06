@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { publicTournamentDashboardSchema, type BoardSlot } from "@darts-platform/schemas";
+import { publicTournamentDashboardSchema, type PublicBoardSlot } from "@darts-platform/schemas";
 import QRCode from "qrcode";
 import Image from "next/image";
 import Link from "next/link";
@@ -161,7 +161,7 @@ function BracketSlotLine({ slot }: { readonly slot: BracketSlot }) {
   );
 }
 
-function LiveBoard({ board, mode, tournamentId }: { readonly board: BoardSlot; readonly mode: LiveTournamentProps["mode"]; readonly tournamentId: string }) {
+function LiveBoard({ board, mode, tournamentId }: { readonly board: PublicBoardSlot; readonly mode: LiveTournamentProps["mode"]; readonly tournamentId: string }) {
   const [qrCode, setQrCode] = useState<string | null>(null);
   useEffect(() => {
     if (mode !== "publikum") return;

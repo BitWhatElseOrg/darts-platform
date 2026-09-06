@@ -894,4 +894,48 @@ describe("persistent tournament MVP", () => {
     expect(tournamentOutbox.some((event) => event.eventType === "TOURNAMENT_MATCH_ASSIGNED")).toBe(true);
     expect(tournamentOutbox.some((event) => event.eventType === "TOURNAMENT_MATCH_COMPLETED")).toBe(true);
   });
+
+  it("nennt in der oeffentlichen Live-Sicht weder Mandant noch Betriebsinterna", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Public Projection Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T14:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+
+    const dashboard = await service.publicDashboard(created.id);
+    const serialized: unknown = JSON.parse(JSON.stringify(dashboard));
+
+    expect(dashboard.tournament).not.toHaveProperty("organizationId");
+    expect(dashboard).not.toHaveProperty("conflicts");
+    for (const board of dashboard.boards) {
+      expect(board).not.toHaveProperty("blockedReason");
+    }
+    for (const entry of dashboard.queue) {
+      expect(entry).not.toHaveProperty("blockedReason");
+    }
+    // Sicherheitsnetz gegen ein spaeter wieder durchgereichtes Feld: die
+    // Mandanten-UUID darf im gesamten Antwortkoerper nicht vorkommen.
+    expect(JSON.stringify(serialized)).not.toContain(organizationId);
+
+    // Was die Live-Ansicht braucht, bleibt.
+    expect(dashboard.tournament.name.length).toBeGreaterThan(0);
+    expect(dashboard.participants.length).toBeGreaterThan(0);
+  }, 30_000);
 });

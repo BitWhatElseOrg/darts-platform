@@ -161,14 +161,31 @@ export class TournamentsService {
     const data = await this.repository.getPublicDashboardData(tournamentId);
     if (data === null) throw new NotFoundException("Turnier nicht gefunden.");
     const dashboard = await this.projectDashboard(data);
+    // Die oeffentliche Sicht wird Feld fuer Feld gebaut, nicht aus der
+    // internen durchgereicht: so faellt jedes neue interne Feld auf, statt
+    // sich stillschweigend nach draussen zu vererben (Audit B, I-1).
+    const { organizationId, ...tournament } = dashboard.tournament;
+    void organizationId;
     return publicTournamentDashboardSchema.parse({
-      ...dashboard,
+      tournament,
       participants: dashboard.participants.map((participant) => ({
         playerId: participant.playerId,
         displayName: participant.displayName,
         seed: participant.seed,
         status: participant.status,
       })),
+      boards: dashboard.boards.map(({ blockedReason, ...board }) => {
+        void blockedReason;
+        return board;
+      }),
+      queue: dashboard.queue.map(({ blockedReason, ...entry }) => {
+        void blockedReason;
+        return entry;
+      }),
+      groups: dashboard.groups,
+      bracket: dashboard.bracket,
+      recentResults: dashboard.recentResults,
+      generatedAt: dashboard.generatedAt,
     });
   }
 
