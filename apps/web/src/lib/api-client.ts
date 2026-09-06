@@ -64,6 +64,8 @@ function localizedMessage(code: string): string {
       "Diese Mannschaft führt bereits einen Captain. Nimm die Person als Spielerin oder Spieler auf.",
     LAST_OWNER_PROTECTED:
       "Die letzte Eigentümerin oder der letzte Eigentümer kann weder herabgestuft noch deaktiviert werden. Ernenne zuerst eine zweite Person.",
+    OWNER_CHANGE_REQUIRES_OWNER:
+      "Nur eine aktive Eigentümerin oder ein aktiver Eigentümer kann eine Eigentümer-Mitgliedschaft ändern.",
     OWNER_GRANT_REQUIRES_OWNER:
       "Nur eine aktive Eigentümerin oder ein aktiver Eigentümer kann Eigentum übertragen.",
     SELF_MEMBERSHIP_CHANGE_FORBIDDEN:

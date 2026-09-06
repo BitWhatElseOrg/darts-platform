@@ -14,10 +14,11 @@ import {
   type MembershipStatus,
   type OrganizationRole,
 } from "@darts-platform/domain";
-import type {
-  CreateInvitationInput,
-  CreateOrganizationInput,
-  OrganizationMember,
+import {
+  organizationMemberSchema,
+  type CreateInvitationInput,
+  type CreateOrganizationInput,
+  type OrganizationMember,
 } from "@darts-platform/schemas";
 
 import type { AuditContext } from "../common/audit-context.js";
@@ -30,7 +31,8 @@ import {
 export type UpdateMembershipResult =
   | { readonly outcome: "updated"; readonly member: OrganizationMember }
   | { readonly outcome: "not-found" }
-  | { readonly outcome: "last-owner" };
+  | { readonly outcome: "last-owner" }
+  | { readonly outcome: "owner-change-requires-owner" };
 
 interface ActorInput {
   readonly userId: string;
@@ -288,9 +290,12 @@ export class OrganizationsRepository {
 
   /**
    * Setzt Rolle und/oder Status einer Mitgliedschaft. Lesen, Pruefen,
-   * Schreiben und Auditieren liegen in einer Transaktion; die Zielzeile wird
-   * mit `FOR UPDATE` gesperrt, damit zwei gleichzeitige Anfragen nicht beide
-   * den jeweils anderen OWNER fuer den verbleibenden halten.
+   * Schreiben und Auditieren liegen in einer Transaktion. Gesperrt wird
+   * zuerst die Organisationszeile — sie serialisiert alle
+   * Mitgliedschaftsaenderungen dieser Organisation — und danach die
+   * Zielzeile, weil `acceptInvitation` Mitgliedschaften ohne die
+   * Organisationssperre schreibt. Beide Sperren gehen in derselben
+   * Reihenfolge, es entsteht kein Zyklus.
    */
   public async updateMembership(input: {
     readonly organizationId: string;
@@ -298,9 +303,26 @@ export class OrganizationsRepository {
     readonly role?: OrganizationRole;
     readonly status?: MembershipStatus;
     readonly actorUserId: string;
+    readonly actorRole: OrganizationRole;
     readonly audit: AuditContext;
   }): Promise<UpdateMembershipResult> {
     return this.databaseService.database.transaction(async (transaction) => {
+      // Serialisierungspunkt fuer alle Mitgliedschaftsaenderungen dieser
+      // Organisation: zwei gleichzeitige Anfragen warten hier aufeinander,
+      // statt beide den jeweils anderen OWNER fuer den verbleibenden zu
+      // halten. Die zweite liest danach den frischen Stand und bekommt einen
+      // sauberen Konflikt zurueck.
+      const [organization] = await transaction
+        .select({ id: organizations.id })
+        .from(organizations)
+        .where(eq(organizations.id, input.organizationId))
+        .limit(1)
+        .for("update");
+
+      if (organization === undefined) {
+        return { outcome: "not-found" };
+      }
+
       const [current] = await transaction
         .select({
           id: memberships.id,
@@ -328,6 +350,14 @@ export class OrganizationsRepository {
         throw new Error("The stored membership carries an unknown role or status.");
       }
 
+      // Die heutige Rolle der Zielperson steht erst unter der Sperre fest —
+      // deshalb liegt diese Pruefung hier und nicht im Service. Eine
+      // OWNER-Zeile aendert nur, wer selbst aktiver OWNER ist; das gilt fuer
+      // Rolle und Status gleichermassen.
+      if (current.role === "OWNER" && input.actorRole !== "OWNER") {
+        return { outcome: "owner-change-requires-owner" };
+      }
+
       const nextRole: OrganizationRole = input.role ?? current.role;
       const nextStatus: MembershipStatus = input.status ?? current.status;
       const losesOwnerAccess =
@@ -347,8 +377,7 @@ export class OrganizationsRepository {
               ne(memberships.userId, input.targetUserId),
             ),
           )
-          .limit(1)
-          .for("update");
+          .limit(1);
 
         if (remainingOwner === undefined) {
           return { outcome: "last-owner" };
@@ -395,16 +424,18 @@ export class OrganizationsRepository {
         });
       }
 
-      return {
-        outcome: "updated",
-        member: {
-          userId: input.targetUserId,
-          email: current.email,
-          displayName: current.displayName,
-          role: nextRole,
-          status: nextStatus,
-        },
-      };
+      // Noch innerhalb der Transaktion validiert: schlaegt das Schema fehl,
+      // rollt der Schreibvorgang zurueck, statt einem bereits committeten
+      // Update hinterherzulaufen.
+      const member = organizationMemberSchema.parse({
+        userId: input.targetUserId,
+        email: current.email,
+        displayName: current.displayName,
+        role: nextRole,
+        status: nextStatus,
+      });
+
+      return { outcome: "updated", member };
     });
   }
 }

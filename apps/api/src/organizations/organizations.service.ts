@@ -12,7 +12,6 @@ import {
   createdInvitationSchema,
   invitationListSchema,
   organizationListSchema,
-  organizationMemberSchema,
   organizationSummarySchema,
   type AcceptInvitationInput,
   type CreateInvitationInput,
@@ -170,7 +169,10 @@ export class OrganizationsService {
       });
     }
 
-    // Eigentum vergibt nur Eigentum. `ADMIN` traegt zwar
+    // Eigentum vergibt nur Eigentum. Die Gegenrichtung — eine bestehende
+    // OWNER-Zeile aendern — prueft das Repository unter der Sperre
+    // (`OWNER_CHANGE_REQUIRES_OWNER`), weil die heutige Rolle der Zielperson
+    // erst dort feststeht. `ADMIN` traegt zwar
     // `organization:manage_roles` und darf jede andere Rolle setzen, aber
     // sich nicht selbst zum Miteigentuemer machen, indem er einen Vertrauten
     // zum OWNER ernennt. Die Uebertragung selbst bleibt moeglich — sonst
@@ -187,6 +189,7 @@ export class OrganizationsService {
       organizationId: input.organizationId,
       targetUserId: input.targetUserId,
       actorUserId: input.auth.user.id,
+      actorRole,
       audit: input.audit,
       ...(input.data.role === undefined ? {} : { role: input.data.role }),
       ...(input.data.status === undefined ? {} : { status: input.data.status }),
@@ -202,8 +205,13 @@ export class OrganizationsService {
           code: "LAST_OWNER_PROTECTED",
           message: "The last active owner cannot be demoted or deactivated.",
         });
+      case "owner-change-requires-owner":
+        throw new ForbiddenException({
+          code: "OWNER_CHANGE_REQUIRES_OWNER",
+          message: "Only an active owner can change an owner membership.",
+        });
       case "updated":
-        return organizationMemberSchema.parse(result.member);
+        return result.member;
     }
   }
 }
