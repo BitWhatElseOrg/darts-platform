@@ -608,6 +608,22 @@ export const outboxEvents = pgTable(
     occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     statisticsProcessedAt: timestamp("statistics_processed_at", { withTimezone: true }),
+    // Je Konsument ein eigener Versuchszähler, ein frühester nächster
+    // Versuch und ein Dead-Letter-Stempel. Getrennte Spalten statt einer
+    // generischen Zustandstabelle, weil beide Konsumenten ihren Fortschritt
+    // schon als Spalte führen und die Poll-Abfragen so ohne Join auf ihren
+    // partiellen Indexen bleiben. Ab einem dritten Konsumenten gehört der
+    // Schnitt neu bewertet.
+    publishAttempts: integer("publish_attempts").default(0).notNull(),
+    publishNotBefore: timestamp("publish_not_before", { withTimezone: true }),
+    publishDeadLetteredAt: timestamp("publish_dead_lettered_at", { withTimezone: true }),
+    publishLastError: text("publish_last_error"),
+    statisticsAttempts: integer("statistics_attempts").default(0).notNull(),
+    statisticsNotBefore: timestamp("statistics_not_before", { withTimezone: true }),
+    statisticsDeadLetteredAt: timestamp("statistics_dead_lettered_at", {
+      withTimezone: true,
+    }),
+    statisticsLastError: text("statistics_last_error"),
   },
   (table) => [
     uniqueIndex("outbox_events_sequence_unique").on(table.sequence),
@@ -622,6 +638,13 @@ export const outboxEvents = pgTable(
       .on(table.sequence)
       .where(sql`${table.statisticsProcessedAt} is null and ${table.eventType} = 'MATCH_COMPLETED'`),
     index("outbox_events_organization_aggregate_idx").on(table.organizationId, table.aggregateId),
+    // Dead Letter sind selten; der partielle Index hält die Zählung im
+    // Health-Endpunkt von der wachsenden Tabelle fern.
+    index("outbox_events_dead_lettered_idx")
+      .on(table.occurredAt)
+      .where(
+        sql`${table.publishDeadLetteredAt} is not null or ${table.statisticsDeadLetteredAt} is not null`,
+      ),
   ],
 );
 

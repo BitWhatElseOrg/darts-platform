@@ -1080,9 +1080,24 @@ aggregate_id uuid NOT NULL
 event_type varchar(100) NOT NULL
 payload jsonb NOT NULL
 occurred_at timestamptz NOT NULL DEFAULT now()
+
 published_at timestamptz
+publish_attempts integer NOT NULL DEFAULT 0
+publish_not_before timestamptz
+publish_dead_lettered_at timestamptz
+publish_last_error text
+
 statistics_processed_at timestamptz
+statistics_attempts integer NOT NULL DEFAULT 0
+statistics_not_before timestamptz
+statistics_dead_lettered_at timestamptz
+statistics_last_error text
 ```
+
+Zwei Konsumenten teilen sich die Tabelle und führen je einen eigenen Satz
+Spalten: der Realtime-Relay im API-Prozess (`publish_*`) und der
+Statistik-Poller im Worker (`statistics_*`, ausschliesslich Ereignisse vom
+Typ `MATCH_COMPLETED`). Keiner blockiert den anderen.
 
 Die Verteilung ist At-least-once: gesendet wird zuerst, gestempelt (`published_at`)
 erst danach, und beansprucht wird über `FOR UPDATE SKIP LOCKED`, damit zwei
@@ -1098,18 +1113,34 @@ deshalb nach `sequence`, die beim `INSERT` vergeben wird. Beide Poller —
 das Realtime-Relay in der API und der Statistik-Poller im Worker — ordnen
 nach `sequence`.
 
+Migration `0025_outbox_dead_letter` ergänzt je Konsument einen Versuchszähler,
+eine früheste Wiederholzeit und einen Dead-Letter-Stempel (`recordOutboxFailure`
+in `packages/database/src/outbox.ts`). Nach `OUTBOX_MAX_ATTEMPTS` (5)
+Fehlversuchen setzt ein Poller `publish_dead_lettered_at` bzw.
+`statistics_dead_lettered_at` statt einer weiteren Wiederholzeit; die Wartezeit
+zwischen Versuchen verdoppelt sich exponentiell ab einer Sekunde, gedeckelt bei
+fünf Minuten (`outboxRetryDelayMs`). `outboxPending(consumer, now)` liefert das
+Auswahlprädikat je Konsument: nicht verarbeitet, nicht im Dead Letter, Backoff
+abgelaufen.
+
 ```text
 unique (sequence)                                    -- outbox_events_sequence_unique
 (sequence) where published_at is null                -- outbox_events_pending_publication_idx
 (sequence) where statistics_processed_at is null
            and event_type = 'MATCH_COMPLETED'        -- outbox_events_pending_statistics_idx
+(occurred_at) where publish_dead_lettered_at
+              is not null
+           or statistics_dead_lettered_at
+              is not null                             -- outbox_events_dead_lettered_idx
 ```
 
 Der Statistik-Poller im Worker lief bis dahin sekündlich als Seq Scan über die
 ganze Tabelle. Der zweite partielle Index deckt genau seinen Filter. Der ältere
 Index `outbox_events_unpublished_idx` (`published_at, occurred_at`) beschleunigt
 die Auswahl der Aufräumregel nicht mehr allein — die Regel begrenzt sich pro
-Lauf selbst auf einen Batch, siehe nächster Absatz.
+Lauf selbst auf einen Batch, siehe nächster Absatz. Der Dead-Letter-Index hält
+die Zählung im Health-Endpunkt von der wachsenden Tabelle fern; Dead-Letter-Zeilen
+sind selten, der Index bleibt entsprechend klein.
 
 Die Aufräumregel (`apps/worker/src/prune-outbox.ts`) läuft stündlich im Worker
 und entfernt Zeilen, die verteilt **und** statistisch erledigt (oder nie
@@ -1121,6 +1152,41 @@ einem grossen Rückstand verteilt sich das Löschen so über mehrere Läufe, sta
 eine lang laufende Transaktion gegen die Tabelle zu sperren. Die fachliche Spur
 eines Vorgangs liegt nicht in der Outbox, sondern in `audit_events` und im
 jeweiligen Kommandostrom.
+
+**Dead-Letter-Zeilen werden nicht automatisch geprünt.** Das Prädikat der
+Aufräumregel verlangt einen verarbeiteten Zustand (`published_at` bzw.
+`statistics_processed_at` gesetzt); eine dead-gelettete Zeile hat diesen
+Zustand per Konstruktion nie erreicht und bleibt deshalb von der stündlichen
+Regel unberührt stehen, bis jemand sie manuell behandelt. Das ist Aufgabe des
+Betriebs, nicht des Schedulers:
+
+```sql
+-- Auffinden: Dead-Letter-Rückstand je Konsument
+select id, organization_id, event_type, aggregate_id,
+       publish_attempts, publish_last_error, publish_dead_lettered_at
+from outbox_events
+where publish_dead_lettered_at is not null
+order by publish_dead_lettered_at;
+
+select id, organization_id, event_type, aggregate_id,
+       statistics_attempts, statistics_last_error, statistics_dead_lettered_at
+from outbox_events
+where statistics_dead_lettered_at is not null
+order by statistics_dead_lettered_at;
+
+-- Requeue: Zähler und Dead-Letter-Stempel zurücksetzen, damit
+-- outboxPending() die Zeile beim nächsten Poll wieder aufgreift
+update outbox_events
+set publish_attempts = 0,
+    publish_not_before = null,
+    publish_dead_lettered_at = null,
+    publish_last_error = null
+where id = :id;
+
+-- Manuelles Löschen, wenn ein Ereignis endgültig verworfen wird
+-- (z. B. nach Klärung mit dem Betrieb, dass die Verteilung entfällt)
+delete from outbox_events where id = :id;
+```
 
 Bestandscheck vor dem Ausrollen:
 
@@ -1134,6 +1200,14 @@ heutigen Grösse (5589 Zeilen, gemessen am 06.09.2026) sind das
 Sekundenbruchteile. Wächst die
 Tabelle vor dem Ausrollen deutlich, ist die Aufräumregel **vor** der Migration
 einmal von Hand zu fahren.
+
+Migration `0025_outbox_dead_letter` fügt acht Spalten (`integer … DEFAULT 0
+NOT NULL` bzw. nullable `timestamp`/`text` ohne Default) und einen partiellen
+Index hinzu. `ADD COLUMN … DEFAULT` ist ab PostgreSQL 11 eine reine
+Metadaten-Änderung ohne Tabellenumschreibung; der `CREATE INDEX` nimmt für den
+kurzen Moment des Index-Aufbaus ein `SHARE`-Lock auf `outbox_events`. Kein
+Bestandscheck nötig — alle acht Spalten sind entweder nullable oder tragen
+einen Default.
 
 ---
 
