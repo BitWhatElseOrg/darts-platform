@@ -10,8 +10,24 @@ import { Control, MarkCross, Rule, SheetLabel, Wedge } from "@darts-platform/ui"
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { NavLink, PageNav } from "@/components/page-nav";
-import { ApiClientError, apiRequest, userFacingErrorMessage } from "@/lib/api-client";
+import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
+import { ApiClientError } from "@/lib/api-error";
 import { generateId } from "@/lib/id";
+import {
+  listOfflineCommands,
+  markOfflineCommandConflict,
+  markOfflineCommandRejected,
+  removeOfflineCommand,
+  saveOfflineCommand,
+  type OfflineCommand,
+} from "@/lib/offline-command-queue";
+import { queuedCommandNotice, replayFailure } from "@/lib/offline-replay";
+import {
+  assignmentQueueEntries,
+  tournamentQueueScope,
+  unsentAssignments,
+  type AssignmentQueueEntry,
+} from "@/lib/tournament-assignment-queue";
 import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
 import { BoardWedge } from "./board-wedge";
 import { DashboardHeader } from "./dashboard-header";
@@ -21,12 +37,41 @@ import { ParticipantDisruptionPanel } from "./participant-disruption-panel";
 import { ResultsPanel } from "./results-panel";
 import { StandingsSheet } from "./standings-sheet";
 
+/**
+ * Eine noch nicht bestaetigte Board-Zuweisung. Sie lebt in derselben
+ * IndexedDB-Warteschlange wie die Aufnahmen der Scoringflaeche und ueberlebt
+ * damit ein Neuladen: vorher stand sie nur in `useState` und war nach einem
+ * Reload ohne Verbindung still verschwunden (Befund K4).
+ */
 interface PendingCommand {
   readonly commandId: string;
   readonly expectedVersion: number;
   readonly matchId: string;
   readonly boardId: string;
   readonly label: string;
+}
+
+function queuedCommandOf(command: PendingCommand, scope: string, path: string): OfflineCommand {
+  return {
+    commandId: command.commandId,
+    scope,
+    path,
+    body: { commandId: command.commandId, expectedVersion: command.expectedVersion, matchId: command.matchId, boardId: command.boardId },
+    label: command.label,
+    createdAt: new Date().toISOString(),
+    status: "PENDING",
+    error: null,
+  };
+}
+
+function pendingCommandOf(entry: AssignmentQueueEntry): PendingCommand {
+  return {
+    commandId: entry.command.commandId,
+    expectedVersion: entry.expectedVersion,
+    matchId: entry.matchId,
+    boardId: entry.boardId,
+    label: entry.command.label,
+  };
 }
 
 interface VersionConflict {
@@ -72,12 +117,23 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
   const dashboard = dashboardQuery.data;
   const [connection, setConnection] = useState<"live" | "offline">("live");
   const [realtimeConnection, setRealtimeConnection] = useState<RealtimeConnection>("verbindet");
-  const [pending, setPending] = useState<readonly PendingCommand[]>([]);
+  const [queued, setQueued] = useState<readonly OfflineCommand[]>([]);
   const [landedBoardId, setLandedBoardId] = useState<string | null>(null);
   const [conflict, setConflict] = useState<VersionConflict | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commandBusy, setCommandBusy] = useState(false);
   const [announcement, setAnnouncement] = useState("");
+
+  const scope = tournamentQueueScope(organizationId, tournamentId);
+  const assignmentPath = `/organizations/${organizationId}/tournaments/${tournamentId}/assignments`;
+  const refreshQueue = useCallback(async () => setQueued(await listOfflineCommands(scope)), [scope]);
+  // Die Warteschlange liegt in IndexedDB und wird beim Betreten der Zentrale
+  // gelesen: eine offline erfasste Zuweisung ueberlebt damit ein Neuladen.
+  useEffect(() => {
+    let active = true;
+    void listOfflineCommands(scope).then((commands) => { if (active) setQueued(commands); });
+    return () => { active = false; };
+  }, [scope]);
 
   useEffect(() => {
     const update = () => setConnection(navigator.onLine ? "live" : "offline");
@@ -99,12 +155,16 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
     [queryClient, queryKey, tournamentId],
   );
 
+  const queueEntries = useMemo(() => assignmentQueueEntries(queued), [queued]);
+  // Nur unuebertragene Zuweisungen belegen Board und Match; eine abgelehnte
+  // ist nie geschehen und gibt beides wieder frei.
+  const pending = useMemo(() => unsentAssignments(queueEntries), [queueEntries]);
   const pendingMatchIds = useMemo(
-    () => new Set(pending.map((command) => command.matchId)),
+    () => new Set(pending.map((entry) => entry.matchId)),
     [pending],
   );
   const pendingBoardIds = useMemo(
-    () => new Set(pending.map((command) => command.boardId)),
+    () => new Set(pending.map((entry) => entry.boardId)),
     [pending],
   );
   const readyQueue = useMemo(
@@ -122,11 +182,17 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
     [dashboard?.boards, pendingBoardIds],
   );
 
+  /**
+   * Sendet eine Zuweisung. `queuedCommand` ist gesetzt, wenn sie bereits in
+   * der Warteschlange steht -- dann wird sie dort entfernt (Erfolg) oder mit
+   * ihrem Ausgang markiert. Eine fachliche Ablehnung wird nicht wiederholt:
+   * sonst bliebe sie fuer immer stehen und sperrte Board und Match.
+   */
   const sendAssignment = useCallback(
-    async (command: PendingCommand): Promise<boolean> => {
+    async (command: PendingCommand, queuedCommand: OfflineCommand | null = null): Promise<boolean> => {
       try {
         const next = await apiRequest({
-          path: `/organizations/${organizationId}/tournaments/${tournamentId}/assignments`,
+          path: assignmentPath,
           method: "POST",
           body: {
             commandId: command.commandId,
@@ -137,27 +203,35 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
           schema: tournamentDashboardSchema,
         });
         queryClient.setQueryData(queryKey, next);
+        if (queuedCommand !== null) await removeOfflineCommand(queuedCommand.commandId);
         setLandedBoardId(command.boardId);
         setCommandError(null);
         setAnnouncement(`${command.label} läuft.`);
+        await refreshQueue();
         return true;
       } catch (error) {
         const versionConflict = conflictState(error, command.expectedVersion);
         if (versionConflict !== null) setConflict(versionConflict);
-        if (!(error instanceof ApiClientError)) {
-          setConnection("offline");
-          setPending((current) =>
-            current.some((entry) => entry.commandId === command.commandId)
-              ? current
-              : [...current, command],
-          );
-          setAnnouncement("Verbindung unterbrochen. Der Befehl bleibt in der Warteschlange.");
+        const failure = replayFailure(error);
+        switch (failure.kind) {
+          case "RETRY":
+            setConnection("offline");
+            await saveOfflineCommand(queuedCommand ?? queuedCommandOf(command, scope, assignmentPath));
+            setAnnouncement("Verbindung unterbrochen. Der Befehl bleibt in der Warteschlange.");
+            break;
+          case "CONFLICT":
+            if (queuedCommand !== null) await markOfflineCommandConflict(queuedCommand, failure.message);
+            break;
+          case "REJECTED":
+            if (queuedCommand !== null) await markOfflineCommandRejected(queuedCommand, failure.code, failure.message);
+            break;
         }
         setCommandError(userFacingErrorMessage(error, "Zuweisung fehlgeschlagen."));
+        await refreshQueue();
         return false;
       }
     },
-    [organizationId, queryClient, queryKey, tournamentId],
+    [assignmentPath, queryClient, queryKey, refreshQueue, scope],
   );
 
   const assign = useCallback(
@@ -183,7 +257,8 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         label: `${entry.participants[0].displayName} – ${entry.participants[1].displayName} auf ${board.boardName}`,
       };
       if (connection === "offline") {
-        setPending((current) => [...current, command]);
+        await saveOfflineCommand(queuedCommandOf(command, scope, assignmentPath));
+        await refreshQueue();
         setAnnouncement(`Zuweisung auf ${board.boardName} wartet auf die Verbindung.`);
         return;
       }
@@ -191,7 +266,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
       await sendAssignment(command);
       setCommandBusy(false);
     },
-    [commandBusy, connection, dashboard, openBoards, pending.length, pendingBoardIds, readyQueue, sendAssignment],
+    [assignmentPath, commandBusy, connection, dashboard, openBoards, pending.length, pendingBoardIds, readyQueue, refreshQueue, scope, sendAssignment],
   );
 
   const release = useCallback(
@@ -224,19 +299,31 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
     [commandBusy, connection, dashboard, organizationId, queryClient, queryKey, tournamentId],
   );
 
+  /**
+   * Uebertraegt die wartenden Zuweisungen in ihrer Reihenfolge. Beim ersten
+   * Fehlschlag wird abgebrochen: die Reihenfolge ist verbindlich, und die
+   * erwartete Turnierversion jeder folgenden Zuweisung baut auf der
+   * vorherigen auf.
+   */
   const flushPending = useCallback(async () => {
     if (commandBusy || connection === "offline") return;
     setCommandBusy(true);
     let sent = 0;
-    for (const command of pending) {
-      const successful = await sendAssignment(command);
+    for (const entry of pending.filter((candidate) => candidate.command.status === "PENDING")) {
+      const successful = await sendAssignment(pendingCommandOf(entry), entry.command);
       if (!successful) break;
       sent += 1;
     }
-    setPending((current) => current.slice(sent));
     setAnnouncement(`${sent} Befehl${sent === 1 ? "" : "e"} übertragen.`);
     setCommandBusy(false);
   }, [commandBusy, connection, pending, sendAssignment]);
+
+  /** Verwirft eine Zuweisung, die nur noch im Weg steht. */
+  const discardQueued = useCallback(async (commandId: string) => {
+    await removeOfflineCommand(commandId);
+    await refreshQueue();
+    setAnnouncement("Befehl verworfen.");
+  }, [refreshQueue]);
 
   const correctResult = useCallback(async (matchId: string, reason: string) => {
     if (dashboard === undefined || commandBusy || connection === "offline") return;
@@ -348,15 +435,25 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
           </Wedge>
         ) : null}
 
-        {pending.length > 0 ? (
+        {queueEntries.length > 0 ? (
           <Wedge className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3 p-4" tone="plate">
             <div className="min-w-0 flex-1">
-              <SheetLabel as="h2">{pending.length} Befehl{pending.length === 1 ? "" : "e"} in der Warteschlange</SheetLabel>
-              <ul className="mt-1.5 flex flex-col gap-0.5">
-                {pending.map((command) => <li className="font-plate text-body text-wedge-900" key={command.commandId}>{command.label}</li>)}
+              <SheetLabel as="h2">{queueEntries.length} Befehl{queueEntries.length === 1 ? "" : "e"} in der Warteschlange</SheetLabel>
+              <ul className="mt-1.5 flex flex-col gap-1.5">
+                {queueEntries.map((entry) => {
+                  const notice = queuedCommandNotice(entry.command, connection === "live", "wartet auf Übertragung");
+                  return (
+                    <li className="flex flex-wrap items-center justify-between gap-3 font-plate text-body text-wedge-900" key={entry.command.commandId}>
+                      <span>{notice.text}</span>
+                      {notice.action === "DISCARD" ? (
+                        <Control onClick={() => void discardQueued(entry.command.commandId)} variant="plate">Verwerfen</Control>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
-            <Control disabled={commandBusy || connection === "offline"} onClick={() => void flushPending()} variant="plate">Jetzt übertragen</Control>
+            <Control disabled={commandBusy || connection === "offline" || pending.length === 0} onClick={() => void flushPending()} variant="plate">Jetzt übertragen</Control>
           </Wedge>
         ) : null}
 

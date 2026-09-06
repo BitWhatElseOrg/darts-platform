@@ -62,14 +62,24 @@ export interface QueuedCommandNotice {
   readonly action: "DISCARD" | "RETRY";
 }
 
-/** Was die Warteschlangenansicht zu einem Kommando sagt. */
-export function queuedCommandNotice(command: OfflineCommand, online: boolean): QueuedCommandNotice {
+/**
+ * Was die Warteschlangenansicht zu einem Kommando sagt.
+ *
+ * `pendingOnline` benennt, was mit einem wartenden Kommando bei bestehender
+ * Verbindung geschieht: die Scoringflaeche wiederholt von selbst, die
+ * Kommandozentrale wartet auf den Knopf.
+ */
+export function queuedCommandNotice(
+  command: OfflineCommand,
+  online: boolean,
+  pendingOnline = "Wiederholung läuft",
+): QueuedCommandNotice {
   switch (command.status) {
     case "CONFLICT":
       return { text: `${command.label} · ${command.error ?? "Konflikt mit dem Serverstand"}`, action: "DISCARD" };
     case "REJECTED":
       return { text: `${command.label} · Vom Server abgelehnt: ${command.error ?? "unbekannter Grund"}`, action: "DISCARD" };
     case "PENDING":
-      return { text: `${command.label} · ${online ? "Wiederholung läuft" : "Offline"}`, action: "RETRY" };
+      return { text: `${command.label} · ${online ? pendingOnline : "Offline"}`, action: "RETRY" };
   }
 }
