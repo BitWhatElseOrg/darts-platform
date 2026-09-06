@@ -992,6 +992,13 @@ export function projectX01Match(match: X01Match): X01MatchState {
  * Stelle steht — die Regel selbst wird hier nicht zweitkodiert.
  */
 function assertWritableVisit(match: X01Match, command: SubmitVisitCommand, before: X01MatchState): void {
+  // Zustand vor Eingabe. Ist gar keine Aufnahme mehr moeglich -- Match
+  // beendet, Rundengrenze erreicht --, gehoert das gemeldet, nicht eine
+  // Eingaberegel, deren Erfuellung an der Lage nichts aendert. Die Projektion
+  // meldet diese Faelle als MATCH_ALREADY_COMPLETED bzw. ROUND_LIMIT_REACHED,
+  // sobald das Kommando angehaengt wird.
+  if (before.status === "COMPLETED") return;
+  if (before.roundLimitReached) return;
   // Nur fuer das Kommando, das tatsaechlich an der Reihe ist. Sonst blieben
   // die aussagekraeftigeren Fehler der Projektion (NOT_ACTIVE_SEAT,
   // INVALID_THROWER, MATCH_ALREADY_COMPLETED) hinter diesen Regeln verborgen.
