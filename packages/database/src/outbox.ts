@@ -1,7 +1,7 @@
-import { and, eq, isNull, lte, or, type SQL } from "drizzle-orm";
+import { and, eq, isNull, lte, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 
 import type { Database } from "./client.js";
-import { outboxEvents, type OutboxEvent } from "./schema.js";
+import { outboxEvents } from "./schema.js";
 
 /** Ereignistyp, den der Statistik-Konsument als einziger verarbeitet. */
 export const STATISTICS_OUTBOX_EVENT_TYPE = "MATCH_COMPLETED";
@@ -29,7 +29,7 @@ export interface OutboxLogger {
 export interface OutboxFailureInput {
   readonly database: Database;
   readonly consumer: OutboxConsumer;
-  readonly event: OutboxEvent;
+  readonly eventId: string;
   readonly error: unknown;
   readonly now: Date;
   readonly maxAttempts: number;
@@ -80,55 +80,122 @@ function describeError(error: unknown): string {
   return message.slice(0, MAX_ERROR_LENGTH);
 }
 
+interface OutboxFailureUpdateResult {
+  readonly attempts: number;
+  readonly deadLetteredAt: Date | null;
+  readonly eventType: string;
+  readonly aggregateId: string;
+  readonly organizationId: string;
+}
+
 /**
- * Bucht einen Fehlversuch: Zähler hoch, Fehlermeldung (ohne Payload und
- * ohne Personendaten) festhalten, entweder Backoff setzen oder ins Dead
- * Letter legen. Eine Dead-Letter-Zeile wird von keinem Poller mehr gezogen
- * und blockiert damit die nachfolgenden Ereignisse nicht.
+ * Wartezeit bis zum nächsten Versuch als SQL-Ausdruck, serverseitig aus der
+ * VOR dieser Anweisung gültigen Zähler-Spalte berechnet. `attemptsColumn + 1`
+ * ist die Anzahl Versuche NACH dieser Buchung; `outboxRetryDelayMs` erwartet
+ * genau diese Zahl, ihr Exponent ist `max(0, attempts - 1)`, was sich hier zu
+ * `attemptsColumn` selbst vereinfacht, weil die Spalte nie negativ ist.
+ */
+function backoffMillisSql(attemptsColumn: SQLWrapper) {
+  return sql`least(${OUTBOX_BACKOFF_BASE_MS}::numeric * power(2, greatest(0, ${attemptsColumn})), ${OUTBOX_BACKOFF_CAP_MS}::numeric)`;
+}
+
+/**
+ * Bucht einen Fehlversuch als eine einzige atomare `UPDATE`-Anweisung: Zähler,
+ * Backoff-Sperre und Dead-Letter-Stempel werden serverseitig aus dem
+ * Zeilenzustand berechnet (`attempts = attempts + 1` in derselben Anweisung),
+ * nicht aus einer clientseitig mitgebrachten Momentaufnahme. Zwei
+ * überlappende Poll-Zyklen auf derselben Zeile serialisiert Postgres über das
+ * Zeilenlock des `UPDATE`; keiner verliert dadurch einen Zähler-Schritt, und
+ * ein bereits gesetzter Dead-Letter-Stempel wird nie mit `null` oder einem
+ * späteren Zeitpunkt überschrieben (`coalesce(dead_lettered_at, now)`).
  */
 export async function recordOutboxFailure(
   input: OutboxFailureInput,
 ): Promise<"retry" | "dead_letter"> {
-  const { consumer, event, logger, maxAttempts, now } = input;
-  const previous =
-    consumer === "publish" ? event.publishAttempts : event.statisticsAttempts;
-  const attempts = previous + 1;
+  const { consumer, eventId, logger, maxAttempts, now } = input;
   const lastError = describeError(input.error);
-  const deadLettered = attempts >= maxAttempts;
-  const notBefore = deadLettered
-    ? null
-    : new Date(now.getTime() + outboxRetryDelayMs(attempts));
+  // Explizit als ISO-String eingebettet statt als rohes `Date`: der
+  // postgres-js-Treiber leitet den Parametertyp eines generischen
+  // `sql`-Fragments aus dem JS-Wert her, bevor Postgres den `::timestamptz`-
+  // Cast im Text sieht, und verwechselt ein rohes `Date` dabei mit einem
+  // Textparameter. Ein ISO-String ist eindeutig und von Postgres als
+  // `timestamptz` sauber parsbar.
+  const nowIso = now.toISOString();
 
-  const values: Partial<typeof outboxEvents.$inferInsert> =
-    consumer === "publish"
-      ? {
-          publishAttempts: attempts,
+  let rows: readonly OutboxFailureUpdateResult[];
+  switch (consumer) {
+    case "publish": {
+      rows = await input.database
+        .update(outboxEvents)
+        .set({
+          publishAttempts: sql`${outboxEvents.publishAttempts} + 1`,
           publishLastError: lastError,
-          publishNotBefore: notBefore,
-          publishDeadLetteredAt: deadLettered ? now : null,
-        }
-      : {
-          statisticsAttempts: attempts,
+          publishNotBefore: sql`case
+            when ${outboxEvents.publishAttempts} + 1 >= ${maxAttempts}::integer then ${outboxEvents.publishNotBefore}
+            else ${nowIso}::timestamptz + (${backoffMillisSql(outboxEvents.publishAttempts)} * interval '1 millisecond')
+          end`,
+          publishDeadLetteredAt: sql`case
+            when ${outboxEvents.publishAttempts} + 1 >= ${maxAttempts}::integer then coalesce(${outboxEvents.publishDeadLetteredAt}, ${nowIso}::timestamptz)
+            else ${outboxEvents.publishDeadLetteredAt}
+          end`,
+        })
+        .where(eq(outboxEvents.id, eventId))
+        .returning({
+          attempts: outboxEvents.publishAttempts,
+          deadLetteredAt: outboxEvents.publishDeadLetteredAt,
+          eventType: outboxEvents.eventType,
+          aggregateId: outboxEvents.aggregateId,
+          organizationId: outboxEvents.organizationId,
+        });
+      break;
+    }
+    case "statistics": {
+      rows = await input.database
+        .update(outboxEvents)
+        .set({
+          statisticsAttempts: sql`${outboxEvents.statisticsAttempts} + 1`,
           statisticsLastError: lastError,
-          statisticsNotBefore: notBefore,
-          statisticsDeadLetteredAt: deadLettered ? now : null,
-        };
+          statisticsNotBefore: sql`case
+            when ${outboxEvents.statisticsAttempts} + 1 >= ${maxAttempts}::integer then ${outboxEvents.statisticsNotBefore}
+            else ${nowIso}::timestamptz + (${backoffMillisSql(outboxEvents.statisticsAttempts)} * interval '1 millisecond')
+          end`,
+          statisticsDeadLetteredAt: sql`case
+            when ${outboxEvents.statisticsAttempts} + 1 >= ${maxAttempts}::integer then coalesce(${outboxEvents.statisticsDeadLetteredAt}, ${nowIso}::timestamptz)
+            else ${outboxEvents.statisticsDeadLetteredAt}
+          end`,
+        })
+        .where(eq(outboxEvents.id, eventId))
+        .returning({
+          attempts: outboxEvents.statisticsAttempts,
+          deadLetteredAt: outboxEvents.statisticsDeadLetteredAt,
+          eventType: outboxEvents.eventType,
+          aggregateId: outboxEvents.aggregateId,
+          organizationId: outboxEvents.organizationId,
+        });
+      break;
+    }
+    default: {
+      const exhaustive: never = consumer;
+      throw new Error(`Unbekannter Outbox-Konsument: ${String(exhaustive)}`);
+    }
+  }
 
-  await input.database
-    .update(outboxEvents)
-    .set(values)
-    .where(eq(outboxEvents.id, event.id));
+  const row = rows[0];
+  if (row === undefined) {
+    throw new Error(`Outbox-Ereignis ${eventId} nicht gefunden.`);
+  }
+
+  const deadLettered = row.deadLetteredAt !== null;
 
   logger.emit(deadLettered ? "error" : "warn", {
     event: deadLettered ? "outbox.dead_letter" : "outbox.retry_scheduled",
     consumer,
-    eventId: event.id,
-    eventType: event.eventType,
-    aggregateId: event.aggregateId,
-    organizationId: event.organizationId,
-    attempts,
+    eventId,
+    eventType: row.eventType,
+    aggregateId: row.aggregateId,
+    organizationId: row.organizationId,
+    attempts: row.attempts,
     lastError,
-    ...(notBefore === null ? {} : { nextAttemptAt: notBefore.toISOString() }),
   });
 
   return deadLettered ? "dead_letter" : "retry";
