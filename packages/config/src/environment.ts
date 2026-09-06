@@ -5,6 +5,12 @@ const rateLimitMaxSchema = z.coerce.number().int().min(1).max(1_000_000);
 // Obergrenze 10: mehr Reverse-Proxy-Hops gibt es in keinem realistischen
 // Aufbau; ein groesserer Wert ist fast sicher ein Tippfehler und wuerde
 // X-Forwarded-For faelschbar machen — deshalb Abbruch beim Start.
+//
+// Bewusst ohne `.default(...)`: in Production muss der Wert explizit gesetzt
+// sein (Ruling B12), und ein Default auf Feldebene liesse sich von einem
+// expliziten Wert nicht mehr unterscheiden, sobald die Objektvalidierung
+// laeuft (siehe `superRefine` unten). Ausserhalb von Production greift der
+// Default `0` erst im abschliessenden `transform`.
 const trustProxyHopsSchema = z.coerce.number().int().min(0).max(10);
 const urlListSchema = z
   .string()
@@ -71,9 +77,30 @@ export const applicationEnvironmentSchema = z.object({
    * `X-Forwarded-For`-Kette als tatsaechliche Client-Adresse gilt
    * (`request.ip`, u. a. fuer das Rate Limiting). Ein zu hoher Wert macht
    * `X-Forwarded-For` durch den Client selbst faelschbar (Audit I-6).
+   *
+   * In Production ist die Variable Pflicht (Ruling B12, siehe `superRefine`
+   * unten und `infrastructure/railway.md`); ausserhalb von Production bleibt
+   * unbelegt gleichbedeutend mit `0`.
    */
-  TRUST_PROXY_HOPS: trustProxyHopsSchema.default(0),
-});
+  TRUST_PROXY_HOPS: trustProxyHopsSchema.optional(),
+}).superRefine((data, ctx) => {
+  // Ruling B12: ein unbelegtes `TRUST_PROXY_HOPS` waere in Production ein
+  // stiller Fehlgriff — die Anwendung liefe mit `0` und der Reverse-Proxy
+  // selbst zaehlte fuer jede Anfrage als Client, was das Rate Limiting fuer
+  // alle Nutzenden gemeinsam ausschoepft (siehe Kommentar oben). Ein
+  // expliziter Wert `0` ist dagegen erlaubt und bleibt unangetastet.
+  if (data.NODE_ENV === "production" && data.TRUST_PROXY_HOPS === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["TRUST_PROXY_HOPS"],
+      message:
+        "TRUST_PROXY_HOPS muss in Production explizit gesetzt sein (siehe infrastructure/railway.md).",
+    });
+  }
+}).transform((data) => ({
+  ...data,
+  TRUST_PROXY_HOPS: data.TRUST_PROXY_HOPS ?? 0,
+}));
 
 export const publicWebEnvironmentSchema = z.object({
   NEXT_PUBLIC_API_URL: z.string().url(),

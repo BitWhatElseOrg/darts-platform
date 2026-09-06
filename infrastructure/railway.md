@@ -138,7 +138,7 @@ Mindestens diese Shared beziehungsweise Service-Variablen werden benötigt:
 | `RATE_LIMIT_MAX_PER_MINUTE` | `300` | Obergrenze je IP und Minute für alle übrigen Routen (optional, Vorgabe 300) |
 | `RATE_LIMIT_PUBLIC_MAX_PER_MINUTE` | `120` | Obergrenze für `/api/v1/public/**` (optional, Vorgabe 120) |
 | `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE` | `10` | Obergrenze für Anmeldung, Registrierung und Einladungsrouten (optional, Vorgabe 10) |
-| `TRUST_PROXY_HOPS` | `1` | Anzahl vertrauter Reverse-Proxy-Hops vor der Anwendung (optional, Vorgabe 0) |
+| `TRUST_PROXY_HOPS` | `1` | **Pflicht.** Anzahl vertrauter Reverse-Proxy-Hops vor der Anwendung |
 | `ALLOW_SELF_SERVICE_ORGANIZATIONS` | nicht gesetzt (`false`) | öffnet `POST /organizations` für jede angemeldete Person; in Production bewusst aus |
 
 `REDIS_URL` akzeptiert `redis://` und `rediss://`; für die verschlüsselte
@@ -157,9 +157,14 @@ verifizieren**: einmal `request.ip` und den rohen `X-Forwarded-For`-Header
 einer Anfrage von einer bekannten Client-IP protokollieren. Wird der
 Cloudflare-Proxy (heute `DNS only`, siehe Abschnitt DNS) später eingeschaltet,
 kommt ein Hop dazu und der Wert muss auf `2` steigen — sonst teilen sich alle
-Clients wieder einen Rate-Limit-Zähler. Bleibt die Variable in Railway
-ungesetzt, gilt `0`: dann zählt der Proxy als Client und das 10/min-Limit der
-sensiblen Routen trifft alle Nutzer gemeinsam.
+Clients wieder einen Rate-Limit-Zähler.
+
+`TRUST_PROXY_HOPS` ist in Production Pflicht: **der Deploy scheitert beim
+Start, bis die Variable gesetzt ist.** Ein stillschweigendes `0` wäre in
+Production ein Fehlgriff, kein sicherer Default — dann zählte Railways
+Edge-Proxy selbst als Client, und das 10/min-Limit der sensiblen Routen träfe
+alle Nutzer gemeinsam. Ein explizit gesetztes `0` bleibt möglich (etwa für
+einen kurzzeitigen Test ohne Proxy davor), nur unbelegt ist unzulässig.
 
 `BETTER_AUTH_SECRET` kann beispielsweise mit `openssl rand -base64 32` erzeugt
 werden. Secret-Werte werden ausschließlich in Railway hinterlegt und weder im

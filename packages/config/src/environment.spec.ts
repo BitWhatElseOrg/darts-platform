@@ -133,6 +133,60 @@ describe("parseApplicationEnvironment", () => {
     ).toThrow(EnvironmentValidationError);
   });
 
+  it("verlangt TRUST_PROXY_HOPS in Production explizit (Ruling B12)", () => {
+    expect(() =>
+      parseApplicationEnvironment({
+        ...validEnvironment,
+        NODE_ENV: "production",
+        TRUST_PROXY_HOPS: undefined,
+      }),
+    ).toThrow(EnvironmentValidationError);
+
+    try {
+      parseApplicationEnvironment({
+        ...validEnvironment,
+        NODE_ENV: "production",
+        TRUST_PROXY_HOPS: undefined,
+      });
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(EnvironmentValidationError);
+      expect((error as EnvironmentValidationError).message).toContain("TRUST_PROXY_HOPS");
+      expect((error as EnvironmentValidationError).message).toContain(
+        "infrastructure/railway.md",
+      );
+    }
+  });
+
+  it("erlaubt in Production ein explizites TRUST_PROXY_HOPS=0", () => {
+    const environment = parseApplicationEnvironment({
+      ...validEnvironment,
+      NODE_ENV: "production",
+      TRUST_PROXY_HOPS: "0",
+    });
+
+    expect(environment.TRUST_PROXY_HOPS).toBe(0);
+  });
+
+  it("erlaubt in Production ein explizites TRUST_PROXY_HOPS=1", () => {
+    const environment = parseApplicationEnvironment({
+      ...validEnvironment,
+      NODE_ENV: "production",
+      TRUST_PROXY_HOPS: "1",
+    });
+
+    expect(environment.TRUST_PROXY_HOPS).toBe(1);
+  });
+
+  it("vertraut ausserhalb von Production standardmaessig keinem Hop, auch unbelegt", () => {
+    const environment = parseApplicationEnvironment({
+      ...validEnvironment,
+      NODE_ENV: "development",
+      TRUST_PROXY_HOPS: undefined,
+    });
+
+    expect(environment.TRUST_PROXY_HOPS).toBe(0);
+  });
+
   it("verbietet die Selbstbedienung bei der Mandantenanlage standardmaessig", () => {
     const environment = parseApplicationEnvironment(validEnvironment);
 
