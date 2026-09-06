@@ -125,12 +125,19 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     if (!navigator.onLine || replayingRef.current) return;
     replayingRef.current = true;
     setReplaying(true);
-    // Zaehlt, wie viele Kommandos in diesem Durchgang tatsaechlich uebertragen
-    // wurden. Bei einem leeren Durchgang bleibt er 0, und das `finally`
-    // invalidiert die fuenf Query-Gruppen gar nicht erst -- ohne diese
-    // Zaehlung gab es eine doppelte Refetch-Last auf der gepollten
-    // Scoringflaeche fuer nichts (Re-Review-Befund F2, "doppelter Refresh").
-    let sentCount = 0;
+    // Zaehlt, wie viele Aufnahmen der Server in diesem Durchgang ANGENOMMEN
+    // hat -- nicht, wie viele danach auch lokal aufgeraeumt werden konnten.
+    // Beides zu koppeln war der Fehler: nahm der Server an und scheiterte das
+    // lokale Entfernen, blieb der Zaehler auf 0, `refresh()` unten entfiel,
+    // und weil `queueBlocksControl` einen angenommenen Eintrag nicht mehr
+    // sperrt, lief die naechste Aufnahme gegen einen veralteten Match-Cache
+    // und eine veraltete Version (Runde 8, Befund B).
+    //
+    // Bei einem leeren Durchgang bleibt er 0, und das `finally` invalidiert
+    // die fuenf Query-Gruppen gar nicht erst -- ohne diese Zaehlung gab es
+    // eine doppelte Refetch-Last auf der gepollten Scoringflaeche fuer nichts
+    // (Re-Review-Befund F2, "doppelter Refresh").
+    let acceptedCount = 0;
     // Ob das Lesen dieses Durchgangs geklappt hat. Scheitert es, darf das
     // `finally` unten nicht sofort erneut lesen: gelingt der zweite Versuch,
     // loescht er den gerade gesetzten `readError` im selben Tick -- "Jetzt
@@ -159,7 +166,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
       // die aktuelle `match.version` untergeschoben und ging auch dann durch,
       // wenn inzwischen ein anderes Geraet gescort hatte -- die
       // Divergenzerkennung war fuer den Kopf ausgehebelt (Runde 8, Befund A).
-      ({ sentCount } = await replayChained(nextReplayable(commands), async (command, chainedVersion): Promise<ReplayOutcome> => {
+      ({ acceptedCount } = await replayChained(nextReplayable(commands), async (command, chainedVersion): Promise<ReplayOutcome> => {
         let result: MatchStateResponse;
         try {
           result = await apiRequest({
@@ -184,7 +191,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
           // unbehandelte Rejection, und die Person sah weder den Serverfehler
           // noch den Schreibfehler (PR-Agent-Runde 5, Durchsicht).
           if (failure.kind !== "RETRY") await markQueuedOutcome(command, failure);
-          return { successful: false };
+          return { successful: false, accepted: false };
         }
         // Der Server hat das Kommando angenommen -- ab hier ist ein Fehler
         // rein lokal (IndexedDB) und kein Uebertragungsfehler mehr. Er darf
@@ -201,7 +208,11 @@ export function useMatchScoring({ organizationId, match, canScore }: {
         // (`localCleanupFailureMessage`: der Server hat angenommen, nur das
         // Aufraeumen scheiterte) und stellt das Warteschlangen-Band den Weg
         // zum Verwerfen bereit (match-scoreboard.tsx).
-        if (!(await removeAcceptedQueued(command.commandId))) return { successful: false };
+        //
+        // `accepted: true`: der Serverstand HAT sich bewegt. Nur so loest das
+        // `finally` unten trotz des Abbruchs den `refresh()` aus (Runde 8,
+        // Befund B).
+        if (!(await removeAcceptedQueued(command.commandId))) return { successful: false, accepted: true };
         return { successful: true, version: result.version };
       }));
     } finally {
@@ -209,7 +220,10 @@ export function useMatchScoring({ organizationId, match, canScore }: {
       // Kein Refresh bei leerem Durchgang: die Mutationen invalidieren den
       // Serverstand schon selbst (`onSuccess` in `submit`/`undo`/`abort`), und
       // eine Wiedergabe ohne Warteschlange haette nichts nachzuladen.
-      if (sentCount > 0) await refresh();
+      // Massgeblich ist die Annahme durch den Server, nicht das lokale
+      // Aufraeumen -- sonst bleibt die Flaeche nach einem Aufraeumfehler auf
+      // einem veralteten Stand stehen (Runde 8, Befund B).
+      if (acceptedCount > 0) await refresh();
       setReplaying(false);
       replayingRef.current = false;
     }

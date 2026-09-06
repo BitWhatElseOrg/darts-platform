@@ -223,12 +223,15 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
    * darf ein bereits angenommenes Kommando nicht ueber `replayFailure`
    * erneut als CONFLICT/REJECTED einreihen (PR-Agent-Befund F2).
    *
-   * Gibt bei Erfolg die vom Server bestaetigte neue Turnierversion zurueck,
-   * sonst `null` -- so kann die Aufruferin (siehe `flushPending`) diese
-   * Version an das naechste Kommando der Kette weiterreichen.
+   * Gibt den Ausgang als `ReplayOutcome` zurueck: bei Erfolg mit der vom
+   * Server bestaetigten neuen Turnierversion, damit `flushPending` sie an das
+   * naechste Kommando der Kette weiterreichen kann. Im Fehlerfall sagt
+   * `accepted`, ob der Server angenommen hat und nur die lokale Nacharbeit
+   * scheiterte -- die Ansicht ist dann trotzdem schon aktualisiert (siehe
+   * `setQueryData` unten).
    */
   const sendAssignment = useCallback(
-    async (command: PendingCommand, expectedVersion: number, queuedCommand: OfflineCommand | null = null): Promise<number | null> => {
+    async (command: PendingCommand, expectedVersion: number, queuedCommand: OfflineCommand | null = null): Promise<ReplayOutcome> => {
       let next: TournamentDashboard;
       try {
         next = await apiRequest({
@@ -265,7 +268,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         }
         if (queuedLocally) setCommandError(userFacingErrorMessage(error, "Zuweisung fehlgeschlagen."));
         await refreshQueue();
-        return null;
+        return { successful: false, accepted: false };
       }
 
       // Der Server hat die Zuweisung angenommen -- ab hier zaehlt kein
@@ -287,12 +290,16 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
       // waehrend er weiter als "wartet" in der Liste stand (Runde 7). Die
       // Scoringflaeche bricht an der analogen Stelle schon laenger ab
       // (`use-match-scoring.ts`).
+      //
+      // Die Ansicht haengt hier -- anders als in der Scoringflaeche -- nicht
+      // am Aufraeumen: `setQueryData` oben lief schon mit der Serverantwort
+      // (Runde 8, Befund B). `accepted: true` sagt es der Kette trotzdem.
       if (queuedCommand !== null && !(await removeAcceptedQueued(queuedCommand.commandId))) {
         await refreshQueue();
-        return null;
+        return { successful: false, accepted: true };
       }
       await refreshQueue();
-      return next.tournament.version;
+      return { successful: true, version: next.tournament.version };
     },
     [assignmentPath, markQueuedOutcome, persistQueuedAssignment, queryClient, queryKey, refreshQueue, removeAcceptedQueued, scope],
   );
@@ -426,10 +433,8 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         // Kopf (`chainedVersion === null`): die gespeicherte Version der
         // Zuweisung. Nachfolger: die Version aus der Antwort auf die
         // Vorgaengerin.
-        async (entry, chainedVersion): Promise<ReplayOutcome> => {
-          const version = await sendAssignment(pendingCommandOf(entry), chainedVersion ?? entry.expectedVersion, entry.command);
-          return version === null ? { successful: false } : { successful: true, version };
-        },
+        async (entry, chainedVersion): Promise<ReplayOutcome> =>
+          await sendAssignment(pendingCommandOf(entry), chainedVersion ?? entry.expectedVersion, entry.command),
       );
       setAnnouncement(`${sentCount} Befehl${sentCount === 1 ? "" : "e"} übertragen.`);
     } finally {

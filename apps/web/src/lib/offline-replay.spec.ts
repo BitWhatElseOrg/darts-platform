@@ -278,7 +278,8 @@ describe("replayChained", () => {
     return async (command: Stored, chainedVersion: number | null): Promise<ReplayOutcome> => {
       const expectedVersion = chainedVersion ?? command.storedVersion;
       calls.push({ name: command.name, expectedVersion });
-      if (expectedVersion !== current) return { successful: false };
+      // Ein Versionskonflikt ist ein Serverurteil: nicht angenommen.
+      if (expectedVersion !== current) return { successful: false, accepted: false };
       current += 1;
       return { successful: true, version: current };
     };
@@ -295,7 +296,7 @@ describe("replayChained", () => {
       { name: "b", expectedVersion: 11 },
       { name: "c", expectedVersion: 12 },
     ]);
-    expect(result).toEqual({ sentCount: 3 });
+    expect(result).toEqual({ sentCount: 3, acceptedCount: 3 });
   });
 
   /**
@@ -313,7 +314,7 @@ describe("replayChained", () => {
       sender(12, calls),
     );
     expect(calls).toEqual([{ name: "a", expectedVersion: 10 }]);
-    expect(result).toEqual({ sentCount: 0 });
+    expect(result).toEqual({ sentCount: 0, acceptedCount: 0 });
   });
 
   /**
@@ -326,7 +327,7 @@ describe("replayChained", () => {
     const calls: Array<{ readonly name: string; readonly expectedVersion: number }> = [];
     const result = await replayChained([{ name: "b", storedVersion: 9 }], sender(9, calls));
     expect(calls).toEqual([{ name: "b", expectedVersion: 9 }]);
-    expect(result).toEqual({ sentCount: 1 });
+    expect(result).toEqual({ sentCount: 1, acceptedCount: 1 });
   });
 
   /**
@@ -346,21 +347,43 @@ describe("replayChained", () => {
       { name: "a", expectedVersion: 5 },
       { name: "c", expectedVersion: 6 },
     ]);
-    expect(result).toEqual({ sentCount: 2 });
+    expect(result).toEqual({ sentCount: 2, acceptedCount: 2 });
   });
 
   it("bricht beim ersten Fehlschlag ab und zaehlt ihn nicht mit", async () => {
     const result = await replayChained(["a", "b", "c"], async (command) =>
-      command === "b" ? { successful: false } : { successful: true, version: 2 },
+      command === "b" ? { successful: false, accepted: false } : { successful: true, version: 2 },
     );
-    expect(result).toEqual({ sentCount: 1 });
+    expect(result).toEqual({ sentCount: 1, acceptedCount: 1 });
+  });
+
+  /**
+   * Runde 8, Befund B: Der Server hat angenommen, nur das lokale Aufraeumen
+   * scheiterte. Die Kette bricht weiterhin ab -- die Reihenfolge ist
+   * verbindlich --, aber der Serverstand HAT sich bewegt: `acceptedCount`
+   * zaehlt das Kommando mit, damit die Flaeche nachlaedt. Vorher blieb der
+   * einzige Zaehler auf 0, der Refresh entfiel, und die naechste Aufnahme lief
+   * gegen einen veralteten Cache und eine veraltete Version.
+   */
+  it("zaehlt eine Serverannahme auch dann, wenn das lokale Aufraeumen scheiterte", async () => {
+    const result = await replayChained(["a", "b"], async (command) =>
+      command === "a" ? { successful: false, accepted: true } : { successful: true, version: 2 },
+    );
+    expect(result).toEqual({ sentCount: 0, acceptedCount: 1 });
+  });
+
+  it("zaehlt eine Annahme nach durchgegangenen Kommandos zusaetzlich", async () => {
+    const result = await replayChained(["a", "b", "c"], async (command) =>
+      command === "b" ? { successful: false, accepted: true } : { successful: true, version: 2 },
+    );
+    expect(result).toEqual({ sentCount: 1, acceptedCount: 2 });
   });
 
   it("sendet nichts und meldet null Kommandos bei einer leeren Kette", async () => {
     const send = vi.fn();
     const result = await replayChained([], send);
     expect(send).not.toHaveBeenCalled();
-    expect(result).toEqual({ sentCount: 0 });
+    expect(result).toEqual({ sentCount: 0, acceptedCount: 0 });
   });
 });
 

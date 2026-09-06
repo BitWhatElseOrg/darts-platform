@@ -177,17 +177,38 @@ export function queueUpdateFailureMessage(error: unknown): string {
 }
 
 /**
- * Ergebnis eines einzelnen Wiedergabeversuchs. `version` ist die vom Server
- * bestaetigte neue Version -- nur bei Erfolg vorhanden, weil ein
+ * Ergebnis eines einzelnen Wiedergabeversuchs.
+ *
+ * `successful` heisst: der Server hat angenommen UND die lokale Nacharbeit
+ * ist durch -- nur dann darf der Nachfolger losgehen. `version` ist die vom
+ * Server bestaetigte neue Version; sie gibt es nur bei Erfolg, weil ein
  * Fehlschlag kein Urteil ueber die Version liefert.
+ *
+ * `accepted` trennt im Fehlerfall die beiden Gruende: `false` heisst, der
+ * Server hat NICHT angenommen (Netz, Konflikt, fachliche Ablehnung); `true`
+ * heisst, er hat angenommen und nur das lokale Aufraeumen scheiterte. Die
+ * Kette bricht in beiden Faellen ab -- die Reihenfolge ist verbindlich --,
+ * aber im zweiten Fall hat sich der Serverstand bewegt und die Ansicht muss
+ * nachgeladen werden (Runde 8, Befund B).
  */
 export type ReplayOutcome =
   | { readonly successful: true; readonly version: number }
-  | { readonly successful: false };
+  | { readonly successful: false; readonly accepted: boolean };
 
 export interface ReplayResult {
-  /** Wie viele Kommandos tatsaechlich durchgingen, bevor entweder alle durch waren oder eines fehlschlug. */
+  /** Wie viele Kommandos vollstaendig durchgingen: gesendet und lokal aufgeraeumt. */
   readonly sentCount: number;
+  /**
+   * Wie viele der Server angenommen hat -- immer `sentCount` oder eins mehr:
+   * das Kommando, an dem die Kette wegen eines lokalen Aufraeumfehlers
+   * abbrach, zaehlt hier mit.
+   *
+   * Wer die Ansicht nachladen will, fragt diesen Wert. `sentCount` allein
+   * liess den Refresh nach einem Aufraeumfehler aus, obwohl der Serverstand
+   * sich bewegt hatte -- die naechste Aufnahme lief danach gegen einen
+   * veralteten Cache und eine veraltete Version (Runde 8, Befund B).
+   */
+  readonly acceptedCount: number;
 }
 
 /**
@@ -229,13 +250,18 @@ export async function replayChained<T>(
 ): Promise<ReplayResult> {
   let chainedVersion: number | null = null;
   let sentCount = 0;
+  let acceptedCount = 0;
   for (const command of commands) {
     const outcome = await send(command, chainedVersion);
-    if (!outcome.successful) break;
+    if (!outcome.successful) {
+      if (outcome.accepted) acceptedCount += 1;
+      break;
+    }
     sentCount += 1;
+    acceptedCount += 1;
     chainedVersion = outcome.version;
   }
-  return { sentCount };
+  return { sentCount, acceptedCount };
 }
 
 /**
