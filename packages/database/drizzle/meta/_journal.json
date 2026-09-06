@@ -169,6 +169,13 @@
       "when": 1788678606502,
       "tag": "0023_tier2_integrity_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788706636474,
+      "tag": "0024_league_decider_bull_off",
+      "breakpoints": true
     }
   ]
 }

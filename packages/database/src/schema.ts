@@ -312,6 +312,14 @@ export const matches = pgTable(
     startingScore: integer("starting_score").default(501).notNull(),
     inRule: varchar("in_rule", { length: 10 }).default("STRAIGHT").notNull(),
     outRule: varchar("out_rule", { length: 10 }).default("DOUBLE").notNull(),
+    /**
+     * Reglement 2.2.9: normalerweise beginnt Leg 1 die Heimseite und Leg 2 die
+     * Gastseite; erst ab Leg 3 entscheidet ein Wurf auf Bull. Das
+     * Entscheidungsdoppel (sudden death) ist davon ausgenommen — dort wird der
+     * Spielbeginn IMMER ausgebullt. Das Flag ist eine Match-Regel wie `in_rule`
+     * und kein Teil der Kommandos; gespeicherte Kommandos werten unveraendert.
+     */
+    bullOffFromLegOne: boolean("bull_off_from_leg_one").default(false).notNull(),
     maxRounds: integer("max_rounds"),
     bestOfLegs: integer("best_of_legs").notNull(),
     legsToWinSet: integer("legs_to_win_set").default(2).notNull(),
