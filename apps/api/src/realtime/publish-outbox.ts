@@ -111,6 +111,8 @@ export async function publishOutboxBatch(
       const broadcast = toBroadcast(event, await resolveScope(transaction, event));
       if (broadcast !== null) pending.push(broadcast);
     }
+    // isNull ist unter der Zeilensperre redundant, bleibt aber als defensive
+    // Absicherung stehen.
     await transaction
       .update(outboxEvents)
       .set({ publishedAt: new Date() })
@@ -123,8 +125,25 @@ export async function publishOutboxBatch(
     return events.length;
   });
 
+  // Der ganze Stapel ist bereits gestempelt, bevor gesendet wird — das ist
+  // der bewusste At-most-once-Kompromiss dieses Vorgehens. Jedes Ereignis
+  // wird einzeln abgesichert, damit ein Fehler in der Mitte des Stapels nur
+  // dieses eine Ereignis kostet statt den ganzen Rest der Sendung abzubrechen.
+  const failures: { eventId: string; error: unknown }[] = [];
   for (const broadcast of pending) {
-    broadcaster.emit(broadcast.room, broadcast.event, broadcast.payload);
+    try {
+      broadcaster.emit(broadcast.room, broadcast.event, broadcast.payload);
+    } catch (error) {
+      failures.push({ eventId: broadcast.payload.eventId ?? "", error });
+    }
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(
+      failures.map((failure) => failure.error),
+      `Realtime-Zustellung fuer ${failures.length} Outbox-Events fehlgeschlagen: ${failures
+        .map((failure) => failure.eventId)
+        .join(", ")}`,
+    );
   }
   return claimed;
 }

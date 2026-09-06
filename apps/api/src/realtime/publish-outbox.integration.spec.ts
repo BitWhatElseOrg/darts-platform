@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import {
@@ -307,4 +307,50 @@ describe("publishOutboxBatch", () => {
     expect(delivered).toHaveLength(20);
     expect(new Set(delivered.map((entry) => entry.payload.eventId)).size).toBe(20);
   }, 30_000);
+
+  /**
+   * Der ganze Stapel ist beim Senden bereits gestempelt: ein Fehlschlag beim
+   * Senden darf trotzdem nicht die uebrigen Ereignisse des Stapels verschlucken.
+   */
+  it("sendet die uebrigen Ereignisse trotz eines fehlschlagenden Sendevorgangs und wirft gesammelt", async () => {
+    const created = await database
+      .insert(outboxEvents)
+      .values(
+        Array.from({ length: 3 }, () => ({
+          organizationId,
+          aggregateType: "Encounter",
+          aggregateId: encounterId,
+          eventType: "ENCOUNTER_STARTED",
+          payload: { encounterId },
+        })),
+      )
+      .returning({ id: outboxEvents.id });
+    const failingId = created[0]?.id ?? "";
+    const sent: Recorded[] = [];
+    const broadcaster: RealtimeBroadcaster = {
+      emit(room, event, payload) {
+        if (payload.eventId === failingId) {
+          throw new Error("Verbindung verloren");
+        }
+        sent.push({ room, event, payload });
+      },
+    };
+
+    await expect(publishOutboxBatch(database, broadcaster)).rejects.toThrow(AggregateError);
+
+    const ownDelivered = sent.filter((entry) =>
+      created.some((row) => row.id === entry.payload.eventId),
+    );
+    expect(ownDelivered).toHaveLength(2);
+    const stored = await database
+      .select({ publishedAt: outboxEvents.publishedAt })
+      .from(outboxEvents)
+      .where(
+        inArray(
+          outboxEvents.id,
+          created.map((row) => row.id),
+        ),
+      );
+    expect(stored.every((row) => row.publishedAt !== null)).toBe(true);
+  });
 });
