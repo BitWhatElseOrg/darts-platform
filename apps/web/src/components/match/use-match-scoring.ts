@@ -8,7 +8,7 @@ import {
 import { apiRequest } from "@/lib/api-client";
 import { ApiClientError } from "@/lib/api-error";
 import { generateId } from "@/lib/id";
-import { removeOfflineCommand, saveOfflineCommand, type OfflineCommand } from "@/lib/offline-command-queue";
+import { saveOfflineCommand, type OfflineCommand } from "@/lib/offline-command-queue";
 import {
   nextReplayable,
   queueBlocksControl,
@@ -96,6 +96,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     refreshQueue,
     markOutcome: markQueuedOutcome,
     remove: removeQueued,
+    removeAccepted: removeAcceptedQueued,
     clearScope: clearQueuedScope,
   } = useOfflineQueue(scope);
   const [replaying, setReplaying] = useState(false);
@@ -174,11 +175,15 @@ export function useMatchScoring({ organizationId, match, canScore }: {
         // (gleiches Muster wie `sendAssignment` in command-centre.tsx,
         // PR-Agent-Befund F2). Der Eintrag bleibt dann sichtbar PENDING; die
         // naechste Wiedergabe wiederholt ihn -- dank `commandId` idempotent.
-        try {
-          await removeOfflineCommand(command.commandId);
-        } catch {
-          return { successful: false };
-        }
+        //
+        // Bis Runde 6 endete dieser Fall in einem leeren `catch`: keine
+        // Meldung, der Eintrag blieb `PENDING`, `queueBlocksControl` sperrte
+        // `mayControl` und die Scoringflaeche war dauerhaft unbedienbar, ohne
+        // jede Erklaerung. `removeAccepted` traegt die passende Meldung
+        // (`localCleanupFailureMessage`: der Server hat angenommen, nur das
+        // Aufraeumen scheiterte) und stellt das Warteschlangen-Band den Weg
+        // zum Verwerfen bereit (match-scoreboard.tsx).
+        if (!(await removeAcceptedQueued(command.commandId))) return { successful: false };
         return { successful: true, version: result.version };
       }));
     } finally {
@@ -194,7 +199,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
       setReplaying(false);
       replayingRef.current = false;
     }
-  }, [markQueuedOutcome, match.version, readQueue, refresh, refreshQueue]);
+  }, [markQueuedOutcome, match.version, readQueue, refresh, refreshQueue, removeAcceptedQueued]);
 
   useEffect(() => {
     const becameOnline = () => { setOnline(true); void replay(); };

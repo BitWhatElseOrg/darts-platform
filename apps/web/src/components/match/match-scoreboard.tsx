@@ -366,11 +366,20 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
                 return (
                   <div className="flex flex-wrap items-center justify-between gap-3 text-body text-amber-100" key={command.commandId}>
                     <span>{notice.text}</span>
-                    {notice.action === "DISCARD" ? (
+                    {/* Verwerfen steht sonst nur bei CONFLICT/REJECTED. Steht
+                        ein Schreibfehler der Warteschlange an, muss es auch
+                        fuer einen PENDING-Eintrag gehen: sein haeufigster
+                        Grund ist ein Eintrag, den der Server laengst
+                        angenommen hat und der sich lokal nicht entfernen
+                        liess. Ohne diesen Weg bleibt die Flaeche ueber
+                        `queueBlocksControl` dauerhaft gesperrt (Re-Review,
+                        Befund 2). */}
+                    {notice.action === "DISCARD" || queueWriteError !== null ? (
                       <Button onClick={() => scoring.discardQueued(command.commandId)} variant="outline">Verwerfen und synchronisieren</Button>
-                    ) : (
+                    ) : null}
+                    {notice.action === "RETRY" ? (
                       <Button disabled={!online || replaying} onClick={() => scoring.replay()} variant="outline">Jetzt übertragen</Button>
-                    )}
+                    ) : null}
                   </div>
                 );
               })}
