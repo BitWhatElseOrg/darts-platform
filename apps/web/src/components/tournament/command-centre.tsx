@@ -274,7 +274,19 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
       // (`localCleanupFailureMessage`): der Server hat angenommen, nur das
       // lokale Aufraeumen scheiterte. Sie steht in `queue.writeError` und
       // ueberlebt das `refreshQueue()` darunter.
-      if (queuedCommand !== null) await removeAcceptedQueued(queuedCommand.commandId);
+      //
+      // Scheitert es, bricht die Kette hier ab statt weiterzulaufen. Vorher
+      // wurde der Rueckgabewert verworfen und die Zuweisung als erfolgreich
+      // gemeldet: scheiterte das naechste Kommando mit `RETRY`, loeschte
+      // dessen erfolgreiches `persistQueuedAssignment` den `writeError` --
+      // die Meldung zum angenommenen, lokal nicht entfernten Eintrag war weg,
+      // waehrend er weiter als "wartet" in der Liste stand (Runde 7). Die
+      // Scoringflaeche bricht an der analogen Stelle schon laenger ab
+      // (`use-match-scoring.ts`).
+      if (queuedCommand !== null && !(await removeAcceptedQueued(queuedCommand.commandId))) {
+        await refreshQueue();
+        return null;
+      }
       await refreshQueue();
       return next.tournament.version;
     },
