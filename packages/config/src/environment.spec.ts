@@ -108,6 +108,30 @@ describe("parseApplicationEnvironment", () => {
     expect(environment.RATE_LIMIT_PUBLIC_MAX_PER_MINUTE).toBe(20);
     expect(environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE).toBe(3);
   });
+
+  it("vertraut standardmaessig keinem Reverse-Proxy-Hop", () => {
+    const environment = parseApplicationEnvironment(validEnvironment);
+
+    expect(environment.TRUST_PROXY_HOPS).toBe(0);
+  });
+
+  it("uebernimmt eine konfigurierte Hop-Zahl", () => {
+    const environment = parseApplicationEnvironment({
+      ...validEnvironment,
+      TRUST_PROXY_HOPS: "1",
+    });
+
+    expect(environment.TRUST_PROXY_HOPS).toBe(1);
+  });
+
+  it("weist eine negative Hop-Zahl ab", () => {
+    expect(() =>
+      parseApplicationEnvironment({
+        ...validEnvironment,
+        TRUST_PROXY_HOPS: "-1",
+      }),
+    ).toThrow(EnvironmentValidationError);
+  });
 });
 
 describe("parsePublicWebEnvironment", () => {

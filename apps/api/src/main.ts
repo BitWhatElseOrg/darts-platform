@@ -12,6 +12,7 @@ import { parseApplicationEnvironment } from "@darts-platform/config";
 import { AppModule } from "./app.module.js";
 import { configureApplication } from "./common/configure-application.js";
 import { StructuredLogger } from "./common/structured-logger.js";
+import { resolveTrustProxyOption } from "./common/trust-proxy.js";
 import { RealtimeService } from "./realtime/realtime.service.js";
 
 async function bootstrap(): Promise<void> {
@@ -22,7 +23,9 @@ async function bootstrap(): Promise<void> {
       : new Logger("API");
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter(),
+    new FastifyAdapter({
+      trustProxy: resolveTrustProxyOption(environment.TRUST_PROXY_HOPS),
+    }),
     { logger: applicationLogger },
   );
 

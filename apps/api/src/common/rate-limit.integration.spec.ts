@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 
@@ -37,10 +37,86 @@ describe("Rate Limiting", () => {
     expect(blocked.headers["retry-after"]).toBeDefined();
   }, 30_000);
 
-  it("bremst den Health-Endpunkt nicht mit der oeffentlichen Grenze", async () => {
+  it("bremst den Health-Endpunkt nicht mit der oeffentlichen Grenze und zaehlt ihn gar nicht erst mit", async () => {
+    let lastResponse;
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      const response = await app.inject({ method: "GET", url: "/api/v1/health" });
-      expect(response.statusCode).not.toBe(429);
+      lastResponse = await app.inject({ method: "GET", url: "/api/v1/health" });
+      expect(lastResponse.statusCode).not.toBe(429);
     }
+
+    // Health steht in der `allowList`: die Anfrage verlaesst den Limiter,
+    // bevor irgendein Zaehler-Header gesetzt wird.
+    expect(lastResponse?.headers["x-ratelimit-limit"]).toBeUndefined();
+  }, 30_000);
+});
+
+describe("Rate Limiting je Stufe und Client", () => {
+  let isolatedApp: NestFastifyApplication;
+
+  afterEach(async () => {
+    await isolatedApp.close();
+  });
+
+  it("teilt die allgemeine und die sensible Stufe nicht denselben Eimer", async () => {
+    isolatedApp = await createApiTestApplication({
+      RATE_LIMIT_MAX_PER_MINUTE: 1,
+      RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: 1,
+    });
+    const generalUrl = "/api/v1/organizations";
+    const sensitiveUrl = `/api/v1/invitations/${randomUUID()}/accept`;
+
+    // Die allgemeine Stufe ist nach einer Anfrage ausgeschoepft ...
+    const firstGeneral = await isolatedApp.inject({ method: "GET", url: generalUrl });
+    expect(firstGeneral.statusCode).not.toBe(429);
+    const secondGeneral = await isolatedApp.inject({ method: "GET", url: generalUrl });
+    expect(secondGeneral.statusCode).toBe(429);
+
+    // ... die sensible Stufe ist davon unberuehrt und hat ihr eigenes Budget.
+    const firstSensitive = await isolatedApp.inject({ method: "POST", url: sensitiveUrl });
+    expect(firstSensitive.statusCode).not.toBe(429);
+
+    // Und umgekehrt: die jetzt ausgeschoepfte sensible Stufe bremst die
+    // allgemeine Stufe nicht zusaetzlich.
+    const secondSensitive = await isolatedApp.inject({ method: "POST", url: sensitiveUrl });
+    expect(secondSensitive.statusCode).toBe(429);
+  }, 30_000);
+
+  it("trennt Zaehler nach der ueber vertraute Proxy-Hops ermittelten Client-Adresse", async () => {
+    isolatedApp = await createApiTestApplication({
+      RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: 1,
+      TRUST_PROXY_HOPS: 1,
+    });
+    const url = `/api/v1/invitations/${randomUUID()}/accept`;
+    // Railways Edge-Proxy waere der eine vertraute Hop; die injizierten
+    // Anfragen kommen "von dort" mit je einer eigenen Client-Adresse in
+    // `X-Forwarded-For`.
+    const remoteAddress = "10.0.0.5";
+    const firstClient = { "x-forwarded-for": "203.0.113.10" };
+    const secondClient = { "x-forwarded-for": "203.0.113.20" };
+
+    const firstAllowed = await isolatedApp.inject({
+      method: "POST",
+      url,
+      headers: firstClient,
+      remoteAddress,
+    });
+    expect(firstAllowed.statusCode).not.toBe(429);
+
+    const firstBlocked = await isolatedApp.inject({
+      method: "POST",
+      url,
+      headers: firstClient,
+      remoteAddress,
+    });
+    expect(firstBlocked.statusCode).toBe(429);
+
+    // Anderer Client hinter demselben Hop: eigenes, noch unberuehrtes Budget.
+    const secondAllowed = await isolatedApp.inject({
+      method: "POST",
+      url,
+      headers: secondClient,
+      remoteAddress,
+    });
+    expect(secondAllowed.statusCode).not.toBe(429);
   }, 30_000);
 });

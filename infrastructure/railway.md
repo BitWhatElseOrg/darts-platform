@@ -138,9 +138,18 @@ Mindestens diese Shared beziehungsweise Service-Variablen werden benötigt:
 | `RATE_LIMIT_MAX_PER_MINUTE` | `300` | Obergrenze je IP und Minute für alle übrigen Routen (optional, Vorgabe 300) |
 | `RATE_LIMIT_PUBLIC_MAX_PER_MINUTE` | `120` | Obergrenze für `/api/v1/public/**` (optional, Vorgabe 120) |
 | `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE` | `10` | Obergrenze für Anmeldung, Registrierung und Einladungsrouten (optional, Vorgabe 10) |
+| `TRUST_PROXY_HOPS` | `1` | Anzahl vertrauter Reverse-Proxy-Hops vor der Anwendung (optional, Vorgabe 0) |
 
 `REDIS_URL` akzeptiert `redis://` und `rediss://`; für die verschlüsselte
 Verbindung wird die TLS-Variante der Railway-Referenz eingetragen.
+
+`TRUST_PROXY_HOPS` muss genau der Anzahl vertrauter Reverse-Proxy-Hops vor der
+Anwendung entsprechen — hinter Railways eigenem Edge-Proxy also `1`. Der Wert
+bestimmt, welcher Eintrag der `X-Forwarded-For`-Kette als tatsächliche
+Client-Adresse gilt (u. a. für das Rate Limiting, siehe unten). Ein zu hoch
+gesetzter Wert macht `X-Forwarded-For` durch den Client selbst fälschbar: wer
+mehr Hops vorgibt als tatsächlich vorhanden sind, kann eine beliebige
+IP-Adresse als eigene ausgeben.
 
 `BETTER_AUTH_SECRET` kann beispielsweise mit `openssl rand -base64 32` erzeugt
 werden. Secret-Werte werden ausschließlich in Railway hinterlegt und weder im

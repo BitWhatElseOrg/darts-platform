@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const portSchema = z.coerce.number().int().min(1).max(65_535);
 const rateLimitMaxSchema = z.coerce.number().int().min(1).max(1_000_000);
+const trustProxyHopsSchema = z.coerce.number().int().min(0).max(10);
 const urlListSchema = z
   .string()
   .default("")
@@ -47,6 +48,14 @@ export const applicationEnvironmentSchema = z.object({
   RATE_LIMIT_PUBLIC_MAX_PER_MINUTE: rateLimitMaxSchema.default(120),
   /** Obergrenze fuer Anmeldung, Registrierung und die Einladungsrouten. */
   RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: rateLimitMaxSchema.default(10),
+  /**
+   * Anzahl vertrauter Reverse-Proxy-Hops vor der Anwendung — lokal `0`
+   * (kein Proxy), hinter Railway `1`. Bestimmt, welcher Eintrag der
+   * `X-Forwarded-For`-Kette als tatsaechliche Client-Adresse gilt
+   * (`request.ip`, u. a. fuer das Rate Limiting). Ein zu hoher Wert macht
+   * `X-Forwarded-For` durch den Client selbst faelschbar (Audit I-6).
+   */
+  TRUST_PROXY_HOPS: trustProxyHopsSchema.default(0),
 });
 
 export const publicWebEnvironmentSchema = z.object({

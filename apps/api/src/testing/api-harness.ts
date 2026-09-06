@@ -8,6 +8,7 @@ import {
 
 import { AppModule } from "../app.module.js";
 import { configureApplication } from "../common/configure-application.js";
+import { resolveTrustProxyOption } from "../common/trust-proxy.js";
 import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 
 /**
@@ -33,7 +34,9 @@ export async function createApiTestApplication(
     .useValue(environment)
     .compile();
   const app = moduleReference.createNestApplication<NestFastifyApplication>(
-    new FastifyAdapter(),
+    new FastifyAdapter({
+      trustProxy: resolveTrustProxyOption(environment.TRUST_PROXY_HOPS),
+    }),
     { logger: false },
   );
 
