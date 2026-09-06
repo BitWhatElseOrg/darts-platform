@@ -482,6 +482,16 @@ where status = 'IN_PROGRESS' and board_id is not null
 group by board_id having count(*) > 1;
 ```
 
+Die Migration prüft diesen Bestand seit PR-Agent-Runde 4 (Befund B) selbst,
+in einem `DO $$ … $$`-Block vor `CREATE UNIQUE INDEX`: findet er Duplikate,
+bricht er mit `RAISE EXCEPTION` und einer lesbaren Meldung samt der
+betroffenen `board_id`s und `match_id`s ab, statt Postgres' rohe
+"key is duplicated"-Meldung stehen zu lassen. Die Auswahl, welches der beiden
+Matches beendet wird, bleibt bewusst eine menschliche Entscheidung — eine
+automatische Auswahl in SQL wäre Raten. Bei einem Abbruch: die genannten
+Matches sichten, eines davon über den bestehenden Abbruchpfad (`abort`)
+beenden, danach die Migration erneut laufen lassen.
+
 Sperrdauer: `CREATE UNIQUE INDEX` ohne `CONCURRENTLY` nimmt für die Dauer des
 Aufbaus ein `SHARE`-Lock auf `matches` — der heissesten Tabelle — und blockiert
 solange jedes Schreiben darauf. Bei der heutigen Grösse sind das
