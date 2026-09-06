@@ -42,9 +42,11 @@ describe("replayFailure", () => {
   });
 
   /**
-   * Antwortet ein Proxy mit HTML statt JSON, scheitert `response.json()` mit
-   * einem `SyntaxError`, bevor irgendein Status gelesen wird. Auch das ist
-   * kein Urteil des Servers.
+   * Ein `SyntaxError` erreicht `replayFailure` heute nur noch vom
+   * ERFOLGSPFAD (2xx mit unlesbarem Koerper) oder von einem abgebrochenen
+   * Transport -- der Fehlerpfad von `apiRequest` liest seit der Korrektur
+   * zuerst den Status und wirft einen `ApiClientError` mit Status. Kein
+   * Urteil des Servers ist beides nicht.
    */
   it("laesst eine nicht lesbare Antwort in der Warteschlange", () => {
     expect(replayFailure(new SyntaxError("Unexpected token < in JSON at position 0"))).toEqual({ kind: "RETRY" });

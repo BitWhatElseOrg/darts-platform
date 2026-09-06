@@ -104,16 +104,23 @@ export async function apiRequest<T>(input: {
     },
   );
 
-  const payload: unknown = await response.json();
+  // Erst der Status, dann der Koerper. Vorher lief `await response.json()` VOR
+  // der `ok`-Pruefung: eine 4xx-Antwort mit einem Koerper, der kein JSON ist --
+  // eine Fehlerseite des Proxys, ein leerer 403 --, warf einen `SyntaxError`,
+  // und der Status wurde nie gelesen. Die Wiedergabe der Offline-Warteschlange
+  // sah darin einen Netzwerkfehler (`replayFailure` -> RETRY) und wiederholte
+  // ein Kommando endlos, das der Server bereits abgelehnt hatte.
+  const raw = await response.text();
 
   if (!response.ok) {
-    const error = apiErrorSchema.safeParse(payload);
-    if (error.success) {
+    const payload = parseJson(raw);
+    const parsed = payload === undefined ? null : apiErrorSchema.safeParse(payload);
+    if (parsed !== null && parsed.success) {
       throw new ApiClientError(
-        localizedMessage(error.data.error.code),
-        error.data.error.code,
-        error.data.error.correlationId,
-        error.data.error.details,
+        localizedMessage(parsed.data.error.code),
+        parsed.data.error.code,
+        parsed.data.error.correlationId,
+        parsed.data.error.details,
         response.status,
       );
     }
@@ -126,5 +133,21 @@ export async function apiRequest<T>(input: {
     );
   }
 
-  return input.schema.parse(payload);
+  return input.schema.parse(JSON.parse(raw));
+}
+
+/**
+ * Liest einen Antwortkoerper als JSON. `undefined`, wenn er keins ist -- leer,
+ * HTML, Klartext. Nur der FEHLERPFAD ist tolerant: auf dem Erfolgspfad bleibt
+ * ein unlesbarer Koerper ein `SyntaxError` wie bisher, denn dort ist er ein
+ * echter Vertragsbruch und darf nicht als Serverurteil (`ApiClientError` mit
+ * 2xx) durch die Wiedergabe laufen.
+ */
+function parseJson(raw: string): unknown {
+  if (raw.trim() === "") return undefined;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return undefined;
+  }
 }
