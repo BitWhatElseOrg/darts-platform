@@ -1065,9 +1065,9 @@ Migration `0023_tier2_integrity_constraints` ergänzt die Spalte `sequence`
 (`bigserial`, unique) und zwei partielle Indexe. `occurred_at` ist `now()` und
 damit die Transaktions**start**zeit — eine länger laufende Transaktion, die
 nach einer kürzeren committet, würde vor ihr publiziert. Die Verteilung ordnet
-deshalb nach `sequence`, die beim `INSERT` vergeben wird. Die Poller bestellen
-heute noch nach `occurred_at`; die Umstellung auf `sequence` folgt im
-nächsten Schritt.
+deshalb nach `sequence`, die beim `INSERT` vergeben wird. Beide Poller —
+das Realtime-Relay in der API und der Statistik-Poller im Worker — ordnen
+nach `sequence`.
 
 ```text
 unique (sequence)                                    -- outbox_events_sequence_unique
@@ -1078,9 +1078,8 @@ unique (sequence)                                    -- outbox_events_sequence_u
 
 Der Statistik-Poller im Worker lief bis dahin sekündlich als Seq Scan über die
 ganze Tabelle. Der zweite partielle Index deckt genau seinen Filter. Der ältere
-Index `(published_at, occurred_at)` bleibt für eine im Worker geplante,
-noch nicht implementierte Aufräumregel stehen, die verarbeitete Zeilen nach
-30 Tagen entfernen soll.
+Index `(published_at, occurred_at)` bleibt für die Aufräumregel im Worker
+stehen, die im nächsten Absatz beschrieben ist.
 
 Die Aufräumregel (`apps/worker/src/prune-outbox.ts`) läuft stündlich im Worker
 und entfernt Zeilen, die verteilt **und** statistisch erledigt (oder nie
