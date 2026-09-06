@@ -73,3 +73,43 @@ export async function openAbortDialog(page: Page): Promise<void> {
 export async function selectCheckoutDarts(dialog: Locator, darts: 1 | 2 | 3): Promise<void> {
   await dialog.getByRole("button", { name: `${darts} ${darts === 1 ? "Dart" : "Darts"}` }).click();
 }
+
+/**
+ * Ein einzelner Wurf auf dem Dart-Keypad. Der Umschalter gilt für genau
+ * einen Wurf (`dart-entry.ts`, `MODIFIER`), muss also vor jedem Doppel und
+ * jedem Triple neu gedrückt werden.
+ */
+export type ThrownDart = `S${number}` | `D${number}` | `T${number}` | "MISS";
+
+export async function throwDart(page: Page, dart: ThrownDart): Promise<void> {
+  if (dart === "MISS") {
+    await page.getByRole("button", { name: "Fehlwurf" }).click();
+    return;
+  }
+  const segment = Number(dart.slice(1));
+  if (dart.startsWith("T")) {
+    await page.getByRole("button", { name: "Umschalter TRIPLE" }).click();
+    await page.getByRole("button", { name: `Triple ${segment}`, exact: true }).click();
+    return;
+  }
+  if (dart.startsWith("D")) {
+    await page.getByRole("button", { name: "Umschalter DOUBLE" }).click();
+    await page.getByRole("button", { name: `Doppel ${segment}`, exact: true }).click();
+    return;
+  }
+  await page.getByRole("button", { name: `Single ${segment}`, exact: true }).click();
+}
+
+/**
+ * Eine ganze Aufnahme über das Dart-Keypad samt Bestätigungsfläche
+ * („Punktzahl bestätigen" ist ab Werk an).
+ *
+ * Unter Double In verlangt die Fläche diesen Weg auch im Runden-Modus,
+ * solange die Seite am Oche im laufenden Leg noch nicht eröffnet hat
+ * (`round-entry.ts`, `requiresDartEntry`): aus einer Rundensumme sind die
+ * Punkte vor dem eröffnenden Doppel nicht zählbar, die Engine lehnt sie ab.
+ */
+export async function recordDartVisit(page: Page, darts: readonly ThrownDart[]): Promise<void> {
+  for (const dart of darts) await throwDart(page, dart);
+  await page.getByRole("button", { name: "WEITER" }).click();
+}
