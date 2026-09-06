@@ -8,6 +8,7 @@ import {
   type OrganizationSummary,
 } from "@darts-platform/schemas";
 import { hasOrganizationPermission } from "@darts-platform/domain";
+import { buildEncounterTemplate, type StartingScore } from "@darts-platform/league-engine";
 import { Control, Field, Rule, SelectInput, SheetLabel, TextInput, Wedge } from "@darts-platform/ui";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
@@ -20,7 +21,7 @@ import {
   legDistanceHint,
   lineupPositionsHint,
 } from "@/lib/competition-form";
-import { buildEncounterTemplate, slugFromName, type StartingScore } from "@/lib/league-template";
+import { slugFromName } from "@/lib/league-template";
 import { TemplateTable } from "./template-table";
 import { NavLink, PageNav } from "@/components/page-nav";
 import { useTournamentOrganization } from "@/components/tournament/use-tournament-organization";

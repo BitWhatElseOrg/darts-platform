@@ -165,6 +165,9 @@ importers:
       '@darts-platform/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@darts-platform/league-engine':
+        specifier: workspace:*
+        version: link:../../packages/league-engine
       '@darts-platform/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas

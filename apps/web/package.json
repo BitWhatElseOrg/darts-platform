@@ -13,6 +13,7 @@
   "dependencies": {
     "@darts-platform/config": "workspace:*",
     "@darts-platform/domain": "workspace:*",
+    "@darts-platform/league-engine": "workspace:*",
     "@darts-platform/schemas": "workspace:*",
     "@darts-platform/scoring-engine": "workspace:*",
     "@darts-platform/ui": "workspace:*",

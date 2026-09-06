@@ -3,6 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
+import { buildEncounterTemplate } from "@darts-platform/league-engine";
 import {
   boards,
   encounterCommands,
@@ -85,7 +86,10 @@ const audit = { correlationId: randomUUID(), ip: "127.0.0.1", userAgent: "vitest
 
 /**
  * Die Vorlage des Reglements: sechzehn Einzel als vollständiges Rundenturnier
- * über vier Aufstellungspositionen, zwei Doppel und ein Entscheidungsdoppel.
+ * über vier Aufstellungspositionen, die beiden regulären Doppel nach Runde 2
+ * (Reglement 2.2.8) und ein Entscheidungsdoppel. Gebaut über
+ * `buildEncounterTemplate` der League-Engine, damit die Vorlage dieselbe
+ * Rundenfolge trägt, die `validateEncounterTemplate` seit diesem Task prüft.
  * Die Distanz ist auf ein Leg gekürzt, damit ein vollständiger Spielabend im
  * Test in vertretbarer Zeit läuft; die Wertungslogik ist davon unberührt.
  */
@@ -93,53 +97,19 @@ function template(
   legsToWinSet: number,
   overrides: { readonly outRule?: "SINGLE" | "DOUBLE"; readonly maxRounds?: number | null } = {},
 ): CompetitionSlotInput[] {
-  const slots: CompetitionSlotInput[] = [];
-  const distance = {
-    startingScore: 301 as const,
-    inRule: "STRAIGHT" as const,
-    outRule: overrides.outRule ?? ("SINGLE" as const),
-    maxRounds: overrides.maxRounds ?? null,
+  // `TemplateSlot.startingScore` ist der Engine-Zahltyp, `CompetitionSlotInput`
+  // trägt dieselben Werte als Literal-Union; die Vorlage hier setzt nur 301.
+  return buildEncounterTemplate({
+    lineupPositions: 4,
+    singlesStartingScore: 301,
+    doublesStartingScore: 301,
+    inRule: "STRAIGHT",
+    outRule: overrides.outRule ?? "SINGLE",
     bestOfLegs: legsToWinSet * 2 - 1,
-    legsToWinSet,
-    setsToWin: 1,
-  };
-  let sequence = 1;
-  for (let home = 1; home <= 4; home += 1) {
-    for (let away = 1; away <= 4; away += 1) {
-      slots.push({
-        sequence,
-        role: "REGULAR",
-        discipline: "SINGLES",
-        label: `Einzel ${home} gegen ${away}`,
-        homePosition: home,
-        awayPosition: away,
-        ...distance,
-      });
-      sequence += 1;
-    }
-  }
-  for (const label of ["Doppel 1", "Doppel 2"]) {
-    slots.push({
-      sequence,
-      role: "REGULAR",
-      discipline: "DOUBLES",
-      label,
-      homePosition: null,
-      awayPosition: null,
-      ...distance,
-    });
-    sequence += 1;
-  }
-  slots.push({
-    sequence,
-    role: "DECIDER",
-    discipline: "DOUBLES",
-    label: "Entscheidungsdoppel",
-    homePosition: null,
-    awayPosition: null,
-    ...distance,
-  });
-  return slots;
+    maxRounds: overrides.maxRounds ?? null,
+    regularDoubles: 2,
+    withDecider: true,
+  }) as CompetitionSlotInput[];
 }
 
 async function createCompetition(
@@ -412,12 +382,12 @@ describe("team encounter persistence", () => {
 
     // Die Doppelpaarungen entstehen erst am Abend (Reglement 2.2.1).
     encounter = await submitDoubles(encounter, "HOME", [
-      { sequence: 17, playerIds: [homePlayerIds[0]!, homePlayerIds[1]!] },
-      { sequence: 18, playerIds: [homePlayerIds[2]!, homePlayerIds[3]!] },
+      { sequence: 9, playerIds: [homePlayerIds[0]!, homePlayerIds[1]!] },
+      { sequence: 10, playerIds: [homePlayerIds[2]!, homePlayerIds[3]!] },
     ]);
     encounter = await submitDoubles(encounter, "AWAY", [
-      { sequence: 17, playerIds: [awayPlayerIds[0]!, awayPlayerIds[1]!] },
-      { sequence: 18, playerIds: [awayPlayerIds[2]!, awayPlayerIds[3]!] },
+      { sequence: 9, playerIds: [awayPlayerIds[0]!, awayPlayerIds[1]!] },
+      { sequence: 10, playerIds: [awayPlayerIds[2]!, awayPlayerIds[3]!] },
     ]);
 
     for (let sequence = 1; sequence <= 18; sequence += 1) {
@@ -640,12 +610,12 @@ describe("team encounter persistence", () => {
     encounter = await nominate(encounter, "AWAY", awayPlayerIds.slice(0, 4), [awayPlayerIds[4]!]);
     // Doppel 1 mit Position 1 und 2, Doppel 2 mit Position 3 und 4.
     encounter = await submitDoubles(encounter, "HOME", [
-      { sequence: 17, playerIds: [homePlayerIds[0]!, homePlayerIds[1]!] },
-      { sequence: 18, playerIds: [homePlayerIds[2]!, homePlayerIds[3]!] },
+      { sequence: 9, playerIds: [homePlayerIds[0]!, homePlayerIds[1]!] },
+      { sequence: 10, playerIds: [homePlayerIds[2]!, homePlayerIds[3]!] },
     ]);
     expect(
       encounter.slots
-        .find((slot) => slot.sequence === 17)
+        .find((slot) => slot.sequence === 9)
         ?.home.players.map((entry) => entry.playerId),
     ).toEqual([homePlayerIds[0]!, homePlayerIds[1]!]);
 
@@ -658,8 +628,8 @@ describe("team encounter persistence", () => {
       [homePlayerIds[5]!],
     );
 
-    const first = encounter.slots.find((slot) => slot.sequence === 17);
-    const second = encounter.slots.find((slot) => slot.sequence === 18);
+    const first = encounter.slots.find((slot) => slot.sequence === 9);
+    const second = encounter.slots.find((slot) => slot.sequence === 10);
     expect(first?.home.players ?? []).toHaveLength(0);
     expect(first?.home.complete).toBe(false);
     expect(second?.home.players.map((entry) => entry.playerId)).toEqual([
@@ -996,7 +966,9 @@ describe("team encounter persistence", () => {
     expect(encounter.slots.find((entry) => entry.sequence === 1)?.home.players[0]?.playerId).toBe(
       homePlayerIds[0],
     );
-    expect(encounter.slots.find((entry) => entry.sequence === 2)?.home.players[0]?.playerId).toBe(
+    // Heimposition 1 tritt als Nächstes in Runde 2 an, Sequenz 5 (Reglement
+    // 2.2.8: die Runden sind sortenrein, Sequenz 2 gehört Position 2).
+    expect(encounter.slots.find((entry) => entry.sequence === 5)?.home.players[0]?.playerId).toBe(
       homePlayerIds[4],
     );
 
@@ -1491,8 +1463,8 @@ describe("team encounter persistence", () => {
     const encounter = await openEncounter(competitionId);
     await expect(
       submitDoubles(encounter, "HOME", [
-        { sequence: 17, playerIds: [homePlayerIds[0]!, homePlayerIds[1]!] },
-        { sequence: 18, playerIds: [homePlayerIds[0]!, homePlayerIds[2]!] },
+        { sequence: 9, playerIds: [homePlayerIds[0]!, homePlayerIds[1]!] },
+        { sequence: 10, playerIds: [homePlayerIds[0]!, homePlayerIds[2]!] },
       ]),
     ).rejects.toMatchObject({
       response: { code: "DOUBLES_PLAYER_LIMIT_EXCEEDED" },

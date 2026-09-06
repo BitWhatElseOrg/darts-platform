@@ -39,7 +39,8 @@ function isPositiveInteger(value: number): boolean {
 /**
  * Prüft eine Begegnungsvorlage: lückenlose Sequenz ab 1, höchstens ein
  * Entscheidungsslot als letzter Doppelslot, konsistente Disziplin, Startscore
- * und Distanz, sowie das vollständige Rundenturnier der Einzel.
+ * und Distanz, sowie das vollständige Rundenturnier der Einzel und die
+ * Rundenfolge nach Reglement 2.2.8.
  */
 export function validateEncounterTemplate(slots: readonly TemplateSlot[]): void {
   if (slots.length === 0) {
@@ -98,7 +99,25 @@ export function validateEncounterTemplate(slots: readonly TemplateSlot[]): void 
     }
   }
 
-  validateRoundRobin(slots);
+  const singles = slots.filter((slot) => slot.role === "REGULAR" && slot.discipline === "SINGLES");
+  if (singles.length === 0) {
+    throw new LeagueValidationError(
+      "MISSING_SINGLES_SLOTS",
+      "Eine Vorlage braucht mindestens einen Einzelslot.",
+    );
+  }
+  const positions = lineupPositions(singles);
+  validateRoundRobin(singles, positions);
+  validateRoundOrder(slots, positions);
+}
+
+/** Die Zahl der Aufstellungspositionen steht in der Vorlage selbst, nicht daneben. */
+function lineupPositions(singles: readonly TemplateSlot[]): number {
+  let positions = 0;
+  for (const slot of singles) {
+    positions = Math.max(positions, slot.homePosition ?? 0, slot.awayPosition ?? 0);
+  }
+  return positions;
 }
 
 function validateSlotShape(slot: TemplateSlot): void {
@@ -166,23 +185,9 @@ function validateSlotShape(slot: TemplateSlot): void {
 
 /**
  * Über alle regulären Einzelslots tritt jede Heimposition gegen jede
- * Gastposition genau einmal an. Die Zahl der Aufstellungspositionen wird aus
- * der Vorlage abgeleitet, damit sie nicht als zweite Quelle danebensteht.
+ * Gastposition genau einmal an.
  */
-function validateRoundRobin(slots: readonly TemplateSlot[]): void {
-  const singles = slots.filter((slot) => slot.role === "REGULAR" && slot.discipline === "SINGLES");
-  if (singles.length === 0) {
-    throw new LeagueValidationError(
-      "MISSING_SINGLES_SLOTS",
-      "Eine Vorlage braucht mindestens einen Einzelslot.",
-    );
-  }
-
-  let positions = 0;
-  for (const slot of singles) {
-    positions = Math.max(positions, slot.homePosition ?? 0, slot.awayPosition ?? 0);
-  }
-
+function validateRoundRobin(singles: readonly TemplateSlot[], positions: number): void {
   const pairings = new Set<string>();
   for (const slot of singles) {
     const key = `${slot.homePosition}:${slot.awayPosition}`;
@@ -209,6 +214,68 @@ function validateRoundRobin(slots: readonly TemplateSlot[]): void {
           `Die Einzelpaarung ${home}:${away} fehlt in der Vorlage.`,
         );
       }
+    }
+  }
+}
+
+/**
+ * Reglement 2.2.8: „Runde 1: 4 Einzel, Runde 2: 4 Einzel, 2 Doppel, Runde 3:
+ * 4 Einzel, Runde 4: 4 Einzel, evtl. sudden death." Verallgemeinert auf `n`
+ * Aufstellungspositionen: `n` Runden zu `n` Einzeln, die regulären Doppel nach
+ * Runde `ceil(n / 2)`, das Entscheidungsdoppel zuletzt (dessen Position prüft
+ * bereits `DECIDER_NOT_LAST`). Innerhalb einer Runde tritt jede Heim- und jede
+ * Gastposition genau einmal an — das ist der Zweck der Reihenfolge, niemand
+ * steht zweimal hintereinander an der Scheibe.
+ *
+ * Reglement 2.2.1 und A1.1 verlangen ausserdem Doppelbegegnungen neben den
+ * Einzeln. Ohne reguläres Doppel kann ein 9:9 nach 2.2.2 nie entstehen, und ein
+ * Nichtantritt nach 2.5.1 wäre 0:16 statt 0:18. Die Ligavorlage setzt zwei
+ * (`vfcTemplateOptions.regularDoubles`); die Engine verlangt mindestens eins,
+ * damit auch kleinere Aufstellungen abbildbar bleiben.
+ */
+function validateRoundOrder(slots: readonly TemplateSlot[], positions: number): void {
+  const ordered = [...slots].sort((left, right) => left.sequence - right.sequence);
+  const regular = ordered.filter((slot) => slot.role !== "DECIDER");
+  const regularDoubles = regular.filter((slot) => slot.discipline === "DOUBLES");
+  if (regularDoubles.length === 0) {
+    throw new LeagueValidationError(
+      "MISSING_DOUBLES_SLOTS",
+      "Eine Vorlage braucht mindestens ein reguläres Doppel (Reglement 2.2.1, A1.1).",
+    );
+  }
+
+  const doublesAfterRound = Math.ceil(positions / 2);
+  const expected: readonly Discipline[] = [
+    ...Array.from({ length: positions * doublesAfterRound }, (): Discipline => "SINGLES"),
+    ...Array.from({ length: regularDoubles.length }, (): Discipline => "DOUBLES"),
+    ...Array.from({ length: positions * (positions - doublesAfterRound) }, (): Discipline => "SINGLES"),
+  ];
+  if (regular.length !== expected.length) {
+    throw new LeagueValidationError(
+      "INVALID_ROUND_ORDER",
+      `Bei ${positions} Aufstellungspositionen trägt die Vorlage ${expected.length} reguläre Spiele, nicht ${regular.length}.`,
+    );
+  }
+  for (const [index, discipline] of expected.entries()) {
+    const slot = regular[index];
+    if (slot === undefined || slot.discipline !== discipline) {
+      throw new LeagueValidationError(
+        "INVALID_ROUND_ORDER",
+        `Reglement 2.2.8: an Sequenz ${index + 1} steht ${discipline === "SINGLES" ? "ein Einzel" : "ein Doppel"}.`,
+      );
+    }
+  }
+
+  const singles = regular.filter((slot) => slot.discipline === "SINGLES");
+  for (let round = 0; round < positions; round += 1) {
+    const inRound = singles.slice(round * positions, (round + 1) * positions);
+    const homes = new Set(inRound.map((slot) => slot.homePosition));
+    const aways = new Set(inRound.map((slot) => slot.awayPosition));
+    if (homes.size !== positions || aways.size !== positions) {
+      throw new LeagueValidationError(
+        "INVALID_ROUND_ORDER",
+        `Reglement 2.2.8: in Runde ${round + 1} tritt jede Aufstellungsposition genau einmal an.`,
+      );
     }
   }
 }

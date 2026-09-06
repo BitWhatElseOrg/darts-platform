@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import { competitions, memberships, organizations, players, teams, users } from "@darts-platform/database";
+import { buildEncounterTemplate } from "@darts-platform/league-engine";
 import type { CompetitionSlotInput } from "@darts-platform/schemas";
 
 import type { AuthContext } from "../auth/auth.types.js";
@@ -32,37 +33,27 @@ const auth: AuthContext = {
 };
 const audit = { correlationId: randomUUID(), ip: "127.0.0.1", userAgent: "vitest" } as const;
 
-const distance = {
-  startingScore: 501 as const,
-  inRule: "STRAIGHT" as const,
-  outRule: "DOUBLE" as const,
-  maxRounds: null,
-  bestOfLegs: 3,
-  legsToWinSet: 2,
-  setsToWin: 1,
-};
-
-/** Zwei Aufstellungspositionen: vier Einzel, ein Doppel, ein Entscheidungsdoppel. */
+/**
+ * Zwei Aufstellungspositionen: zwei Einzel je Runde, ein reguläres Doppel
+ * nach Runde 1 (Reglement 2.2.8: `ceil(2 / 2)` = 1), ein Entscheidungsdoppel.
+ * Gebaut über `buildEncounterTemplate` der League-Engine, damit die Vorlage
+ * die Rundenfolge trägt, die `validateEncounterTemplate` seit diesem Task
+ * prüft.
+ */
 function template(): CompetitionSlotInput[] {
-  const slots: CompetitionSlotInput[] = [];
-  let sequence = 1;
-  for (let home = 1; home <= 2; home += 1) {
-    for (let away = 1; away <= 2; away += 1) {
-      slots.push({
-        sequence,
-        role: "REGULAR",
-        discipline: "SINGLES",
-        label: `Einzel ${home}-${away}`,
-        homePosition: home,
-        awayPosition: away,
-        ...distance,
-      });
-      sequence += 1;
-    }
-  }
-  slots.push({ sequence, role: "REGULAR", discipline: "DOUBLES", label: "Doppel", homePosition: null, awayPosition: null, ...distance });
-  slots.push({ sequence: sequence + 1, role: "DECIDER", discipline: "DOUBLES", label: "Entscheidungsdoppel", homePosition: null, awayPosition: null, ...distance });
-  return slots;
+  // `TemplateSlot.startingScore` ist der Engine-Zahltyp, `CompetitionSlotInput`
+  // trägt dieselben Werte als Literal-Union; die Vorlage hier setzt nur 501.
+  return buildEncounterTemplate({
+    lineupPositions: 2,
+    singlesStartingScore: 501,
+    doublesStartingScore: 501,
+    inRule: "STRAIGHT",
+    outRule: "DOUBLE",
+    bestOfLegs: 3,
+    maxRounds: null,
+    regularDoubles: 1,
+    withDecider: true,
+  }) as CompetitionSlotInput[];
 }
 
 async function create(slots: CompetitionSlotInput[] = template()): Promise<string> {
