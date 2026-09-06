@@ -1,6 +1,14 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 
-import { encounterSlots, outboxEvents, tournamentMatches } from "@darts-platform/database";
+import {
+  OUTBOX_MAX_ATTEMPTS,
+  encounterSlots,
+  outboxEvents,
+  outboxPending,
+  recordOutboxFailure,
+  tournamentMatches,
+  type OutboxLogger,
+} from "@darts-platform/database";
 
 import type { DatabaseService } from "../database/database.service.js";
 import { toBroadcast, type RealtimeBroadcast, type RealtimeScope } from "./event-routing.js";
@@ -73,13 +81,22 @@ export async function resolveScope(
   return slot === undefined ? null : { kind: "encounter", id: slot.encounterId };
 }
 
+export interface PublishOutboxOptions {
+  readonly logger: OutboxLogger;
+  readonly limit?: number;
+  readonly maxAttempts?: number;
+  readonly now?: () => Date;
+}
+
 /**
  * Beansprucht einen Stapel unpublizierter Ereignisse und sendet innerhalb
  * derselben Transaktion, bevor gestempelt wird.
  *
  * `FOR UPDATE SKIP LOCKED` macht den Stapel exklusiv: eine zweite Replik
  * ueberspringt die gesperrten Zeilen, statt sie ein zweites Mal zu senden
- * (Befund I8).
+ * (Befund I8). `outboxPending("publish", now)` schraenkt die Auswahl
+ * zusaetzlich ein: bereits im Dead Letter liegende Zeilen und Zeilen mit
+ * noch nicht abgelaufener Backoff-Sperre werden gar nicht erst gezogen.
  *
  * Der Kanal ist bewusst At-least-once, nicht At-most-once: `socket.io.emit`
  * ist synchron und feuert-und-vergisst, traegt also keine Bestaetigung. Eine
@@ -91,11 +108,23 @@ export async function resolveScope(
  * Ereignis liesse sie einfrieren. Deshalb wird zuerst gesendet und erst bei
  * Erfolg gestempelt: ein Absturz zwischen Versand und Commit sendet beim
  * naechsten Durchlauf noch einmal. Die Duplikate sind harmlos, weil die
- * UI-Zustaende, die sie aktualisieren, idempotent sind. Schlaegt der Versand
- * fehl, bleibt die Zeile ungestempelt und wird im naechsten Durchlauf erneut
- * versucht; ein dauerhaft fehlschlagendes Ereignis wuerde so bei jedem
- * Durchlauf erneut versucht — eine Dead-Letter-Behandlung dafuer ist ein
- * separater, geplanter Schritt.
+ * UI-Zustaende, die sie aktualisieren, idempotent sind.
+ *
+ * Schlaegt der Versand fehl, bleibt die Zeile innerhalb der Transaktion
+ * ungestempelt. Erst NACH dem Commit — die abgeschlossene Transaktion kann
+ * nicht mehr schreiben — bucht `recordOutboxFailure` je fehlgeschlagenem
+ * Ereignis einen Fehlversuch in einer eigenen Anweisung: Zaehler hoch,
+ * Backoff gesetzt, und nach `maxAttempts` Versuchen ein Dead-Letter-Stempel,
+ * der die Zeile fortan von `outboxPending` ausschliesst. Diese Funktion wirft
+ * dafuer bewusst kein `AggregateError` mehr (anders als vor diesem Befund):
+ * ein fehlgeschlagenes Ereignis ist damit vollstaendig behandelt — gebucht
+ * und ueber `options.logger` als `outbox.retry_scheduled` bzw.
+ * `outbox.dead_letter` protokolliert (`recordOutboxFailure` erzeugt diesen
+ * Log-Eintrag selbst) — und muss den Aufrufer nicht mehr zusaetzlich per
+ * Exception alarmieren. Ein einzelnes kaputtes Ereignis haelt so weder den
+ * Rest des Stapels noch kuenftige Durchlaeufe auf; geworfen wird nur noch,
+ * wenn das Beanspruchen des Stapels selbst scheitert (Infrastrukturfehler),
+ * unveraendert gegenueber Teil A.
  *
  * Jedes Ereignis wird einzeln abgesichert, damit ein Fehler in der Mitte des
  * Stapels nur dieses eine Ereignis kostet statt den ganzen Rest zu blockieren.
@@ -110,14 +139,19 @@ export async function resolveScope(
 export async function publishOutboxBatch(
   database: Database,
   broadcaster: RealtimeBroadcaster,
-  limit = 100,
+  options: PublishOutboxOptions,
 ): Promise<number> {
+  const now = options.now ?? ((): Date => new Date());
+  const currentTime = now();
+  const maxAttempts = options.maxAttempts ?? OUTBOX_MAX_ATTEMPTS;
+  const limit = options.limit ?? 100;
+
   const failures: { outboxId: string; error: unknown }[] = [];
   const claimed = await database.transaction(async (transaction) => {
     const events = await transaction
       .select()
       .from(outboxEvents)
-      .where(isNull(outboxEvents.publishedAt))
+      .where(and(isNull(outboxEvents.publishedAt), outboxPending("publish", currentTime)))
       .orderBy(asc(outboxEvents.sequence))
       .limit(limit)
       .for("update", { skipLocked: true });
@@ -143,19 +177,23 @@ export async function publishOutboxBatch(
       // Absicherung stehen.
       await transaction
         .update(outboxEvents)
-        .set({ publishedAt: new Date() })
+        .set({ publishedAt: currentTime })
         .where(and(inArray(outboxEvents.id, stampable), isNull(outboxEvents.publishedAt)));
     }
     return events.length;
   });
 
-  if (failures.length > 0) {
-    throw new AggregateError(
-      failures.map((failure) => failure.error),
-      `Realtime-Zustellung fuer ${failures.length} Outbox-Events fehlgeschlagen: ${failures
-        .map((failure) => failure.outboxId)
-        .join(", ")}`,
-    );
+  for (const failure of failures) {
+    await recordOutboxFailure({
+      database,
+      consumer: "publish",
+      eventId: failure.outboxId,
+      error: failure.error,
+      now: currentTime,
+      maxAttempts,
+      logger: options.logger,
+    });
   }
+
   return claimed;
 }

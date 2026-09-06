@@ -4,6 +4,7 @@ import { eq, inArray } from "drizzle-orm";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import {
+  OUTBOX_MAX_ATTEMPTS,
   competitions,
   encounterSlots,
   encounters,
@@ -14,6 +15,7 @@ import {
   tournamentMatches,
   tournamentStages,
   tournaments,
+  type OutboxLogger,
 } from "@darts-platform/database";
 
 import { DatabaseService } from "../database/database.service.js";
@@ -33,6 +35,39 @@ function recorder(): RealtimeBroadcaster & { readonly sent: Recorded[] } {
   return {
     sent,
     emit(room, event, payload) {
+      sent.push({ room, event, payload });
+    },
+  };
+}
+
+interface LoggedRecord {
+  readonly level: "error" | "warn" | "debug";
+  readonly fields: Readonly<Record<string, unknown>>;
+}
+
+function logRecorder(): OutboxLogger & { readonly records: LoggedRecord[] } {
+  const records: LoggedRecord[] = [];
+  return {
+    records,
+    emit(level, fields) {
+      records.push({ level, fields });
+    },
+  };
+}
+
+const silentLogger: OutboxLogger = { emit: () => undefined };
+
+/** Broadcaster, der genau ein Ereignis nicht zustellen kann. */
+function poisonedRecorder(
+  poisonEventId: string,
+): RealtimeBroadcaster & { readonly sent: Recorded[] } {
+  const sent: Recorded[] = [];
+  return {
+    sent,
+    emit(room, event, payload) {
+      if (payload.eventId === poisonEventId) {
+        throw new Error("Zustellung fehlgeschlagen");
+      }
       sent.push({ room, event, payload });
     },
   };
@@ -185,7 +220,7 @@ describe("publishOutboxBatch", () => {
       .returning();
     const broadcaster = recorder();
 
-    await publishOutboxBatch(database, broadcaster);
+    await publishOutboxBatch(database, broadcaster, { logger: silentLogger });
 
     const delivered = broadcaster.sent.find((entry) => entry.payload.eventId === event?.id);
     expect(delivered?.room).toBe(`encounter:${encounterId}`);
@@ -209,7 +244,7 @@ describe("publishOutboxBatch", () => {
     });
     const broadcaster = recorder();
 
-    await publishOutboxBatch(database, broadcaster);
+    await publishOutboxBatch(database, broadcaster, { logger: silentLogger });
 
     expect(broadcaster.sent.map((entry) => entry.room)).toContain(
       `encounter:${encounterId}`,
@@ -226,7 +261,7 @@ describe("publishOutboxBatch", () => {
     });
     const broadcaster = recorder();
 
-    await publishOutboxBatch(database, broadcaster);
+    await publishOutboxBatch(database, broadcaster, { logger: silentLogger });
 
     expect(broadcaster.sent.map((entry) => entry.room)).toContain(
       `tournament:${tournamentId}`,
@@ -246,7 +281,7 @@ describe("publishOutboxBatch", () => {
       .returning();
     const broadcaster = recorder();
 
-    await publishOutboxBatch(database, broadcaster);
+    await publishOutboxBatch(database, broadcaster, { logger: silentLogger });
 
     expect(broadcaster.sent.filter((entry) => entry.payload.eventId === event?.id)).toEqual([]);
     const [stored] = await database
@@ -265,10 +300,10 @@ describe("publishOutboxBatch", () => {
       payload: { encounterId },
     });
     const first = recorder();
-    await publishOutboxBatch(database, first);
+    await publishOutboxBatch(database, first, { logger: silentLogger });
     const second = recorder();
 
-    await publishOutboxBatch(database, second);
+    await publishOutboxBatch(database, second, { logger: silentLogger });
 
     // Nur die eigenen Raeume pruefen: der Poller arbeitet global, und
     // parallel laufende Testdateien schreiben in dieselbe Outbox.
@@ -301,7 +336,10 @@ describe("publishOutboxBatch", () => {
     const first = recorder();
     const second = recorder();
 
-    await Promise.all([publishOutboxBatch(database, first), publishOutboxBatch(database, second)]);
+    await Promise.all([
+      publishOutboxBatch(database, first, { logger: silentLogger }),
+      publishOutboxBatch(database, second, { logger: silentLogger }),
+    ]);
 
     const delivered = [...first.sent, ...second.sent].filter((entry) => own.has(entry.payload.eventId ?? ""));
     expect(delivered).toHaveLength(20);
@@ -314,6 +352,11 @@ describe("publishOutboxBatch", () => {
    * Sendevorgang darf trotzdem nicht die uebrigen Ereignisse des Stapels
    * verschlucken — er bleibt aber selbst ungestempelt, damit der naechste
    * Durchlauf ihn erneut versucht.
+   *
+   * Seit Befund F-1 wirft `publishOutboxBatch` dafuer kein `AggregateError`
+   * mehr: der Fehlversuch wird stattdessen gebucht (Task 3, siehe
+   * "publishOutboxBatch — Fehlerbehandlung" unten) und der Aufrufer muss
+   * ihn nicht mehr per Exception erkennen.
    */
   it("sendet die uebrigen Ereignisse trotz eines fehlschlagenden Sendevorgangs, laesst das fehlgeschlagene aber ungestempelt", async () => {
     const created = await database
@@ -340,7 +383,7 @@ describe("publishOutboxBatch", () => {
       },
     };
 
-    await expect(publishOutboxBatch(database, broadcaster)).rejects.toThrow(AggregateError);
+    await publishOutboxBatch(database, broadcaster, { logger: silentLogger });
 
     const ownDelivered = sent.filter((entry) =>
       created.some((row) => row.id === entry.payload.eventId),
@@ -359,5 +402,133 @@ describe("publishOutboxBatch", () => {
     expect(failing?.publishedAt).toBeNull();
     const succeeding = stored.filter((row) => succeedingIds.includes(row.id));
     expect(succeeding.every((row) => row.publishedAt !== null)).toBe(true);
+  });
+});
+
+describe("publishOutboxBatch — Fehlerbehandlung", () => {
+  it("verteilt nachfolgende Ereignisse, obwohl eines fehlschlägt", async () => {
+    const [poison] = await database
+      .insert(outboxEvents)
+      .values({
+        organizationId,
+        aggregateType: "Encounter",
+        aggregateId: encounterId,
+        eventType: "ENCOUNTER_STARTED",
+        payload: { encounterId },
+        occurredAt: new Date("2026-09-06T10:00:00.000Z"),
+      })
+      .returning();
+    const [healthy] = await database
+      .insert(outboxEvents)
+      .values({
+        organizationId,
+        aggregateType: "Encounter",
+        aggregateId: encounterId,
+        eventType: "ENCOUNTER_COMPLETED",
+        payload: { encounterId },
+        occurredAt: new Date("2026-09-06T10:00:01.000Z"),
+      })
+      .returning();
+    const broadcaster = poisonedRecorder(poison?.id ?? "");
+    const logger = logRecorder();
+
+    await publishOutboxBatch(database, broadcaster, { logger, limit: 500 });
+
+    expect(
+      broadcaster.sent.some((entry) => entry.payload.eventId === healthy?.id),
+    ).toBe(true);
+    const [storedHealthy] = await database
+      .select()
+      .from(outboxEvents)
+      .where(eq(outboxEvents.id, healthy?.id ?? ""));
+    expect(storedHealthy?.publishedAt).not.toBeNull();
+    const [storedPoison] = await database
+      .select()
+      .from(outboxEvents)
+      .where(eq(outboxEvents.id, poison?.id ?? ""));
+    expect(storedPoison?.publishedAt).toBeNull();
+    expect(storedPoison?.publishAttempts).toBe(1);
+    expect(storedPoison?.publishNotBefore).not.toBeNull();
+    expect(storedPoison?.publishLastError).toBe("Zustellung fehlgeschlagen");
+    expect(logger.records.map((entry) => entry.fields.event)).toContain(
+      "outbox.retry_scheduled",
+    );
+  });
+
+  it("legt ein dauerhaft fehlschlagendes Ereignis nach fuenf Versuchen ins Dead Letter", async () => {
+    const start = new Date("2026-09-06T11:00:00.000Z");
+    const [poison] = await database
+      .insert(outboxEvents)
+      .values({
+        organizationId,
+        aggregateType: "Encounter",
+        aggregateId: encounterId,
+        eventType: "ENCOUNTER_STARTED",
+        payload: { encounterId },
+        occurredAt: start,
+      })
+      .returning();
+    const broadcaster = poisonedRecorder(poison?.id ?? "");
+    const logger = logRecorder();
+
+    for (let attempt = 1; attempt <= OUTBOX_MAX_ATTEMPTS; attempt += 1) {
+      const clock = new Date(start.getTime() + attempt * 600_000);
+      await publishOutboxBatch(database, broadcaster, {
+        logger,
+        limit: 500,
+        now: () => clock,
+      });
+    }
+
+    const [stored] = await database
+      .select()
+      .from(outboxEvents)
+      .where(eq(outboxEvents.id, poison?.id ?? ""));
+    expect(stored?.publishAttempts).toBe(OUTBOX_MAX_ATTEMPTS);
+    expect(stored?.publishDeadLetteredAt).not.toBeNull();
+    expect(stored?.publishNotBefore).toBeNull();
+    const deadLetter = logger.records.find(
+      (entry) => entry.fields.event === "outbox.dead_letter",
+    );
+    expect(deadLetter?.level).toBe("error");
+    expect(deadLetter?.fields).toMatchObject({
+      consumer: "publish",
+      eventId: poison?.id,
+      eventType: "ENCOUNTER_STARTED",
+      aggregateId: encounterId,
+      attempts: OUTBOX_MAX_ATTEMPTS,
+      lastError: "Zustellung fehlgeschlagen",
+    });
+  });
+
+  it("zieht ein Ereignis im Dead Letter nicht mehr", async () => {
+    const [dead] = await database
+      .insert(outboxEvents)
+      .values({
+        organizationId,
+        aggregateType: "Encounter",
+        aggregateId: encounterId,
+        eventType: "ENCOUNTER_COMPLETED",
+        payload: { encounterId },
+        publishAttempts: OUTBOX_MAX_ATTEMPTS,
+        publishDeadLetteredAt: new Date("2026-09-06T12:00:00.000Z"),
+        publishLastError: "Zustellung fehlgeschlagen",
+      })
+      .returning();
+    const broadcaster = recorder();
+
+    await publishOutboxBatch(database, broadcaster, {
+      logger: silentLogger,
+      limit: 500,
+    });
+
+    expect(
+      broadcaster.sent.filter((entry) => entry.payload.eventId === dead?.id),
+    ).toEqual([]);
+    const [stored] = await database
+      .select()
+      .from(outboxEvents)
+      .where(eq(outboxEvents.id, dead?.id ?? ""));
+    expect(stored?.publishedAt).toBeNull();
   });
 });

@@ -1209,6 +1209,25 @@ kurzen Moment des Index-Aufbaus ein `SHARE`-Lock auf `outbox_events`. Kein
 Bestandscheck nötig — alle acht Spalten sind entweder nullable oder tragen
 einen Default.
 
+## Dead Letter finden und erneut einreihen
+
+Nach fünf Fehlversuchen mit exponentiellem Backoff (1 s, 2 s, 4 s, 8 s,
+gedeckelt bei 5 min) setzt der betroffene Konsument `*_dead_lettered_at` und
+überspringt die Zeile fortan (Befund F-1: ein einzelnes dauerhaft
+fehlschlagendes Ereignis blockiert damit weder den Rest des Stapels noch
+künftige Durchläufe). Jeder Fehlversuch erzeugt über den jeweiligen
+`OutboxLogger` einen strukturierten Log-Eintrag — `outbox.retry_scheduled`
+(`warn`) für einen erneut versuchten, `outbox.dead_letter` (`error`) für den
+soeben ins Dead Letter gelegten Fehlversuch. Beide nennen `eventId`,
+`eventType`, `aggregateId`, `attempts` und die letzte Fehlermeldung
+(`lastError`, auf 500 Zeichen gekürzt) — bewusst ohne `payload`, damit kein
+Nutzdaten- oder Personenbezug ins Log gelangt. In der API-Produktion
+protokolliert der Anwendungslogger (`realtime.service.ts`) diese Einträge als
+JSON, in Railway also per Suche nach `"event":"outbox.dead_letter"` auffindbar.
+
+Auffinden und Requeue laufen über die SQL-Beispiele weiter oben in diesem
+Abschnitt.
+
 ---
 
 # 19. Idempotency

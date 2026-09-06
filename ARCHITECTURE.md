@@ -905,6 +905,10 @@ Notifications
 Webhooks
 ```
 
+Beide Konsumenten führen je Zeile einen Versuchszähler und einen
+Dead-Letter-Stempel. Ein Ereignis, das fünfmal scheitert, wird übersprungen
+und als `outbox.dead_letter` protokolliert, statt die Schlange anzuhalten.
+
 ---
 
 ## 26. Background Jobs

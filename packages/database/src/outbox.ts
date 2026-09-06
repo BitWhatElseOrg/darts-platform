@@ -108,6 +108,10 @@ function backoffMillisSql(attemptsColumn: SQLWrapper) {
  * Zeilenlock des `UPDATE`; keiner verliert dadurch einen Zähler-Schritt, und
  * ein bereits gesetzter Dead-Letter-Stempel wird nie mit `null` oder einem
  * späteren Zeitpunkt überschrieben (`coalesce(dead_lettered_at, now)`).
+ * Erreicht die Zeile beim selben Aufruf die Obergrenze, wird `not_before`
+ * geleert: eine Backoff-Sperre hat für eine dead-gelettete Zeile keine
+ * Bedeutung mehr, und ein manuelles Wiedereinreihen (siehe
+ * `DATABASE_SCHEMA.md` §18) setzt sie ohnehin frisch.
  */
 export async function recordOutboxFailure(
   input: OutboxFailureInput,
@@ -131,7 +135,7 @@ export async function recordOutboxFailure(
           publishAttempts: sql`${outboxEvents.publishAttempts} + 1`,
           publishLastError: lastError,
           publishNotBefore: sql`case
-            when ${outboxEvents.publishAttempts} + 1 >= ${maxAttempts}::integer then ${outboxEvents.publishNotBefore}
+            when ${outboxEvents.publishAttempts} + 1 >= ${maxAttempts}::integer then null
             else ${nowIso}::timestamptz + (${backoffMillisSql(outboxEvents.publishAttempts)} * interval '1 millisecond')
           end`,
           publishDeadLetteredAt: sql`case
@@ -156,7 +160,7 @@ export async function recordOutboxFailure(
           statisticsAttempts: sql`${outboxEvents.statisticsAttempts} + 1`,
           statisticsLastError: lastError,
           statisticsNotBefore: sql`case
-            when ${outboxEvents.statisticsAttempts} + 1 >= ${maxAttempts}::integer then ${outboxEvents.statisticsNotBefore}
+            when ${outboxEvents.statisticsAttempts} + 1 >= ${maxAttempts}::integer then null
             else ${nowIso}::timestamptz + (${backoffMillisSql(outboxEvents.statisticsAttempts)} * interval '1 millisecond')
           end`,
           statisticsDeadLetteredAt: sql`case

@@ -1669,7 +1669,11 @@ describe("team encounter persistence", () => {
     };
     // Die Outbox traegt die Ereignisse der vorherigen Tests dieser Datei; der
     // echte Poller arbeitet sie in Stapeln ab, also hier bis zum Ende leeren.
-    while ((await publishOutboxBatch(databaseService.database, broadcaster)) > 0) {
+    while (
+      (await publishOutboxBatch(databaseService.database, broadcaster, {
+        logger: { emit: () => undefined },
+      })) > 0
+    ) {
       // weiterleeren
     }
 
