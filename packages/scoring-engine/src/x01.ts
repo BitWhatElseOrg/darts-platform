@@ -17,6 +17,13 @@ export interface X01Rules {
   readonly maxRounds: number | null;
   readonly legsToWinSet: number;
   readonly setsToWin: number;
+  /**
+   * Reglement 2.2.9, Ausnahme für das Entscheidungsdoppel: ist das Flag
+   * gesetzt, entscheidet ein Wurf auf Bull den Legbeginn ab Leg 1 statt erst
+   * ab Leg 3. Es ist eine Regel des Matches, kein Feld eines Kommandos —
+   * gespeicherte Kommandos werten dadurch unverändert (Replay-Sicherheit).
+   */
+  readonly bullOffFromLegOne: boolean;
 }
 
 export interface X01Side {
@@ -80,8 +87,10 @@ export interface UndoVisitCommand {
 
 /**
  * Reglement 2.2.9: Leg 1 beginnt die Heimseite, Leg 2 die Gastseite, ab Leg 3
- * entscheidet ein Wurf auf Bull. Fehlt das Kommando, wechselt der Legbeginn
- * wie bisher.
+ * entscheidet ein Wurf auf Bull. Ausgenommen ist das Entscheidungsdoppel
+ * (sudden death): dort wird der Spielbeginn IMMER ausgebullt — dafür trägt das
+ * Match `X01Rules.bullOffFromLegOne`, und das Kommando ist dann schon für
+ * Leg 1 zulässig. Fehlt das Kommando, wechselt der Legbeginn wie bisher.
  */
 export interface DecideLegStartCommand {
   readonly type: "DECIDE_LEG_START";
@@ -208,6 +217,9 @@ function assertRules(rules: X01Rules): void {
   if (!Number.isInteger(rules.setsToWin) || rules.setsToWin < 1) {
     throw new ScoringValidationError("INVALID_SET_TARGET", "Set target must be a positive integer.");
   }
+  if (typeof rules.bullOffFromLegOne !== "boolean") {
+    throw new ScoringValidationError("INVALID_BULL_OFF_RULE", "The bull-off rule must be a boolean.");
+  }
 }
 
 function seatOf(index: 0 | 1): 1 | 2 {
@@ -256,6 +268,7 @@ export function createX01Match(input: {
     maxRounds: null,
     legsToWinSet: 1,
     setsToWin: 1,
+    bullOffFromLegOne: false,
   };
   assertRules(rules);
   return {
@@ -650,7 +663,7 @@ interface ActiveCommands {
   readonly legStarts: ReadonlyMap<number, 1 | 2>;
 }
 
-function activeCommands(commands: readonly X01Command[]): ActiveCommands {
+function activeCommands(commands: readonly X01Command[], rules: X01Rules): ActiveCommands {
   const reverted = new Set(
     commands
       .filter((command): command is UndoVisitCommand => command.type === "UNDO_LAST_VISIT")
@@ -659,10 +672,15 @@ function activeCommands(commands: readonly X01Command[]): ActiveCommands {
   const legStarts = new Map<number, 1 | 2>();
   for (const command of commands) {
     if (command.type !== "DECIDE_LEG_START") continue;
-    if (!Number.isInteger(command.legNumber) || command.legNumber < 3) {
+    // Reglement 2.2.9: Leg 1 und 2 sind festgelegt — ausser beim sudden death,
+    // das immer ausgebullt wird.
+    const firstDecidableLeg = rules.bullOffFromLegOne ? 1 : 3;
+    if (!Number.isInteger(command.legNumber) || command.legNumber < firstDecidableLeg) {
       throw new ScoringValidationError(
         "LEG_START_FIXED",
-        "Leg one belongs to the home side and leg two to the guest side.",
+        rules.bullOffFromLegOne
+          ? "A leg number must be a positive integer."
+          : "Leg one belongs to the home side and leg two to the guest side.",
       );
     }
     if (legStarts.has(command.legNumber)) {
@@ -763,13 +781,20 @@ function nextLegStartIndex(
 
 export function projectX01Match(match: X01Match): X01MatchState {
   assertRules(match.rules);
-  const active = activeCommands(match.commands);
+  const active = activeCommands(match.commands, match.rules);
   let sides: [X01SideState, X01SideState] = [
     initialSide(match.sides[0], match.rules),
     initialSide(match.sides[1], match.rules),
   ];
-  let activeIndex: 0 | 1 = indexOfSeat(match.startingSeat);
-  let legStartingIndex: 0 | 1 = activeIndex;
+  // Reglement 2.2.9: Leg 1 beginnt normalerweise die im Kommando festgelegte
+  // Startseite (`match.startingSeat`, die Heimseite). Ein `DECIDE_LEG_START`
+  // fuer Leg 1 ist nur moeglich, wenn `bullOffFromLegOne` gesetzt ist
+  // (`activeCommands` lehnt es sonst mit LEG_START_FIXED ab) — dann gilt das
+  // ausgebullte Ergebnis statt der Vorbelegung.
+  const decidedFirstLegStart = active.legStarts.get(1);
+  let legStartingIndex: 0 | 1 =
+    decidedFirstLegStart === undefined ? indexOfSeat(match.startingSeat) : indexOfSeat(decidedFirstLegStart);
+  let activeIndex: 0 | 1 = legStartingIndex;
   let visitsInLeg: [number, number] = [0, 0];
   let legNumber = 1;
   let setNumber = 1;
@@ -1056,7 +1081,7 @@ export function executeX01Command(match: X01Match, command: X01Command): Execute
     assertWritableVisit(match, command, projectX01Match(match));
   }
   if (command.type === "UNDO_LAST_VISIT") {
-    const active = activeCommands(match.commands);
+    const active = activeCommands(match.commands, match.rules);
     const latest = active.submissions.at(-1);
     if (latest === undefined) {
       throw new ScoringValidationError("NOTHING_TO_UNDO", "There is no active visit to undo.");
