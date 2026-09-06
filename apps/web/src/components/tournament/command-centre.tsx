@@ -24,6 +24,7 @@ import {
   type ReplayOutcome,
 } from "@/lib/offline-replay";
 import { useOfflineQueue } from "@/lib/use-offline-queue";
+import { useOnlineFlush } from "@/lib/use-online-flush";
 import {
   assignmentQueueEntries,
   assignmentRequestBody,
@@ -452,7 +453,13 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
    * die Zentrale wuerde einen veralteten Stand zeigen, waehrend sie schreibt.
    */
   const flushPending = useCallback(async () => {
-    if (commandBusy || connection === "offline") return;
+    // Der Verbindungszustand wird ebenfalls aus dem `online`-Ereignis gesetzt.
+    // Zum Zeitpunkt des Ereignisses traegt `connection` deshalb noch "offline",
+    // und eine Pruefung auf den Zustand haette die automatische Uebertragung
+    // im selben Tick abgewiesen. `navigator.onLine` ist an dieser Stelle die
+    // frische Auskunft; der Knopf bleibt weiterhin ueber `connection`
+    // deaktiviert.
+    if (commandBusy || (typeof navigator !== "undefined" && !navigator.onLine)) return;
     setCommandBusy(true);
     try {
       const refreshed = await dashboardQuery.refetch();
@@ -476,7 +483,12 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
     } finally {
       setCommandBusy(false);
     }
-  }, [commandBusy, connection, dashboardQuery, replayable, sendAssignment]);
+  }, [commandBusy, dashboardQuery, replayable, sendAssignment]);
+
+  // Wartendes geht auch ohne Knopfdruck raus, sobald das Geraet wieder im Netz
+  // ist -- wie die Scoringflaeche. Vorher blieben Zuweisungen liegen, bis
+  // jemand "Jetzt übertragen" traf.
+  useOnlineFlush(flushPending);
 
   /**
    * Verwirft eine Zuweisung, die nur noch im Weg steht -- und holt danach den

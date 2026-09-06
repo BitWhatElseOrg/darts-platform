@@ -358,9 +358,10 @@ export interface QueuedCommandNotice {
 export interface QueuedCommandView {
   readonly online: boolean;
   /**
-   * Was mit einem wartenden Kommando bei bestehender Verbindung geschieht:
-   * die Scoringflaeche wiederholt von selbst, die Kommandozentrale wartet auf
-   * den Knopf.
+   * Was mit einem wartenden Kommando bei bestehender Verbindung geschieht.
+   * Beide Flaechen wiederholen seit `useOnlineFlush` beim `online`-Ereignis von
+   * selbst; die Kommandozentrale bietet zusaetzlich den Knopf "Jetzt
+   * übertragen".
    */
   readonly pendingOnline?: string;
   /**
