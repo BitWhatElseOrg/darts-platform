@@ -416,6 +416,24 @@ betroffene Master-Out-Finishes fallen dann auf die alte Heuristik zurück; für
 die von der UI erzeugten Fälle liefert sie dasselbe Ergebnis, garantiert ist
 es nicht.
 
+Dritter Fall — umgekehrte Richtung: `careerStatistics.checkoutPercentage`,
+`checkoutAttempts` und `checkouts` (`packages/statistics/src/statistics.ts`)
+sind neu nullable, wo sie vorher immer eine Zahl waren. Hier kippt die
+Reihenfolge: ein noch altes Web-Bundle ruft auf diesen Feldern ungeprüft
+`toFixed` auf `null` auf und stürzt ab; sein Zod-Schema erwartet ausserdem
+weiterhin eine Pflichtzahl und lehnt die Antwort schon beim Parsen ab. Bei
+dieser Art Vertragsänderung — ein Feld wird lockerer statt strenger — muss
+darum das **Web mit oder vor der API** ausgerollt werden. Ein alleiniges
+Rollback des Web ist dabei unsicher, solange die API weiterhin `null`
+liefert: das zurückgerollte, alte Web trifft exakt auf diesen Zustand und
+bricht wieder ab.
+
+Betriebsempfehlung: API und Web im selben Deploy-Fenster ausrollen, dann
+stellt sich die Reihenfolgefrage gar nicht erst. Nicht jede
+Vertragserweiterung trägt dieses Risiko: `StandingsRow.minusPoints`
+(`packages/league-engine/src/standings.ts`) ist additiv und
+reihenfolgeunabhängig, dort gilt keine der beiden Regeln.
+
 ## Verifikation und Smoke-Test
 
 DNS und Zertifikate werden sowohl bei Cloudflare als auch im Railway-Domainstatus
