@@ -587,4 +587,70 @@ describe("persistent X01 match", () => {
     const state = await repository.getState(organizationId, created.id);
     expect(state?.liveTarget).toBeNull();
   });
+
+  /**
+   * Mit dem Ende gibt das Match seine Scheibe frei. Ein Undo eroeffnet es
+   * wieder — steht dort inzwischen ein anderes Spiel, stuenden zwei laufende
+   * Matches auf einer physischen Scheibe. Der Turnierpfad kannte diesen
+   * Schutz, Ligaslots und freie Paarungen nicht.
+   */
+  it("eroeffnet ein beendetes Match nicht auf einer neu belegten Scheibe", async () => {
+    const undoBoardId = randomUUID();
+    await databaseService.database
+      .insert(boards)
+      .values({ id: undoBoardId, organizationId, name: `Undo Board ${undoBoardId}` });
+    let state = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId: undoBoardId, bestOfLegs: 1, bestOfSets: 1 },
+      auth,
+      audit,
+    });
+    const score = async (playerId: string, points: number, checkoutDouble?: number): Promise<void> => {
+      state = await service.submitVisit({
+        organizationId,
+        matchId: state.id,
+        data: {
+          commandId: randomUUID(), expectedVersion: state.version, playerId, points, dartsThrown: 3,
+          ...(checkoutDouble === undefined ? {} : { checkoutDouble }),
+        },
+        auth,
+        audit,
+      });
+    };
+    await score(playerOneId, 180);
+    await score(playerTwoId, 60);
+    await score(playerOneId, 180);
+    await score(playerTwoId, 60);
+    await score(playerOneId, 141, 12);
+    expect(state.status).toBe("COMPLETED");
+    const completedMatchId = state.id;
+    const completedVersion = state.version;
+
+    // Die Scheibe gilt als frei; das naechste Paar startet dort.
+    const followUp = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerTwoId, boardId: undoBoardId, bestOfLegs: 1, bestOfSets: 1 },
+      auth,
+      audit,
+    });
+    expect(followUp.status).toBe("IN_PROGRESS");
+
+    await expect(
+      service.undo({
+        organizationId,
+        matchId: completedMatchId,
+        data: { commandId: randomUUID(), expectedVersion: completedVersion },
+        auth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ status: 409, response: { code: "BOARD_NOT_AVAILABLE" } });
+
+    const running = await databaseService.database
+      .select({ id: matches.id })
+      .from(matches)
+      .where(and(eq(matches.organizationId, organizationId), eq(matches.boardId, undoBoardId), eq(matches.status, "IN_PROGRESS")));
+    expect(running).toHaveLength(1);
+    const unchanged = await service.get({ organizationId, matchId: completedMatchId, auth });
+    expect(unchanged).toMatchObject({ status: "COMPLETED", version: completedVersion });
+  }, 30_000);
 });

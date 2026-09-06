@@ -10,6 +10,7 @@ import {
 import { ScoringValidationError, createX01Match, executeX01Command, projectX01Match, type InRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
 import type { AbortMatchInput, AbortMatchResponse, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
+import { isBoardInProgressConflict, isBoardOccupied } from "../boards/board-occupancy.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { DatabaseService } from "../database/database.service.js";
 import { applyWithdrawalPropagation } from "../tournaments/apply-withdrawal-propagation.js";
@@ -23,6 +24,12 @@ import { abortScoringMatch } from "./abort-match.js";
 import { lockTournamentScoringContext } from "./tournament-scoring-lock.js";
 
 export type MutationResult = "ok" | "not-found" | "version-conflict" | "controller-conflict";
+/**
+ * Ein Undo eroeffnet ein beendetes Match wieder. Steht auf seiner Scheibe
+ * inzwischen ein anderes Spiel, ist das keine ungueltige Eingabe, sondern ein
+ * Zustand — er wird wie ueberall als belegte Scheibe beantwortet.
+ */
+export type UndoMutationResult = MutationResult | "board-unavailable";
 export type AbortMutationResult = AbortMatchResponse | Exclude<MutationResult, "ok">;
 export type TournamentCorrectionResult =
   | Exclude<MutationResult, "controller-conflict">
@@ -276,6 +283,21 @@ export class MatchesRepository {
   }
 
   public async create(input: { readonly organizationId: string; readonly data: CreateMatchInput; readonly auth: AuthContext; readonly audit: AuditContext }): Promise<string> {
+    try {
+      return await this.createInTransaction(input);
+    } catch (error) {
+      // Der Status der Scheibe wird gesperrt gelesen; kommt trotzdem eine
+      // zweite Zuweisung gleichzeitig durch, meldet der partielle Unique auf
+      // `matches` den Verstoss. Er wird zur selben Fachantwort wie die
+      // Vorpruefung — die Postgres-Meldung erreicht den Client nie.
+      if (isBoardInProgressConflict(error)) {
+        throw new ScoringValidationError("BOARD_NOT_AVAILABLE", "Selected board is not available.");
+      }
+      throw error;
+    }
+  }
+
+  private createInTransaction(input: { readonly organizationId: string; readonly data: CreateMatchInput; readonly auth: AuthContext; readonly audit: AuditContext }): Promise<string> {
     return this.databaseService.database.transaction(async (transaction) => {
       const playerRows = await transaction.select({ id: players.id, status: players.status }).from(players)
         .where(and(eq(players.organizationId, input.organizationId), inArray(players.id, [input.data.playerOneId, input.data.playerTwoId])));
@@ -829,8 +851,20 @@ export class MatchesRepository {
     });
   }
 
-  public undo(input: ActorInput & { readonly data: UndoVisitInput }): Promise<MutationResult> {
-    return this.databaseService.database.transaction(async (transaction): Promise<MutationResult> => {
+  public async undo(input: ActorInput & { readonly data: UndoVisitInput }): Promise<UndoMutationResult> {
+    try {
+      return await this.undoInTransaction(input);
+    } catch (error) {
+      // Zweites Netz: faellt die Pruefung durch ein Rennen hindurch, meldet
+      // der partielle Unique auf `matches` die Doppelbelegung. Fachlich ist
+      // das dieselbe Antwort, kein Serverfehler.
+      if (isBoardInProgressConflict(error)) return "board-unavailable";
+      throw error;
+    }
+  }
+
+  private undoInTransaction(input: ActorInput & { readonly data: UndoVisitInput }): Promise<UndoMutationResult> {
+    return this.databaseService.database.transaction(async (transaction): Promise<UndoMutationResult> => {
       const [duplicate] = await transaction.select({ organizationId: scoreCommands.organizationId, matchId: scoreCommands.matchId }).from(scoreCommands).where(eq(scoreCommands.commandId, input.data.commandId)).limit(1);
       if (duplicate !== undefined) {
         if (duplicate.organizationId === input.organizationId && duplicate.matchId === input.matchId) return "ok";
@@ -859,6 +893,24 @@ export class MatchesRepository {
             "TOURNAMENT_RESULT_REQUIRES_CORRECTION",
             "Published tournament results must be reopened through result correction.",
           );
+        }
+        // Mit dem Ende gibt `syncProjection` die Scheibe frei; das naechste
+        // Paar kann dort laengst stehen. Ein Undo setzt das Match zurueck auf
+        // IN_PROGRESS und stellte damit ein zweites laufendes Spiel auf
+        // dieselbe physische Scheibe. Der Turnierpfad kennt diesen Schutz seit
+        // je (`correctTournamentResult`); Ligaslots und freie Paarungen hatten
+        // ihn nicht.
+        if (match.boardId !== null) {
+          const [board] = await transaction
+            .select()
+            .from(boards)
+            .where(and(eq(boards.organizationId, input.organizationId), eq(boards.id, match.boardId)))
+            .for("update")
+            .limit(1);
+          if (board === undefined || board.status !== "AVAILABLE") return "board-unavailable";
+          if (await isBoardOccupied(transaction, input.organizationId, match.boardId)) {
+            return "board-unavailable";
+          }
         }
       }
       const [latest] = await transaction.select().from(visits).where(and(eq(visits.organizationId, input.organizationId), eq(visits.matchId, input.matchId), isNull(visits.revertedAt))).orderBy(desc(visits.sequence)).limit(1);

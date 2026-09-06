@@ -470,8 +470,25 @@ Turnier (`tournament_matches`) und Liga (`encounter_slots`) tragen je einen
 eigenen partiellen Unique auf `board_id`, doch kein Constraint greift über zwei
 Tabellen. `matches` ist die gemeinsame Wurzel beider Wege und der freien
 Paarung; der partielle Unique lässt dort nur ein laufendes Match je Scheibe zu.
-Ein Verstoss wird im Zuweisungspfad als `BOARD_NOT_AVAILABLE` (HTTP 409)
-beantwortet, nicht als Postgres-Meldung.
+Ein Verstoss wird in den Zuweisungs-, Erstellungs- und Undo-Pfaden als
+`BOARD_NOT_AVAILABLE` (HTTP 409) beantwortet, nicht als Postgres-Meldung.
+
+Vor dem Ausrollen den Bestand prüfen — die Migration schlägt fehl, wenn heute
+schon zwei laufende Matches auf einer Scheibe stehen:
+
+```sql
+select board_id, count(*) from matches
+where status = 'IN_PROGRESS' and board_id is not null
+group by board_id having count(*) > 1;
+```
+
+Sperrdauer: `CREATE UNIQUE INDEX` ohne `CONCURRENTLY` nimmt für die Dauer des
+Aufbaus ein `SHARE`-Lock auf `matches` — der heissesten Tabelle — und blockiert
+solange jedes Schreiben darauf. Bei der heutigen Grösse sind das
+Sekundenbruchteile; das Deployment gehört trotzdem ausserhalb des
+Spielbetriebs. Wächst `matches` deutlich, ist die Migration auf
+`CREATE UNIQUE INDEX CONCURRENTLY` umzustellen (dann ausserhalb einer
+Transaktion, mit anschliessender Prüfung auf `INVALID`).
 
 ---
 
