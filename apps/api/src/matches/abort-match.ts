@@ -1,9 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import {
   boardControllerLeases,
   boards,
-  legs,
   matches,
   matchParticipants,
   scoreCommands,
@@ -29,12 +28,26 @@ export async function abortScoringMatch(transaction: Transaction, input: {
   readonly reason?: string;
   readonly source: "DIRECT" | "TOURNAMENT_WITHDRAWAL" | "ENCOUNTER_BOARD_RELEASE";
 }): Promise<AbortedScoringMatch> {
+  const now = new Date();
+  // Befund I9: Aufnahmen und Legs werden entwertet, nicht geloescht. Ein
+  // versehentlicher Abbruch bleibt so rekonstruierbar, und `visit_darts`
+  // haengt weiter an seiner Aufnahme. Dieselbe Systematik wie beim Undo
+  // (`reverted_at`, `reverted_by_command_id`); alle Leseabfragen des
+  // laufenden Spiels filtern bereits auf `reverted_at is null`.
   const discarded = await transaction
-    .select({ id: visits.id })
-    .from(visits)
-    .where(and(eq(visits.organizationId, input.organizationId), eq(visits.matchId, input.match.id)));
-  await transaction.delete(visits).where(and(eq(visits.organizationId, input.organizationId), eq(visits.matchId, input.match.id)));
-  await transaction.delete(legs).where(and(eq(legs.organizationId, input.organizationId), eq(legs.matchId, input.match.id)));
+    .update(visits)
+    .set({ revertedAt: now, revertedByCommandId: input.commandId })
+    .where(and(
+      eq(visits.organizationId, input.organizationId),
+      eq(visits.matchId, input.match.id),
+      isNull(visits.revertedAt),
+    ))
+    .returning({ id: visits.id });
+  // Die Legs bleiben stehen: `visits.leg_id` ist NOT NULL und zeigt auf sie.
+  // Ihr Status bleibt unveraendert und erfuellt damit `legs_completion_check`
+  // (Migration 0023) — ein laufendes Leg ohne Gewinner, ein abgeschlossenes
+  // mit. Ein abgebrochenes Match wird nie fortgesetzt: der Turnier- und der
+  // Ligapfad legen bei der naechsten Zuweisung ein neues Match an.
   await transaction.update(matchParticipants).set({ legsWon: 0 }).where(and(eq(matchParticipants.organizationId, input.organizationId), eq(matchParticipants.matchId, input.match.id)));
   await transaction.delete(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.match.id)));
   await transaction.update(matches).set({
@@ -44,10 +57,10 @@ export async function abortScoringMatch(transaction: Transaction, input: {
     winnerSeat: null,
     completedAt: null,
     version: input.match.version + 1,
-    updatedAt: new Date(),
+    updatedAt: now,
   }).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.match.id)));
   if (input.match.boardId !== null) {
-    await transaction.update(boards).set({ status: "AVAILABLE", updatedAt: new Date() }).where(and(eq(boards.organizationId, input.organizationId), eq(boards.id, input.match.boardId)));
+    await transaction.update(boards).set({ status: "AVAILABLE", updatedAt: now }).where(and(eq(boards.organizationId, input.organizationId), eq(boards.id, input.match.boardId)));
   }
   const payload = {
     type: "ABORT_MATCH" as const,

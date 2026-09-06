@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import { auditEvents, boardControllerLeases, boards, legs, matches, matchParticipantPlayers, memberships, organizations, outboxEvents, players, scoreCommands, users, visitDarts, visits } from "@darts-platform/database";
@@ -86,8 +86,20 @@ describe("persistent X01 match", () => {
     );
 
     expect(await service.list({ organizationId, auth })).not.toContainEqual(expect.objectContaining({ id: state.id }));
-    expect(await databaseService.database.select().from(visits).where(and(eq(visits.organizationId, organizationId), eq(visits.matchId, state.id)))).toHaveLength(0);
-    expect(await databaseService.database.select().from(legs).where(and(eq(legs.organizationId, organizationId), eq(legs.matchId, state.id)))).toHaveLength(0);
+    // Befund I9: der Abbruch loescht die Wurfhistorie nicht mehr, er
+    // entwertet sie. Ein versehentlicher Abbruch bleibt damit nachvollziehbar
+    // und die Aufnahmen bleiben fuer eine Reklamation lesbar.
+    const abortedVisits = await databaseService.database.select().from(visits).where(and(eq(visits.organizationId, organizationId), eq(visits.matchId, state.id)));
+    expect(abortedVisits).toHaveLength(1);
+    expect(abortedVisits[0]?.revertedAt).not.toBeNull();
+    expect(abortedVisits[0]?.revertedByCommandId).toBe(commandId);
+    const abortedDarts = await databaseService.database.select().from(visitDarts).where(and(eq(visitDarts.organizationId, organizationId), eq(visitDarts.visitId, abortedVisits[0]?.id ?? "")));
+    expect(abortedDarts.length).toBeGreaterThanOrEqual(0);
+    const abortedLegs = await databaseService.database.select().from(legs).where(and(eq(legs.organizationId, organizationId), eq(legs.matchId, state.id)));
+    expect(abortedLegs).toHaveLength(1);
+    // Die Aufnahme wird kein zweites Mal gestempelt, wenn dasselbe Kommando
+    // erneut eintrifft — `reverted_at` bleibt beim ersten Zeitpunkt.
+    expect(await databaseService.database.select().from(visits).where(and(eq(visits.matchId, state.id), isNull(visits.revertedAt)))).toHaveLength(0);
     expect(await databaseService.database.select().from(boardControllerLeases).where(eq(boardControllerLeases.matchId, state.id))).toHaveLength(0);
     expect((await databaseService.database.select().from(matches).where(eq(matches.id, state.id)))[0]?.status).toBe("ABORTED");
     expect((await databaseService.database.select().from(boards).where(eq(boards.id, boardId)))[0]?.status).toBe("AVAILABLE");
