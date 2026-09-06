@@ -52,9 +52,20 @@ export default tseslint.config(
     // pruefte die Oberflaeche an neun Stellen ["OWNER", "ADMIN", ...]
     // .includes(role) -- eine Kopie des Berechtigungsmodells, die bei jeder
     // Aenderung an `rolePermissions` von Hand nachzuziehen waere
-    // (AGENTS.md §4, §25). Der Selektor trifft nur Array-Literale, die einen
-    // Rollennamen enthalten; ein gewoehnliches `[a, b].includes(c)` bleibt
-    // erlaubt.
+    // (AGENTS.md §4, §25).
+    //
+    // Ehrlich gesagt ist der Selektor eng: er trifft ausschliesslich ein
+    // Array-LITERAL mit einem Rollennamen, gefolgt von `.includes(...)` --
+    // `const X = [...]; X.includes(...)`. Eine Liste hinter einer Variable,
+    // `.some(...)`, `Set.has(...)` oder eine Kette aus `===`-Vergleichen
+    // kommt an ihm vorbei; er ist eine Huerde gegen das Kopiermuster von
+    // damals, kein vollstaendiger Schutz gegen jede Umgehung.
+    //
+    // `apps/web/tests/**` und `packages/ui` liegen bewusst ausserhalb des
+    // `files`-Musters unten: Testfixturen muessen Rollennamen beim Namen
+    // nennen koennen, und `packages/ui` kennt `rolePermissions` gar nicht --
+    // seine Komponenten nehmen fertige Booleans entgegen und entscheiden
+    // selbst nichts ueber Rollen.
     files: ["apps/web/src/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": [

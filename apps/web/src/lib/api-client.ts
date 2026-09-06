@@ -16,6 +16,7 @@ function localizedMessage(code: string): string {
     MATCH_VERSION_CONFLICT: "Der Matchzustand hat sich geändert. Synchronisiere mit dem Serverstand.",
     TOURNAMENT_VERSION_CONFLICT: "Der Turnierzustand hat sich geändert. Synchronisiere mit dem Serverstand.",
     BOARD_NOT_AVAILABLE: "Das gewählte Board ist nicht verfügbar.",
+    BOARD_NAME_TAKEN: "Ein Board mit diesem Namen gibt es bereits.",
     BOARD_CONTROLLER_CONFLICT: "Ein anderes Gerät steuert dieses Board.",
     NOT_ACTIVE_PLAYER: "Die Aufnahme gehört nicht zum aktiven Spieler.",
     INVALID_VISIT_SCORE: "Dieser Score ist mit der gewählten Dartanzahl nicht möglich.",

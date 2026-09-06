@@ -14,8 +14,16 @@ const outboxLogger: OutboxLogger = {
 
 // Startsignal. Der Worker hat keinen Health-Endpunkt; ohne diese Zeile ist von
 // aussen -- im CI-Rauchtest wie im Railway-Log -- nicht zu erkennen, ob er die
-// Umgebung gelesen und die Verbindung aufgebaut hat oder sofort gescheitert
-// ist.
+// Umgebung gelesen hat und die Verdrahtung durchlief.
+//
+// Die Zeile belegt NICHT, dass die Datenbankverbindung steht: `connection`
+// haelt einen Pool, und Drizzle baut Verbindungen lazy beim ersten Query auf,
+// nicht schon bei `createDatabaseConnection`. Dieses Ereignis kommt also auch
+// dann, wenn die Datenbank spaeter nicht erreichbar ist. Dass die Verbindung
+// tatsaechlich traegt, belegen zwei andere Dinge: das ruhige Beobachtungsfenster
+// (der Tick laeuft im Sekundentakt gegen die Datenbank, ohne es waere er
+// laengst gescheitert) und der Fehler-Grep auf den Log-Level im CI-Rauchtest
+// (`.github/workflows/ci.yml`, Ruling E10).
 logger.emit("log", { event: "worker_started" });
 
 let working = false;
