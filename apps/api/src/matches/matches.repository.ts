@@ -21,6 +21,8 @@ import {
   resetEncounterSlotForMatch,
 } from "../encounters/sync-encounter-slot.js";
 import { abortScoringMatch } from "./abort-match.js";
+import { lockEncounterScoringContext } from "./encounter-scoring-lock.js";
+import { retryOnDeadlock } from "./retry-on-deadlock.js";
 import { lockTournamentScoringContext } from "./tournament-scoring-lock.js";
 
 export type MutationResult = "ok" | "not-found" | "version-conflict" | "controller-conflict";
@@ -353,6 +355,10 @@ export class MatchesRepository {
   }
 
   public abort(input: ActorInput & { readonly data: AbortMatchInput }): Promise<AbortMutationResult> {
+    return retryOnDeadlock<AbortMutationResult>(() => this.abortInTransaction(input), "version-conflict");
+  }
+
+  private abortInTransaction(input: ActorInput & { readonly data: AbortMatchInput }): Promise<AbortMutationResult> {
     return this.databaseService.database.transaction(async (transaction): Promise<AbortMutationResult> => {
       await transaction.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.data.commandId}, 0))`);
       const [duplicate] = await transaction.select({ organizationId: scoreCommands.organizationId, matchId: scoreCommands.matchId, payload: scoreCommands.payload }).from(scoreCommands).where(eq(scoreCommands.commandId, input.data.commandId)).limit(1);
@@ -363,6 +369,10 @@ export class MatchesRepository {
         return { matchId: input.matchId, status: "ABORTED", tournamentMatchId: payload.data.tournamentMatchId };
       }
       const tournamentContext = await lockTournamentScoringContext(transaction, input.organizationId, input.matchId);
+      // Globale Sperrreihenfolge Encounter -> EncounterSlot -> Match. Ohne
+      // dieses Vorziehen liefe der Scoringpfad gegenlaeufig zum
+      // Begegnungspfad und beide in einen Sperrzyklus (Befund I6).
+      await lockEncounterScoringContext(transaction, input.organizationId, input.matchId);
       const [match] = await transaction.select().from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
       if (match === undefined) return "not-found";
       if (match.version !== input.data.expectedVersion) return "version-conflict";
@@ -387,9 +397,17 @@ export class MatchesRepository {
   }
 
   public submitVisit(input: ActorInput & { readonly data: SubmitVisitInput }): Promise<MutationResult> {
+    return retryOnDeadlock(() => this.submitVisitInTransaction(input), "version-conflict");
+  }
+
+  private submitVisitInTransaction(input: ActorInput & { readonly data: SubmitVisitInput }): Promise<MutationResult> {
     return this.databaseService.database.transaction(async (transaction): Promise<MutationResult> => {
       if (await this.findDuplicateScoreCommand(transaction, input.organizationId, input.matchId, input.data.commandId) !== null) return "ok";
       await lockTournamentScoringContext(transaction, input.organizationId, input.matchId);
+      // Globale Sperrreihenfolge Encounter -> EncounterSlot -> Match. Ohne
+      // dieses Vorziehen liefe der Scoringpfad gegenlaeufig zum
+      // Begegnungspfad und beide in einen Sperrzyklus (Befund I6).
+      await lockEncounterScoringContext(transaction, input.organizationId, input.matchId);
       const [match] = await transaction.select().from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
       // Zweite Pruefung, jetzt unter der Sperre. Sie steht vor der
       // Versionspruefung, damit eine gleichzeitige Wiederholung die
@@ -852,21 +870,27 @@ export class MatchesRepository {
   }
 
   public async undo(input: ActorInput & { readonly data: UndoVisitInput }): Promise<UndoMutationResult> {
-    try {
-      return await this.undoInTransaction(input);
-    } catch (error) {
-      // Zweites Netz: faellt die Pruefung durch ein Rennen hindurch, meldet
-      // der partielle Unique auf `matches` die Doppelbelegung. Fachlich ist
-      // das dieselbe Antwort, kein Serverfehler.
-      if (isBoardInProgressConflict(error)) return "board-unavailable";
-      throw error;
-    }
+    return retryOnDeadlock(async () => {
+      try {
+        return await this.undoInTransaction(input);
+      } catch (error) {
+        // Zweites Netz: faellt die Pruefung durch ein Rennen hindurch, meldet
+        // der partielle Unique auf `matches` die Doppelbelegung. Fachlich ist
+        // das dieselbe Antwort, kein Serverfehler.
+        if (isBoardInProgressConflict(error)) return "board-unavailable";
+        throw error;
+      }
+    }, "version-conflict");
   }
 
   private undoInTransaction(input: ActorInput & { readonly data: UndoVisitInput }): Promise<UndoMutationResult> {
     return this.databaseService.database.transaction(async (transaction): Promise<UndoMutationResult> => {
       if (await this.findDuplicateScoreCommand(transaction, input.organizationId, input.matchId, input.data.commandId) !== null) return "ok";
       await lockTournamentScoringContext(transaction, input.organizationId, input.matchId);
+      // Globale Sperrreihenfolge Encounter -> EncounterSlot -> Match. Ohne
+      // dieses Vorziehen liefe der Scoringpfad gegenlaeufig zum
+      // Begegnungspfad und beide in einen Sperrzyklus (Befund I6).
+      await lockEncounterScoringContext(transaction, input.organizationId, input.matchId);
       const [match] = await transaction.select().from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
       // Zweite Pruefung, jetzt unter der Sperre. Sie steht vor der
       // Versionspruefung, damit eine gleichzeitige Wiederholung die
@@ -963,9 +987,21 @@ export class MatchesRepository {
     envelope: { readonly commandId: string; readonly expectedVersion: number; readonly controllerId?: string | undefined },
     command: X01Command,
   ): Promise<MutationResult> {
+    return retryOnDeadlock(() => this.decideLegInTransaction(input, envelope, command), "version-conflict");
+  }
+
+  private decideLegInTransaction(
+    input: ActorInput,
+    envelope: { readonly commandId: string; readonly expectedVersion: number; readonly controllerId?: string | undefined },
+    command: X01Command,
+  ): Promise<MutationResult> {
     return this.databaseService.database.transaction(async (transaction): Promise<MutationResult> => {
       if (await this.findDuplicateScoreCommand(transaction, input.organizationId, input.matchId, envelope.commandId) !== null) return "ok";
       await lockTournamentScoringContext(transaction, input.organizationId, input.matchId);
+      // Globale Sperrreihenfolge Encounter -> EncounterSlot -> Match. Ohne
+      // dieses Vorziehen liefe der Scoringpfad gegenlaeufig zum
+      // Begegnungspfad und beide in einen Sperrzyklus (Befund I6).
+      await lockEncounterScoringContext(transaction, input.organizationId, input.matchId);
       const [match] = await transaction.select().from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
       // Zweite Pruefung, jetzt unter der Sperre. Sie steht vor der
       // Versionspruefung, damit eine gleichzeitige Wiederholung die
@@ -1294,7 +1330,10 @@ export class MatchesRepository {
    * Kommandozeile beide, und die zweite bekaeme nach dem Commit der ersten
    * einen Versionskonflikt statt der idempotenten Bestaetigung — genau der
    * Fall, fuer den die commandId da ist (AGENTS.md 11). Vorbild:
-   * `encounters.repository.ts`, `runMutation`.
+   * `encounters.repository.ts`, `runMutation`. Die zweite Pruefung verlaesst
+   * sich auf READ COMMITTED (jede Anweisung sieht einen frischen Snapshot):
+   * unter REPEATABLE READ saehe sie noch den Stand vor der Sperre und liefe
+   * damit ins Leere.
    */
   private async findDuplicateScoreCommand(
     transaction: DatabaseTransaction,
