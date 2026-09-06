@@ -18,6 +18,7 @@ import {
   nextReplayable,
   queueHidesEntries,
   queuedCommandNotice,
+  replayAnnouncement,
   replayChained,
   replayFailure,
   type ReplayOutcome,
@@ -463,7 +464,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         setCommandError(userFacingErrorMessage(refreshed.error, "Serverstand konnte nicht geladen werden; es wurde nichts übertragen."));
         return;
       }
-      const { sentCount } = await replayChained<AssignmentQueueEntry>(
+      const result = await replayChained<AssignmentQueueEntry>(
         replayable,
         // Kopf (`chainedVersion === null`): die gespeicherte Version der
         // Zuweisung. Nachfolger: die Version aus der Antwort auf die
@@ -471,7 +472,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         async (entry, chainedVersion): Promise<ReplayOutcome> =>
           await sendAssignment(pendingCommandOf(entry), chainedVersion ?? entry.expectedVersion, entry.command),
       );
-      setAnnouncement(`${sentCount} Befehl${sentCount === 1 ? "" : "e"} übertragen.`);
+      setAnnouncement(replayAnnouncement(result));
     } finally {
       setCommandBusy(false);
     }

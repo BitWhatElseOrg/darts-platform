@@ -11,6 +11,7 @@ import {
   queueSaveFailureMessage,
   queueUpdateFailureMessage,
   queuedCommandNotice,
+  replayAnnouncement,
   replayChained,
   replayFailure,
   withCurrentExpectedVersion,
@@ -503,5 +504,29 @@ describe("queuedCommandNotice", () => {
   it("laesst einen abgelehnten Eintrag unveraendert, auch wenn daneben etwas haengt", () => {
     expect(queuedCommandNotice(command({ status: "REJECTED", error: "Nicht erlaubt." }), { online: true, acceptedButStuck: false }).action)
       .toBe("DISCARD");
+  });
+});
+
+describe("replayAnnouncement", () => {
+  it("meldet nichts Uebertragenes im Plural", () => {
+    expect(replayAnnouncement({ sentCount: 0, acceptedCount: 0 })).toBe("0 Befehle übertragen.");
+  });
+
+  it("meldet einen einzelnen Befehl im Singular", () => {
+    expect(replayAnnouncement({ sentCount: 1, acceptedCount: 1 })).toBe("1 Befehl übertragen.");
+  });
+
+  /**
+   * Der Befund: der Server hat angenommen, nur das lokale Aufraeumen
+   * scheiterte. `sentCount` bleibt dann auf 0 und die Meldung behauptete, es
+   * sei nichts uebertragen worden -- waehrend die Zuweisung laengst gebucht
+   * war. Gezaehlt wird, was der Server angenommen hat.
+   */
+  it("zaehlt eine angenommene Zuweisung auch ohne lokales Aufraeumen", () => {
+    expect(replayAnnouncement({ sentCount: 0, acceptedCount: 1 })).toBe("1 Befehl übertragen.");
+  });
+
+  it("meldet mehrere Befehle im Plural", () => {
+    expect(replayAnnouncement({ sentCount: 2, acceptedCount: 3 })).toBe("3 Befehle übertragen.");
   });
 });

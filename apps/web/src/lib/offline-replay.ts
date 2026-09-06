@@ -320,6 +320,19 @@ export async function replayChained<T>(
 }
 
 /**
+ * Die Ansage nach einem Wiedergabelauf. Sie zaehlt `acceptedCount`, nicht
+ * `sentCount`: gemeldet wird, was der SERVER angenommen hat. Nahm er eine
+ * Zuweisung an und scheiterte danach nur das lokale Aufraeumen, sagte die
+ * Zentrale vorher "0 Befehle übertragen." fuer einen Vorgang, der gebucht war
+ * -- die Meldung zum haengenden Eintrag steht separat in `writeError`
+ * (`localCleanupFailureMessage`).
+ */
+export function replayAnnouncement(result: ReplayResult): string {
+  const count = result.acceptedCount;
+  return `${count} Befehl${count === 1 ? "" : "e"} übertragen.`;
+}
+
+/**
  * Ersetzt die `expectedVersion` einer gespeicherten Kommando-Nutzlast durch
  * die waehrend der Wiedergabe aufgebaute, verkettete Version. Gilt nur fuer
  * NACHFOLGER: deren gespeicherte Version kann veraltet sein, weil ein
