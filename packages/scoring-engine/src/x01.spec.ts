@@ -1224,3 +1224,164 @@ describe("X01 Audit-Korrekturen", () => {
     expect(stored.state.winnerSeat).toBe(1);
   });
 });
+
+describe("X01 Checkout-Segment", () => {
+  /**
+   * Befund F2: `checkoutDouble` kann per `checkoutValue` nur D1-D20 und Bull
+   * tragen. Ein Triple-Finish unter Master Out war damit ohne Einzelwuerfe
+   * nicht belegbar und fiel seit `CHECKOUT_DETAIL_REQUIRED` durch. Das neue
+   * Feld `checkoutSegment` traegt Segment UND Multiplikator.
+   */
+  it("nimmt ein Triple-Finish unter Master Out mit checkoutSegment an", () => {
+    const result = executeX01Command(
+      createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 60, outRule: "MASTER" }) }),
+      {
+        type: "SUBMIT_VISIT", commandId: "triple-finish", seat: 1, throwerPlayerId: "one",
+        points: 60, dartsThrown: 1, checkoutSegment: { segment: 20, multiplier: 3 },
+      },
+    );
+    expect(result.outcome).toBe("MATCH_WON");
+    // Ein Triple fuellt `checkoutDouble` nicht: das Feld kennt nur Doppel.
+    expect(result.state.visits.at(-1)?.checkoutDouble).toBeNull();
+    expect(result.state.visits.at(-1)?.checkoutAttempts).toBe(1);
+  });
+
+  it("nimmt ein Doppel-Finish mit checkoutSegment an und fuellt checkoutDouble", () => {
+    const result = executeX01Command(
+      createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 40, outRule: "MASTER" }) }),
+      {
+        type: "SUBMIT_VISIT", commandId: "double-finish", seat: 1, throwerPlayerId: "one",
+        points: 40, dartsThrown: 2, checkoutSegment: { segment: 20, multiplier: 2 },
+      },
+    );
+    expect(result.outcome).toBe("MATCH_WON");
+    expect(result.state.visits.at(-1)?.checkoutDouble).toBe(20);
+  });
+
+  it("wertet ein Single-Segment unter Master Out als Bust", () => {
+    const result = executeX01Command(
+      createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 60, outRule: "MASTER" }) }),
+      {
+        type: "SUBMIT_VISIT", commandId: "single-finish", seat: 1, throwerPlayerId: "one",
+        points: 60, dartsThrown: 3, checkoutSegment: { segment: 20, multiplier: 1 },
+      },
+    );
+    expect(result.outcome).toBe("BUST");
+    expect(result.state.sides[0].remaining).toBe(60);
+  });
+
+  it("wertet ein Triple-Segment unter Double Out als Bust", () => {
+    const result = executeX01Command(
+      createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 60, outRule: "DOUBLE" }) }),
+      {
+        type: "SUBMIT_VISIT", commandId: "triple-under-double-out", seat: 1, throwerPlayerId: "one",
+        points: 60, dartsThrown: 1, checkoutSegment: { segment: 20, multiplier: 3 },
+      },
+    );
+    expect(result.outcome).toBe("BUST");
+  });
+
+  /**
+   * Dieselben zwei Bedingungen wie bei `checkoutDouble`: der Segmentwert muss
+   * in der Rundensumme stecken und der Rest mit den uebrigen Darts werfbar
+   * sein. 60 Punkte mit einem Dart lassen neben T20 keinen Rest zu, ein
+   * gemeldetes D20 (40) waere also nicht geworfen worden.
+   */
+  it("lehnt ein Segment ab, das nicht in die Rundensumme passt", () => {
+    const result = executeX01Command(
+      createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 60, outRule: "MASTER" }) }),
+      {
+        type: "SUBMIT_VISIT", commandId: "impossible-segment", seat: 1, throwerPlayerId: "one",
+        points: 60, dartsThrown: 1, checkoutSegment: { segment: 20, multiplier: 2 },
+      },
+    );
+    expect(result.outcome).toBe("BUST");
+  });
+
+  it("weist checkoutSegment neben darts, checkoutMissed oder checkoutDouble zurueck", () => {
+    const match = createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 60, outRule: "MASTER" }) });
+    const base = {
+      type: "SUBMIT_VISIT" as const, commandId: "conflicting", seat: 1 as const, throwerPlayerId: "one",
+      points: 60, dartsThrown: 1 as const, checkoutSegment: { segment: 20, multiplier: 3 as const },
+    };
+    for (const extra of [
+      { darts: [{ segment: 20, multiplier: 3 as const }] },
+      { checkoutMissed: true },
+      { checkoutDouble: 20 },
+    ]) {
+      expect(() => executeX01Command(match, { ...base, ...extra })).toThrow(ScoringValidationError);
+    }
+  });
+
+  it("weist ein ungueltiges Segment zurueck", () => {
+    expect(() =>
+      executeX01Command(
+        createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 60, outRule: "MASTER" }) }),
+        {
+          type: "SUBMIT_VISIT", commandId: "invalid-segment", seat: 1, throwerPlayerId: "one",
+          points: 60, dartsThrown: 3, checkoutSegment: { segment: 25, multiplier: 3 },
+        },
+      ),
+    ).toThrow(ScoringValidationError);
+  });
+
+  it("belegt einen Master-Out-Abschluss und macht CHECKOUT_DETAIL_REQUIRED gegenstandslos", () => {
+    const result = executeX01Command(
+      createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 57, outRule: "MASTER" }) }),
+      {
+        type: "SUBMIT_VISIT", commandId: "detail-provided", seat: 1, throwerPlayerId: "one",
+        points: 57, dartsThrown: 2, checkoutSegment: { segment: 19, multiplier: 3 },
+      },
+    );
+    expect(result.outcome).toBe("MATCH_WON");
+  });
+
+  /**
+   * Replay-Sicherheit: das Feld ist rein additiv. Derselbe Kommando-Strom
+   * OHNE `checkoutSegment` ergibt exakt denselben Zustand wie vor der
+   * Erweiterung — gespeicherte Kommandos aendern ihre Wertung nicht.
+   */
+  it("laesst gespeicherte Kommandos ohne checkoutSegment unveraendert", () => {
+    const stored = replay(
+      createX01Match({ sides: singles("one", "two"), rules: rules({ startingScore: 121 }) }),
+      visit("v1", 1, "one", 60, 3),
+      visit("v2", 2, "two", 0, 3),
+      visit("v3", 1, "one", 61, 3, 20),
+    );
+    expect(stored.state.status).toBe("COMPLETED");
+    expect(stored.state.winnerSeat).toBe(1);
+    expect(stored.state.visits.map((applied) => applied.outcome)).toEqual(["SCORED", "SCORED", "MATCH_WON"]);
+    expect(stored.state.visits.map((applied) => applied.checkoutDouble)).toEqual([null, null, 20]);
+    expect(stored.state.visits.map((applied) => applied.checkoutAttempts)).toEqual([0, 0, 1]);
+  });
+
+  /**
+   * Minor aus dem F1-Review: der D-I1-Block rechnet mit der ROHEN
+   * Rundensumme. Unter Double In vor der Eroeffnung ist die nicht die
+   * angerechnete — dort greift aber schon der Double-In-Block. Mit Wurfdaten
+   * greift keiner von beiden, und die Engine zaehlt korrekt ab dem Doppel.
+   */
+  it("laesst unter Master Out und Double In vor der Eroeffnung die Wurfdaten entscheiden", () => {
+    const match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 60, inRule: "DOUBLE", outRule: "MASTER" }),
+    });
+    // Ohne Wurfdaten schlaegt die Double-In-Regel zu, nicht die Master-Regel.
+    expect(() =>
+      executeX01Command(match, visit("raw-sum", 1, "one", 60, 3)),
+    ).toThrow(/double in/i);
+    // Mit Wurfdaten: S20 zaehlt nicht (kein Doppel), D20 eroeffnet, S20
+    // bringt den Rest auf 60 - 40 - 20 = 0, schliesst aber als Single nicht.
+    const withDarts = executeX01Command(match, {
+      type: "SUBMIT_VISIT", commandId: "with-darts", seat: 1, throwerPlayerId: "one",
+      points: 80, dartsThrown: 3,
+      darts: [
+        { segment: 20, multiplier: 1 },
+        { segment: 20, multiplier: 2 },
+        { segment: 20, multiplier: 1 },
+      ],
+    });
+    expect(withDarts.outcome).toBe("BUST");
+    expect(withDarts.state.sides[0].openedInLeg).toBe(true);
+  });
+});

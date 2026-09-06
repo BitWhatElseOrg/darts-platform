@@ -44,6 +44,22 @@ export interface SubmitVisitCommand {
   readonly checkoutAttempts?: number;
   readonly darts?: readonly Dart[];
   /**
+   * Das abschliessende Segment einer Aufnahme OHNE Einzelwuerfe, mit
+   * Multiplikator — die Verallgemeinerung von `checkoutDouble`, das nur
+   * D1-D20 und Bull kodieren kann (`checkoutValue`) und deshalb ein
+   * Triple-Finish unter Master Out nicht belegen konnte.
+   *
+   * Gewertet wird es wie der letzte Wurf der Aufnahme: `closesLegWithDarts`
+   * entscheidet, ob es die Ausgangsregel erfuellt; zusaetzlich muss sein Wert
+   * in der Rundensumme enthalten und der Rest mit `dartsThrown - 1` Darts
+   * erreichbar sein. Es schliesst sich mit `darts`, `checkoutMissed` und
+   * `checkoutDouble` gegenseitig aus (`validateVisit`).
+   *
+   * Fehlt das Feld, aendert sich nichts: gespeicherte Kommandos ohne
+   * `checkoutSegment` werden unveraendert gewertet (Replay-Sicherheit).
+   */
+  readonly checkoutSegment?: Dart;
+  /**
    * Ausdrueckliche Meldung, dass die Aufnahme trotz Rest null KEIN gueltiges
    * Finish war (kein Doppel unter DOUBLE, kein Doppel/Triple unter MASTER
    * getroffen). Ohne dieses Feld gilt weiterhin der bisherige Rueckfall: unter
@@ -554,6 +570,21 @@ function validateVisit(command: SubmitVisitCommand): void {
   if (command.checkoutMissed === true && command.darts !== undefined) {
     throw new ScoringValidationError("INVALID_CHECKOUT_MISSED", "Checkout missed cannot be combined with recorded darts.");
   }
+  if (command.checkoutSegment !== undefined) {
+    if (!isValidDart(command.checkoutSegment)) {
+      throw new ScoringValidationError("INVALID_CHECKOUT_SEGMENT", "A checkout segment must hit 0-20 or bull, with a valid multiplier.");
+    }
+    // Ein zweiter Beleg zur selben Aufnahme ist nicht entscheidbar: mit
+    // Einzelwuerfen entscheidet der letzte Wurf, `checkoutMissed` spricht
+    // ausdruecklich gegen ein Finish, `checkoutDouble` nennt bereits ein
+    // Segment.
+    if (command.darts !== undefined || command.checkoutMissed === true || command.checkoutDouble !== undefined) {
+      throw new ScoringValidationError(
+        "INVALID_CHECKOUT_SEGMENT",
+        "A checkout segment cannot be combined with recorded darts, a missed checkout or a checkout double.",
+      );
+    }
+  }
   if (command.darts !== undefined) {
     if (command.darts.length !== command.dartsThrown) {
       throw new ScoringValidationError("INVALID_DART_COUNT", "The number of darts must match the darts thrown.");
@@ -821,12 +852,24 @@ export function projectX01Match(match: X01Match): X01MatchState {
       doubleValue !== null &&
       command.points >= doubleValue &&
       attainableTotals(command.dartsThrown - 1).has(command.points - doubleValue);
+    // Das gemeldete Abschluss-Segment wird wie der letzte Wurf gewertet: es
+    // muss die Ausgangsregel erfuellen, sein Wert in der Rundensumme stecken
+    // und der Rest mit den uebrigen Darts erreichbar sein — dieselben zwei
+    // Bedingungen, die `validDoubleCheckout` an `checkoutDouble` stellt.
+    const declaredFinish = command.checkoutSegment ?? null;
+    const validSegmentCheckout =
+      declaredFinish !== null &&
+      closesLegWithDarts(match.rules.outRule, declaredFinish) &&
+      command.points >= dartValue(declaredFinish) &&
+      attainableTotals(command.dartsThrown - 1).has(command.points - dartValue(declaredFinish));
     const validCheckout =
       tentative === 0 &&
       command.checkoutMissed !== true &&
-      (finishingDart === null
-        ? closesLeg(match.rules.outRule, command, validDoubleCheckout)
-        : closesLegWithDarts(match.rules.outRule, finishingDart));
+      (finishingDart !== null
+        ? closesLegWithDarts(match.rules.outRule, finishingDart)
+        : declaredFinish !== null
+          ? validSegmentCheckout
+          : closesLeg(match.rules.outRule, command, validDoubleCheckout));
     const bust = isBust(match.rules.outRule, tentative, validCheckout);
     let outcome: VisitOutcome = bust ? "BUST" : "SCORED";
     let scoreAfter = bust ? scoreBefore : tentative;
@@ -851,6 +894,14 @@ export function projectX01Match(match: X01Match): X01MatchState {
       finishingDart !== null && validCheckout && finishingDart.multiplier === 2
         ? finishingDart.segment
         : null;
+    // Ein gemeldetes Abschluss-Segment fuellt `checkoutDouble` genau dann,
+    // wenn es ein Doppel war — die Statistik zaehlt darueber die getroffenen
+    // Doppel. Ein Triple-Finish unter Master Out traegt weiterhin null; das
+    // Feld kann kein Triple kodieren (`checkoutValue`).
+    const segmentCheckoutDouble =
+      declaredFinish !== null && validCheckout && declaredFinish.multiplier === 2
+        ? declaredFinish.segment
+        : null;
 
     visits.push({
       commandId: command.commandId,
@@ -862,10 +913,11 @@ export function projectX01Match(match: X01Match): X01MatchState {
       dartsThrown: command.dartsThrown,
       scoreBefore,
       scoreAfter,
-      checkoutDouble: darts === undefined ? (command.checkoutDouble ?? null) : derivedCheckoutDouble,
+      checkoutDouble: darts === undefined ? (command.checkoutDouble ?? segmentCheckoutDouble) : derivedCheckoutDouble,
       checkoutAttempts:
         darts === undefined
-          ? (command.checkoutAttempts ?? (command.checkoutDouble === undefined && command.checkoutMissed !== true ? 0 : 1))
+          ? (command.checkoutAttempts ??
+            (command.checkoutDouble === undefined && command.checkoutSegment === undefined && command.checkoutMissed !== true ? 0 : 1))
           : checkoutAttemptsFromDarts(scoreBefore, darts, match.rules.outRule),
       outcome,
       darts: darts ?? [],
@@ -941,14 +993,26 @@ function assertWritableVisit(match: X01Match, command: SubmitVisitCommand, befor
     );
   }
   // Master Out: bringt die Aufnahme den Rest rechnerisch auf null, entscheidet
-  // ohne Wurfdaten, ohne `checkoutDouble` und ohne `checkoutMissed` allein die
+  // ohne Wurfdaten, ohne Segmentangabe und ohne `checkoutMissed` allein die
   // Heuristik `finishesOnMasterSegment` — und die raet permissiv (Rest 60 mit
   // drei Darts gilt ihr als Finish, obwohl S20/S20/S20 keins ist). Neue
-  // Kommandos muessen den Abschluss deshalb belegen.
+  // Kommandos muessen den Abschluss deshalb belegen: `checkoutDouble` (nur
+  // Doppel), `checkoutSegment` (Doppel oder Triple), Einzelwuerfe oder die
+  // ausdrueckliche Meldung, dass keins sass.
+  //
+  // ACHTUNG Reihenfolge: `command.points` ist die ROHE Rundensumme, nicht die
+  // nach der In-Regel angerechnete. Unter Double In vor der Eroeffnung liefen
+  // die beiden auseinander — dort hat der Block oben das Kommando aber schon
+  // abgelehnt, weil Wurfdaten Pflicht sind (und mit Wurfdaten greift diese
+  // Regel nicht). Ist die Seite eroeffnet oder gilt Straight In, sind rohe
+  // und angerechnete Summe gleich. Diese Regel darf deshalb nicht vor den
+  // Double-In-Block wandern; der Test „MASTER + Double In, nicht eroeffnet"
+  // haelt das fest.
   if (
     match.rules.outRule === "MASTER" &&
     command.darts === undefined &&
     command.checkoutDouble === undefined &&
+    command.checkoutSegment === undefined &&
     command.checkoutMissed !== true &&
     side.remaining - command.points === 0
   ) {
