@@ -410,6 +410,11 @@ parst die API-Antwort damit.
 Zweiter Fall: `bullOffFromLegOne` in `matchStateSchema` (Reglement 2.2.9,
 Tier-2-Task 4) wurde ebenfalls Pflichtfeld — dieselbe Reihenfolge gilt.
 
+Auch `outbox` in `healthResponseSchema` ist ein solches Pflichtfeld:
+`apps/web/src/lib/health.ts` parst die Health-Antwort mit Zod, ein neues Web
+gegen eine alte API bekäme deshalb die Statusübersicht nicht mehr geparst
+(Anzeige „nicht erreichbar", keine weitere Auswirkung). API vor Web.
+
 Rollback-Detail: Ein Zurückrollen der API allein strippt `checkoutSegment`
 aus gespeicherten Kommandos, da `storedSubmitSchema` nicht `.strict()` ist —
 betroffene Master-Out-Finishes fallen dann auf die alte Heuristik zurück; für
@@ -444,8 +449,27 @@ curl --fail https://api.dartbase.ch/api/v1/health
 curl --fail https://dartbase.ch/
 ```
 
-Der Health-Endpunkt muss HTTP 200 liefern. Sobald PostgreSQL oder Redis nicht
-erreichbar sind, wird HTTP 503 erwartet.
+Der Health-Endpunkt muss HTTP 200 liefern. HTTP 503 kommt ausschliesslich bei
+`status: "unhealthy"`, also wenn PostgreSQL oder Redis nicht erreichbar sind;
+Railway nutzt denselben Pfad als Deploy-Gate (`.railway/railway.ts`,
+`healthcheck: "/api/v1/health"`).
+
+`status: "degraded"` antwortet bewusst mit HTTP 200. Der Wert erscheint, wenn
+der Outbox-Rückstand eines Konsumenten 60 Sekunden erreicht oder mindestens
+ein Ereignis im Dead Letter liegt:
+
+```json
+{
+  "status": "degraded",
+  "services": { "database": "ok", "redis": "ok" },
+  "outbox": { "publishLagSeconds": 184, "statisticsLagSeconds": 0, "deadLettered": 1 }
+}
+```
+
+Realtime hinkt dann nach, der Spielbetrieb über HTTP läuft weiter — ein
+Neustart oder ein abgewiesenes Deployment würde die Lage nur verschlimmern.
+Vorgehen: Logs nach `outbox.dead_letter` durchsuchen und die betroffenen
+Zeilen nach `DATABASE_SCHEMA.md` §18 behandeln.
 
 Am 31. August 2026 lieferten beide öffentlichen Smoke-Tests HTTP 200. Der
 API-Health-Endpunkt meldete PostgreSQL und Redis jeweils als `ok`.

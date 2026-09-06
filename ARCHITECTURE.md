@@ -1040,7 +1040,7 @@ Von Beginn an:
 
 - strukturierte Logs
 - Correlation IDs
-- Health Endpoints
+- Health Endpoints inklusive Outbox-Rückstand je Konsument
 - Metrics
 - Error Tracking
 - später Distributed Tracing
