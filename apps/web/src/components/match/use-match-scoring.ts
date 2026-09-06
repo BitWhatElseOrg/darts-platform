@@ -332,8 +332,11 @@ export function useMatchScoring({ organizationId, match, canScore }: {
   // Nur unuebertragene Kommandos sperren die Bedienung; ein abgelehntes bleibt
   // sichtbar, macht das Board aber nicht unbedienbar (offline-replay.ts).
   // Ebenso wenig sperrt eine Aufnahme, die der Server angenommen hat und die
-  // nur lokal haengt: sie steht nicht mehr vor dem Serverstand.
-  const mayControl = canScore && match.status === "IN_PROGRESS" && lock.state === "EIGEN" && !queueBlocksControl(queued, queueAcceptedButStuck);
+  // nur lokal haengt: sie steht nicht mehr vor dem Serverstand. Ein
+  // Lesefehler dagegen sperrt bedingungslos: er kann Eintraege verbergen, und
+  // eine neue Aufnahme koennte an einer versteckten Offline-Aufnahme
+  // vorbeilaufen (PR-Agent-Rueckmeldung Runde 9, "Unsafe Control").
+  const mayControl = canScore && match.status === "IN_PROGRESS" && lock.state === "EIGEN" && !queueBlocksControl(queued, queueAcceptedButStuck, queueReadError);
 
   // Nach dem Verwerfen laeuft die Wiedergabe weiter: hinter einem abgelehnten
   // Kommando koennen weitere warten, die jetzt an der Reihe sind.

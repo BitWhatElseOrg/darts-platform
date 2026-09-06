@@ -95,6 +95,17 @@ export interface OfflineQueue {
  *
  * Alle Schreibgriffe geben `boolean` zurueck statt zu werfen: die
  * Aufruferinnen sollen den Fehlerfall behandeln muessen, nicht koennen.
+ *
+ * Regel fuer `queueBlocksControl` (offline-replay.ts), verbindlich fuer jeden
+ * kuenftigen Fehler-/Sonderzustand dieses Hooks: SPERRT nur ein Zustand, der
+ * Eintraege VERBERGEN kann. Das ist heute ausschliesslich `readError` --
+ * `queued` erscheint dann leer oder auf dem letzten guten Stand, und eine
+ * neue Aufnahme oder Zuweisung koennte an einem versteckten wartenden
+ * Kommando vorbeilaufen. `writeError` sperrt NICHT: der betroffene Eintrag
+ * bleibt unveraendert sichtbar. `acceptedButStuck` sperrt NICHT: der Server
+ * kennt den Eintrag bereits, es gibt nichts mehr zu verbergen. Ein vierter
+ * Zustand braucht dieselbe Pruefung, bevor er stillschweigend dazukommt
+ * (PR-Agent-Rueckmeldung Runde 9, "Unsafe Control" / "Unsafe Assignment").
  */
 export function useOfflineQueue(scope: string): OfflineQueue {
   const [queued, setQueued] = useState<readonly OfflineCommand[]>([]);

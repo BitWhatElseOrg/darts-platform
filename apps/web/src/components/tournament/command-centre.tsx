@@ -16,6 +16,7 @@ import { generateId } from "@/lib/id";
 import { type OfflineCommand } from "@/lib/offline-command-queue";
 import {
   nextReplayable,
+  queueBlocksControl,
   queuedCommandNotice,
   replayChained,
   replayFailure,
@@ -192,6 +193,24 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
     () => new Set(pending.map((entry) => entry.boardId)),
     [pending],
   );
+  /**
+   * Ob den Zuweisungs-Controls (BoardWedge-Zuweisung, QueuePanel) getraut
+   * werden darf. Scheitert das Lesen der lokalen Warteschlange, koennen
+   * `queued` und damit `pendingBoardIds`/`pendingMatchIds` einen wartenden
+   * Eintrag VERBERGEN -- ein Board oder Match saehe faelschlich frei aus, und
+   * die Bedienung koennte dasselbe Board oder Match ein zweites Mal
+   * reservieren, waehrend das versteckte Kommando noch darauf wartet,
+   * uebertragen zu werden (PR-Agent-Rueckmeldung Runde 9, "Unsafe
+   * Assignment"). Dieselbe Regel wie `mayControl` in `use-match-scoring.ts`:
+   * `queueBlocksControl` sperrt bedingungslos bei einem Lesefehler.
+   *
+   * Gilt bewusst NICHT fuer die Freigabe (`release`): sie wird nie in die
+   * Warteschlange gelegt (immer nur online versucht) und betrifft immer ein
+   * BLOCKIERTES Board -- ein Zustand, den eine Zuweisung (die stets ein
+   * FREIES Board voraussetzt) gar nicht erst erreichen kann. Ein verstecktes
+   * wartendes Kommando kann eine Freigabe deshalb nicht falsch machen.
+   */
+  const assignBlocked = queueBlocksControl(queued, acceptedButStuck, queueReadError);
   const readyQueue = useMemo(
     () =>
       (dashboard?.queue ?? []).filter(
@@ -306,7 +325,11 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
 
   const assign = useCallback(
     async (options: { readonly boardId?: string; readonly matchId?: string }) => {
-      if (dashboard === undefined || commandBusy) return;
+      // `assignBlocked` gehoert hierher und nicht nur in die `disabled`-Props
+      // der Controls: die Zifferntaste (`onKeyDown` unten) ruft `assign`
+      // direkt auf und geht dabei an jedem `disabled`-Attribut vorbei -- ein
+      // rein visuelles Sperren haette die Tastatur nicht erfasst.
+      if (dashboard === undefined || commandBusy || assignBlocked) return;
       const board = options.boardId
         ? (dashboard.boards.find(
             (slot) =>
@@ -364,7 +387,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         setCommandBusy(false);
       }
     },
-    [assignmentPath, commandBusy, connection, dashboard, openBoards, pendingBoardIds, persistQueuedAssignment, readyQueue, refreshQueue, scope, sendAssignment],
+    [assignBlocked, assignmentPath, commandBusy, connection, dashboard, openBoards, pendingBoardIds, persistQueuedAssignment, readyQueue, refreshQueue, scope, sendAssignment],
   );
 
   const release = useCallback(
@@ -654,7 +677,12 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
                   // `disabled` sehen die Knoepfe bedienbar aus, und die Sperre
                   // haengt allein daran, dass React diskrete Ereignisse sofort
                   // flusht (Re-Review, Befund 3).
-                  disabled={commandBusy}
+                  //
+                  // `assignBlocked` gilt nur fuer ein FREIES Board -- dort
+                  // rendert `BoardWedge` den Zuweisen-Knopf. Fuer ein
+                  // BLOCKIERTES Board (Freigeben-Knopf) bleibt es aussen vor,
+                  // siehe Kommentar bei `assignBlocked` oben.
+                  disabled={commandBusy || (slot.state === "FREE" && assignBlocked)}
                   justLanded={landedBoardId === slot.boardId}
                   key={slot.boardId}
                   nextUp={slot.state === "FREE" ? (readyQueue[0] ?? null) : null}
@@ -670,7 +698,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
           </section>
 
           <div className="flex flex-col gap-7">
-            <QueuePanel disabled={commandBusy} onAssign={(matchId) => void assign({ matchId })} openBoardName={openBoards[0]?.boardName ?? null} queue={dashboard.queue} />
+            <QueuePanel disabled={commandBusy || assignBlocked} onAssign={(matchId) => void assign({ matchId })} openBoardName={openBoards[0]?.boardName ?? null} queue={dashboard.queue} />
             <ParticipantDisruptionPanel canWithdraw={canWithdraw} disabled={commandBusy || connection === "offline"} onWithdraw={(playerId, reason) => void withdrawParticipant(playerId, reason)} participants={dashboard.participants} />
             <ResultsPanel busy={commandBusy} canCorrect={canCorrect} onCorrect={(matchId, reason) => void correctResult(matchId, reason)} results={dashboard.recentResults} />
             <DisruptionsPanel conflicts={dashboard.conflicts} />

@@ -135,20 +135,20 @@ describe("queueBlocksControl", () => {
   const nothingStuck: ReadonlySet<string> = new Set();
 
   it("sperrt bei wartenden und bei konfliktbehafteten Kommandos", () => {
-    expect(queueBlocksControl([command({ status: "PENDING" })], nothingStuck)).toBe(true);
-    expect(queueBlocksControl([command({ status: "CONFLICT", error: "Konflikt" })], nothingStuck)).toBe(true);
+    expect(queueBlocksControl([command({ status: "PENDING" })], nothingStuck, null)).toBe(true);
+    expect(queueBlocksControl([command({ status: "CONFLICT", error: "Konflikt" })], nothingStuck, null)).toBe(true);
   });
 
   it("sperrt nicht, wenn nur abgelehnte Kommandos uebrig sind", () => {
-    expect(queueBlocksControl([command({ status: "REJECTED", error: "abgelehnt", code: "X" })], nothingStuck)).toBe(false);
-    expect(queueBlocksControl([], nothingStuck)).toBe(false);
+    expect(queueBlocksControl([command({ status: "REJECTED", error: "abgelehnt", code: "X" })], nothingStuck, null)).toBe(false);
+    expect(queueBlocksControl([], nothingStuck, null)).toBe(false);
   });
 
   it("sperrt weiterhin, wenn hinter einem abgelehnten noch ein wartendes steht", () => {
     expect(queueBlocksControl([
       command({ commandId: "c1", status: "REJECTED", error: "abgelehnt", code: "X" }),
       command({ commandId: "c2", status: "PENDING" }),
-    ], nothingStuck)).toBe(true);
+    ], nothingStuck, null)).toBe(true);
   });
 
   /**
@@ -159,15 +159,46 @@ describe("queueBlocksControl", () => {
    */
   it("sperrt nicht wegen eines wartenden Kommandos, das der Server angenommen hat", () => {
     const queued = [command({ commandId: "c1", status: "PENDING" })];
-    expect(queueBlocksControl(queued, new Set(["c1"]))).toBe(false);
-    expect(queueBlocksControl(queued, nothingStuck)).toBe(true);
+    expect(queueBlocksControl(queued, new Set(["c1"]), null)).toBe(false);
+    expect(queueBlocksControl(queued, nothingStuck, null)).toBe(true);
   });
 
   it("sperrt weiterhin wegen eines anderen wartenden Kommandos daneben", () => {
     expect(queueBlocksControl([
       command({ commandId: "c1", status: "PENDING" }),
       command({ commandId: "c2", status: "PENDING" }),
-    ], new Set(["c1"]))).toBe(true);
+    ], new Set(["c1"]), null)).toBe(true);
+  });
+
+  /**
+   * PR-Agent-Rueckmeldung Runde 9, "Unsafe Control" / "Unsafe Assignment":
+   * Ein Lesefehler kann Eintraege VERBERGEN -- `queued` erscheint dann leer
+   * oder auf dem letzten guten Stand, obwohl in Wirklichkeit ein wartendes
+   * Kommando dort steht. Vorher ignorierten sowohl `mayControl`
+   * (use-match-scoring.ts) als auch die Zuweisungs-Controls der
+   * Kommandozentrale genau diesen Fall: eine neue Aufnahme bzw. Zuweisung
+   * konnte an einem versteckten Kommando vorbeilaufen. Die Sperre gilt
+   * bedingungslos, unabhaengig davon, was `queued` gerade zeigt.
+   */
+  it("sperrt bei einem Lesefehler, auch wenn queued leer erscheint", () => {
+    expect(queueBlocksControl([], nothingStuck, "Warteschlange nicht lesbar")).toBe(true);
+    expect(queueBlocksControl(
+      [command({ status: "REJECTED", error: "abgelehnt", code: "X" })],
+      nothingStuck,
+      "Warteschlange nicht lesbar",
+    )).toBe(true);
+  });
+
+  /**
+   * `writeError` ist bewusst KEIN Parameter dieser Funktion: ein gescheitertes
+   * Schreiben laesst den betroffenen Eintrag unveraendert SICHTBAR stehen und
+   * verbirgt -- anders als ein Lesefehler -- nichts (use-offline-queue.ts).
+   * Ein Aufruf ohne Lesefehler und ohne wartende Kommandos bleibt deshalb
+   * unbedenklich, ganz gleich, ob im umgebenden Zustand gerade ein
+   * Schreibfehler ansteht.
+   */
+  it("sperrt nicht wegen eines Schreibfehlers allein", () => {
+    expect(queueBlocksControl([], nothingStuck, null)).toBe(false);
   });
 });
 
@@ -230,15 +261,15 @@ describe("queueReadFailureMessage", () => {
    * sieht die Person eine leere Liste und haelt sie fuer leer -- wartende
    * Zuweisungen waeren still ausgelassen (AGENTS.md §18).
    */
-  it("benennt den Fehler als gescheitertes Lesen und warnt vor dem Weiterarbeiten", () => {
+  it("benennt den Fehler als gescheitertes Lesen und sagt, dass die Bedienung deshalb gesperrt ist", () => {
     expect(queueReadFailureMessage(new Error("IndexedDB blockiert"))).toBe(
-      "Die Warteschlange konnte nicht gelesen werden (IndexedDB blockiert). Wartende Zuweisungen werden möglicherweise nicht angezeigt. Lade die Seite neu, bevor du erneut zuweist.",
+      "Die Warteschlange konnte nicht gelesen werden (IndexedDB blockiert). Wartende Kommandos werden möglicherweise nicht angezeigt; deshalb ist die Bedienung gesperrt, bis das Lesen wieder gelingt. Lade die Seite neu.",
     );
   });
 
   it("faellt auf einen generischen Hinweis zurueck, wenn kein Error-Objekt vorliegt", () => {
     expect(queueReadFailureMessage("kaputt")).toBe(
-      "Die Warteschlange konnte nicht gelesen werden (unbekannter Fehler). Wartende Zuweisungen werden möglicherweise nicht angezeigt. Lade die Seite neu, bevor du erneut zuweist.",
+      "Die Warteschlange konnte nicht gelesen werden (unbekannter Fehler). Wartende Kommandos werden möglicherweise nicht angezeigt; deshalb ist die Bedienung gesperrt, bis das Lesen wieder gelingt. Lade die Seite neu.",
     );
   });
 });

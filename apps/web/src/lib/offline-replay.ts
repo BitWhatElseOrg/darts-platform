@@ -98,11 +98,25 @@ export function nextReplayable<T extends { readonly status: OfflineCommandStatus
  * kennt sie -- und duerfen die Flaeche deshalb nicht sperren. Ohne diese
  * Ausnahme blieb die Scoringflaeche nach einem gescheiterten lokalen
  * Aufraeumen dauerhaft unbedienbar (Runde 7).
+ *
+ * `readError` sperrt bedingungslos, UNABHAENGIG vom Inhalt von `queued`: ein
+ * gescheitertes Lesen kann Eintraege verbergen (`queued` erscheint dann leer
+ * oder auf dem letzten guten Stand), und genau das ist die Eigenschaft, die
+ * diese Funktion prueft -- kann ein verstecktes wartendes Kommando von der
+ * Bedienung ueberholt werden? Ein Schreibfehler (`writeError` in
+ * `use-offline-queue.ts`) ist bewusst KEIN Parameter: er laesst den
+ * betroffenen Eintrag unveraendert sichtbar stehen und verbirgt nichts.
+ * `acceptedButStuck` verbirgt ebenfalls nichts -- der Server kennt den
+ * Eintrag bereits. Die Regel fuer einen kuenftigen vierten Zustand: sperrt er
+ * nur, wenn er Eintraege verbergen kann (PR-Agent-Rueckmeldung Runde 9,
+ * "Unsafe Control" / "Unsafe Assignment").
  */
 export function queueBlocksControl(
   queued: readonly OfflineCommand[],
   acceptedButStuck: ReadonlySet<string>,
+  readError: string | null,
 ): boolean {
+  if (readError !== null) return true;
   return queued.some(
     (command) =>
       (command.status === "PENDING" || command.status === "CONFLICT") &&
@@ -157,10 +171,15 @@ export function queueSaveFailureMessage(error: unknown, subject = "Zuweisung"): 
  * obwohl sie in IndexedDB stehen und beim naechsten Lesen wieder auftauchen.
  * Die Warteschlange muss sichtbar sein (AGENTS.md §18), auch wenn genau ihr
  * Lesen scheitert (PR-Agent-Runde 5, Befund b).
+ *
+ * Nennt seit Runde 9 auch die Folge: `queueBlocksControl` sperrt bei diesem
+ * Zustand bedingungslos (Scoring bzw. Zuweisen). Ohne diesen Satz sah die
+ * Person eine gesperrte Bedienung ohne erkennbaren Grund -- die Meldung stand
+ * zwar daneben, sagte aber nicht, dass genau sie die Sperre ausloest.
  */
 export function queueReadFailureMessage(error: unknown): string {
   const detail = error instanceof Error ? error.message : "unbekannter Fehler";
-  return `Die Warteschlange konnte nicht gelesen werden (${detail}). Wartende Zuweisungen werden möglicherweise nicht angezeigt. Lade die Seite neu, bevor du erneut zuweist.`;
+  return `Die Warteschlange konnte nicht gelesen werden (${detail}). Wartende Kommandos werden möglicherweise nicht angezeigt; deshalb ist die Bedienung gesperrt, bis das Lesen wieder gelingt. Lade die Seite neu.`;
 }
 
 /**
