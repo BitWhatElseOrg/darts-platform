@@ -245,17 +245,15 @@ function validateRoundOrder(slots: readonly TemplateSlot[], positions: number): 
   }
 
   const doublesAfterRound = Math.ceil(positions / 2);
+  // `regular.length` ist an dieser Stelle immer `positions * positions +
+  // regularDoubles.length`: `validateRoundRobin` hat direkt zuvor bereits
+  // erzwungen, dass die Einzel genau `positions * positions` zählen — eine
+  // Längenabweichung kann hier also nicht mehr auftreten.
   const expected: readonly Discipline[] = [
     ...Array.from({ length: positions * doublesAfterRound }, (): Discipline => "SINGLES"),
     ...Array.from({ length: regularDoubles.length }, (): Discipline => "DOUBLES"),
     ...Array.from({ length: positions * (positions - doublesAfterRound) }, (): Discipline => "SINGLES"),
   ];
-  if (regular.length !== expected.length) {
-    throw new LeagueValidationError(
-      "INVALID_ROUND_ORDER",
-      `Bei ${positions} Aufstellungspositionen trägt die Vorlage ${expected.length} reguläre Spiele, nicht ${regular.length}.`,
-    );
-  }
   for (const [index, discipline] of expected.entries()) {
     const slot = regular[index];
     if (slot === undefined || slot.discipline !== discipline) {

@@ -308,9 +308,13 @@ function SetupForm({ organization }: { readonly organization: OrganizationSummar
               ))}
             </SelectInput>
           </Field>
-          <Field htmlFor="regular-doubles" label="Reguläre Doppel">
+          <Field
+            hint="Reglement 2.2.8/2.2.1: mindestens ein reguläres Doppel ist Pflicht."
+            htmlFor="regular-doubles"
+            label="Reguläre Doppel"
+          >
             <SelectInput id="regular-doubles" {...register("regularDoubles")}>
-              {[0, 1, 2, 3, 4].map((count) => (
+              {[1, 2, 3, 4].map((count) => (
                 <option key={count} value={String(count)}>
                   {count}
                 </option>
