@@ -523,6 +523,32 @@ select count(*) from matches where sets_to_win > 1;
   `correctTournamentResult`, keine Deploy-Nebenwirkung. In der Dev-DB: 0
   solche Matches.
 
+`matches_completion_check` und `legs_completion_check` (Migration
+`0023_tier2_integrity_constraints`) binden Status und Ergebnis aneinander:
+
+```text
+(matches.status = 'COMPLETED') = (winner_seat is not null and completed_at is not null)
+(legs.status = 'COMPLETED')    = (winner_seat is not null)
+```
+
+Geschrieben werden diese Spalten aus der Projektion (`syncProjection` in
+`apps/api/src/matches/matches.repository.ts`). `getState` liest den Status aus
+der Projektion, `list()` aus der gespeicherten Spalte — ohne den Check könnten
+Liste und Detail auseinanderlaufen, ohne dass es jemand bemerkt.
+`tournament_matches` und `encounters` tragen die gleiche Bindung seit je.
+
+Bestandscheck vor dem Ausrollen:
+
+```sql
+select id from matches
+where (status = 'COMPLETED') <> (winner_seat is not null and completed_at is not null);
+select id from legs where (status = 'COMPLETED') <> (winner_seat is not null);
+```
+
+Sperrdauer: `ADD CONSTRAINT … CHECK` ohne `NOT VALID` prüft den Bestand unter
+`ACCESS EXCLUSIVE`. Bei der heutigen Grösse Sekundenbruchteile; das Deployment
+gehört trotzdem ausserhalb des Spielbetriebs.
+
 ---
 
 ## match_participants
@@ -637,6 +663,45 @@ score >= 0
 dart_count BETWEEN 1 AND 3
 remaining_before >= 0
 remaining_after >= 0
+```
+
+Migration `0023_tier2_integrity_constraints` bringt die Kernrechnung des
+Scorings in die Datenbank — bis dahin lag sie allein in
+`packages/scoring-engine`:
+
+```text
+outcome <> 'BUST'   =>  score_after = score_before - applied_points
+outcome  = 'BUST'   =>  applied_points = 0 and score_after = score_before
+outcome like '%WON' =>  score_after = 0
+```
+
+Damit fällt eine künftige Änderung an `executeX01Command` oder am Mapping im
+Repository, die für einen Sonderfall (Master-Out, verpasster Checkout,
+Rundenlimit) einen unpassenden `score_after` schriebe, sofort auf — statt erst
+in der Statistik oder gar nicht.
+
+Bestandscheck vor dem Ausrollen:
+
+```sql
+select id from visits where outcome <> 'BUST' and score_after <> score_before - applied_points;
+select id from visits where outcome = 'BUST' and (applied_points <> 0 or score_after <> score_before);
+select id from visits where outcome like '%WON' and score_after <> 0;
+```
+
+Zusätzlich tragen die drei Kommandotabellen je einen Unique auf
+`(Aggregat, resulting_version)` — `score_commands_match_version_unique`,
+`tournament_commands_tournament_version_unique`,
+`encounter_commands_encounter_version_unique`. Der Zustandsaufbau sortiert den
+Kommandostrom nach dieser Spalte; zwei Kommandos mit derselben Zielversion
+machten die Replay-Reihenfolge und damit den rekonstruierten Spielstand
+nichtdeterministisch. Die Indexe decken zugleich `match_id`, `tournament_id`
+und `encounter_id` als führende Spalte für die Löschkaskaden ab.
+
+Bestandscheck vor dem Ausrollen:
+
+```sql
+select match_id, resulting_version from score_commands
+group by match_id, resulting_version having count(*) > 1;
 ```
 
 ### Visit-Kommando: `checkoutMissed`
@@ -985,6 +1050,36 @@ Index:
 published_at
 created_at
 ```
+
+Migration `0023_tier2_integrity_constraints` ergänzt die Spalte `sequence`
+(`bigserial`, unique) und zwei partielle Indexe. `occurred_at` ist `now()` und
+damit die Transaktions**start**zeit — eine länger laufende Transaktion, die
+nach einer kürzeren committet, würde vor ihr publiziert. Die Verteilung ordnet
+deshalb nach `sequence`, die beim `INSERT` vergeben wird.
+
+```text
+unique (sequence)                                    -- outbox_events_sequence_unique
+(sequence) where published_at is null                -- outbox_events_pending_publication_idx
+(sequence) where statistics_processed_at is null
+           and event_type = 'MATCH_COMPLETED'        -- outbox_events_pending_statistics_idx
+```
+
+Der Statistik-Poller im Worker lief bis dahin sekündlich als Seq Scan über die
+ganze Tabelle. Der zweite partielle Index deckt genau seinen Filter. Der ältere
+Index `(published_at, occurred_at)` bleibt für die Aufräumregel stehen, die
+verarbeitete Zeilen nach 30 Tagen entfernt (`apps/worker/src/prune-outbox.ts`).
+
+Bestandscheck vor dem Ausrollen:
+
+```sql
+select count(*) from outbox_events;
+```
+
+Sperrdauer: `ADD COLUMN … bigserial NOT NULL` schreibt jede Zeile der Tabelle
+neu und nimmt dafür ein `ACCESS EXCLUSIVE`-Lock auf `outbox_events`. Bei der
+heutigen Grösse (rund 4200 Zeilen) sind das Sekundenbruchteile. Wächst die
+Tabelle vor dem Ausrollen deutlich, ist die Aufräumregel **vor** der Migration
+einmal von Hand zu fahren.
 
 ---
 

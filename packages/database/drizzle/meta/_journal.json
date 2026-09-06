@@ -162,6 +162,13 @@
       "when": 1788654917335,
       "tag": "0022_board_in_progress_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788678606502,
+      "tag": "0023_tier2_integrity_constraints",
+      "breakpoints": true
     }
   ]
 }
