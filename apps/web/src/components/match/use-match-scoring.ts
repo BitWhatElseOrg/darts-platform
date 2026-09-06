@@ -6,12 +6,13 @@ import {
   abortMatchResponseSchema, matchStateSchema, type Dart, type MatchStateResponse,
 } from "@darts-platform/schemas";
 import { apiRequest } from "@/lib/api-client";
-import { ApiClientError } from "@/lib/api-error";
+import { ApiClientError, UserFacingError } from "@/lib/api-error";
 import { generateId } from "@/lib/id";
 import { saveOfflineCommand, type OfflineCommand } from "@/lib/offline-command-queue";
 import {
   nextReplayable,
   queueBlocksControl,
+  queueSaveFailureMessage,
   replayFailure,
   replayWithCurrentVersion,
   withCurrentExpectedVersion,
@@ -133,6 +134,11 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     // der gepollten Scoringflaeche fuer nichts (Re-Review-Befund F2, "doppelter
     // Refresh").
     let sentCount = 0;
+    // Ob das Lesen dieses Durchgangs geklappt hat. Scheitert es, darf das
+    // `finally` unten nicht sofort erneut lesen: gelingt der zweite Versuch,
+    // loescht er den gerade gesetzten `readError` im selben Tick -- "Jetzt
+    // uebertragen" gedrueckt, nichts uebertragen, keine Meldung (Runde 7).
+    let queueWasRead = false;
     try {
       // Auch das Lesen kann scheitern. Vorher trug dieser Wurf durch das
       // `finally` hindurch nach draussen -- an `void replay()` im Effekt und
@@ -141,6 +147,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
       // ihn und meldet ihn als Lesefehler; `null` heisst: nicht gelesen.
       const commands = await readQueue();
       if (commands === null) return;
+      queueWasRead = true;
       // `nextReplayable` statt eines Filters: ein abgelehnter oder
       // konfliktbehafteter Kopf haelt die ganze Warteschlange an, bis jemand
       // entschieden hat. Ein Filter uebersprang ihn beim naechsten Auslauf und
@@ -195,7 +202,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
         return { successful: true, version: result.version };
       }));
     } finally {
-      await refreshQueue();
+      if (queueWasRead) await refreshQueue();
       // Kein Refresh bei leerem Durchgang: sonst verdoppelt der Versions-
       // Effekt unten (Abhaengigkeit `match.version`) nach jeder online
       // gesendeten Aufnahme den Refetch-Sturm -- die Mutation hat den
@@ -249,22 +256,28 @@ export function useMatchScoring({ organizationId, match, canScore }: {
       // ist das Ablegen der EINZIGE Weg, auf dem die Aufnahme ueberlebt.
       // Scheitert es, muss die Mutation scheitern -- sonst meldete
       // `onSuccess` einen Erfolg, die Flaeche leerte das Ziffernfeld und die
-      // Aufnahme waere weg. Der Wurf landet in `submit.error` und ist
-      // angezeigt; `persist` wuerde ihn nur nach `queueWriteError` melden und
-      // die Mutation trotzdem gelingen lassen.
-      if (!navigator.onLine) {
-        await saveOfflineCommand({ commandId, scope, path, body, label: `${visit.points} Punkte`, createdAt: new Date().toISOString(), status: "PENDING", error: null });
+      // Aufnahme waere weg. `persist` wuerde ihn nur nach `queueWriteError`
+      // melden und die Mutation trotzdem gelingen lassen.
+      //
+      // Der Wurf traegt seine eigene Meldung: ein IndexedDB-Fehler ist ein
+      // lokales Problem, und `userFacingErrorMessage` zeigte dafuer bis
+      // Runde 7 "Die Anfrage ist fehlgeschlagen." -- eine Aussage ueber eine
+      // Uebertragung, die nie stattgefunden hat. `UserFacingError` reicht den
+      // formulierten Text durch, die Mutation scheitert unveraendert.
+      const enqueue = async (): Promise<null> => {
+        try {
+          await saveOfflineCommand({ commandId, scope, path, body, label: `${visit.points} Punkte`, createdAt: new Date().toISOString(), status: "PENDING", error: null });
+        } catch (saveError) {
+          throw new UserFacingError(queueSaveFailureMessage(saveError, "Aufnahme"), { cause: saveError });
+        }
         await refreshQueue();
         return null;
-      }
+      };
+      if (!navigator.onLine) return await enqueue();
       try {
         return await apiRequest({ path, method: "POST", body, schema: matchStateSchema });
       } catch (error) {
-        if (!(error instanceof ApiClientError)) {
-          await saveOfflineCommand({ commandId, scope, path, body, label: `${visit.points} Punkte`, createdAt: new Date().toISOString(), status: "PENDING", error: null });
-          await refreshQueue();
-          return null;
-        }
+        if (!(error instanceof ApiClientError)) return await enqueue();
         throw error;
       }
     },

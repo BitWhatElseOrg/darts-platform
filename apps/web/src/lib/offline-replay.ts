@@ -137,10 +137,15 @@ export function localCleanupFailureMessage(error: unknown): string {
  * das Kommando ist weder gesendet noch gespeichert. Ohne sichtbare Meldung
  * verschwindet es kommentarlos -- versteckter Datenverlust (AGENTS.md §18,
  * PR-Agent-Runde 3, Befund A).
+ *
+ * `subject` benennt, was nicht abgelegt werden konnte: die Kommandozentrale
+ * legt Zuweisungen ab, die Scoringflaeche Aufnahmen. Vorher stand "Zuweisung"
+ * fest im Text, und die Scoringflaeche zeigte fuer eine nicht gespeicherte
+ * Aufnahme entweder eine falsche Bezeichnung oder gar keine Meldung.
  */
-export function queueSaveFailureMessage(error: unknown): string {
+export function queueSaveFailureMessage(error: unknown, subject = "Zuweisung"): string {
   const detail = error instanceof Error ? error.message : "unbekannter Fehler";
-  return `Zuweisung konnte nicht in die Warteschlange gelegt werden (${detail}). Bitte Verbindung wiederherstellen und erneut versuchen.`;
+  return `${subject} konnte nicht in die Warteschlange gelegt werden (${detail}). Bitte Verbindung wiederherstellen und erneut versuchen.`;
 }
 
 /**

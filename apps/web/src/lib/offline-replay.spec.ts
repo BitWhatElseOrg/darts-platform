@@ -209,6 +209,18 @@ describe("queueSaveFailureMessage", () => {
       "Zuweisung konnte nicht in die Warteschlange gelegt werden (unbekannter Fehler). Bitte Verbindung wiederherstellen und erneut versuchen.",
     );
   });
+
+  /**
+   * Runde 7: Die Scoringflaeche legt Aufnahmen ab, nicht Zuweisungen. Ihr
+   * Offline-Zweig zeigte fuer einen IndexedDB-Fehler bis dahin die generische
+   * Uebertragungsmeldung -- fuer ein Problem, bei dem nie etwas uebertragen
+   * wurde.
+   */
+  it("benennt den abgelegten Gegenstand, wenn er nicht „Zuweisung“ heisst", () => {
+    expect(queueSaveFailureMessage(new Error("Quota überschritten"), "Aufnahme")).toBe(
+      "Aufnahme konnte nicht in die Warteschlange gelegt werden (Quota überschritten). Bitte Verbindung wiederherstellen und erneut versuchen.",
+    );
+  });
 });
 
 describe("queueReadFailureMessage", () => {

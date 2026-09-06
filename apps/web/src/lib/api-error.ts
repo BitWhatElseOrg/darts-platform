@@ -34,3 +34,22 @@ export class ApiClientError extends Error {
     this.status = status;
   }
 }
+
+/**
+ * Ein Fehler, dessen Meldung bereits fuer die Person formuliert ist und
+ * deshalb unveraendert angezeigt werden darf -- ohne dass ein Server daran
+ * beteiligt war.
+ *
+ * Er entsteht dort, wo eine Mutation an einem rein LOKALEN Problem scheitert
+ * (etwa das Ablegen in der Offline-Warteschlange, siehe
+ * `queueSaveFailureMessage`). `userFacingErrorMessage` reichte bis dahin nur
+ * `ApiClientError` durch und zeigte fuer alles andere die generische
+ * Uebertragungsmeldung "Die Anfrage ist fehlgeschlagen." -- eine Aussage ueber
+ * das Netz fuer ein Problem, das nichts mit dem Netz zu tun hatte.
+ */
+export class UserFacingError extends Error {
+  public constructor(message: string, options?: { readonly cause?: unknown }) {
+    super(message, options);
+    this.name = "UserFacingError";
+  }
+}

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { apiErrorSchema } from "@darts-platform/schemas";
 
-import { ApiClientError } from "./api-error";
+import { ApiClientError, UserFacingError } from "./api-error";
 
 import { publicEnvironment } from "./environment";
 
@@ -65,7 +65,10 @@ function localizedMessage(code: string): string {
 }
 
 export function userFacingErrorMessage(error: unknown, fallback = "Die Anfrage ist fehlgeschlagen."): string {
-  return error instanceof ApiClientError ? error.message : fallback;
+  // `UserFacingError` traegt eine bereits fertig formulierte Meldung -- etwa
+  // fuer ein rein lokales Problem, fuer das der Uebertragungs-Fallback falsch
+  // waere (siehe `api-error.ts`).
+  return error instanceof ApiClientError || error instanceof UserFacingError ? error.message : fallback;
 }
 
 export async function apiRequest<T>(input: {
