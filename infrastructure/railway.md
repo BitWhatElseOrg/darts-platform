@@ -135,6 +135,12 @@ Mindestens diese Shared beziehungsweise Service-Variablen werden benötigt:
 | `NEXT_PUBLIC_API_URL` | `https://api.dartbase.ch/api/v1` | API-URL im Browser-Bundle |
 | `DATABASE_URL` | Railway-Referenz auf PostgreSQL | persistente Production-Datenbank |
 | `REDIS_URL` | Railway-Referenz auf Redis | Cache, Queue und Realtime |
+| `RATE_LIMIT_MAX_PER_MINUTE` | `300` | Obergrenze je IP und Minute für alle übrigen Routen (optional, Vorgabe 300) |
+| `RATE_LIMIT_PUBLIC_MAX_PER_MINUTE` | `120` | Obergrenze für `/api/v1/public/**` (optional, Vorgabe 120) |
+| `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE` | `10` | Obergrenze für Anmeldung, Registrierung und Einladungsrouten (optional, Vorgabe 10) |
+
+`REDIS_URL` akzeptiert `redis://` und `rediss://`; für die verschlüsselte
+Verbindung wird die TLS-Variante der Railway-Referenz eingetragen.
 
 `BETTER_AUTH_SECRET` kann beispielsweise mit `openssl rand -base64 32` erzeugt
 werden. Secret-Werte werden ausschließlich in Railway hinterlegt und weder im

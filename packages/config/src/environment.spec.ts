@@ -69,6 +69,45 @@ describe("parseApplicationEnvironment", () => {
       expect((error as EnvironmentValidationError).message).toContain("API_PORT");
     }
   });
+
+  it("erlaubt eine TLS-Redis-Verbindung", () => {
+    const environment = parseApplicationEnvironment({
+      ...validEnvironment,
+      REDIS_URL: "rediss://cache.example.test:6380",
+    });
+
+    expect(environment.REDIS_URL).toBe("rediss://cache.example.test:6380");
+  });
+
+  it("weist ein Redis-Schema ausserhalb von redis und rediss ab", () => {
+    expect(() =>
+      parseApplicationEnvironment({
+        ...validEnvironment,
+        REDIS_URL: "http://localhost:6379",
+      }),
+    ).toThrow(EnvironmentValidationError);
+  });
+
+  it("setzt die Rate-Limit-Vorgaben, wenn nichts konfiguriert ist", () => {
+    const environment = parseApplicationEnvironment(validEnvironment);
+
+    expect(environment.RATE_LIMIT_MAX_PER_MINUTE).toBe(300);
+    expect(environment.RATE_LIMIT_PUBLIC_MAX_PER_MINUTE).toBe(120);
+    expect(environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE).toBe(10);
+  });
+
+  it("uebernimmt konfigurierte Rate-Limit-Werte als Zahlen", () => {
+    const environment = parseApplicationEnvironment({
+      ...validEnvironment,
+      RATE_LIMIT_MAX_PER_MINUTE: "50",
+      RATE_LIMIT_PUBLIC_MAX_PER_MINUTE: "20",
+      RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: "3",
+    });
+
+    expect(environment.RATE_LIMIT_MAX_PER_MINUTE).toBe(50);
+    expect(environment.RATE_LIMIT_PUBLIC_MAX_PER_MINUTE).toBe(20);
+    expect(environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE).toBe(3);
+  });
 });
 
 describe("parsePublicWebEnvironment", () => {

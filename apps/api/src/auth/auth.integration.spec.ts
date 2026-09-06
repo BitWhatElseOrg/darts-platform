@@ -25,6 +25,7 @@ import { OrganizationAccessService } from "../organizations/organization-access.
 import { OrganizationsRepository } from "../organizations/organizations.repository.js";
 import { OrganizationsService } from "../organizations/organizations.service.js";
 import { bootstrapProductionOwner } from "../operations/production-bootstrap.js";
+import { RedisService } from "../redis/redis.service.js";
 import { createTemporaryDatabase } from "../testing/temporary-database.js";
 
 const environment = parseApplicationEnvironment(process.env);
@@ -187,12 +188,15 @@ describe("Better Auth integration", () => {
         correlationId: randomUUID(),
       };
       let databaseService: DatabaseService | undefined;
+      let redisService: RedisService | undefined;
 
       try {
         databaseService = new DatabaseService(isolatedEnvironment);
+        redisService = new RedisService(isolatedEnvironment);
         const authService = new AuthService(
           databaseService,
           isolatedEnvironment,
+          redisService,
         );
         const repository = new OrganizationsRepository(databaseService);
         const organizationsService = new OrganizationsService(
@@ -280,7 +284,11 @@ describe("Better Auth integration", () => {
         try {
           await databaseService?.onApplicationShutdown();
         } finally {
-          await temporary.cleanup();
+          try {
+            await redisService?.onApplicationShutdown();
+          } finally {
+            await temporary.cleanup();
+          }
         }
       }
     },

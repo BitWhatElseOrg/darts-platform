@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const portSchema = z.coerce.number().int().min(1).max(65_535);
+const rateLimitMaxSchema = z.coerce.number().int().min(1).max(1_000_000);
 const urlListSchema = z
   .string()
   .default("")
@@ -23,7 +24,11 @@ const logLevelSchema = z.enum([
 export const applicationEnvironmentSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.string().url().startsWith("postgresql://"),
-  REDIS_URL: z.string().url().startsWith("redis://"),
+  // `rediss://` ist die TLS-Variante; Railway bietet sie an, und die
+  // Realtime- und Rate-Limit-Zaehler laufen ueber dieselbe Verbindung.
+  REDIS_URL: z.string().url().regex(/^rediss?:\/\//u, {
+    message: "must start with redis:// or rediss://",
+  }),
   BETTER_AUTH_SECRET: z.string().min(32),
   BETTER_AUTH_URL: z.string().url(),
   WEB_PORT: portSchema.default(3_000),
@@ -32,6 +37,16 @@ export const applicationEnvironmentSchema = z.object({
   WEB_ORIGIN: z.string().url().default("http://localhost:3000"),
   WEB_ADDITIONAL_ORIGINS: urlListSchema,
   LOG_LEVEL: logLevelSchema.default("log"),
+  /** Obergrenze je IP und Minute fuer alle nicht gesondert geregelten Routen. */
+  RATE_LIMIT_MAX_PER_MINUTE: rateLimitMaxSchema.default(300),
+  /**
+   * Obergrenze fuer `/api/v1/public/**`. Bewusst hoeher als die sensible
+   * Grenze: eine ganze Halle sitzt hinter einer einzigen oeffentlichen
+   * IP-Adresse, und die TV-Wand fragt im Sekundentakt nach.
+   */
+  RATE_LIMIT_PUBLIC_MAX_PER_MINUTE: rateLimitMaxSchema.default(120),
+  /** Obergrenze fuer Anmeldung, Registrierung und die Einladungsrouten. */
+  RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: rateLimitMaxSchema.default(10),
 });
 
 export const publicWebEnvironmentSchema = z.object({
