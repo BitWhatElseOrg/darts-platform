@@ -26,9 +26,12 @@ import {
   nextReplayable,
   queuedCommandNotice,
   replayFailure,
+  replayWithCurrentVersion,
+  type ReplayOutcome,
 } from "@/lib/offline-replay";
 import {
   assignmentQueueEntries,
+  assignmentRequestBody,
   tournamentQueueScope,
   unsentAssignments,
   type AssignmentQueueEntry,
@@ -50,6 +53,12 @@ import { StandingsSheet } from "./standings-sheet";
  */
 interface PendingCommand {
   readonly commandId: string;
+  /**
+   * Version bei Erfassung -- nur ein Anzeigehinweis fuer die gespeicherte
+   * Nutzlast. Gesendet wird sie nicht: `sendAssignment` bekommt die
+   * tatsaechliche `expectedVersion` separat uebergeben (siehe
+   * `tournament-assignment-queue.ts`, PR-Agent-Befund F2 "Stale Versions").
+   */
   readonly expectedVersion: number;
   readonly matchId: string;
   readonly boardId: string;
@@ -61,7 +70,7 @@ function queuedCommandOf(command: PendingCommand, scope: string, path: string): 
     commandId: command.commandId,
     scope,
     path,
-    body: { commandId: command.commandId, expectedVersion: command.expectedVersion, matchId: command.matchId, boardId: command.boardId },
+    body: assignmentRequestBody(command, command.expectedVersion),
     label: command.label,
     createdAt: new Date().toISOString(),
     status: "PENDING",
@@ -192,10 +201,13 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
   );
 
   /**
-   * Sendet eine Zuweisung. `queuedCommand` ist gesetzt, wenn sie bereits in
-   * der Warteschlange steht -- dann wird sie dort entfernt (Erfolg) oder mit
-   * ihrem Ausgang markiert. Eine fachliche Ablehnung wird nicht wiederholt:
-   * sonst bliebe sie fuer immer stehen und sperrte Board und Match.
+   * Sendet eine Zuweisung mit einer explizit uebergebenen `expectedVersion`
+   * -- nie mit der beim Einreihen gespeicherten (`command.expectedVersion`
+   * ist nur ein Anzeigehinweis, siehe `PendingCommand`). `queuedCommand` ist
+   * gesetzt, wenn sie bereits in der Warteschlange steht -- dann wird sie
+   * dort entfernt (Erfolg) oder mit ihrem Ausgang markiert. Eine fachliche
+   * Ablehnung wird nicht wiederholt: sonst bliebe sie fuer immer stehen und
+   * sperrte Board und Match.
    *
    * Der `try/catch` um den API-Aufruf endet mit der Serverantwort. Die
    * lokale Nacharbeit danach (Warteschlangeneintrag entfernen, Ansicht
@@ -203,24 +215,23 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
    * dort ist "lokal nicht aufgeraeumt", nicht "Uebertragung gescheitert", und
    * darf ein bereits angenommenes Kommando nicht ueber `replayFailure`
    * erneut als CONFLICT/REJECTED einreihen (PR-Agent-Befund F2).
+   *
+   * Gibt bei Erfolg die vom Server bestaetigte neue Turnierversion zurueck,
+   * sonst `null` -- so kann die Aufruferin (siehe `flushPending`) diese
+   * Version an das naechste Kommando der Kette weiterreichen.
    */
   const sendAssignment = useCallback(
-    async (command: PendingCommand, queuedCommand: OfflineCommand | null = null): Promise<boolean> => {
+    async (command: PendingCommand, expectedVersion: number, queuedCommand: OfflineCommand | null = null): Promise<number | null> => {
       let next: TournamentDashboard;
       try {
         next = await apiRequest({
           path: assignmentPath,
           method: "POST",
-          body: {
-            commandId: command.commandId,
-            expectedVersion: command.expectedVersion,
-            matchId: command.matchId,
-            boardId: command.boardId,
-          },
+          body: assignmentRequestBody(command, expectedVersion),
           schema: tournamentDashboardSchema,
         });
       } catch (error) {
-        const versionConflict = conflictState(error, command.expectedVersion);
+        const versionConflict = conflictState(error, expectedVersion);
         if (versionConflict !== null) setConflict(versionConflict);
         const failure = replayFailure(error);
         switch (failure.kind) {
@@ -238,7 +249,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         }
         setCommandError(userFacingErrorMessage(error, "Zuweisung fehlgeschlagen."));
         await refreshQueue();
-        return false;
+        return null;
       }
 
       // Der Server hat die Zuweisung angenommen -- ab hier zaehlt kein
@@ -253,7 +264,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
       } catch (localError) {
         setCommandError(localCleanupFailureMessage(localError));
       }
-      return true;
+      return next.tournament.version;
     },
     [assignmentPath, queryClient, queryKey, refreshQueue, scope],
   );
@@ -273,9 +284,16 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         ? (readyQueue.find((item) => item.matchId === options.matchId) ?? null)
         : (readyQueue[0] ?? null);
       if (board === null || entry === null) return;
+      // `expectedVersion` ist hier nur der Anzeigehinweis fuer die
+      // Warteschlange (siehe `PendingCommand`); gesendet wird beim Online-Pfad
+      // unten der aktuelle `dashboard.tournament.version` direkt, nicht ein um
+      // die Anzahl wartender Kommandos hochgerechneter Wert. Diese
+      // Hochrechnung war der Befund: ein zwischendurch verworfenes Kommando
+      // zaehlte weiter mit, und die Nachfolger sendeten eine Version, die der
+      // Server nie erreichen konnte (PR-Agent-Befund F2, "Stale Versions").
       const command: PendingCommand = {
         commandId: generateId(),
-        expectedVersion: dashboard.tournament.version + pending.length,
+        expectedVersion: dashboard.tournament.version,
         matchId: entry.matchId,
         boardId: board.boardId,
         label: `${entry.participants[0].displayName} – ${entry.participants[1].displayName} auf ${board.boardName}`,
@@ -288,12 +306,12 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
       }
       setCommandBusy(true);
       try {
-        await sendAssignment(command);
+        await sendAssignment(command, dashboard.tournament.version);
       } finally {
         setCommandBusy(false);
       }
     },
-    [assignmentPath, commandBusy, connection, dashboard, openBoards, pending.length, pendingBoardIds, readyQueue, refreshQueue, scope, sendAssignment],
+    [assignmentPath, commandBusy, connection, dashboard, openBoards, pendingBoardIds, readyQueue, refreshQueue, scope, sendAssignment],
   );
 
   const release = useCallback(
@@ -328,25 +346,36 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
 
   /**
    * Uebertraegt die wartenden Zuweisungen in ihrer Reihenfolge. Beim ersten
-   * Fehlschlag wird abgebrochen: die Reihenfolge ist verbindlich, und die
-   * erwartete Turnierversion jeder folgenden Zuweisung baut auf der
-   * vorherigen auf.
+   * Fehlschlag wird abgebrochen: die Reihenfolge ist verbindlich. Die
+   * erwartete Turnierversion jeder Zuweisung baut nicht mehr auf der beim
+   * Einreihen eingefrorenen `expectedVersion` auf, sondern auf einem frisch
+   * geladenen Serverstand und danach auf der jeweils vorherigen erfolgreichen
+   * Antwort (`replayWithCurrentVersion`) -- der zwischengespeicherte
+   * `dashboard` koennte waehrend der Offline-Phase veraltet sein, und ein
+   * zwischendurch verworfenes Kommando zaehlt so nicht mehr in der
+   * Versionsrechnung der folgenden mit (PR-Agent-Befund F2, "Stale
+   * Versions").
    */
   const flushPending = useCallback(async () => {
     if (commandBusy || connection === "offline") return;
     setCommandBusy(true);
-    let sent = 0;
     try {
-      for (const entry of replayable) {
-        const successful = await sendAssignment(pendingCommandOf(entry), entry.command);
-        if (!successful) break;
-        sent += 1;
-      }
+      const refreshed = await dashboardQuery.refetch();
+      const startVersion = refreshed.data?.tournament.version ?? dashboard?.tournament.version;
+      if (startVersion === undefined) return;
+      const { sentCount } = await replayWithCurrentVersion<AssignmentQueueEntry>(
+        replayable,
+        startVersion,
+        async (entry, expectedVersion): Promise<ReplayOutcome> => {
+          const version = await sendAssignment(pendingCommandOf(entry), expectedVersion, entry.command);
+          return version === null ? { successful: false } : { successful: true, version };
+        },
+      );
+      setAnnouncement(`${sentCount} Befehl${sentCount === 1 ? "" : "e"} übertragen.`);
     } finally {
-      setAnnouncement(`${sent} Befehl${sent === 1 ? "" : "e"} übertragen.`);
       setCommandBusy(false);
     }
-  }, [commandBusy, connection, replayable, sendAssignment]);
+  }, [commandBusy, connection, dashboard?.tournament.version, dashboardQuery, replayable, sendAssignment]);
 
   /** Verwirft eine Zuweisung, die nur noch im Weg steht. */
   const discardQueued = useCallback(async (commandId: string) => {

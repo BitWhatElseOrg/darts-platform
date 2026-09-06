@@ -17,7 +17,14 @@ import {
   saveOfflineCommand,
   type OfflineCommand,
 } from "@/lib/offline-command-queue";
-import { nextReplayable, queueBlocksControl, replayFailure } from "@/lib/offline-replay";
+import {
+  nextReplayable,
+  queueBlocksControl,
+  replayFailure,
+  replayWithCurrentVersion,
+  withCurrentExpectedVersion,
+  type ReplayOutcome,
+} from "@/lib/offline-replay";
 import { useBoardControllerLock } from "@/lib/use-board-controller-lock";
 
 /**
@@ -104,9 +111,22 @@ export function useMatchScoring({ organizationId, match, canScore }: {
       // konfliktbehafteter Kopf haelt die ganze Warteschlange an, bis jemand
       // entschieden hat. Ein Filter uebersprang ihn beim naechsten Auslauf und
       // setzte seinen Nachfolger in falscher Reihenfolge ab.
-      for (const command of nextReplayable(commands)) {
+      //
+      // `replayWithCurrentVersion` haelt die `expectedVersion` jeder Aufnahme
+      // aktuell: die erste bekommt `match.version`, jede folgende die Version
+      // aus der Antwort auf die vorherige. Vorher trug jede Aufnahme dieselbe,
+      // beim Erfassen eingefrorene `match.version` in ihrer gespeicherten
+      // Nutzlast -- nur die erste kam durch, alle folgenden konfligierten
+      // sofort (PR-Agent-Befund F2 / Gesamtaudit C11, "Stale Versions").
+      await replayWithCurrentVersion(nextReplayable(commands), match.version, async (command, expectedVersion): Promise<ReplayOutcome> => {
+        let result: MatchStateResponse;
         try {
-          await apiRequest({ path: command.path, method: "POST", body: command.body, schema: matchStateSchema });
+          result = await apiRequest({
+            path: command.path,
+            method: "POST",
+            body: withCurrentExpectedVersion(command.body, expectedVersion),
+            schema: matchStateSchema,
+          });
         } catch (error) {
           // Ein fachlich abgelehntes Kommando (4xx mit Fehlercode) wird als
           // solches markiert statt endlos wiederholt -- sonst bliebe es
@@ -124,7 +144,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
             case "RETRY":
               break;
           }
-          break;
+          return { successful: false };
         }
         // Der Server hat das Kommando angenommen -- ab hier ist ein Fehler
         // rein lokal (IndexedDB) und kein Uebertragungsfehler mehr. Er darf
@@ -136,16 +156,17 @@ export function useMatchScoring({ organizationId, match, canScore }: {
         try {
           await removeOfflineCommand(command.commandId);
         } catch {
-          break;
+          return { successful: false };
         }
-      }
+        return { successful: true, version: result.version };
+      });
     } finally {
       await refreshQueue();
       await refresh();
       setReplaying(false);
       replayingRef.current = false;
     }
-  }, [scope, refresh, refreshQueue]);
+  }, [scope, match.version, refresh, refreshQueue]);
 
   useEffect(() => {
     const becameOnline = () => { setOnline(true); void replay(); };
