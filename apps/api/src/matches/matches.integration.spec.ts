@@ -494,6 +494,90 @@ describe("persistent X01 match", () => {
     expect(state.participants.find((participant) => participant.playerId === playerOneId)?.remaining).toBe(60);
   });
 
+  it("accepts a master-out treble finish with a checkout segment", async () => {
+    // Folge aus D-I1: `checkoutDouble` kann nur D1-D20 und Bull kodieren, ein
+    // Triple-Finish war ohne Einzelwuerfe deshalb nicht belegbar. Das
+    // verallgemeinerte `checkoutSegment` traegt Segment und Multiplikator und
+    // laeuft ueber die volle Strecke: Schema -> Kommando -> Engine ->
+    // gespeicherte Nutzlast -> Replay.
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    await databaseService.database
+      .update(matches)
+      .set({ outRule: "MASTER" })
+      .where(and(eq(matches.organizationId, organizationId), eq(matches.id, matchId)));
+
+    let state = created;
+    const score = async (playerId: string, points: number) => {
+      state = await service.submitVisit({ organizationId, matchId, auth, audit, data: { commandId: randomUUID(), expectedVersion: state.version, playerId, points, dartsThrown: 3 } });
+    };
+    await score(playerOneId, 180); // 501 -> 321
+    await score(playerTwoId, 0);
+    await score(playerOneId, 180); // 321 -> 141
+    await score(playerTwoId, 0);
+    await score(playerOneId, 81); // 141 -> 60
+    await score(playerTwoId, 0);
+
+    const finished = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: {
+        commandId: randomUUID(), expectedVersion: state.version, playerId: playerOneId,
+        points: 60, dartsThrown: 1, checkoutSegment: { segment: 20, multiplier: 3 },
+        // Wie die Flaeche: der Versuch wird ausdruecklich gemeldet. Die API
+        // setzt `checkoutAttempts` sonst auf 0 und der Rueckfall der Engine
+        // kommt gar nicht erst zum Zug.
+        checkoutAttempts: 1,
+      },
+    });
+    expect(finished.status).toBe("COMPLETED");
+    expect(finished.winnerPlayerId).toBe(playerOneId);
+    // Ein Triple fuellt `checkoutDouble` nicht, der Versuch wird trotzdem
+    // gezaehlt. `visits` kommt neueste zuerst, die Abschlussaufnahme steht
+    // also vorn.
+    expect(finished.visits[0]?.checkoutDouble).toBeNull();
+    expect(finished.visits[0]?.checkoutAttempts).toBe(1);
+    expect(finished.visits[0]?.outcome).toBe("MATCH_WON");
+
+    // Replay aus der gespeicherten Nutzlast: derselbe Zustand.
+    const reloaded = await repository.getState(organizationId, matchId);
+    expect(reloaded?.status).toBe("COMPLETED");
+    expect(reloaded?.winnerPlayerId).toBe(playerOneId);
+  });
+
+  it("reports the opening state of each side under double in", async () => {
+    // Die Flaeche schaltet unter Double In vor der Eroeffnung auf
+    // Wurf-fuer-Wurf um und braucht dafuer `openedInLeg` aus der Projektion;
+    // aus `remaining` ist der Stand nicht ablesbar.
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    await databaseService.database
+      .update(matches)
+      .set({ inRule: "DOUBLE" })
+      .where(and(eq(matches.organizationId, organizationId), eq(matches.id, matchId)));
+
+    const before = await repository.getState(organizationId, matchId);
+    expect(before?.participants.map((participant) => participant.openedInLeg)).toEqual([false, false]);
+
+    const opened = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: {
+        commandId: randomUUID(), expectedVersion: before?.version ?? 0, playerId: playerOneId,
+        points: 61, dartsThrown: 3,
+        darts: [{ segment: 1, multiplier: 1 }, { segment: 20, multiplier: 2 }, { segment: 20, multiplier: 1 }],
+      },
+    });
+    expect(opened.participants.find((participant) => participant.playerId === playerOneId)?.openedInLeg).toBe(true);
+    expect(opened.participants.find((participant) => participant.playerId === playerTwoId)?.openedInLeg).toBe(false);
+  });
+
   it("names no live target for a match without a competition", async () => {
     const created = await service.create({
       organizationId,
