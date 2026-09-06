@@ -98,39 +98,53 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     if (!navigator.onLine || replayingRef.current) return;
     replayingRef.current = true;
     setReplaying(true);
-    const commands = await listOfflineCommands(scope);
-    // `nextReplayable` statt eines Filters: ein abgelehnter oder
-    // konfliktbehafteter Kopf haelt die ganze Warteschlange an, bis jemand
-    // entschieden hat. Ein Filter uebersprang ihn beim naechsten Auslauf und
-    // setzte seinen Nachfolger in falscher Reihenfolge ab.
-    for (const command of nextReplayable(commands)) {
-      try {
-        await apiRequest({ path: command.path, method: "POST", body: command.body, schema: matchStateSchema });
-        await removeOfflineCommand(command.commandId);
-      } catch (error) {
-        // Ein fachlich abgelehntes Kommando (4xx mit Fehlercode) wird als
-        // solches markiert statt endlos wiederholt -- sonst bliebe es
-        // dauerhaft `PENDING` und sperrte ueber `queueBlocksControl` die
-        // ganze Flaeche (Befund F2). Die Wiedergabe bricht in jedem Fehlerfall
-        // ab: die Reihenfolge der Aufnahmen ist verbindlich.
-        const failure = replayFailure(error);
-        switch (failure.kind) {
-          case "CONFLICT":
-            await markOfflineCommandConflict(command, failure.code, failure.message);
-            break;
-          case "REJECTED":
-            await markOfflineCommandRejected(command, failure.code, failure.message);
-            break;
-          case "RETRY":
-            break;
+    try {
+      const commands = await listOfflineCommands(scope);
+      // `nextReplayable` statt eines Filters: ein abgelehnter oder
+      // konfliktbehafteter Kopf haelt die ganze Warteschlange an, bis jemand
+      // entschieden hat. Ein Filter uebersprang ihn beim naechsten Auslauf und
+      // setzte seinen Nachfolger in falscher Reihenfolge ab.
+      for (const command of nextReplayable(commands)) {
+        try {
+          await apiRequest({ path: command.path, method: "POST", body: command.body, schema: matchStateSchema });
+        } catch (error) {
+          // Ein fachlich abgelehntes Kommando (4xx mit Fehlercode) wird als
+          // solches markiert statt endlos wiederholt -- sonst bliebe es
+          // dauerhaft `PENDING` und sperrte ueber `queueBlocksControl` die
+          // ganze Flaeche (Befund F2). Die Wiedergabe bricht in jedem Fehlerfall
+          // ab: die Reihenfolge der Aufnahmen ist verbindlich.
+          const failure = replayFailure(error);
+          switch (failure.kind) {
+            case "CONFLICT":
+              await markOfflineCommandConflict(command, failure.code, failure.message);
+              break;
+            case "REJECTED":
+              await markOfflineCommandRejected(command, failure.code, failure.message);
+              break;
+            case "RETRY":
+              break;
+          }
+          break;
         }
-        break;
+        // Der Server hat das Kommando angenommen -- ab hier ist ein Fehler
+        // rein lokal (IndexedDB) und kein Uebertragungsfehler mehr. Er darf
+        // NICHT ueber `replayFailure` klassifiziert werden, sonst zeigte ein
+        // laengst durchgegangenes Kommando ploetzlich CONFLICT oder REJECTED
+        // (gleiches Muster wie `sendAssignment` in command-centre.tsx,
+        // PR-Agent-Befund F2). Der Eintrag bleibt dann sichtbar PENDING; die
+        // naechste Wiedergabe wiederholt ihn -- dank `commandId` idempotent.
+        try {
+          await removeOfflineCommand(command.commandId);
+        } catch {
+          break;
+        }
       }
+    } finally {
+      await refreshQueue();
+      await refresh();
+      setReplaying(false);
+      replayingRef.current = false;
     }
-    await refreshQueue();
-    await refresh();
-    setReplaying(false);
-    replayingRef.current = false;
   }, [scope, refresh, refreshQueue]);
 
   useEffect(() => {

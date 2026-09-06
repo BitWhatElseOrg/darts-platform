@@ -21,7 +21,12 @@ import {
   saveOfflineCommand,
   type OfflineCommand,
 } from "@/lib/offline-command-queue";
-import { nextReplayable, queuedCommandNotice, replayFailure } from "@/lib/offline-replay";
+import {
+  localCleanupFailureMessage,
+  nextReplayable,
+  queuedCommandNotice,
+  replayFailure,
+} from "@/lib/offline-replay";
 import {
   assignmentQueueEntries,
   tournamentQueueScope,
@@ -191,11 +196,19 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
    * der Warteschlange steht -- dann wird sie dort entfernt (Erfolg) oder mit
    * ihrem Ausgang markiert. Eine fachliche Ablehnung wird nicht wiederholt:
    * sonst bliebe sie fuer immer stehen und sperrte Board und Match.
+   *
+   * Der `try/catch` um den API-Aufruf endet mit der Serverantwort. Die
+   * lokale Nacharbeit danach (Warteschlangeneintrag entfernen, Ansicht
+   * aktualisieren) hat eine eigene, sichtbare Fehlerbehandlung: ein Fehler
+   * dort ist "lokal nicht aufgeraeumt", nicht "Uebertragung gescheitert", und
+   * darf ein bereits angenommenes Kommando nicht ueber `replayFailure`
+   * erneut als CONFLICT/REJECTED einreihen (PR-Agent-Befund F2).
    */
   const sendAssignment = useCallback(
     async (command: PendingCommand, queuedCommand: OfflineCommand | null = null): Promise<boolean> => {
+      let next: TournamentDashboard;
       try {
-        const next = await apiRequest({
+        next = await apiRequest({
           path: assignmentPath,
           method: "POST",
           body: {
@@ -206,13 +219,6 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
           },
           schema: tournamentDashboardSchema,
         });
-        queryClient.setQueryData(queryKey, next);
-        if (queuedCommand !== null) await removeOfflineCommand(queuedCommand.commandId);
-        setLandedBoardId(command.boardId);
-        setCommandError(null);
-        setAnnouncement(`${command.label} läuft.`);
-        await refreshQueue();
-        return true;
       } catch (error) {
         const versionConflict = conflictState(error, command.expectedVersion);
         if (versionConflict !== null) setConflict(versionConflict);
@@ -234,6 +240,20 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         await refreshQueue();
         return false;
       }
+
+      // Der Server hat die Zuweisung angenommen -- ab hier zaehlt kein
+      // Serverfehler mehr, nur noch lokale Nacharbeit.
+      queryClient.setQueryData(queryKey, next);
+      setLandedBoardId(command.boardId);
+      setCommandError(null);
+      setAnnouncement(`${command.label} läuft.`);
+      try {
+        if (queuedCommand !== null) await removeOfflineCommand(queuedCommand.commandId);
+        await refreshQueue();
+      } catch (localError) {
+        setCommandError(localCleanupFailureMessage(localError));
+      }
+      return true;
     },
     [assignmentPath, queryClient, queryKey, refreshQueue, scope],
   );
@@ -267,8 +287,11 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         return;
       }
       setCommandBusy(true);
-      await sendAssignment(command);
-      setCommandBusy(false);
+      try {
+        await sendAssignment(command);
+      } finally {
+        setCommandBusy(false);
+      }
     },
     [assignmentPath, commandBusy, connection, dashboard, openBoards, pending.length, pendingBoardIds, readyQueue, refreshQueue, scope, sendAssignment],
   );
@@ -313,13 +336,16 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
     if (commandBusy || connection === "offline") return;
     setCommandBusy(true);
     let sent = 0;
-    for (const entry of replayable) {
-      const successful = await sendAssignment(pendingCommandOf(entry), entry.command);
-      if (!successful) break;
-      sent += 1;
+    try {
+      for (const entry of replayable) {
+        const successful = await sendAssignment(pendingCommandOf(entry), entry.command);
+        if (!successful) break;
+        sent += 1;
+      }
+    } finally {
+      setAnnouncement(`${sent} Befehl${sent === 1 ? "" : "e"} übertragen.`);
+      setCommandBusy(false);
     }
-    setAnnouncement(`${sent} Befehl${sent === 1 ? "" : "e"} übertragen.`);
-    setCommandBusy(false);
   }, [commandBusy, connection, replayable, sendAssignment]);
 
   /** Verwirft eine Zuweisung, die nur noch im Weg steht. */

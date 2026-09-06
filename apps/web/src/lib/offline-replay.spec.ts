@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { ApiClientError } from "./api-error";
 import type { OfflineCommand } from "./offline-command-queue";
-import { nextReplayable, queueBlocksControl, queuedCommandNotice, replayFailure } from "./offline-replay";
+import {
+  localCleanupFailureMessage,
+  nextReplayable,
+  queueBlocksControl,
+  queuedCommandNotice,
+  replayFailure,
+} from "./offline-replay";
 
 function command(overrides: Partial<OfflineCommand> = {}): OfflineCommand {
   return {
@@ -134,6 +140,27 @@ describe("queueBlocksControl", () => {
       command({ commandId: "c1", status: "REJECTED", error: "abgelehnt", code: "X" }),
       command({ commandId: "c2", status: "PENDING" }),
     ])).toBe(true);
+  });
+});
+
+describe("localCleanupFailureMessage", () => {
+  /**
+   * PR-Agent-Befund F2: Ein Fehler bei der lokalen Nacharbeit einer bereits
+   * vom Server angenommenen Zuweisung ist kein Uebertragungsfehler. Die
+   * Meldung muss das benennen, statt wie `replayFailure` ein Serverurteil zu
+   * simulieren.
+   */
+  it("benennt den Fehler als lokal, nicht als Uebertragungsfehler", () => {
+    expect(localCleanupFailureMessage(new Error("IndexedDB nicht verfügbar")))
+      .toBe(
+        "Der Server hat den Befehl angenommen, die lokale Warteschlange konnte aber nicht aktualisiert werden (IndexedDB nicht verfügbar). Bitte Seite neu laden.",
+      );
+  });
+
+  it("faellt auf einen generischen Hinweis zurueck, wenn kein Error-Objekt vorliegt", () => {
+    expect(localCleanupFailureMessage("kaputt")).toBe(
+      "Der Server hat den Befehl angenommen, die lokale Warteschlange konnte aber nicht aktualisiert werden (unbekannter Fehler). Bitte Seite neu laden.",
+    );
   });
 });
 

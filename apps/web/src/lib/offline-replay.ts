@@ -96,6 +96,23 @@ export function queueBlocksControl(queued: readonly OfflineCommand[]): boolean {
   return queued.some((command) => command.status === "PENDING" || command.status === "CONFLICT");
 }
 
+/**
+ * Meldung fuer ein Kommando, das der Server bereits angenommen hat, dessen
+ * lokale Nacharbeit (Warteschlangeneintrag entfernen, Ansicht aktualisieren)
+ * aber gescheitert ist -- etwa weil IndexedDB gerade nicht verfuegbar ist.
+ *
+ * Anders als bei `replayFailure` liegt hier schon ein Urteil des Servers vor,
+ * und es war positiv. Ein Fehler an dieser Stelle ist rein lokal und darf
+ * NICHT ueber `replayFailure`/`markOfflineCommand*` erneut klassifiziert
+ * werden -- sonst zeigt die Person einen Uebertragungsfehler fuer einen
+ * Vorgang, der laengst durch ist, und ein bereits angenommenes Kommando
+ * landet erneut in der Warteschlange (PR-Agent-Befund F2).
+ */
+export function localCleanupFailureMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message : "unbekannter Fehler";
+  return `Der Server hat den Befehl angenommen, die lokale Warteschlange konnte aber nicht aktualisiert werden (${detail}). Bitte Seite neu laden.`;
+}
+
 export interface QueuedCommandNotice {
   readonly text: string;
   /** `DISCARD`: nur Verwerfen hilft. `RETRY`: erneut uebertragen ist sinnvoll. */
