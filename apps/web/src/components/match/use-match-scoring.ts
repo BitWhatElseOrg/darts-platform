@@ -20,6 +20,8 @@ import {
 import {
   nextReplayable,
   queueBlocksControl,
+  queueReadFailureMessage,
+  queueUpdateFailureMessage,
   replayFailure,
   replayWithCurrentVersion,
   withCurrentExpectedVersion,
@@ -45,6 +47,8 @@ import { useBoardControllerLock } from "@/lib/use-board-controller-lock";
 export interface MatchScoring {
   readonly lock: ReturnType<typeof useBoardControllerLock>;
   readonly queued: readonly OfflineCommand[];
+  /** Meldung, wenn die lokale Warteschlange selbst nicht gelesen oder geaendert werden konnte. */
+  readonly queueError: string | null;
   readonly online: boolean;
   readonly replaying: boolean;
   readonly mayControl: boolean;
@@ -81,6 +85,12 @@ export function useMatchScoring({ organizationId, match, canScore }: {
   const queryClient = useQueryClient();
   const lock = useBoardControllerLock(organizationId, match.id, canScore && match.status === "IN_PROGRESS");
   const [queued, setQueued] = useState<readonly OfflineCommand[]>([]);
+  /**
+   * Fehler der lokalen Warteschlange selbst (lesen, aendern) -- getrennt von
+   * `error`, das aus den Mutationen kommt. Vorher hatte diese Klasse Fehler
+   * hier gar keinen Kanal und brach still ab.
+   */
+  const [queueError, setQueueError] = useState<string | null>(null);
   const [replaying, setReplaying] = useState(false);
   const replayingRef = useRef(false);
   const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
@@ -94,10 +104,31 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     queryClient.invalidateQueries({ queryKey: ["tournament-dashboard", organizationId] }),
     queryClient.invalidateQueries({ queryKey: ["tournaments", organizationId] }),
   ]); }, [organizationId, queryClient, match.id]);
-  const refreshQueue = useCallback(async () => setQueued(await listOfflineCommands(scope)), [scope]);
+  /**
+   * Liest die Warteschlange neu und macht ein Scheitern des Lesens sichtbar,
+   * statt es an die Aufruferin weiterzuwerfen (dieselbe Form wie in
+   * `command-centre.tsx`). Wirft nie.
+   */
+  const refreshQueue = useCallback(async (): Promise<void> => {
+    try {
+      setQueued(await listOfflineCommands(scope));
+      setQueueError(null);
+    } catch (error) {
+      setQueueError(queueReadFailureMessage(error));
+    }
+  }, [scope]);
+  // Der Rejection-Zweig ist Pflicht: ohne ihn entstand bei nicht verfuegbarer
+  // oder blockierter IndexedDB eine unbehandelte Rejection, und die Flaeche
+  // zeigte eine leere Warteschlange. Das ist hier schwerer als in der
+  // Kommandozentrale: `queueBlocksControl` gaebe die Bedienung frei, obwohl
+  // aeltere Aufnahmen noch ungesendet in IndexedDB liegen -- die neue Aufnahme
+  // liefe an ihnen vorbei (AGENTS.md §18, PR-Agent-Runde 5, Durchsicht).
   useEffect(() => {
     let active = true;
-    void listOfflineCommands(scope).then((commands) => { if (active) setQueued(commands); });
+    void listOfflineCommands(scope).then(
+      (commands) => { if (active) setQueued(commands); },
+      (error: unknown) => { if (active) setQueueError(queueReadFailureMessage(error)); },
+    );
     return () => { active = false; };
   }, [scope]);
 
@@ -115,7 +146,18 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     // Refresh").
     let sentCount = 0;
     try {
-      const commands = await listOfflineCommands(scope);
+      // Auch das Lesen kann scheitern. Vorher trug dieser Wurf durch das
+      // `finally` hindurch nach draussen -- an `void replay()` im Effekt und
+      // am Knopf "Jetzt uebertragen" wurde daraus eine unbehandelte Rejection
+      // ohne jede Meldung (PR-Agent-Runde 5, Durchsicht).
+      let commands: readonly OfflineCommand[];
+      try {
+        commands = await listOfflineCommands(scope);
+      } catch (error) {
+        setQueueError(queueReadFailureMessage(error));
+        return;
+      }
+      setQueueError(null);
       // `nextReplayable` statt eines Filters: ein abgelehnter oder
       // konfliktbehafteter Kopf haelt die ganze Warteschlange an, bis jemand
       // entschieden hat. Ein Filter uebersprang ihn beim naechsten Auslauf und
@@ -143,15 +185,23 @@ export function useMatchScoring({ organizationId, match, canScore }: {
           // ganze Flaeche (Befund F2). Die Wiedergabe bricht in jedem Fehlerfall
           // ab: die Reihenfolge der Aufnahmen ist verbindlich.
           const failure = replayFailure(error);
-          switch (failure.kind) {
-            case "CONFLICT":
-              await markOfflineCommandConflict(command, failure.code, failure.message);
-              break;
-            case "REJECTED":
-              await markOfflineCommandRejected(command, failure.code, failure.message);
-              break;
-            case "RETRY":
-              break;
+          // Das Markieren schreibt selbst nach IndexedDB und kann scheitern.
+          // Ohne diesen `catch` verliess der Fehler die Wiedergabe als
+          // unbehandelte Rejection, und die Person sah weder den Serverfehler
+          // noch den Schreibfehler (PR-Agent-Runde 5, Durchsicht).
+          try {
+            switch (failure.kind) {
+              case "CONFLICT":
+                await markOfflineCommandConflict(command, failure.code, failure.message);
+                break;
+              case "REJECTED":
+                await markOfflineCommandRejected(command, failure.code, failure.message);
+                break;
+              case "RETRY":
+                break;
+            }
+          } catch (markError) {
+            setQueueError(queueUpdateFailureMessage(markError));
           }
           return { successful: false };
         }
@@ -272,12 +322,26 @@ export function useMatchScoring({ organizationId, match, canScore }: {
   // Nach dem Verwerfen laeuft die Wiedergabe weiter: hinter einem abgelehnten
   // Kommando koennen weitere warten, die jetzt an der Reihe sind.
   const discardQueued = useCallback((commandId: string) => {
-    void removeOfflineCommand(commandId).then(refreshQueue).then(refresh).then(replay);
+    void (async () => {
+      // Scheitert das Entfernen, bleibt der Eintrag stehen. Vorher endete die
+      // Kette hier als unbehandelte Rejection, und die Person klickte auf einen
+      // Knopf, der nichts tat und nichts sagte (PR-Agent-Runde 5, Durchsicht).
+      try {
+        await removeOfflineCommand(commandId);
+      } catch (error) {
+        setQueueError(queueUpdateFailureMessage(error));
+        return;
+      }
+      await refreshQueue();
+      await refresh();
+      await replay();
+    })();
   }, [refreshQueue, refresh, replay]);
 
   return {
     lock,
     queued,
+    queueError,
     online,
     replaying,
     mayControl,

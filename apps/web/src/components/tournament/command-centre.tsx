@@ -26,9 +26,11 @@ import {
   nextReplayable,
   queueReadFailureMessage,
   queueSaveFailureMessage,
+  queueUpdateFailureMessage,
   queuedCommandNotice,
   replayFailure,
   replayWithCurrentVersion,
+  type ReplayFailure,
   type ReplayOutcome,
 } from "@/lib/offline-replay";
 import {
@@ -261,6 +263,29 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
   }, []);
 
   /**
+   * Schreibt den Ausgang eines Serverurteils (Konflikt, Ablehnung) in den
+   * Warteschlangeneintrag und macht ein Scheitern dieses Schreibens sichtbar.
+   *
+   * Ohne den Helfer entkam ein IndexedDB-Fehler aus dem `catch` von
+   * `sendAssignment`, bevor dort ueberhaupt eine Fehlermeldung gesetzt war:
+   * die Person sah nichts, und aus `flushPending` heraus wurde daraus eine
+   * unbehandelte Rejection. Derselbe Griff wie `persistQueuedAssignment` --
+   * eine Stelle statt zweier inline gezogener Aufrufe.
+   */
+  const markQueuedOutcome = useCallback(
+    async (command: OfflineCommand, failure: Extract<ReplayFailure, { readonly kind: "CONFLICT" | "REJECTED" }>): Promise<void> => {
+      try {
+        await (failure.kind === "CONFLICT"
+          ? markOfflineCommandConflict(command, failure.code, failure.message)
+          : markOfflineCommandRejected(command, failure.code, failure.message));
+      } catch (error) {
+        setQueueError(queueUpdateFailureMessage(error));
+      }
+    },
+    [],
+  );
+
+  /**
    * Sendet eine Zuweisung mit einer explizit uebergebenen `expectedVersion`
    * -- nie mit der beim Einreihen gespeicherten (`command.expectedVersion`
    * ist nur ein Anzeigehinweis, siehe `PendingCommand`). `queuedCommand` ist
@@ -307,11 +332,13 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
             queuedLocally = await persistQueuedAssignment(queuedCommand ?? queuedCommandOf(command, scope, assignmentPath));
             if (queuedLocally) setAnnouncement("Verbindung unterbrochen. Der Befehl bleibt in der Warteschlange.");
             break;
+          // Beide Ausgaenge schreiben denselben Eintrag, nur mit anderem
+          // Status -- `markQueuedOutcome` faengt dabei einen Schreibfehler ab,
+          // damit er nicht am `setCommandError` unten vorbei nach aussen
+          // entkommt (PR-Agent-Runde 5, Durchsicht).
           case "CONFLICT":
-            if (queuedCommand !== null) await markOfflineCommandConflict(queuedCommand, failure.code, failure.message);
-            break;
           case "REJECTED":
-            if (queuedCommand !== null) await markOfflineCommandRejected(queuedCommand, failure.code, failure.message);
+            if (queuedCommand !== null) await markQueuedOutcome(queuedCommand, failure);
             break;
         }
         if (queuedLocally) setCommandError(userFacingErrorMessage(error, "Zuweisung fehlgeschlagen."));
@@ -333,7 +360,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
       }
       return next.tournament.version;
     },
-    [assignmentPath, persistQueuedAssignment, queryClient, queryKey, refreshQueue, scope],
+    [assignmentPath, markQueuedOutcome, persistQueuedAssignment, queryClient, queryKey, refreshQueue, scope],
   );
 
   const assign = useCallback(
@@ -444,7 +471,15 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
     setCommandBusy(true);
     try {
       const refreshed = await dashboardQuery.refetch();
-      const startVersion = refreshed.data?.tournament.version ?? dashboard?.tournament.version;
+      // Ein gescheiterter Refetch liefert weiterhin den zwischengespeicherten
+      // Stand. Dessen Version kann waehrend der Offline-Phase veraltet sein --
+      // die ganze Kette liefe damit sofort in einen Versionskonflikt. Lieber
+      // nichts uebertragen und es sagen (PR-Agent-Runde 5, Durchsicht).
+      if (refreshed.isError) {
+        setCommandError(userFacingErrorMessage(refreshed.error, "Serverstand konnte nicht geladen werden; es wurde nichts übertragen."));
+        return;
+      }
+      const startVersion = refreshed.data?.tournament.version;
       if (startVersion === undefined) return;
       const { sentCount } = await replayWithCurrentVersion<AssignmentQueueEntry>(
         replayable,
@@ -458,7 +493,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
     } finally {
       setCommandBusy(false);
     }
-  }, [commandBusy, connection, dashboard?.tournament.version, dashboardQuery, replayable, sendAssignment]);
+  }, [commandBusy, connection, dashboardQuery, replayable, sendAssignment]);
 
   /**
    * Verwirft eine Zuweisung, die nur noch im Weg steht -- und holt danach den
@@ -473,11 +508,24 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
    * diesen Abgleich nicht mehr aus der Schleife (PR-Agent-Runde 5, Befund a).
    */
   const discardQueued = useCallback(async (commandId: string) => {
-    await removeOfflineCommand(commandId);
-    await refreshQueue();
-    await queryClient.invalidateQueries({ queryKey });
-    setAnnouncement("Befehl verworfen; der Serverstand wird nachgeladen.");
-  }, [queryClient, queryKey, refreshQueue]);
+    // Wie jede andere Bedienung der Zentrale gesperrt: das Entfernen laeuft
+    // ueber IndexedDB und danach ueber das Netz, und ein zweiter Klick
+    // waehrenddessen setzte einen zweiten Durchgang auf denselben Eintrag an.
+    // Scheitert das Entfernen, bleibt der Eintrag stehen -- das muss sichtbar
+    // sein, sonst klickt die Person ins Leere (PR-Agent-Runde 5, Durchsicht).
+    if (commandBusy) return;
+    setCommandBusy(true);
+    try {
+      await removeOfflineCommand(commandId);
+      await refreshQueue();
+      await queryClient.invalidateQueries({ queryKey });
+      setAnnouncement("Befehl verworfen; der Serverstand wird nachgeladen.");
+    } catch (error) {
+      setQueueError(queueUpdateFailureMessage(error));
+    } finally {
+      setCommandBusy(false);
+    }
+  }, [commandBusy, queryClient, queryKey, refreshQueue]);
 
   const correctResult = useCallback(async (matchId: string, reason: string) => {
     if (dashboard === undefined || commandBusy || connection === "offline") return;
@@ -615,7 +663,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
                     <li className="flex flex-wrap items-center justify-between gap-3 font-plate text-body text-wedge-900" key={entry.command.commandId}>
                       <span>{notice.text}</span>
                       {notice.action === "DISCARD" ? (
-                        <Control onClick={() => void discardQueued(entry.command.commandId)} variant="plate">Verwerfen</Control>
+                        <Control disabled={commandBusy} onClick={() => void discardQueued(entry.command.commandId)} variant="plate">Verwerfen</Control>
                       ) : null}
                     </li>
                   );

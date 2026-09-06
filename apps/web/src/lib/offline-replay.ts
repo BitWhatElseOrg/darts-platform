@@ -145,6 +145,19 @@ export function queueReadFailureMessage(error: unknown): string {
 }
 
 /**
+ * Meldung fuer eine gescheiterte Aenderung an der lokalen Warteschlange:
+ * einen Ausgang markieren (Konflikt, Ablehnung) oder einen Eintrag verwerfen.
+ *
+ * Anders als beim Lesen ist hier eine beabsichtigte Aenderung nicht
+ * angekommen: der Eintrag steht noch so da wie vorher. Ohne Meldung sieht die
+ * Person einen unveraenderten Eintrag und keinen Grund dafuer.
+ */
+export function queueUpdateFailureMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message : "unbekannter Fehler";
+  return `Die Warteschlange konnte nicht geändert werden (${detail}). Der Eintrag steht unverändert weiter in der Liste. Lade die Seite neu und versuche es erneut.`;
+}
+
+/**
  * Ergebnis eines einzelnen Wiedergabeversuchs. `version` ist die vom Server
  * bestaetigte neue Version -- nur bei Erfolg vorhanden, weil ein
  * Fehlschlag kein Urteil ueber die Version liefert.

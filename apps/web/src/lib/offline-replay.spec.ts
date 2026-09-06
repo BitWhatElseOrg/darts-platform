@@ -8,6 +8,7 @@ import {
   queueBlocksControl,
   queueReadFailureMessage,
   queueSaveFailureMessage,
+  queueUpdateFailureMessage,
   queuedCommandNotice,
   replayFailure,
   replayWithCurrentVersion,
@@ -203,6 +204,20 @@ describe("queueReadFailureMessage", () => {
   it("faellt auf einen generischen Hinweis zurueck, wenn kein Error-Objekt vorliegt", () => {
     expect(queueReadFailureMessage("kaputt")).toBe(
       "Die Warteschlange konnte nicht gelesen werden (unbekannter Fehler). Wartende Zuweisungen werden möglicherweise nicht angezeigt. Lade die Seite neu, bevor du erneut zuweist.",
+    );
+  });
+});
+
+describe("queueUpdateFailureMessage", () => {
+  it("benennt den Fehler als gescheiterte Aenderung und sagt, dass der Eintrag stehen bleibt", () => {
+    expect(queueUpdateFailureMessage(new Error("Quota überschritten"))).toBe(
+      "Die Warteschlange konnte nicht geändert werden (Quota überschritten). Der Eintrag steht unverändert weiter in der Liste. Lade die Seite neu und versuche es erneut.",
+    );
+  });
+
+  it("faellt auf einen generischen Hinweis zurueck, wenn kein Error-Objekt vorliegt", () => {
+    expect(queueUpdateFailureMessage(null)).toBe(
+      "Die Warteschlange konnte nicht geändert werden (unbekannter Fehler). Der Eintrag steht unverändert weiter in der Liste. Lade die Seite neu und versuche es erneut.",
     );
   });
 });

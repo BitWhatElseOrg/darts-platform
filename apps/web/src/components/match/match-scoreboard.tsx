@@ -49,7 +49,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   readonly organizationId: string;
 }) {
   const scoring = useMatchScoring({ organizationId, match, canScore });
-  const { lock, queued, online, replaying, mayControl, error } = scoring;
+  const { lock, queued, queueError, online, replaying, mayControl, error } = scoring;
   const settings = useSyncExternalStore(subscribeScoreboardSettings, readScoreboardSettings, () => defaultScoreboardSettings);
   // Im Doppel ist `currentPlayerId` die werfende Person, nicht die erste der
   // Seite. Am Oche steht die Seite mit `isActive`.
@@ -348,8 +348,14 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
           scrollt diese Fläche für sich, ohne dass die Seite selbst wächst. */}
       <div className="grid min-h-0 grid-rows-[auto_1fr_auto] overflow-y-auto">
         <div>
-          {hasPending ? (
+          {hasPending || queueError !== null ? (
             <div className="border-b border-amber-400/40 bg-amber-300/10 p-4">
+              {/* Auch ein Fehler der Warteschlange selbst gehoert in dieses
+                  Band: sonst zeigt die Flaeche eine leere Liste, obwohl
+                  Aufnahmen ungesendet in IndexedDB liegen (AGENTS.md §18). */}
+              {queueError !== null ? (
+                <p className="text-body text-amber-100" role="status">{queueError}</p>
+              ) : null}
               {queued.map((command) => {
                 const notice = queuedCommandNotice(command, online);
                 return (
