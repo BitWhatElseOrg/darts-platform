@@ -202,6 +202,32 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
   );
 
   /**
+   * Legt eine Zuweisung in der IndexedDB-Warteschlange ab und macht ein
+   * Scheitern dabei sichtbar (blockierte oder ueberschrittene IndexedDB).
+   * Vorher konnte genau dieser Fehler unbehandelt aus dem Offline-Zweig von
+   * `sendAssignment` (Fall `RETRY`) entkommen: die Zuweisung war dann weder
+   * vom Server angenommen noch lokal gespeichert, ohne jede Meldung
+   * (PR-Agent-Runde 4, Befund A). Ein einziger Helfer fuer beide
+   * Aufrufstellen (hier und in `assign`) stellt sicher, dass keine neue
+   * Stelle diesen Fall wieder vergisst.
+   *
+   * Gibt `true` zurueck, wenn das Kommando gespeichert ist -- nur dann darf
+   * die Aufruferin eine Erfolgsmeldung ("wartet auf Verbindung"/"bleibt in
+   * der Warteschlange") zeigen. Bei `false` steht bereits eine sichtbare
+   * Fehlermeldung in `commandError`, die die Aufruferin nicht ueberschreiben
+   * darf.
+   */
+  const persistQueuedAssignment = useCallback(async (command: OfflineCommand): Promise<boolean> => {
+    try {
+      await saveOfflineCommand(command);
+      return true;
+    } catch (error) {
+      setCommandError(queueSaveFailureMessage(error));
+      return false;
+    }
+  }, []);
+
+  /**
    * Sendet eine Zuweisung mit einer explizit uebergebenen `expectedVersion`
    * -- nie mit der beim Einreihen gespeicherten (`command.expectedVersion`
    * ist nur ein Anzeigehinweis, siehe `PendingCommand`). `queuedCommand` ist
@@ -235,11 +261,18 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         const versionConflict = conflictState(error, expectedVersion);
         if (versionConflict !== null) setConflict(versionConflict);
         const failure = replayFailure(error);
+        // `queuedLocally` bleibt fuer CONFLICT/REJECTED auf `true` -- dort
+        // wird nichts (neu) in die Warteschlange gelegt, die abschliessende
+        // Fehlermeldung unten gilt unveraendert wie vorher. Nur im Fall
+        // `RETRY` kann das Ablegen selbst scheitern; dann hat
+        // `persistQueuedAssignment` bereits die passende Meldung gesetzt, und
+        // die generische unten darf sie nicht ueberschreiben.
+        let queuedLocally = true;
         switch (failure.kind) {
           case "RETRY":
             setConnection("offline");
-            await saveOfflineCommand(queuedCommand ?? queuedCommandOf(command, scope, assignmentPath));
-            setAnnouncement("Verbindung unterbrochen. Der Befehl bleibt in der Warteschlange.");
+            queuedLocally = await persistQueuedAssignment(queuedCommand ?? queuedCommandOf(command, scope, assignmentPath));
+            if (queuedLocally) setAnnouncement("Verbindung unterbrochen. Der Befehl bleibt in der Warteschlange.");
             break;
           case "CONFLICT":
             if (queuedCommand !== null) await markOfflineCommandConflict(queuedCommand, failure.code, failure.message);
@@ -248,7 +281,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
             if (queuedCommand !== null) await markOfflineCommandRejected(queuedCommand, failure.code, failure.message);
             break;
         }
-        setCommandError(userFacingErrorMessage(error, "Zuweisung fehlgeschlagen."));
+        if (queuedLocally) setCommandError(userFacingErrorMessage(error, "Zuweisung fehlgeschlagen."));
         await refreshQueue();
         return null;
       }
@@ -267,7 +300,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
       }
       return next.tournament.version;
     },
-    [assignmentPath, queryClient, queryKey, refreshQueue, scope],
+    [assignmentPath, persistQueuedAssignment, queryClient, queryKey, refreshQueue, scope],
   );
 
   const assign = useCallback(
@@ -300,15 +333,12 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         label: `${entry.participants[0].displayName} – ${entry.participants[1].displayName} auf ${board.boardName}`,
       };
       if (connection === "offline") {
-        try {
-          await saveOfflineCommand(queuedCommandOf(command, scope, assignmentPath));
-          await refreshQueue();
-        } catch (error) {
-          // Weder gesendet noch gespeichert -- ohne diese Meldung verschwaende
-          // die Zuweisung kommentarlos (PR-Agent-Runde 3, Befund A).
-          setCommandError(queueSaveFailureMessage(error));
-          return;
-        }
+        // Weder gesendet noch gespeichert, wenn `persistQueuedAssignment`
+        // scheitert -- ohne diese Meldung verschwaende die Zuweisung
+        // kommentarlos (PR-Agent-Runde 3, Befund A). Der Helfer setzt die
+        // Meldung in diesem Fall bereits selbst; hier nur noch abbrechen.
+        if (!(await persistQueuedAssignment(queuedCommandOf(command, scope, assignmentPath)))) return;
+        await refreshQueue();
         setCommandError(null);
         setAnnouncement(`Zuweisung auf ${board.boardName} wartet auf die Verbindung.`);
         return;
@@ -320,7 +350,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         setCommandBusy(false);
       }
     },
-    [assignmentPath, commandBusy, connection, dashboard, openBoards, pendingBoardIds, readyQueue, refreshQueue, scope, sendAssignment],
+    [assignmentPath, commandBusy, connection, dashboard, openBoards, pendingBoardIds, persistQueuedAssignment, readyQueue, refreshQueue, scope, sendAssignment],
   );
 
   const release = useCallback(
