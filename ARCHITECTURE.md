@@ -1073,6 +1073,35 @@ Hohe Testabdeckung für:
 - Redis
 - Auth
 
+Namenskonvention: `*.integration.spec.ts` bezeichnet Tests, die eine laufende
+Datenbank brauchen (`DATABASE_URL`), zum Beispiel
+`apps/api/src/boards/boards.integration.spec.ts`; `*.spec.ts` läuft ohne
+Infrastruktur. Die HTTP-Grenze -- `AuthGuard`, `@Public()` und der Fehlerfilter
+aus §15 -- ist über `apps/api/src/common/http-boundary.integration.spec.ts`
+mit einem echten Fastify-Zyklus abgedeckt (`createApiTestApplication`,
+Session per Spy auf `AuthService.getSession`); die übrigen Integrationstests
+rufen ihre Services direkt auf.
+
+Deployment-Images: CI baut API, Web und Worker nicht nur, sondern startet
+jedes Image einmal und prüft es (Health-Endpunkt, Startseite, Startzeile im
+Worker-Log).
+
+### Frontend
+
+Hook-Tests heissen `*.hook.spec.ts` und laufen unter `happy-dom`, per
+`// @vitest-environment happy-dom`-Pragma je Datei (Tier-1-Konvention,
+`@testing-library/react`); die übrige Web-Suite bleibt in der schnelleren
+Node-Umgebung. Beispiele: `apps/web/src/lib/use-offline-queue.hook.spec.ts`,
+`apps/web/src/lib/use-online-flush.hook.spec.ts`.
+
+Rollenlisten sind in der Oberfläche verboten: eine ESLint-Regel in
+`eslint.config.mjs` (`no-restricted-syntax`, Geltungsbereich
+`apps/web/src/**/*.{ts,tsx}`) verbietet `[...].includes(role)`-Literale mit
+Rollennamen und verweist auf `hasOrganizationPermission` aus
+`@darts-platform/domain`. Das ist ein Rückfallschutz gegen eine
+Parallelstruktur zum Berechtigungsmodell, keine eigene
+Autorisierungsentscheidung -- die trifft weiterhin ausschliesslich der Server.
+
 ### End-to-End
 
 Playwright-Szenario:
