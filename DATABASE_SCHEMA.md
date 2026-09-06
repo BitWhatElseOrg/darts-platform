@@ -461,7 +461,17 @@ tournament_id
 stage_id
 board_id
 (tournament_id, status)
+unique (board_id) where status = 'IN_PROGRESS'   -- matches_board_in_progress_unique
 ```
+
+`matches_board_in_progress_unique` (Migration `0022_board_in_progress_unique`)
+ist die strukturelle Klammer gegen die Doppelbelegung einer physischen Scheibe.
+Turnier (`tournament_matches`) und Liga (`encounter_slots`) tragen je einen
+eigenen partiellen Unique auf `board_id`, doch kein Constraint greift über zwei
+Tabellen. `matches` ist die gemeinsame Wurzel beider Wege und der freien
+Paarung; der partielle Unique lässt dort nur ein laufendes Match je Scheibe zu.
+Ein Verstoss wird im Zuweisungspfad als `BOARD_NOT_AVAILABLE` (HTTP 409)
+beantwortet, nicht als Postgres-Meldung.
 
 ---
 

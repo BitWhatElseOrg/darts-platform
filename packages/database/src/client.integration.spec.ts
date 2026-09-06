@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 
 import { createDatabaseConnection } from "./client.js";
 
@@ -65,6 +66,52 @@ describe("database connection", () => {
     expect(byName.get("visit_darts_segment_check")).toContain("25");
     expect(byName.get("visit_darts_bull_check")).toContain("multiplier");
     expect(byName.get("visit_darts_value_check")).toContain("segment");
+  });
+
+  it("lets only one running match hold a physical board", async () => {
+    const organizationId = randomUUID();
+    const boardId = randomUUID();
+    try {
+      await connection.database.execute(sql`
+        insert into organizations (id, name, slug, timezone, locale)
+        values (${organizationId}, 'Board Constraint Club', ${`board-constraint-${organizationId}`}, 'Europe/Zurich', 'de-CH')
+      `);
+      await connection.database.execute(sql`
+        insert into boards (id, organization_id, name, status)
+        values (${boardId}, ${organizationId}, 'Scheibe 3', 'IN_USE')
+      `);
+      await connection.database.execute(sql`
+        insert into matches (organization_id, board_id, status, best_of_legs, starting_seat)
+        values (${organizationId}, ${boardId}, 'IN_PROGRESS', 1, 1)
+      `);
+
+      // Turnier und Liga schreiben in getrennte Tabellen; erst hier greift die
+      // Klammer, die zwei laufende Matches auf einer Scheibe ausschliesst.
+      // Drizzle verpackt den Treiberfehler; die Kennung steht erst in `cause`.
+      const conflict = await connection.database
+        .execute(sql`
+          insert into matches (organization_id, board_id, status, best_of_legs, starting_seat)
+          values (${organizationId}, ${boardId}, 'IN_PROGRESS', 1, 1)
+        `)
+        .then(
+          () => null,
+          (error: unknown) => (error as { readonly cause?: unknown }).cause,
+        );
+      expect(conflict).toMatchObject({
+        code: "23505",
+        constraint_name: "matches_board_in_progress_unique",
+      });
+
+      // Beendete Matches bleiben erlaubt — der Index ist bewusst partiell.
+      await expect(
+        connection.database.execute(sql`
+          insert into matches (organization_id, board_id, status, best_of_legs, starting_seat)
+          values (${organizationId}, ${boardId}, 'COMPLETED', 1, 1)
+        `),
+      ).resolves.toBeDefined();
+    } finally {
+      await connection.database.execute(sql`delete from organizations where id = ${organizationId}`);
+    }
   });
 
   it("indexes visits by thrower so frequent scores do not scan the table", async () => {
