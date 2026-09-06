@@ -418,6 +418,32 @@ describe("X01 scoring", () => {
     }
   });
 
+  /**
+   * Rundengrenze erreicht, Seite unter Double In noch nicht eroeffnet,
+   * Kommando ohne Wuerfe -- der Zustandsfehler muss vor dem Eingabefehler
+   * kommen. Beide Seiten spielen Runde 1 punktelos (kein Doppel, keine
+   * Eroeffnung); danach ist Seat 1 wieder an der Reihe, aber unter der
+   * Rundengrenze. Ohne die Reihenfolge aus Task 8 meldet die noch
+   * unveroeffnete Seite hier DARTS_REQUIRED_FOR_DOUBLE_IN statt
+   * ROUND_LIMIT_REACHED.
+   */
+  it("meldet an der Rundengrenze den Zustand fuer eine noch unveroeffnete Seite", () => {
+    let match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ maxRounds: 1, inRule: "DOUBLE" }),
+    });
+    match = executeX01Command(match, visit("r1-one", 1, "one", 0)).match;
+    match = executeX01Command(match, visit("r1-two", 2, "two", 0)).match;
+    expect(projectX01Match(match).roundLimitReached).toBe(true);
+
+    try {
+      executeX01Command(match, visit("regression", 1, "one", 60));
+      expect.unreachable("the round limit is reached");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("ROUND_LIMIT_REACHED");
+    }
+  });
+
   it("refuses the bull decision before the round limit and without one", () => {
     let match = createX01Match({ sides: singles("one", "two"), rules: rules({ maxRounds: 2 }) });
     match = executeX01Command(match, visit("v0", 1, "one", 60)).match;
