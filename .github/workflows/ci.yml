@@ -237,6 +237,7 @@ jobs:
             --env BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" \
             --env BETTER_AUTH_URL="$BETTER_AUTH_URL" \
             --env TRUST_PROXY_HOPS=0 \
+            --env LOG_LEVEL=log \
             darts-worker:ci
           started=false
           for attempt in $(seq 1 30); do
@@ -255,7 +256,9 @@ jobs:
           # Sekunden ohne Fehlerzeile belegen, dass er nicht nur gestartet ist,
           # sondern auch arbeitet.
           sleep 10
-          if docker logs worker-smoke 2>&1 | grep --quiet "Statistik-Aggregation fehlgeschlagen"; then
+          # Strukturierte Fehlerereignisse des Workers (Teil D): ein Tick-Fehler
+          # oder eine gescheiterte Fehlerbuchung im Beobachtungsfenster ist rot.
+          if docker logs worker-smoke 2>&1 | grep --quiet -E "statistics\.tick_failed|outbox\.failure_booking_failed"; then
             echo "Worker meldet Fehler."
             exit 1
           fi
