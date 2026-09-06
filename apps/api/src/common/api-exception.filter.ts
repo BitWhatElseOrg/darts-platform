@@ -16,6 +16,7 @@ const errorCodes: Readonly<Record<number, string>> = {
   [HttpStatus.FORBIDDEN]: "PERMISSION_DENIED",
   [HttpStatus.NOT_FOUND]: "RESOURCE_NOT_FOUND",
   [HttpStatus.CONFLICT]: "RESOURCE_CONFLICT",
+  [HttpStatus.TOO_MANY_REQUESTS]: "RATE_LIMIT_EXCEEDED",
 };
 
 function getMessage(exception: HttpException): string {

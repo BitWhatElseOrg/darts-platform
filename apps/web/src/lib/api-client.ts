@@ -54,6 +54,8 @@ function localizedMessage(code: string): string {
     ENCOUNTER_SLOT_RUNNING: "Dieses Spiel läuft bereits.",
     BOARD_UNAVAILABLE: "Das gewählte Board ist belegt.",
     PLAYER_BUSY: "Mindestens eine Person spielt bereits an einem anderen Board.",
+    RATE_LIMIT_EXCEEDED:
+      "Zu viele Anfragen in kurzer Zeit. Warte eine Minute und versuche es erneut.",
     COMMAND_ID_ALREADY_USED: "Dieser Befehl wurde bereits ausgeführt.",
     TEAM_PLAYER_ALREADY_MEMBER: "Diese Person gehört bereits zum Kader.",
     TEAM_CAPTAIN_TAKEN:

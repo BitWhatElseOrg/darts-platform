@@ -36,6 +36,11 @@ export default defineConfig({
         API_PORT: String(apiPort),
         BETTER_AUTH_URL: apiOrigin,
         PORT: String(apiPort),
+        // Der Lauf kommt von einer einzigen Adresse und registriert mehrere
+        // Konten; die Produktionsgrenzen wuerden ihn abwuergen.
+        RATE_LIMIT_MAX_PER_MINUTE: "100000",
+        RATE_LIMIT_PUBLIC_MAX_PER_MINUTE: "100000",
+        RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: "100000",
         WEB_ORIGIN: webOrigin,
       },
       reuseExistingServer: false,
