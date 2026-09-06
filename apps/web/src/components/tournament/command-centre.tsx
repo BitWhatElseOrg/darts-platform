@@ -24,6 +24,7 @@ import {
 import {
   localCleanupFailureMessage,
   nextReplayable,
+  queueReadFailureMessage,
   queueSaveFailureMessage,
   queuedCommandNotice,
   replayFailure,
@@ -136,17 +137,49 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
   const [landedBoardId, setLandedBoardId] = useState<string | null>(null);
   const [conflict, setConflict] = useState<VersionConflict | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
+  /**
+   * Fehler der lokalen Warteschlange selbst (lesen, aendern) -- bewusst
+   * getrennt von `commandError`, das einen einzelnen Befehl betrifft. Beide
+   * koennen gleichzeitig zutreffen, und keiner darf den anderen
+   * ueberschreiben.
+   */
+  const [queueError, setQueueError] = useState<string | null>(null);
   const [commandBusy, setCommandBusy] = useState(false);
   const [announcement, setAnnouncement] = useState("");
 
   const scope = tournamentQueueScope(organizationId, tournamentId);
   const assignmentPath = `/organizations/${organizationId}/tournaments/${tournamentId}/assignments`;
-  const refreshQueue = useCallback(async () => setQueued(await listOfflineCommands(scope)), [scope]);
+  /**
+   * Liest die Warteschlange neu und macht ein Scheitern des Lesens sichtbar.
+   *
+   * Das Lesen selbst kann scheitern (IndexedDB nicht verfuegbar, blockiert).
+   * Frueher warf `refreshQueue` in diesem Fall an ihre Aufruferinnen weiter --
+   * je nach Aufrufstelle als unbehandelte Rejection oder als Fehler, der
+   * faelschlich wie ein Uebertragungsfehler aussah. Jetzt faengt der eine
+   * Helfer den Fall an einer Stelle ab und setzt `queueError`; sie wirft nie.
+   */
+  const refreshQueue = useCallback(async (): Promise<void> => {
+    try {
+      setQueued(await listOfflineCommands(scope));
+      setQueueError(null);
+    } catch (error) {
+      setQueueError(queueReadFailureMessage(error));
+    }
+  }, [scope]);
   // Die Warteschlange liegt in IndexedDB und wird beim Betreten der Zentrale
   // gelesen: eine offline erfasste Zuweisung ueberlebt damit ein Neuladen.
+  //
+  // Der Rejection-Zweig ist Pflicht: ohne ihn entstand bei nicht verfuegbarer
+  // oder blockierter IndexedDB eine unbehandelte Rejection, und die Zentrale
+  // zeigte eine leere Warteschlange -- die Person hielt sie fuer leer, obwohl
+  // wartende Zuweisungen darin standen (AGENTS.md §18, PR-Agent-Runde 5,
+  // Befund b).
   useEffect(() => {
     let active = true;
-    void listOfflineCommands(scope).then((commands) => { if (active) setQueued(commands); });
+    void listOfflineCommands(scope).then(
+      (commands) => { if (active) setQueued(commands); },
+      (error: unknown) => { if (active) setQueueError(queueReadFailureMessage(error)); },
+    );
     return () => { active = false; };
   }, [scope]);
 
@@ -542,6 +575,21 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
           <Wedge className="mt-5 p-4" tone="alarm">
             <SheetLabel as="h2" tone="alarm">Befehl nicht ausgeführt</SheetLabel>
             <p className="mt-1.5 font-plate text-body text-wedge-900">{commandError}</p>
+          </Wedge>
+        ) : null}
+
+        {/*
+          * Die Warteschlange muss auch dann sichtbar sein, wenn genau ihr
+          * Lesen oder Aendern scheitert -- sonst zeigt die Zentrale eine leere
+          * Liste und die Person haelt sie fuer leer (AGENTS.md §18). Eigene
+          * Flaeche neben `commandError`: der Fehler betrifft die Warteschlange
+          * als Ganzes, nicht einen einzelnen Befehl, und beide koennen
+          * gleichzeitig zutreffen.
+          */}
+        {queueError !== null ? (
+          <Wedge className="mt-5 p-4" tone="alarm">
+            <SheetLabel as="h2" tone="alarm">Warteschlange nicht gelesen</SheetLabel>
+            <p className="mt-1.5 font-plate text-body text-wedge-900">{queueError}</p>
           </Wedge>
         ) : null}
 

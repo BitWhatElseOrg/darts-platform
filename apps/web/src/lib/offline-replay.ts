@@ -130,6 +130,21 @@ export function queueSaveFailureMessage(error: unknown): string {
 }
 
 /**
+ * Meldung fuer das Lesen der lokalen Warteschlange (IndexedDB), das selbst
+ * gescheitert ist -- beim Betreten der Zentrale oder nach einer Aenderung.
+ *
+ * Ohne sie zeigt die Zentrale eine leere Warteschlange, und die Person haelt
+ * sie fuer leer: bestehende wartende Zuweisungen sind dann still ausgelassen,
+ * obwohl sie in IndexedDB stehen und beim naechsten Lesen wieder auftauchen.
+ * Die Warteschlange muss sichtbar sein (AGENTS.md §18), auch wenn genau ihr
+ * Lesen scheitert (PR-Agent-Runde 5, Befund b).
+ */
+export function queueReadFailureMessage(error: unknown): string {
+  const detail = error instanceof Error ? error.message : "unbekannter Fehler";
+  return `Die Warteschlange konnte nicht gelesen werden (${detail}). Wartende Zuweisungen werden möglicherweise nicht angezeigt. Lade die Seite neu, bevor du erneut zuweist.`;
+}
+
+/**
  * Ergebnis eines einzelnen Wiedergabeversuchs. `version` ist die vom Server
  * bestaetigte neue Version -- nur bei Erfolg vorhanden, weil ein
  * Fehlschlag kein Urteil ueber die Version liefert.

@@ -6,6 +6,7 @@ import {
   localCleanupFailureMessage,
   nextReplayable,
   queueBlocksControl,
+  queueReadFailureMessage,
   queueSaveFailureMessage,
   queuedCommandNotice,
   replayFailure,
@@ -183,6 +184,25 @@ describe("queueSaveFailureMessage", () => {
   it("faellt auf einen generischen Hinweis zurueck, wenn kein Error-Objekt vorliegt", () => {
     expect(queueSaveFailureMessage("kaputt")).toBe(
       "Zuweisung konnte nicht in die Warteschlange gelegt werden (unbekannter Fehler). Bitte Verbindung wiederherstellen und erneut versuchen.",
+    );
+  });
+});
+
+describe("queueReadFailureMessage", () => {
+  /**
+   * PR-Agent-Runde 5, Befund b: Scheitert schon das Lesen der Warteschlange,
+   * sieht die Person eine leere Liste und haelt sie fuer leer -- wartende
+   * Zuweisungen waeren still ausgelassen (AGENTS.md §18).
+   */
+  it("benennt den Fehler als gescheitertes Lesen und warnt vor dem Weiterarbeiten", () => {
+    expect(queueReadFailureMessage(new Error("IndexedDB blockiert"))).toBe(
+      "Die Warteschlange konnte nicht gelesen werden (IndexedDB blockiert). Wartende Zuweisungen werden möglicherweise nicht angezeigt. Lade die Seite neu, bevor du erneut zuweist.",
+    );
+  });
+
+  it("faellt auf einen generischen Hinweis zurueck, wenn kein Error-Objekt vorliegt", () => {
+    expect(queueReadFailureMessage("kaputt")).toBe(
+      "Die Warteschlange konnte nicht gelesen werden (unbekannter Fehler). Wartende Zuweisungen werden möglicherweise nicht angezeigt. Lade die Seite neu, bevor du erneut zuweist.",
     );
   });
 });
