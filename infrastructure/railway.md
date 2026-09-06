@@ -445,6 +445,27 @@ Bei fehlgeschlagenen Deployments werden zuerst Build- und Deployment-Logs des
 betroffenen Service geprüft. DNS-Änderungen beheben keine Build-, Start- oder
 Variablenfehler.
 
+## Abhängigkeiten
+
+`pnpm-workspace.yaml` erzwingt per `overrides.fastify: ^5.12.3` eine einzige
+`fastify`-Version im gesamten Baum. Ohne diese Übersteuerung installiert pnpm
+zwei Instanzen nebeneinander: `@nestjs/platform-fastify@11.2.1` bringt selbst
+einen exakten Pin (`fastify: 5.11.3`) mit, während `apps/api`s eigene
+`fastify`-Abhängigkeit auf die jeweils neueste `5.x`-Version auflöst. Zwei
+Instanzen sind zur Laufzeit unauffällig, führen aber bei `tsc` zu einem
+Strukturkonflikt zwischen zwei gleichnamigen, aber unterschiedlichen
+`FastifyInstance`-Typen, sobald ein Fastify-Plugin (z. B. `@fastify/helmet`,
+`apps/api/src/common/security-headers.ts`) gegen die `NestFastifyApplication`
+registriert wird. Die Übersteuerung zwingt beide Auflösungen auf dieselbe,
+gepatchte Version und behebt den Typkonflikt, ohne die von `@nestjs/platform-
+fastify` gepinnte Version zu unterschreiten.
+
+Dieser Override muss überprüft werden, sobald `@nestjs/platform-fastify` seinen
+internen `fastify`-Pin anhebt: entweder deckt die neue Nest-Version denselben
+Versionsbereich bereits ab (Override kann dann entfallen) oder der Floor in
+`pnpm-workspace.yaml` muss auf die neue Patch-Linie nachgezogen werden, damit
+weiterhin nur eine Instanz im Baum bleibt.
+
 ## Rollback
 
 - Anwendung: vorheriges erfolgreiches Railway-Deployment redeployen.

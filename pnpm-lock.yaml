@@ -28,6 +28,9 @@ catalogs:
       specifier: ^4.1.0
       version: 4.4.3
 
+overrides:
+  fastify: ^5.12.3
+
 importers:
 
   .:
@@ -120,8 +123,8 @@ importers:
         specifier: 0.45.2
         version: 0.45.2(kysely@0.29.5)(postgres@3.4.9)
       fastify:
-        specifier: 5.11.3
-        version: 5.11.3
+        specifier: ^5.12.3
+        version: 5.12.3
       redis:
         specifier: ^5.8.0
         version: 5.12.1
@@ -2869,8 +2872,8 @@ packages:
   fastify-plugin@6.0.0:
     resolution: {integrity: sha512-fZOty7z3O7vOliF6d8bHE3wiEh1KcNnKEQensSgTk9C1DvN6nRLS++XVd86v33Hw/8u9Un8A1zDrQ8ujcQDHEg==}
 
-  fastify@5.11.3:
-    resolution: {integrity: sha512-W6hzDP8s0iSeL7LGwY6Oc/ZxuXWOvFEMs6p2L0Si415YRo27W5pBKdOTXxhemBDeSTAcpYf5evRA9onF2OYhPA==}
+  fastify@5.12.3:
+    resolution: {integrity: sha512-reZ8wce5VNCcufIt9AVtzZa3L4u1j8esikn7OEgHWLVpRpL5R7Y2+Xzj70OUkv5zDfzUAxXZT6cu4Rt0zr3EKA==}
 
   fastq@1.20.1:
     resolution: {integrity: sha512-GGToxJ/w1x32s/D2EKND7kTil4n8OVk/9mycTc4VDza13lOvpUZTGX3mFSCtV9ksdGBVzvsyAVLM6mHFThxXxw==}
@@ -5008,7 +5011,7 @@ snapshots:
       '@nestjs/common': 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0)
       '@nestjs/core': 11.2.1(@nestjs/common@11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@7.2.0))(reflect-metadata@0.2.2)(rxjs@7.8.2)
       fast-querystring: 1.1.2
-      fastify: 5.11.3
+      fastify: 5.12.3
       fastify-plugin: 6.0.0
       find-my-way: 9.7.0
       light-my-request: 6.6.0
@@ -6420,7 +6423,7 @@ snapshots:
 
   fastify-plugin@6.0.0: {}
 
-  fastify@5.11.3:
+  fastify@5.12.3:
     dependencies:
       '@fastify/ajv-compiler': 4.0.6
       '@fastify/error': 4.2.0
