@@ -114,7 +114,7 @@ describe("Spielerstatistiken", () => {
     expect(forwards.map((entry) => entry.matchId)).toEqual(["m-a", "m-b"]);
   });
 
-  it("sortiert den direkten Vergleich ohne Abhaengigkeit von der Laufzeit-Kollation", () => {
+  it("sortiert den direkten Vergleich nach Anzeigename, nicht nach der Spieler-Id", () => {
     const against = (id: string, opponentId: string, opponentName: string): StatisticsMatch => ({
       id, completedAt: new Date(`2026-05-0${id.slice(-1)}T20:00:00Z`), winnerPlayerId: "a", outRule: "DOUBLE",
       participants: [
@@ -124,14 +124,38 @@ describe("Spielerstatistiken", () => {
       legs: [],
       visits: [],
     });
+    // Ids widersprechen bewusst der alphabetischen Namensreihenfolge: "Anna"
+    // traegt die zuletzt sortierende Id ("z..."), "Zora" die zuerst
+    // sortierende ("a..."). Ein Test, der nach Id sortierte, liefert damit
+    // die falsche Reihenfolge und faellt durch.
     const headToHead = calculatePlayerStatistics("a", [
-      against("m1", "z", "Zora"),
-      against("m2", "o", "Örs"),
-      against("m3", "b", "Beat"),
+      against("m1", "z-anna", "Anna"),
+      against("m2", "m-beat", "Beat"),
+      against("m3", "a-zora", "Zora"),
     ]).headToHead;
 
-    // Gleiche Zahl Begegnungen -> Reihenfolge nach der Spieler-Id, nicht nach
-    // einer ICU-Kollation, die je nach Laufzeit anders sortiert.
-    expect(headToHead.map((entry) => entry.opponentPlayerId)).toEqual(["b", "o", "z"]);
+    // Gleiche Zahl Begegnungen -> Reihenfolge nach Anzeigename (Code-Units),
+    // nicht nach einer ICU-Kollation, die je nach Laufzeit anders sortiert,
+    // und nicht nach der Spieler-Id.
+    expect(headToHead.map((entry) => entry.opponentDisplayName)).toEqual(["Anna", "Beat", "Zora"]);
+    expect(headToHead.map((entry) => entry.opponentPlayerId)).toEqual(["z-anna", "m-beat", "a-zora"]);
+  });
+
+  it("loest den direkten Vergleich bei gleichem Anzeigenamen ueber die Spieler-Id auf", () => {
+    const against = (id: string, opponentId: string): StatisticsMatch => ({
+      id, completedAt: new Date(`2026-05-0${id.slice(-1)}T20:00:00Z`), winnerPlayerId: "a", outRule: "DOUBLE",
+      participants: [
+        { playerId: "a", displayName: "Anna", legsWon: 1, setsWon: 1 },
+        { playerId: opponentId, displayName: "Beat", legsWon: 0, setsWon: 0 },
+      ],
+      legs: [],
+      visits: [],
+    });
+    const headToHead = calculatePlayerStatistics("a", [
+      against("m1", "beat-2"),
+      against("m2", "beat-1"),
+    ]).headToHead;
+
+    expect(headToHead.map((entry) => entry.opponentPlayerId)).toEqual(["beat-1", "beat-2"]);
   });
 });

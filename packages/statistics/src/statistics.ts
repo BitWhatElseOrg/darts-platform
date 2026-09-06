@@ -163,10 +163,21 @@ export function calculatePlayerStatistics(playerId: string, matches: readonly St
     headToHead: [...headToHead.values()].sort(
       (left, right) =>
         right.matchesPlayed - left.matchesPlayed ||
-        // Kein `localeCompare`: die ICU-Kollation der Laufzeit darf die
-        // Reihenfolge einer Domaenenauswertung nicht bestimmen. Die Fläche kann
-        // fuer die Anzeige sprachrichtig nachsortieren.
-        (left.opponentPlayerId < right.opponentPlayerId ? -1 : left.opponentPlayerId > right.opponentPlayerId ? 1 : 0),
+        // Sortierung nach Anzeigename, damit die Liste in `player-profile.tsx`
+        // unveraendert uebernommen werden kann statt clientseitig nachsortiert
+        // zu werden. Kein `localeCompare`: die ICU-Kollation der Laufzeit darf
+        // die Reihenfolge einer Domaenenauswertung nicht bestimmen, Server,
+        // Worker und Test muessen dieselbe Zahl liefern. Der Vergleich laeuft
+        // deshalb ueber Code-Units.
+        (left.opponentDisplayName < right.opponentDisplayName
+          ? -1
+          : left.opponentDisplayName > right.opponentDisplayName
+            ? 1
+            : left.opponentPlayerId < right.opponentPlayerId
+              ? -1
+              : left.opponentPlayerId > right.opponentPlayerId
+                ? 1
+                : 0),
     ),
     rankingHistory,
   };
