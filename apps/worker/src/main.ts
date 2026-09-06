@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
-import { parseApplicationEnvironment } from "@darts-platform/config";
+import { createStructuredLogEmitter, parseApplicationEnvironment } from "@darts-platform/config";
 import { createDatabaseConnection, legs, matches, matchParticipantPlayers, matchParticipants, outboxEvents, playerStatisticAggregates, players, visits } from "@darts-platform/database";
 import { calculatePlayerStatistics } from "@darts-platform/statistics";
 
@@ -8,6 +8,7 @@ import { pruneProcessedOutboxEvents } from "./prune-outbox.js";
 
 const environment = parseApplicationEnvironment(process.env);
 const connection = createDatabaseConnection(environment.DATABASE_URL);
+const logger = createStructuredLogEmitter("worker", environment.LOG_LEVEL);
 let working = false;
 
 async function rebuild(playerId: string, organizationId: string): Promise<void> {
@@ -64,7 +65,12 @@ async function run(): Promise<void> {
       }
       await connection.database.update(outboxEvents).set({ statisticsProcessedAt: new Date() }).where(and(eq(outboxEvents.id, event.id), isNull(outboxEvents.statisticsProcessedAt)));
     }
-  } catch (error) { console.error("Statistik-Aggregation fehlgeschlagen", error); }
+  } catch (error) {
+    logger.emit("error", {
+      event: "statistics.tick_failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
   finally { working = false; }
 }
 

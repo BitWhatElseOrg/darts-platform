@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { applicationLogLevels } from "./structured-logger";
+
 const portSchema = z.coerce.number().int().min(1).max(65_535);
 const rateLimitMaxSchema = z.coerce.number().int().min(1).max(1_000_000);
 // Obergrenze 10: mehr Reverse-Proxy-Hops gibt es in keinem realistischen
@@ -22,14 +24,7 @@ const urlListSchema = z
       .filter((origin) => origin.length > 0),
   )
   .pipe(z.array(z.string().url()));
-const logLevelSchema = z.enum([
-  "fatal",
-  "error",
-  "warn",
-  "log",
-  "debug",
-  "verbose",
-]);
+const logLevelSchema = z.enum(applicationLogLevels);
 /**
  * Freigabe-Flags werden bewusst hart geparst: nur die Zeichenketten `true`
  * und `false` sind zulaessig. Ein Tippfehler bricht den Start ab, statt
