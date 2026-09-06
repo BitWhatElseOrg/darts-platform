@@ -19,6 +19,7 @@ import {
 import { Button, buttonVariants, cn } from "@darts-platform/ui";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
+import { ApiClientError } from "@/lib/api-error";
 import { roleLabel } from "@/lib/roles";
 import { MatchList } from "@/components/match/match-list";
 
@@ -224,6 +225,11 @@ function OrganizationsPanel({
     },
   });
   const submit = form.handleSubmit((data) => createOrganization.mutate(data));
+  // Der Server entscheidet, ob es diesen Weg gibt. Ein Formular, das
+  // zuverlaessig scheitert, ist schlechter als ein ehrlicher Satz.
+  const selfServiceDisabled =
+    createOrganization.error instanceof ApiClientError &&
+    createOrganization.error.code === "SELF_SERVICE_ORGANIZATIONS_DISABLED";
 
   return (
     <section className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5">
@@ -247,25 +253,34 @@ function OrganizationsPanel({
         ))}
       </div>
 
-      <form className="mt-6 space-y-3 border-t border-slate-800 pt-5" onSubmit={(event) => void submit(event)}>
-        <h3 className="text-body font-semibold text-slate-200">Organisation erstellen</h3>
-        <div className="space-y-2">
-          <label className={labelClassName} htmlFor="organization-name">Organisationsname</label>
-          <input id="organization-name" className={inputClassName} placeholder="Vereinsname" {...form.register("name")} />
-        </div>
-        <div className="space-y-2">
-          <label className={labelClassName} htmlFor="organization-slug">Organisationskürzel</label>
-          <input id="organization-slug" className={inputClassName} placeholder="club-slug" {...form.register("slug")} />
-        </div>
-        {createOrganization.isError ? (
-          <p role="alert" className="text-body text-rose-300">
+      {selfServiceDisabled ? (
+        <div className="mt-6 space-y-2 border-t border-slate-800 pt-5">
+          <h3 className="text-body font-semibold text-slate-200">Organisation erstellen</h3>
+          <p className="text-body text-slate-400" role="status">
             {messageFrom(createOrganization.error)}
           </p>
-        ) : null}
-        <Button className="w-full" disabled={createOrganization.isPending} type="submit">
-          Erstellen
-        </Button>
-      </form>
+        </div>
+      ) : (
+        <form className="mt-6 space-y-3 border-t border-slate-800 pt-5" onSubmit={(event) => void submit(event)}>
+          <h3 className="text-body font-semibold text-slate-200">Organisation erstellen</h3>
+          <div className="space-y-2">
+            <label className={labelClassName} htmlFor="organization-name">Organisationsname</label>
+            <input id="organization-name" className={inputClassName} placeholder="Vereinsname" {...form.register("name")} />
+          </div>
+          <div className="space-y-2">
+            <label className={labelClassName} htmlFor="organization-slug">Organisationskürzel</label>
+            <input id="organization-slug" className={inputClassName} placeholder="club-slug" {...form.register("slug")} />
+          </div>
+          {createOrganization.isError ? (
+            <p role="alert" className="text-body text-rose-300">
+              {messageFrom(createOrganization.error)}
+            </p>
+          ) : null}
+          <Button className="w-full" disabled={createOrganization.isPending} type="submit">
+            Erstellen
+          </Button>
+        </form>
+      )}
     </section>
   );
 }

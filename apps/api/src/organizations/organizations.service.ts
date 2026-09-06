@@ -1,9 +1,12 @@
 import {
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+
+import type { ApplicationEnvironment } from "@darts-platform/config";
 
 import {
   createdInvitationSchema,
@@ -20,6 +23,7 @@ import {
 
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
+import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 import { OrganizationAccessService } from "./organization-access.service.js";
 import { OrganizationsRepository } from "./organizations.repository.js";
 
@@ -39,6 +43,8 @@ export class OrganizationsService {
     private readonly organizationsRepository: OrganizationsRepository,
     @Inject(OrganizationAccessService)
     private readonly organizationAccessService: OrganizationAccessService,
+    @Inject(APPLICATION_ENVIRONMENT)
+    private readonly environment: ApplicationEnvironment,
   ) {}
 
   public async list(auth: AuthContext): Promise<OrganizationSummary[]> {
@@ -53,6 +59,18 @@ export class OrganizationsService {
     readonly auth: AuthContext;
     readonly audit: AuditContext;
   }): Promise<OrganizationSummary> {
+    // Ohne diese Sperre macht sich jede angemeldete Person zum OWNER eines
+    // eigenen Mandanten und darf von dort aus beliebig einladen — die
+    // einladungsgebundene Registrierung aus ADR 0010 waere damit umgangen
+    // (Audit B, I-3). Mandanten entstehen ueber den Bootstrap-Pfad
+    // (ADR 0012), solange es keine Systemrolle `SUPER_ADMIN` gibt.
+    if (!this.environment.ALLOW_SELF_SERVICE_ORGANIZATIONS) {
+      throw new ForbiddenException({
+        code: "SELF_SERVICE_ORGANIZATIONS_DISABLED",
+        message: "New organizations are created by platform operations.",
+      });
+    }
+
     try {
       const organization = await this.organizationsRepository.create({
         ...input.data,

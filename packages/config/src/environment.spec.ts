@@ -132,6 +132,28 @@ describe("parseApplicationEnvironment", () => {
       }),
     ).toThrow(EnvironmentValidationError);
   });
+
+  it("verbietet die Selbstbedienung bei der Mandantenanlage standardmaessig", () => {
+    const environment = parseApplicationEnvironment(validEnvironment);
+
+    expect(environment.ALLOW_SELF_SERVICE_ORGANIZATIONS).toBe(false);
+  });
+
+  it("erlaubt die Selbstbedienung nur bei genau 'true'", () => {
+    expect(
+      parseApplicationEnvironment({
+        ...validEnvironment,
+        ALLOW_SELF_SERVICE_ORGANIZATIONS: "true",
+      }).ALLOW_SELF_SERVICE_ORGANIZATIONS,
+    ).toBe(true);
+
+    expect(() =>
+      parseApplicationEnvironment({
+        ...validEnvironment,
+        ALLOW_SELF_SERVICE_ORGANIZATIONS: "yes",
+      }),
+    ).toThrow(EnvironmentValidationError);
+  });
 });
 
 describe("parsePublicWebEnvironment", () => {

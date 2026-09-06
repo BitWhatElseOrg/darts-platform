@@ -33,6 +33,9 @@ export default defineConfig({
       command: "pnpm --filter @darts-platform/api dev",
       url: `http://localhost:${apiPort}/api/v1/health`,
       env: {
+        // Die E2E-Suite legt ihre Mandanten ueber die Oberflaeche an; in
+        // Production bleibt die Selbstbedienung aus (ADR 0012).
+        ALLOW_SELF_SERVICE_ORGANIZATIONS: "true",
         API_PORT: String(apiPort),
         BETTER_AUTH_URL: apiOrigin,
         PORT: String(apiPort),

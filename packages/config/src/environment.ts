@@ -24,6 +24,15 @@ const logLevelSchema = z.enum([
   "debug",
   "verbose",
 ]);
+/**
+ * Freigabe-Flags werden bewusst hart geparst: nur die Zeichenketten `true`
+ * und `false` sind zulaessig. Ein Tippfehler bricht den Start ab, statt
+ * stillschweigend als „aus" durchzugehen.
+ */
+const booleanFlagSchema = z
+  .enum(["true", "false"])
+  .default("false")
+  .transform((value) => value === "true");
 
 export const applicationEnvironmentSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -41,6 +50,11 @@ export const applicationEnvironmentSchema = z.object({
   WEB_ORIGIN: z.string().url().default("http://localhost:3000"),
   WEB_ADDITIONAL_ORIGINS: urlListSchema,
   LOG_LEVEL: logLevelSchema.default("log"),
+  /**
+   * Erlaubt `POST /organizations` fuer jede angemeldete Person. Vorgabe
+   * `false`: Mandanten entstehen ueber den Bootstrap-Pfad (ADR 0012).
+   */
+  ALLOW_SELF_SERVICE_ORGANIZATIONS: booleanFlagSchema,
   /** Obergrenze je IP und Minute fuer alle nicht gesondert geregelten Routen. */
   RATE_LIMIT_MAX_PER_MINUTE: rateLimitMaxSchema.default(300),
   /**

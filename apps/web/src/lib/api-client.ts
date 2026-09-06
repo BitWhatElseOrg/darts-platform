@@ -56,6 +56,8 @@ function localizedMessage(code: string): string {
     PLAYER_BUSY: "Mindestens eine Person spielt bereits an einem anderen Board.",
     RATE_LIMIT_EXCEEDED:
       "Zu viele Anfragen in kurzer Zeit. Warte eine Minute und versuche es erneut.",
+    SELF_SERVICE_ORGANIZATIONS_DISABLED:
+      "Neue Organisationen werden vom Betrieb angelegt. Wende dich an die Plattformverwaltung.",
     COMMAND_ID_ALREADY_USED: "Dieser Befehl wurde bereits ausgeführt.",
     TEAM_PLAYER_ALREADY_MEMBER: "Diese Person gehört bereits zum Kader.",
     TEAM_CAPTAIN_TAKEN:

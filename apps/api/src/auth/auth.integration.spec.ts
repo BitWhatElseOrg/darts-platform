@@ -202,6 +202,7 @@ describe("Better Auth integration", () => {
         const organizationsService = new OrganizationsService(
           repository,
           new OrganizationAccessService(repository),
+          { ...isolatedEnvironment, ALLOW_SELF_SERVICE_ORGANIZATIONS: true },
         );
         const bootstrap = await bootstrapProductionOwner(
           temporary.connection.database,
