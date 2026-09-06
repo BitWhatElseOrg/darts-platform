@@ -16,7 +16,10 @@ import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import type { AuthContext } from "../auth/auth.types.js";
 import { DatabaseService } from "../database/database.service.js";
 import { OrganizationAccessService } from "./organization-access.service.js";
-import { OrganizationsRepository } from "./organizations.repository.js";
+import {
+  OrganizationsRepository,
+  type UpdateMembershipResult,
+} from "./organizations.repository.js";
 import { OrganizationsService } from "./organizations.service.js";
 import { createApiTestApplication } from "../testing/api-harness.js";
 
@@ -25,6 +28,25 @@ const databaseService = new DatabaseService(environment);
 const repository = new OrganizationsRepository(databaseService);
 const access = new OrganizationAccessService(repository);
 const service = new OrganizationsService(repository, access, environment);
+
+/**
+ * Erzwingt genau ein Ergebnis des Repositories. Der Wettlauf, der
+ * `actor-not-active` in der Produktion ausloest — die Mitgliedschaft der
+ * handelnden Person wird zwischen `requirePermission` und der
+ * Organisationssperre entzogen — laesst sich in einem Test nicht stellen;
+ * geprueft wird deshalb die Abbildung des Ergebnisses auf die Antwort.
+ */
+class ActorNotActiveRepository extends OrganizationsRepository {
+  public override async updateMembership(): Promise<UpdateMembershipResult> {
+    return { outcome: "actor-not-active" };
+  }
+}
+
+const serviceWithInactiveActor = new OrganizationsService(
+  new ActorNotActiveRepository(databaseService),
+  access,
+  environment,
+);
 
 const organizationId = randomUUID();
 const foreignOrganizationId = randomUUID();
@@ -172,13 +194,16 @@ describe("Mitgliedschaften verwalten", () => {
     // OWNER-Zeile der handelnden Person zwischen `requirePermission` und der
     // Organisationssperre herabgestuft wird — dann handelt hier eine Person,
     // die die Sperre als OWNER betreten hat, waehrend sie der letzte ist.
+    // Handelt: der OWNER selbst — seit die Rolle der handelnden Person unter
+    // der Sperre gelesen wird, ist er hier die einzige aktive OWNER-Zeile.
+    const auditBefore = await auditRowsOf(ownerUserId);
+
     await expect(
       repository.updateMembership({
         organizationId,
         targetUserId: ownerUserId,
         role: "ADMIN",
-        actorUserId: managerUserId,
-        actorRole: "OWNER",
+        actorUserId: ownerUserId,
         audit,
       }),
     ).resolves.toEqual({ outcome: "last-owner" });
@@ -188,14 +213,67 @@ describe("Mitgliedschaften verwalten", () => {
         organizationId,
         targetUserId: ownerUserId,
         status: "SUSPENDED",
-        actorUserId: managerUserId,
-        actorRole: "OWNER",
+        actorUserId: ownerUserId,
         audit,
       }),
     ).resolves.toEqual({ outcome: "last-owner" });
 
     expect(await readMembership(ownerUserId)).toEqual({ role: "OWNER", status: "ACTIVE" });
+    expect(await auditRowsOf(ownerUserId)).toHaveLength(auditBefore.length);
+  }, 30_000);
+
+  it("liest die Rolle der handelnden Person unter der Sperre statt sie zu glauben", async () => {
+    // `adminUserId` ist seit dem vorigen Fall SUSPENDED. Der Aufruf traegt
+    // keine Rollenangabe mehr — massgeblich ist allein die Zeile in der
+    // Datenbank, und die traegt keinen aktiven Zugriff mehr.
+    await expect(
+      repository.updateMembership({
+        organizationId,
+        targetUserId: scorerUserId,
+        role: "VIEWER",
+        actorUserId: adminUserId,
+        audit,
+      }),
+    ).resolves.toEqual({ outcome: "actor-not-active" });
+
+    // Und eine aktive, aber nicht eigentumsberechtigte Hand kommt an einer
+    // OWNER-Zeile ebenfalls nicht vorbei — die Rolle stammt aus der Datenbank.
+    await expect(
+      repository.updateMembership({
+        organizationId,
+        targetUserId: ownerUserId,
+        role: "ADMIN",
+        actorUserId: managerUserId,
+        audit,
+      }),
+    ).resolves.toEqual({ outcome: "owner-change-requires-owner" });
+
+    expect(await readMembership(scorerUserId)).toEqual({ role: "MEMBER", status: "ACTIVE" });
+    expect(await readMembership(ownerUserId)).toEqual({ role: "OWNER", status: "ACTIVE" });
+    expect(await auditRowsOf(adminUserId)).toHaveLength(0);
     expect(await auditRowsOf(managerUserId)).toHaveLength(0);
+  }, 30_000);
+
+  it("beantwortet eine entzogene Mitgliedschaft der handelnden Person mit 403", async () => {
+    try {
+      await serviceWithInactiveActor.updateMembership({
+        organizationId,
+        targetUserId: scorerUserId,
+        data: { role: "VIEWER" },
+        auth: ownerAuth,
+        audit,
+      });
+      throw new Error("Die Aenderung haette abgewiesen werden muessen.");
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(ForbiddenException);
+      const forbidden = error as ForbiddenException;
+      expect(forbidden.getStatus()).toBe(403);
+      // Ohne eigenen Code vergibt der globale Fehlerfilter `PERMISSION_DENIED`
+      // — genau wie bei `requirePermission`.
+      expect(forbidden.getResponse()).not.toHaveProperty("code");
+    }
+
+    expect(await readMembership(scorerUserId)).toEqual({ role: "MEMBER", status: "ACTIVE" });
   }, 30_000);
 
   it("laesst ADMIN kein Eigentum vergeben und schreibt dabei nichts", async () => {

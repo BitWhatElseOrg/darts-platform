@@ -32,6 +32,8 @@ export type UpdateMembershipResult =
   | { readonly outcome: "updated"; readonly member: OrganizationMember }
   | { readonly outcome: "not-found" }
   | { readonly outcome: "last-owner" }
+  | { readonly outcome: "actor-not-active" }
+  | { readonly outcome: "owner-grant-requires-owner" }
   | { readonly outcome: "owner-change-requires-owner" };
 
 interface ActorInput {
@@ -294,8 +296,13 @@ export class OrganizationsRepository {
    * zuerst die Organisationszeile — sie serialisiert alle
    * Mitgliedschaftsaenderungen dieser Organisation — und danach die
    * Zielzeile, weil `acceptInvitation` Mitgliedschaften ohne die
-   * Organisationssperre schreibt. Beide Sperren gehen in derselben
-   * Reihenfolge, es entsteht kein Zyklus.
+   * Organisationssperre schreibt. Die Reihenfolge ist immer Organisation →
+   * Zeile der handelnden Person → Zielzeile, es entsteht kein Zyklus.
+   *
+   * Die Rolle der handelnden Person wird hier unter der Sperre gelesen und
+   * nicht vom Aufrufer uebernommen: zwischen `requirePermission` im Service
+   * und dieser Transaktion kann eine andere, ebenfalls serialisierte Anfrage
+   * dieselbe Person herabgestuft oder gesperrt haben.
    */
   public async updateMembership(input: {
     readonly organizationId: string;
@@ -303,7 +310,6 @@ export class OrganizationsRepository {
     readonly role?: OrganizationRole;
     readonly status?: MembershipStatus;
     readonly actorUserId: string;
-    readonly actorRole: OrganizationRole;
     readonly audit: AuditContext;
   }): Promise<UpdateMembershipResult> {
     return this.databaseService.database.transaction(async (transaction) => {
@@ -322,6 +328,31 @@ export class OrganizationsRepository {
       if (organization === undefined) {
         return { outcome: "not-found" };
       }
+
+      // Massgeblich fuer beide Owner-Pruefungen ist dieser Lesevorgang, nicht
+      // das Ergebnis von `requirePermission`: der Service liest die Rolle vor
+      // der Transaktion, und bis hierher kann sie veraltet sein.
+      const [actor] = await transaction
+        .select({ role: memberships.role, status: memberships.status })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.organizationId, input.organizationId),
+            eq(memberships.userId, input.actorUserId),
+          ),
+        )
+        .limit(1)
+        .for("update", { of: memberships });
+
+      if (
+        actor === undefined ||
+        actor.status !== "ACTIVE" ||
+        !isOrganizationRole(actor.role)
+      ) {
+        return { outcome: "actor-not-active" };
+      }
+
+      const actorRole: OrganizationRole = actor.role;
 
       const [current] = await transaction
         .select({
@@ -350,11 +381,16 @@ export class OrganizationsRepository {
         throw new Error("The stored membership carries an unknown role or status.");
       }
 
-      // Die heutige Rolle der Zielperson steht erst unter der Sperre fest —
-      // deshalb liegt diese Pruefung hier und nicht im Service. Eine
-      // OWNER-Zeile aendert nur, wer selbst aktiver OWNER ist; das gilt fuer
-      // Rolle und Status gleichermassen.
-      if (current.role === "OWNER" && input.actorRole !== "OWNER") {
+      // Eigentum vergibt nur Eigentum.
+      if (input.role === "OWNER" && actorRole !== "OWNER") {
+        return { outcome: "owner-grant-requires-owner" };
+      }
+
+      // Die Gegenrichtung: eine bestehende OWNER-Zeile aendert nur, wer selbst
+      // aktiver OWNER ist — fuer Rolle und Status gleichermassen. Die heutige
+      // Rolle der Zielperson steht erst unter der Sperre fest, deshalb liegt
+      // auch diese Pruefung hier und nicht im Service.
+      if (current.role === "OWNER" && actorRole !== "OWNER") {
         return { outcome: "owner-change-requires-owner" };
       }
 

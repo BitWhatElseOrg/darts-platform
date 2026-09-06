@@ -148,10 +148,11 @@ export class OrganizationsService {
     readonly auth: AuthContext;
     readonly audit: AuditContext;
   }): Promise<OrganizationMember> {
-    // `requirePermission` liefert die Rolle der handelnden Person zurueck —
-    // die wird gleich fuer die Eigentumsuebertragung gebraucht, ohne dass
-    // eine zweite Abfrage noetig waere.
-    const actorRole = await this.organizationAccessService.requirePermission({
+    // Prueft die Berechtigung; die zurueckgegebene Rolle wird hier bewusst
+    // nicht weiterverwendet. Beide Owner-Pruefungen brauchen einen Stand, der
+    // sich bis zum Schreibvorgang nicht mehr aendern kann — den liest das
+    // Repository unter der Organisationssperre.
+    await this.organizationAccessService.requirePermission({
       organizationId: input.organizationId,
       userId: input.auth.user.id,
       permission: "organization:manage_roles",
@@ -169,27 +170,18 @@ export class OrganizationsService {
       });
     }
 
-    // Eigentum vergibt nur Eigentum. Die Gegenrichtung — eine bestehende
-    // OWNER-Zeile aendern — prueft das Repository unter der Sperre
-    // (`OWNER_CHANGE_REQUIRES_OWNER`), weil die heutige Rolle der Zielperson
-    // erst dort feststeht. `ADMIN` traegt zwar
-    // `organization:manage_roles` und darf jede andere Rolle setzen, aber
-    // sich nicht selbst zum Miteigentuemer machen, indem er einen Vertrauten
-    // zum OWNER ernennt. Die Uebertragung selbst bleibt moeglich — sonst
-    // waere ein Vorstandswechsel nur noch mit einem manuellen UPDATE auf der
+    // Beide Eigentumsregeln — `OWNER` vergeben und eine bestehende OWNER-Zeile
+    // aendern — liegen im Repository, weil erst dort unter der Sperre
+    // feststeht, welche Rolle die handelnde Person und die Zielperson im
+    // Moment des Schreibens wirklich tragen. `ADMIN` traegt zwar
+    // `organization:manage_roles` und darf jede andere Rolle setzen, aber kein
+    // Eigentum. Die Uebertragung unter OWNERn bleibt moeglich — sonst waere ein
+    // Vorstandswechsel nur noch mit einem manuellen UPDATE auf der
     // Produktionsdatenbank machbar (AGENTS.md §21).
-    if (input.data.role === "OWNER" && actorRole !== "OWNER") {
-      throw new ForbiddenException({
-        code: "OWNER_GRANT_REQUIRES_OWNER",
-        message: "Only an active owner can grant the owner role.",
-      });
-    }
-
     const result = await this.organizationsRepository.updateMembership({
       organizationId: input.organizationId,
       targetUserId: input.targetUserId,
       actorUserId: input.auth.user.id,
-      actorRole,
       audit: input.audit,
       ...(input.data.role === undefined ? {} : { role: input.data.role }),
       ...(input.data.status === undefined ? {} : { status: input.data.status }),
@@ -204,6 +196,18 @@ export class OrganizationsService {
         throw new ConflictException({
           code: "LAST_OWNER_PROTECTED",
           message: "The last active owner cannot be demoted or deactivated.",
+        });
+      case "actor-not-active":
+        // Die Mitgliedschaft der handelnden Person wurde zwischen der
+        // Berechtigungspruefung und der Sperre entzogen oder herabgestuft.
+        // Antwort wie bei `requirePermission`: 403 `PERMISSION_DENIED`.
+        throw new ForbiddenException(
+          "You do not have permission to access this organization resource.",
+        );
+      case "owner-grant-requires-owner":
+        throw new ForbiddenException({
+          code: "OWNER_GRANT_REQUIRES_OWNER",
+          message: "Only an active owner can grant the owner role.",
         });
       case "owner-change-requires-owner":
         throw new ForbiddenException({
