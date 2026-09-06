@@ -232,6 +232,15 @@ function validateRoundRobin(singles: readonly TemplateSlot[], positions: number)
  * Nichtantritt nach 2.5.1 wäre 0:16 statt 0:18. Die Ligavorlage setzt zwei
  * (`vfcTemplateOptions.regularDoubles`); die Engine verlangt mindestens eins,
  * damit auch kleinere Aufstellungen abbildbar bleiben.
+ *
+ * Dieses Minimum von eins ist bewusst weiter als das, was das Formular
+ * anbietet: eine ungerade Zahl regulärer Doppel bringt zwar mindestens eines
+ * mit, entzieht dem 9:9 aus 2.2.2/A1.4 aber den Gleichstand — bei ungerader
+ * Gesamtzahl Begegnungen kann kein Unentschieden mehr entstehen, und damit
+ * entfällt der Sudden-Death-Pfad ersatzlos. Das ist für generische Vorlagen
+ * (z. B. kleinere, nicht-VFC-Aufstellungen) kein Validierungsfehler, für die
+ * VFC-Liga aber unerwünscht. `competition-setup.tsx` bietet deshalb nur
+ * gerade Werte (2, 4) an; der Validator hier bleibt bewusst permissiver.
  */
 function validateRoundOrder(slots: readonly TemplateSlot[], positions: number): void {
   const ordered = [...slots].sort((left, right) => left.sequence - right.sequence);

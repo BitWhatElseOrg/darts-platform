@@ -309,12 +309,12 @@ function SetupForm({ organization }: { readonly organization: OrganizationSummar
             </SelectInput>
           </Field>
           <Field
-            hint="Reglement 2.2.8/2.2.1: mindestens ein reguläres Doppel ist Pflicht."
+            hint="Reglement 2.2.1/A1.1 sehen zwei Doppel vor; eine ungerade Zahl macht das 9:9 aus 2.2.2/A1.4 unmöglich."
             htmlFor="regular-doubles"
             label="Reguläre Doppel"
           >
             <SelectInput id="regular-doubles" {...register("regularDoubles")}>
-              {[1, 2, 3, 4].map((count) => (
+              {[2, 4].map((count) => (
                 <option key={count} value={String(count)}>
                   {count}
                 </option>
