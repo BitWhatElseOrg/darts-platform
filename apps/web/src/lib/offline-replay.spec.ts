@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiClientError } from "./api-error";
 import type { OfflineCommand } from "./offline-command-queue";
 import {
+  hasReplayableEntries,
   localCleanupFailureMessage,
   nextReplayable,
   queueBlocksControl,
@@ -143,6 +144,22 @@ describe("nextReplayable", () => {
     const commands = [command({ commandId: "c1" }), command({ commandId: "c2" })];
     expect(nextReplayable(commands)).toEqual(commands);
     expect(nextReplayable([])).toEqual([]);
+  });
+});
+
+describe("hasReplayableEntries", () => {
+  /**
+   * Ruling E8: eine leere Warteschlange darf `flushPending` (Kommandozentrale)
+   * weder `commandBusy` setzen noch "0 Befehle übertragen." in die
+   * `aria-live`-Region ansagen lassen. Diese reine Leerpruefung entscheidet
+   * darueber, ausgelagert, weil `flushPending` selbst DOM und React braucht.
+   */
+  it("verneint bei einer leeren Warteschlange", () => {
+    expect(hasReplayableEntries([])).toBe(false);
+  });
+
+  it("bejaht, sobald mindestens ein Eintrag wartet", () => {
+    expect(hasReplayableEntries([command({ commandId: "c1" })])).toBe(true);
   });
 });
 

@@ -15,6 +15,7 @@ import { ApiClientError } from "@/lib/api-error";
 import { generateId } from "@/lib/id";
 import { type OfflineCommand } from "@/lib/offline-command-queue";
 import {
+  hasReplayableEntries,
   nextReplayable,
   queueHidesEntries,
   queuedCommandNotice,
@@ -460,6 +461,11 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
     // frische Auskunft; der Knopf bleibt weiterhin ueber `connection`
     // deaktiviert.
     if (commandBusy || (typeof navigator !== "undefined" && !navigator.onLine)) return;
+    // Eine leere Warteschlange gibt es nichts zu uebertragen -- weder den
+    // Knopf-Zustand sperren noch "0 Befehle übertragen" in die `aria-live`-
+    // Region ansagen. Ohne diese Wache meldete jedes `online`-Ereignis mit
+    // leerer Warteschlange eine Ansage, die niemand ausgeloest hat (Ruling E8).
+    if (!hasReplayableEntries(replayable)) return;
     setCommandBusy(true);
     try {
       const refreshed = await dashboardQuery.refetch();

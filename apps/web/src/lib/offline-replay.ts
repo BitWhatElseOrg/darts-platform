@@ -88,6 +88,19 @@ export function nextReplayable<T extends { readonly status: OfflineCommandStatus
 }
 
 /**
+ * Gibt es ueberhaupt etwas zu uebertragen?
+ *
+ * Reine Leerpruefung des Ergebnisses von `nextReplayable`, ausgelagert, damit
+ * die Kommandozentrale (`command-centre.tsx`) sie ohne DOM oder React testen
+ * kann. Ohne diese Wache setzte ein `online`-Ereignis bei leerer Warteschlange
+ * trotzdem `commandBusy` und sagte "0 Befehle übertragen." an -- eine Ansage,
+ * die niemand ausgeloest hat (Ruling E8).
+ */
+export function hasReplayableEntries<T>(entries: readonly T[]): boolean {
+  return entries.length > 0;
+}
+
+/**
  * Sperrt die Warteschlange die Bedienung?
  *
  * Ja, solange sie ein Kommando traegt, das noch uebertragen werden soll oder
