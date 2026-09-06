@@ -197,4 +197,86 @@ describe("recordOutboxFailure gegen Postgres", () => {
         .where(eq(outboxEvents.id, id));
       expect(row?.attempts).toBe(2);
     }));
+
+  /**
+   * Ruling D9: das `WHERE` von `recordOutboxFailure` verlangt jetzt
+   * zusaetzlich, dass der jeweilige Konsument die Zeile noch nicht
+   * abgeschlossen hat. Ein Fehlversuch, der nach einem inzwischen doch noch
+   * erfolgreichen Sendevorgang eintrifft, darf die bereits gestempelte Zeile
+   * nicht mehr anfassen.
+   */
+  it("aendert an einer bereits verteilten Zeile nichts und meldet sie als bereits verarbeitet", () =>
+    withOrganization(async (organizationId) => {
+      const publishedAt = new Date();
+      const id = await insertOutboxEvent(organizationId, { publishedAt });
+
+      const result = await recordOutboxFailure({
+        database: connection.database,
+        consumer: "publish",
+        eventId: id,
+        error: new Error("zu spaet"),
+        now: new Date(),
+        maxAttempts: OUTBOX_MAX_ATTEMPTS,
+        logger: silentLogger,
+      });
+
+      expect(result).toBe("already_processed");
+      const [row] = await connection.database
+        .select({
+          attempts: outboxEvents.publishAttempts,
+          lastError: outboxEvents.publishLastError,
+          publishedAt: outboxEvents.publishedAt,
+        })
+        .from(outboxEvents)
+        .where(eq(outboxEvents.id, id));
+      expect(row?.attempts).toBe(0);
+      expect(row?.lastError).toBeNull();
+      expect(row?.publishedAt?.getTime()).toBe(publishedAt.getTime());
+    }));
+});
+
+describe("Requeue einer dead-geletteten Zeile (DATABASE_SCHEMA.md §18)", () => {
+  it.each([
+    {
+      consumer: "publish" as const,
+      deadLetteredAtColumn: "publishDeadLetteredAt" as const,
+      attemptsColumn: "publishAttempts" as const,
+      notBeforeColumn: "publishNotBefore" as const,
+      lastErrorColumn: "publishLastError" as const,
+    },
+    {
+      consumer: "statistics" as const,
+      deadLetteredAtColumn: "statisticsDeadLetteredAt" as const,
+      attemptsColumn: "statisticsAttempts" as const,
+      notBeforeColumn: "statisticsNotBefore" as const,
+      lastErrorColumn: "statisticsLastError" as const,
+    },
+  ])(
+    "$consumer: das Requeue aus dem Runbook macht eine dead-gelettete Zeile wieder outboxPending",
+    ({ consumer, deadLetteredAtColumn, attemptsColumn, notBeforeColumn, lastErrorColumn }) =>
+      withOrganization(async (organizationId) => {
+        const id = await insertOutboxEvent(organizationId, {
+          eventType: "MATCH_COMPLETED",
+          [attemptsColumn]: OUTBOX_MAX_ATTEMPTS,
+          [deadLetteredAtColumn]: new Date(),
+          [lastErrorColumn]: "Fehlversuch",
+        });
+        const now = new Date();
+
+        expect(await selectPending(consumer, id, now)).toBe(0);
+
+        // Dieselbe Anweisung wie in DATABASE_SCHEMA.md §18, als Drizzle-Update.
+        await connection.database
+          .update(outboxEvents)
+          .set({
+            [attemptsColumn]: 0,
+            [notBeforeColumn]: null,
+            [deadLetteredAtColumn]: null,
+            [lastErrorColumn]: null,
+          })
+          .where(eq(outboxEvents.id, id));
+
+        expect(await selectPending(consumer, id, now)).toBe(1);
+      }),
+  );
 });

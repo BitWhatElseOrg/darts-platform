@@ -27,8 +27,11 @@ import { DatabaseService } from "../database/database.service.js";
  * `outbox_events_pending_publication_idx` (`published_at is null`),
  * `outbox_events_pending_statistics_idx` (`statistics_processed_at is null
  * and event_type = 'MATCH_COMPLETED'`) und `outbox_events_dead_lettered_idx`
- * für die Zählung — mit `explain` geprüft, alle drei Abfragen scannen genau
- * diesen Index.
+ * für die Zählung — mit `explain` geprüft, jede der drei Abfragen scannt den
+ * jeweils zugehörigen Index. Das Indexprädikat selbst ist breiter als die
+ * Zählung: der Index deckt jede dead-gelettete Zeile ab, die Zählung filtert
+ * zusätzlich auf noch unverarbeitete Zeilen (siehe unten) und liest dafür nur
+ * einen Teil der vom Index gefundenen Zeilen.
  *
  * Das Alter kommt aus `min(occurred_at)` statt aus `order by … limit 1`:
  * die Aggregation läuft in einem Durchgang über den Rückstand, ohne
@@ -72,13 +75,24 @@ export class OutboxHealthService {
         ),
       );
 
+    // Zaehlt nur noch unverarbeitete Dead-Letter-Zeilen: eine Zeile, die im
+    // einen Konsumenten dead-gelettet und im anderen bereits erledigt ist
+    // (z. B. verteilt, aber statistisch dead-gelettet), zaehlt nur solange
+    // mit, wie mindestens eine Seite offen ist. Requeue oder Loeschen der
+    // Zeile ist der einzige Weg, sie hier verschwinden zu lassen.
     const [deadLettered] = await database
       .select({ total: sql<string>`count(*)` })
       .from(outboxEvents)
       .where(
         or(
-          isNotNull(outboxEvents.publishDeadLetteredAt),
-          isNotNull(outboxEvents.statisticsDeadLetteredAt),
+          and(
+            isNotNull(outboxEvents.publishDeadLetteredAt),
+            isNull(outboxEvents.publishedAt),
+          ),
+          and(
+            isNotNull(outboxEvents.statisticsDeadLetteredAt),
+            isNull(outboxEvents.statisticsProcessedAt),
+          ),
         ),
       );
 

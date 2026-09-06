@@ -22,7 +22,7 @@ const environment = parseApplicationEnvironment(process.env);
 let connection: DatabaseConnection;
 
 interface LoggedRecord {
-  readonly level: "error" | "warn" | "debug";
+  readonly level: "error" | "warn" | "log" | "debug";
   readonly fields: Readonly<Record<string, unknown>>;
 }
 
@@ -156,7 +156,7 @@ describe("processStatisticsOutbox", () => {
     expect(storedPoison?.statisticsLastError).toBe("Aggregat nicht berechenbar");
   });
 
-  it("legt ein dauerhaft fehlschlagendes Ereignis nach fuenf Versuchen ins Dead Letter", async () => {
+  it("legt ein dauerhaft fehlschlagendes Ereignis nach OUTBOX_MAX_ATTEMPTS Versuchen ins Dead Letter", async () => {
     const database = connection.database;
     const start = new Date("2026-09-06T11:00:00.000Z");
     const [poison] = await database

@@ -22,7 +22,7 @@ describe("outboxRetryDelayMs", () => {
     expect(outboxRetryDelayMs(0)).toBe(1_000);
   });
 
-  it("hält die Obergrenze bei fuenf Versuchen", () => {
-    expect(OUTBOX_MAX_ATTEMPTS).toBe(5);
+  it("hält die Obergrenze bei acht Versuchen", () => {
+    expect(OUTBOX_MAX_ATTEMPTS).toBe(8);
   });
 });

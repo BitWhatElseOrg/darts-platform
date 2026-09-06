@@ -124,7 +124,10 @@ export interface PublishOutboxOptions {
  * Exception alarmieren. Ein einzelnes kaputtes Ereignis haelt so weder den
  * Rest des Stapels noch kuenftige Durchlaeufe auf; geworfen wird nur noch,
  * wenn das Beanspruchen des Stapels selbst scheitert (Infrastrukturfehler),
- * unveraendert gegenueber Teil A.
+ * unveraendert gegenueber Teil A. Scheitert die Buchung selbst (z. B. eine
+ * Verbindungsstoerung waehrend des `UPDATE`), faengt ein eigenes try/catch je
+ * Ereignis das ab und protokolliert `outbox.failure_booking_failed`, statt
+ * die Buchung der uebrigen Ereignisse dieses Stapels zu verhindern.
  *
  * Jedes Ereignis wird einzeln abgesichert, damit ein Fehler in der Mitte des
  * Stapels nur dieses eine Ereignis kostet statt den ganzen Rest zu blockieren.
@@ -159,12 +162,16 @@ export async function publishOutboxBatch(
 
     const stampable: string[] = [];
     for (const event of events) {
-      const broadcast = toBroadcast(event, await resolveScope(transaction, event));
-      if (broadcast === null) {
-        stampable.push(event.id);
-        continue;
-      }
+      // `resolveScope` liegt bewusst mit im `try`: sein DB-Zugriff kann
+      // genauso fehlschlagen wie der Versand selbst, und ein einzelnes
+      // kaputtes Ereignis soll auch dann nur sich selbst kosten, nicht den
+      // Rest des Stapels abbrechen.
       try {
+        const broadcast = toBroadcast(event, await resolveScope(transaction, event));
+        if (broadcast === null) {
+          stampable.push(event.id);
+          continue;
+        }
         broadcaster.emit(broadcast.room, broadcast.event, broadcast.payload);
         stampable.push(event.id);
       } catch (error) {
@@ -184,15 +191,28 @@ export async function publishOutboxBatch(
   });
 
   for (const failure of failures) {
-    await recordOutboxFailure({
-      database,
-      consumer: "publish",
-      eventId: failure.outboxId,
-      error: failure.error,
-      now: currentTime,
-      maxAttempts,
-      logger: options.logger,
-    });
+    // Eigenes try/catch je Buchung: scheitert `recordOutboxFailure` selbst
+    // (z. B. eine Verbindungsstoerung zur Datenbank), darf das nicht die
+    // Buchung der uebrigen fehlgeschlagenen Ereignisse dieses Stapels
+    // verhindern.
+    try {
+      await recordOutboxFailure({
+        database,
+        consumer: "publish",
+        eventId: failure.outboxId,
+        error: failure.error,
+        now: currentTime,
+        maxAttempts,
+        logger: options.logger,
+      });
+    } catch (error) {
+      options.logger.emit("error", {
+        event: "outbox.failure_booking_failed",
+        consumer: "publish",
+        eventId: failure.outboxId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   return claimed;

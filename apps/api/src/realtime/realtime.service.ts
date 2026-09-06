@@ -34,6 +34,7 @@ export class RealtimeService implements OnApplicationShutdown, RealtimeBroadcast
     emit: (level, fields) => {
       if (level === "error") this.logger.error(fields);
       else if (level === "warn") this.logger.warn(fields);
+      else if (level === "log") this.logger.log(fields);
       else this.logger.debug(fields);
     },
   };

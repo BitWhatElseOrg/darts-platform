@@ -97,4 +97,39 @@ describe("pruneProcessedOutboxEvents", () => {
     // Aufraeumen: die Zeilen, die der begrenzte Lauf absichtlich stehen liess.
     await connection.database.delete(outboxEvents).where(inArray(outboxEvents.id, ids));
   }, 30_000);
+
+  /**
+   * Ruling D8: eine dead-gelettete, nie verteilte Zeile hat `published_at`
+   * per Konstruktion nie erreicht. Das Prunen-Praedikat verlangt
+   * `published_at is not null` und laesst sie deshalb stehen, egal wie alt
+   * sie ist — die Aufraeumregel darf ein unverarbeitetes (hier: endgueltig
+   * gescheitertes) Ereignis nie verschlucken, siehe DATABASE_SCHEMA.md §18.
+   */
+  it("prunet eine alte, dead-gelettete aber unverteilte Zeile nicht", async () => {
+    const [row] = await connection.database
+      .insert(outboxEvents)
+      .values({
+        organizationId,
+        aggregateType: "Match",
+        aggregateId: randomUUID(),
+        eventType: "VISIT_RECORDED",
+        payload: {},
+        occurredAt: old,
+        publishAttempts: 8,
+        publishDeadLetteredAt: old,
+        publishLastError: "endgueltig gescheitert",
+      })
+      .returning({ id: outboxEvents.id });
+    const id = row?.id ?? "";
+
+    await pruneProcessedOutboxEvents(connection.database, now);
+
+    const [remaining] = await connection.database
+      .select({ id: outboxEvents.id })
+      .from(outboxEvents)
+      .where(eq(outboxEvents.id, id));
+    expect(remaining?.id).toBe(id);
+
+    await connection.database.delete(outboxEvents).where(eq(outboxEvents.id, id));
+  }, 30_000);
 });

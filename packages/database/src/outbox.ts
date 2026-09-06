@@ -6,8 +6,12 @@ import { outboxEvents } from "./schema.js";
 /** Ereignistyp, den der Statistik-Konsument als einziger verarbeitet. */
 export const STATISTICS_OUTBOX_EVENT_TYPE = "MATCH_COMPLETED";
 
-/** Nach dem fünften Fehlversuch wandert ein Ereignis ins Dead Letter. */
-export const OUTBOX_MAX_ATTEMPTS = 5;
+/**
+ * Nach dem achten Fehlversuch wandert ein Ereignis ins Dead Letter. Die
+ * Wartezeiten zwischen den Versuchen summieren sich auf 1 + 2 + 4 + 8 + 16 +
+ * 32 + 64 s ≈ 127 s — knapp über zwei Minuten bis zum Dead Letter.
+ */
+export const OUTBOX_MAX_ATTEMPTS = 8;
 export const OUTBOX_BACKOFF_BASE_MS = 1_000;
 export const OUTBOX_BACKOFF_CAP_MS = 300_000;
 
@@ -21,10 +25,19 @@ export type OutboxConsumer = "publish" | "statistics";
  */
 export interface OutboxLogger {
   emit(
-    level: "error" | "warn" | "debug",
+    level: "error" | "warn" | "log" | "debug",
     fields: Readonly<Record<string, unknown>>,
   ): void;
 }
+
+/**
+ * Ergebnis von `recordOutboxFailure`. `"already_processed"` bedeutet: die
+ * Zeile war beim Eintreffen dieser Buchung bereits verteilt bzw. statistisch
+ * verarbeitet — ein Fehlversuch auf einer erledigten Zeile zu buchen wäre
+ * bedeutungslos und würde einen längst abgeschlossenen Zähler wieder
+ * hochzählen.
+ */
+export type OutboxFailureResult = "retry" | "dead_letter" | "already_processed";
 
 export interface OutboxFailureInput {
   readonly database: Database;
@@ -112,10 +125,19 @@ function backoffMillisSql(attemptsColumn: SQLWrapper) {
  * geleert: eine Backoff-Sperre hat für eine dead-gelettete Zeile keine
  * Bedeutung mehr, und ein manuelles Wiedereinreihen (siehe
  * `DATABASE_SCHEMA.md` §18) setzt sie ohnehin frisch.
+ *
+ * Das `WHERE` verlangt zusätzlich, dass der jeweilige Konsument die Zeile
+ * noch nicht abgeschlossen hat (`published_at is null` bzw.
+ * `statistics_processed_at is null`): ein Sendevorgang kann zwischen dem
+ * fehlgeschlagenen Versuch, der zu dieser Buchung führte, und deren Ausführung
+ * noch erfolgreich nachgeholt werden — der Poller sendet vor dem Stempeln,
+ * bucht Fehlversuche aber erst nach dem Commit der Transaktion. Trifft das
+ * zu, betrifft das `UPDATE` keine Zeile mehr; das ist kein Fehler, sondern
+ * bedeutet, dass die Zeile bereits erledigt ist.
  */
 export async function recordOutboxFailure(
   input: OutboxFailureInput,
-): Promise<"retry" | "dead_letter"> {
+): Promise<OutboxFailureResult> {
   const { consumer, eventId, logger, maxAttempts, now } = input;
   const lastError = describeError(input.error);
   // Explizit als ISO-String eingebettet statt als rohes `Date`: der
@@ -143,7 +165,7 @@ export async function recordOutboxFailure(
             else ${outboxEvents.publishDeadLetteredAt}
           end`,
         })
-        .where(eq(outboxEvents.id, eventId))
+        .where(and(eq(outboxEvents.id, eventId), isNull(outboxEvents.publishedAt)))
         .returning({
           attempts: outboxEvents.publishAttempts,
           deadLetteredAt: outboxEvents.publishDeadLetteredAt,
@@ -168,7 +190,7 @@ export async function recordOutboxFailure(
             else ${outboxEvents.statisticsDeadLetteredAt}
           end`,
         })
-        .where(eq(outboxEvents.id, eventId))
+        .where(and(eq(outboxEvents.id, eventId), isNull(outboxEvents.statisticsProcessedAt)))
         .returning({
           attempts: outboxEvents.statisticsAttempts,
           deadLetteredAt: outboxEvents.statisticsDeadLetteredAt,
@@ -186,7 +208,16 @@ export async function recordOutboxFailure(
 
   const row = rows[0];
   if (row === undefined) {
-    throw new Error(`Outbox-Ereignis ${eventId} nicht gefunden.`);
+    // Kein `throw` mehr: die Zeile existiert entweder nicht mehr, oder —
+    // der weitaus häufigere Fall — der Konsument hat sie zwischen dem
+    // fehlgeschlagenen Versuch und dieser Buchung bereits abgeschlossen.
+    logger.emit("log", {
+      event: "outbox.failure_already_processed",
+      consumer,
+      eventId,
+      lastError,
+    });
+    return "already_processed";
   }
 
   const deadLettered = row.deadLetteredAt !== null;

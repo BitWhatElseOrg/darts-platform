@@ -111,15 +111,27 @@ export async function processStatisticsOutbox(
         players: participantRows.length,
       });
     } catch (error) {
-      await recordOutboxFailure({
-        database,
-        consumer: "statistics",
-        eventId: event.id,
-        error,
-        now: now(),
-        maxAttempts,
-        logger,
-      });
+      // Eigenes try/catch um die Buchung selbst: scheitert sie (z. B. eine
+      // Verbindungsstoerung waehrend des `UPDATE`), soll das die Verarbeitung
+      // der uebrigen Ereignisse dieser Runde nicht anhalten.
+      try {
+        await recordOutboxFailure({
+          database,
+          consumer: "statistics",
+          eventId: event.id,
+          error,
+          now: now(),
+          maxAttempts,
+          logger,
+        });
+      } catch (bookingError) {
+        logger.emit("error", {
+          event: "outbox.failure_booking_failed",
+          consumer: "statistics",
+          eventId: event.id,
+          error: bookingError instanceof Error ? bookingError.message : String(bookingError),
+        });
+      }
     }
   }
 
