@@ -15,7 +15,9 @@
  * kann, ist Railways eigener Reverse Proxy — kein Client erreicht den
  * Container direkt. `TRUST_PROXY_HOPS=1` vertraut deshalb genau dieser
  * einen, durch die Plattform garantierten Zwischenstation und verwendet den
- * ersten `X-Forwarded-For`-Eintrag als Client-Adresse. Ein zu hoher Wert
+ * Eintrag als Client-Adresse, den dieser Proxy selbst an `X-Forwarded-For`
+ * angehaengt hat (den letzten der Kette); vom Client mitgeschickte Eintraege
+ * davor werden verworfen. Ein zu hoher Wert
  * hoehlt genau diese Annahme aus: ein Client koennte dann per gefaelschtem
  * `X-Forwarded-For` eine beliebige Adresse als eigene ausgeben (Audit I-6).
  */

@@ -2,6 +2,9 @@ import { z } from "zod";
 
 const portSchema = z.coerce.number().int().min(1).max(65_535);
 const rateLimitMaxSchema = z.coerce.number().int().min(1).max(1_000_000);
+// Obergrenze 10: mehr Reverse-Proxy-Hops gibt es in keinem realistischen
+// Aufbau; ein groesserer Wert ist fast sicher ein Tippfehler und wuerde
+// X-Forwarded-For faelschbar machen — deshalb Abbruch beim Start.
 const trustProxyHopsSchema = z.coerce.number().int().min(0).max(10);
 const urlListSchema = z
   .string()
