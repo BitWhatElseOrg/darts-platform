@@ -16,7 +16,7 @@ import { generateId } from "@/lib/id";
 import { type OfflineCommand } from "@/lib/offline-command-queue";
 import {
   nextReplayable,
-  queueBlocksControl,
+  queueHidesEntries,
   queuedCommandNotice,
   replayChained,
   replayFailure,
@@ -201,8 +201,20 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
    * die Bedienung koennte dasselbe Board oder Match ein zweites Mal
    * reservieren, waehrend das versteckte Kommando noch darauf wartet,
    * uebertragen zu werden (PR-Agent-Rueckmeldung Runde 9, "Unsafe
-   * Assignment"). Dieselbe Regel wie `mayControl` in `use-match-scoring.ts`:
-   * `queueBlocksControl` sperrt bedingungslos bei einem Lesefehler.
+   * Assignment"). Dafuer genuegt `queueHidesEntries`: bedingungslose Sperre
+   * bei einem Lesefehler, sonst frei.
+   *
+   * Bewusst NICHT `queueBlocksControl` (wie `mayControl` in
+   * `use-match-scoring.ts`): die Scoringflaeche traegt genau eine Aufnahme auf
+   * einmal und muss deshalb JEDES wartende oder konfliktbehaftete Kommando
+   * anhalten lassen. Die Zentrale verwaltet dagegen viele unabhaengige
+   * Boards/Matches nebeneinander -- `pendingBoardIds`/`pendingMatchIds`
+   * verhindern bereits eine zweite Zuweisung auf DASSELBE Board oder Match,
+   * und `nextReplayable`/`replayChained` tragen die Reihenfolge der
+   * Wiedergabe. Mit `queueBlocksControl` sperrte eine einzige Offline-
+   * Zuweisung jedes WEITERE freie Board und Match, obwohl beides laengst
+   * durch die Dublettenpruefung geschuetzt ist (PR-Agent-Rueckmeldung Runde
+   * 10, Regression seit Runde 9).
    *
    * Gilt bewusst NICHT fuer die Freigabe (`release`): sie wird nie in die
    * Warteschlange gelegt (immer nur online versucht) und betrifft immer ein
@@ -210,7 +222,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
    * FREIES Board voraussetzt) gar nicht erst erreichen kann. Ein verstecktes
    * wartendes Kommando kann eine Freigabe deshalb nicht falsch machen.
    */
-  const assignBlocked = queueBlocksControl(queued, acceptedButStuck, queueReadError);
+  const assignBlocked = queueHidesEntries(queueReadError);
   const readyQueue = useMemo(
     () =>
       (dashboard?.queue ?? []).filter(

@@ -96,16 +96,27 @@ export interface OfflineQueue {
  * Alle Schreibgriffe geben `boolean` zurueck statt zu werfen: die
  * Aufruferinnen sollen den Fehlerfall behandeln muessen, nicht koennen.
  *
- * Regel fuer `queueBlocksControl` (offline-replay.ts), verbindlich fuer jeden
- * kuenftigen Fehler-/Sonderzustand dieses Hooks: SPERRT nur ein Zustand, der
- * Eintraege VERBERGEN kann. Das ist heute ausschliesslich `readError` --
- * `queued` erscheint dann leer oder auf dem letzten guten Stand, und eine
- * neue Aufnahme oder Zuweisung koennte an einem versteckten wartenden
- * Kommando vorbeilaufen. `writeError` sperrt NICHT: der betroffene Eintrag
- * bleibt unveraendert sichtbar. `acceptedButStuck` sperrt NICHT: der Server
- * kennt den Eintrag bereits, es gibt nichts mehr zu verbergen. Ein vierter
- * Zustand braucht dieselbe Pruefung, bevor er stillschweigend dazukommt
- * (PR-Agent-Rueckmeldung Runde 9, "Unsafe Control" / "Unsafe Assignment").
+ * Regel fuer `queueBlocksControl`/`queueHidesEntries` (offline-replay.ts),
+ * verbindlich fuer jeden kuenftigen Fehler-/Sonderzustand dieses Hooks: SPERRT
+ * nur ein Zustand, der Eintraege VERBERGEN kann. Das ist heute ausschliesslich
+ * `readError` -- `queued` erscheint dann leer oder auf dem letzten guten
+ * Stand, und eine neue Aufnahme oder Zuweisung koennte an einem versteckten
+ * wartenden Kommando vorbeilaufen. `writeError` sperrt NICHT: der betroffene
+ * Eintrag bleibt unveraendert sichtbar. `acceptedButStuck` sperrt NICHT: der
+ * Server kennt den Eintrag bereits, es gibt nichts mehr zu verbergen. Ein
+ * vierter Zustand braucht dieselbe Pruefung, bevor er stillschweigend
+ * dazukommt (PR-Agent-Rueckmeldung Runde 9, "Unsafe Control" / "Unsafe
+ * Assignment").
+ *
+ * Die zusaetzliche Sperre von `queueBlocksControl` bei einem wartenden oder
+ * konfliktbehafteten Kommando (unabhaengig vom Verbergen) ist SCORING-
+ * spezifisch: die Scoringflaeche traegt genau eine Aufnahme auf einmal, und
+ * ein wartendes Kommando davor MUSS die naechste Aufnahme anhalten, sonst
+ * geht die Reihenfolge verloren. Die Kommandozentrale verwaltet dagegen viele
+ * unabhaengige Boards/Matches nebeneinander (`pendingBoardIds`,
+ * `pendingMatchIds` verhindern dort bereits eine Dublette); sie nutzt dafuer
+ * `queueHidesEntries` und sperrt nur beim Lesefehler (PR-Agent-Rueckmeldung
+ * Runde 10, Regression seit Runde 9).
  */
 export function useOfflineQueue(scope: string): OfflineQueue {
   const [queued, setQueued] = useState<readonly OfflineCommand[]>([]);

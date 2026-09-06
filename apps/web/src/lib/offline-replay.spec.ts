@@ -6,6 +6,7 @@ import {
   localCleanupFailureMessage,
   nextReplayable,
   queueBlocksControl,
+  queueHidesEntries,
   queueReadFailureMessage,
   queueSaveFailureMessage,
   queueUpdateFailureMessage,
@@ -69,6 +70,18 @@ describe("replayFailure", () => {
       code: "DARTS_REQUIRED_FOR_DOUBLE_IN",
       message: "Unter Double In wird die Eröffnungsaufnahme Wurf für Wurf erfasst.",
     });
+    expect(replayFailure(apiError("FORBIDDEN", 403)).kind).toBe("REJECTED");
+  });
+
+  /**
+   * Befund B: Laeuft die Session waehrend der Wiedergabe ab, ist 401 kein
+   * Urteil ueber das Kommando -- es bleibt `PENDING` und sichtbar, bis die
+   * Person sich erneut anmeldet und die Wiedergabe erneut laeuft. 403 bleibt
+   * `REJECTED`: fehlende Berechtigung behebt sich nicht durch einen erneuten
+   * Versuch.
+   */
+  it("wiederholt bei abgelaufener Session (401), lehnt aber fehlende Berechtigung (403) endgueltig ab", () => {
+    expect(replayFailure(apiError("UNAUTHORIZED", 401))).toEqual({ kind: "RETRY" });
     expect(replayFailure(apiError("FORBIDDEN", 403)).kind).toBe("REJECTED");
   });
 
@@ -199,6 +212,25 @@ describe("queueBlocksControl", () => {
    */
   it("sperrt nicht wegen eines Schreibfehlers allein", () => {
     expect(queueBlocksControl([], nothingStuck, null)).toBe(false);
+  });
+});
+
+describe("queueHidesEntries", () => {
+  /**
+   * Befund A: Nach einer einzigen Offline-Zuweisung liessen sich in der
+   * Kommandozentrale keine weiteren freien Boards oder Matches mehr zuweisen,
+   * weil sie `queueBlocksControl` nutzte -- das sperrt bereits bei einem
+   * einzelnen wartenden Kommando. Die Zentrale schuetzt Dubletten schon ueber
+   * `pendingBoardIds`/`pendingMatchIds`; sie darf deshalb NICHT bei jedem
+   * `PENDING`/`CONFLICT`-Eintrag sperren, sondern nur, wenn ein Zustand
+   * Eintraege VERBERGEN kann -- heute ausschliesslich ein Lesefehler.
+   */
+  it("sperrt nicht bei einem wartenden Kommando", () => {
+    expect(queueHidesEntries(null)).toBe(false);
+  });
+
+  it("sperrt bei einem Lesefehler", () => {
+    expect(queueHidesEntries("Warteschlange nicht lesbar")).toBe(true);
   });
 });
 

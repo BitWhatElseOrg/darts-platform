@@ -13,7 +13,8 @@ import type { OfflineCommand, OfflineCommandStatus } from "./offline-command-que
  *   Fehlercode). Eine Wiederholung wuerde immer wieder scheitern -- das
  *   Kommando ist tot und muss verworfen werden. Vor dieser Unterscheidung
  *   blieb ein solches Kommando dauerhaft `PENDING` und sperrte ueber
- *   `queueBlocksControl` das ganze Board (Befund F2).
+ *   `queueBlocksControl` das ganze Board (Befund F2). Ausnahme: 401 (siehe
+ *   `replayFailure`) ist trotz 4xx kein Urteil ueber das Kommando.
  *
  * Endgueltig ist nur, was der Server auch beurteilt hat. Ein Neustart oder
  * eine voruebergehende Stoerung (5xx), ein Zeitablauf (408) und eine
@@ -52,6 +53,15 @@ export function replayFailure(error: unknown): ReplayFailure {
   if (!(error instanceof ApiClientError)) return { kind: "RETRY" };
   const conflict = conflictMessages[error.code];
   if (conflict !== undefined) return { kind: "CONFLICT", code: error.code, message: conflict };
+  // 401 bekommt eine eigene Zeile statt in `retryableStatus` aufzugehen: die
+  // Session ist waehrend der Wiedergabe abgelaufen, das ist kein Urteil ueber
+  // das Kommando selbst. Nach erneuter Anmeldung und einem neuen
+  // Wiedergabelauf kann dasselbe Kommando durchgehen -- als `REJECTED` waere
+  // es endgueltig verworfen, obwohl es fachlich gueltig ist und die
+  // Nachfolger unnoetig anhaelt (Befund B). 403 bleibt `REJECTED`: fehlende
+  // Berechtigung ist kein voruebergehender Zustand und behebt sich nicht
+  // durch einen erneuten Versuch.
+  if (error.status === 401) return { kind: "RETRY" };
   if (retryableStatus(error.status)) return { kind: "RETRY" };
   return { kind: "REJECTED", code: error.code, message: error.message };
 }
@@ -122,6 +132,32 @@ export function queueBlocksControl(
       (command.status === "PENDING" || command.status === "CONFLICT") &&
       !acceptedButStuck.has(command.commandId),
   );
+}
+
+/**
+ * Sperrt die Zuweisungs-Controls der Kommandozentrale (`command-centre.tsx`)?
+ *
+ * Anders als `queueBlocksControl` (Scoringflaeche) sperrt sie NICHT schon bei
+ * einem wartenden oder konfliktbehafteten Kommando: `pendingBoardIds` und
+ * `pendingMatchIds` verhindern dort bereits eine zweite Zuweisung auf
+ * dasselbe Board oder Match, und `nextReplayable`/`replayChained` tragen die
+ * Reihenfolge der Wiedergabe. Ein WEITERES freies Board oder Match darf waehrend
+ * einer laufenden Wiedergabe zugewiesen werden -- eine einzelne Offline-
+ * Zuweisung darf nicht die ganze Zentrale sperren, solange keine Eintraege
+ * verborgen sind. Vorher nutzte die Zentrale `queueBlocksControl` und
+ * blockierte nach der ersten Offline-Zuweisung jede weitere, auch fuer voellig
+ * andere Boards und Matches (PR-Agent-Rueckmeldung Runde 10, Regression seit
+ * Runde 9).
+ *
+ * Sie sperrt NUR, wenn ein Zustand Eintraege VERBERGEN kann -- heute
+ * ausschliesslich `readError` (siehe die Regel in `use-offline-queue.ts`):
+ * `queued` erscheint dann leer oder auf dem letzten guten Stand, und
+ * `pendingBoardIds`/`pendingMatchIds` koennten ein tatsaechlich wartendes
+ * Kommando nicht mehr erkennen -- genau dieselbe Gefahr, die
+ * `queueBlocksControl` fuer den Lesefehler-Fall traegt.
+ */
+export function queueHidesEntries(readError: string | null): boolean {
+  return readError !== null;
 }
 
 /**
