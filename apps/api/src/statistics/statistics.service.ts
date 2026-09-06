@@ -35,6 +35,7 @@ export class StatisticsService {
       return [{
         id: state.id,
         completedAt: state.updatedAt,
+        outRule: state.outRule,
         winnerPlayerId: state.winnerPlayerId,
         participants: [
           { playerId: first.playerId, displayName: first.displayName, legsWon: first.legsWon, setsWon: first.setsWon },

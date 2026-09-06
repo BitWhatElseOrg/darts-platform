@@ -1,12 +1,34 @@
 export interface StatisticsParticipant { readonly playerId: string; readonly displayName: string; readonly legsWon: number; readonly setsWon: number }
 export interface StatisticsLeg { readonly id: string; readonly winnerPlayerId: string | null }
 export interface StatisticsVisit { readonly legId: string; readonly playerId: string; readonly appliedPoints: number; readonly dartsThrown: number; readonly checkoutAttempts: number; readonly outcome: "SCORED" | "BUST" | "LEG_WON" | "SET_WON" | "MATCH_WON"; readonly reverted: boolean }
-export interface StatisticsMatch { readonly id: string; readonly completedAt: Date; readonly winnerPlayerId: string; readonly participants: readonly [StatisticsParticipant, StatisticsParticipant]; readonly legs: readonly StatisticsLeg[]; readonly visits: readonly StatisticsVisit[] }
+export interface StatisticsMatch {
+  readonly id: string;
+  readonly completedAt: Date;
+  /**
+   * Die Ausgangsregel des Matches (`matches.out_rule`). Unter `SINGLE`
+   * (Reglement 1.1, Klasse C: 501 SO) gibt es keinen Doppelversuch: die
+   * Scoring Engine liefert dort per Konstruktion 0 Versuche
+   * (`checkoutAttemptsFromDarts`), eine Checkout-Quote ist fachlich nicht
+   * definiert. Solche Matches zaehlen deshalb nicht in die Checkout-Kennzahlen.
+   */
+  readonly outRule: "SINGLE" | "DOUBLE" | "MASTER";
+  readonly winnerPlayerId: string;
+  readonly participants: readonly [StatisticsParticipant, StatisticsParticipant];
+  readonly legs: readonly StatisticsLeg[];
+  readonly visits: readonly StatisticsVisit[];
+}
 
 export interface CareerStatistics {
   readonly matchesPlayed: number; readonly wins: number; readonly losses: number;
   readonly threeDartAverage: number; readonly firstNineAverage: number;
-  readonly checkoutPercentage: number; readonly checkoutAttempts: number; readonly checkouts: number;
+  /**
+   * Die drei Checkout-Kennzahlen sind `null`, wenn keine einzige gewertete
+   * Aufnahme aus einem Match mit Doppel- oder Master-Out stammt — „nicht
+   * anwendbar", nicht „null Checkouts". Siehe DATABASE_SCHEMA.md, Abschnitt 10.
+   */
+  readonly checkoutPercentage: number | null;
+  readonly checkoutAttempts: number | null;
+  readonly checkouts: number | null;
   readonly oneEighties: number; readonly highFinish: number; readonly bestLeg: number | null; readonly dartsPerLeg: number;
 }
 
@@ -26,6 +48,7 @@ export function calculatePlayerStatistics(playerId: string, matches: readonly St
   let firstNineDarts = 0;
   let checkoutAttempts = 0;
   let checkouts = 0;
+  let checkoutRatedMatches = 0;
   let oneEighties = 0;
   let highFinish = 0;
   const legDarts: number[] = [];
@@ -52,8 +75,15 @@ export function calculatePlayerStatistics(playerId: string, matches: readonly St
     // davon unberuehrt, er zaehlt erfolgreiche Checkout-Aufnahmen. Eine
     // Umrechnung der Historie ist unmoeglich: fuer alte Aufnahmen existieren
     // die Wurfdaten nicht. Siehe DATABASE_SCHEMA.md, Abschnitt 10.
-    checkoutAttempts += activeVisits.reduce((sum, visit) => sum + visit.checkoutAttempts, 0);
-    checkouts += activeVisits.filter((visit) => visit.checkoutAttempts > 0 && visit.outcome.endsWith("WON")).length;
+    //
+    // Dritte Einheit: unter `SINGLE` gibt es keinen Doppelversuch. Solche
+    // Matches fliessen gar nicht erst ein; bleibt am Ende kein einziges
+    // gewertetes Match uebrig, sind die drei Kennzahlen `null`.
+    if (match.outRule !== "SINGLE") {
+      checkoutRatedMatches += 1;
+      checkoutAttempts += activeVisits.reduce((sum, visit) => sum + visit.checkoutAttempts, 0);
+      checkouts += activeVisits.filter((visit) => visit.checkoutAttempts > 0 && visit.outcome.endsWith("WON")).length;
+    }
     oneEighties += activeVisits.filter((visit) => visit.appliedPoints === 180 && visit.outcome !== "BUST").length;
     for (const visit of activeVisits.filter((entry) => entry.outcome.endsWith("WON"))) highFinish = Math.max(highFinish, visit.appliedPoints);
     for (const leg of match.legs) {
@@ -75,8 +105,20 @@ export function calculatePlayerStatistics(playerId: string, matches: readonly St
   }
   const wins = history.filter((match) => match.won).length;
   const completedLegCount = ordered.reduce((sum, match) => sum + match.legs.filter((leg) => leg.winnerPlayerId !== null).length, 0);
+  const checkoutApplicable = checkoutRatedMatches > 0;
+  const checkoutPercentage = !checkoutApplicable
+    ? null
+    : checkoutAttempts === 0
+      ? 0
+      : rounded(checkouts / checkoutAttempts * 100);
   return {
-    career: { matchesPlayed: history.length, wins, losses: history.length - wins, threeDartAverage: average(totalPoints, totalDarts), firstNineAverage: average(firstNinePoints, firstNineDarts), checkoutPercentage: checkoutAttempts === 0 ? 0 : rounded(checkouts / checkoutAttempts * 100), checkoutAttempts, checkouts, oneEighties, highFinish, bestLeg: legDarts.length === 0 ? null : Math.min(...legDarts), dartsPerLeg: completedLegCount === 0 ? 0 : rounded(totalDarts / completedLegCount) },
+    career: {
+      matchesPlayed: history.length, wins, losses: history.length - wins, threeDartAverage: average(totalPoints, totalDarts), firstNineAverage: average(firstNinePoints, firstNineDarts),
+      checkoutPercentage,
+      checkoutAttempts: checkoutApplicable ? checkoutAttempts : null,
+      checkouts: checkoutApplicable ? checkouts : null,
+      oneEighties, highFinish, bestLeg: legDarts.length === 0 ? null : Math.min(...legDarts), dartsPerLeg: completedLegCount === 0 ? 0 : rounded(totalDarts / completedLegCount),
+    },
     matchHistory: [...history].reverse(),
     headToHead: [...headToHead.values()].sort((left, right) => right.matchesPlayed - left.matchesPlayed || left.opponentDisplayName.localeCompare(right.opponentDisplayName)),
     rankingHistory,

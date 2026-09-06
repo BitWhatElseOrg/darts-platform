@@ -11,7 +11,7 @@ const connection = createDatabaseConnection(environment.DATABASE_URL);
 let working = false;
 
 async function rebuild(playerId: string, organizationId: string): Promise<void> {
-  const matchRows = await connection.database.select({ id: matches.id, winnerSeat: matches.winnerSeat, completedAt: matches.completedAt })
+  const matchRows = await connection.database.select({ id: matches.id, winnerSeat: matches.winnerSeat, completedAt: matches.completedAt, outRule: matches.outRule })
     .from(matchParticipantPlayers).innerJoin(matches, and(eq(matches.id, matchParticipantPlayers.matchId), eq(matches.organizationId, organizationId)))
     .where(and(eq(matchParticipantPlayers.organizationId, organizationId), eq(matchParticipantPlayers.playerId, playerId), eq(matches.status, "COMPLETED")));
   const completed = matchRows.filter((match): match is typeof match & { winnerSeat: number; completedAt: Date } => match.winnerSeat !== null && match.completedAt !== null);

@@ -766,6 +766,11 @@ Aufnahme eine andere Einheit**, und der Bruch ist bewusst in Kauf genommen:
   (`checkoutAttemptsFromDarts` in
   [`packages/scoring-engine/src/x01.ts`](packages/scoring-engine/src/x01.ts))
   und zählt jeden Wurf, der aus einer Finish-Position abgegeben wurde.
+- **Aufnahme aus einem Match mit Straight Out** (`matches.out_rule = 'SINGLE'`,
+  Reglement 1.1 Klasse C): **keine Einheit** — unter Straight Out schliesst
+  jedes Feld, es gibt keinen Doppelversuch. `checkoutAttemptsFromDarts` liefert
+  dort per Konstruktion 0, und ohne `checkout_double` bleibt der Wert auch im
+  Runden-Modus 0. Eine Quote ist fachlich nicht definiert.
 
 Die dart-genaue Zählung ist die übliche Definition der Checkout-Quote
 (erfolgreiche Checkouts geteilt durch Darts auf ein Finish) und bleibt
@@ -781,6 +786,12 @@ Aufnahmen von vor und nach der Umstellung enthält, ist deshalb keine saubere
 Quote. Der Zähler (erfolgreiche Checkout-Aufnahmen) ist davon nicht
 betroffen. Wer die Quote je Einheit sauber ausweisen will, muss nach dem
 Vorhandensein von `visit_darts`-Zeilen trennen.
+
+Matches mit `out_rule = 'SINGLE'` fliessen gar nicht erst in die
+Checkout-Kennzahlen ein. Hat eine Person ausschliesslich solche Matches
+gespielt, liefert `CareerStatistics` für `checkoutPercentage`,
+`checkoutAttempts` und `checkouts` jeweils `null` — „nicht anwendbar", nicht
+„null Checkouts". Die Fläche zeigt dafür „–".
 
 ---
 

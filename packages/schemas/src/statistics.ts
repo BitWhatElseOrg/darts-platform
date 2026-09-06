@@ -2,8 +2,12 @@ import { z } from "zod";
 
 export const careerStatisticsSchema = z.object({
   matchesPlayed: z.number().int().nonnegative(), wins: z.number().int().nonnegative(), losses: z.number().int().nonnegative(),
-  threeDartAverage: z.number().nonnegative(), firstNineAverage: z.number().nonnegative(), checkoutPercentage: z.number().min(0).max(100),
-  checkoutAttempts: z.number().int().nonnegative(), checkouts: z.number().int().nonnegative(), oneEighties: z.number().int().nonnegative(),
+  threeDartAverage: z.number().nonnegative(), firstNineAverage: z.number().nonnegative(),
+  // Unter Straight Out (Reglement 1.1, Klasse C) ist die Quote nicht definiert.
+  checkoutPercentage: z.number().min(0).max(100).nullable(),
+  checkoutAttempts: z.number().int().nonnegative().nullable(),
+  checkouts: z.number().int().nonnegative().nullable(),
+  oneEighties: z.number().int().nonnegative(),
   highFinish: z.number().int().nonnegative(), bestLeg: z.number().int().positive().nullable(), dartsPerLeg: z.number().nonnegative(),
 });
 export const playerStatisticsProfileSchema = z.object({
