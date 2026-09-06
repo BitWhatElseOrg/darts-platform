@@ -60,13 +60,16 @@ export const submitVisitSchema = z.object({
   .refine((value) => !(value.checkoutSegment !== undefined && value.checkoutDouble !== undefined && value.checkoutDouble !== null), { message: "A checkout segment cannot be combined with a checkout double.", path: ["checkoutSegment"] });
 export const undoVisitSchema = z.object({ commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), controllerId: z.uuid().optional() });
 /**
- * Reglement 2.2.9: ab Leg drei entscheidet ein Wurf auf Bull, wer beginnt.
- * Legs eins und zwei sind festgelegt und tragen deshalb kein Kommando.
+ * Reglement 2.2.9: ab Leg drei entscheidet ein Wurf auf Bull, wer beginnt; beim
+ * Entscheidungsdoppel (sudden death) schon ab Leg eins. Welche Grenze gilt,
+ * entscheidet der Server anhand von `matches.bull_off_from_leg_one` — der
+ * Vertrag lässt deshalb jede Legnummer zu und die Engine lehnt ab
+ * (`LEG_START_FIXED`).
  */
 export const decideLegStartSchema = z.object({
   commandId: z.uuid(),
   expectedVersion: z.number().int().nonnegative(),
-  legNumber: z.number().int().min(3).max(99),
+  legNumber: z.number().int().min(1).max(99),
   startingSeat: z.union([z.literal(1), z.literal(2)]),
   controllerId: z.uuid().optional(),
 });
@@ -135,6 +138,8 @@ export const matchStateSchema = z.object({
   status: matchStatusSchema, version: z.number().int().nonnegative(), startingScore: z.number().int().positive(),
   /** Die Spielart gehört in den Zustand: das Scoreboard muss sie nennen können. */
   inRule: inRuleSchema, outRule: outRuleSchema,
+  /** Reglement 2.2.9: beim Entscheidungsdoppel wird schon Leg 1 ausgebullt. */
+  bullOffFromLegOne: z.boolean(),
   bestOfLegs: z.number().int().positive(), legsToWin: z.number().int().positive(),
   bestOfSets: z.number().int().positive(), setsToWin: z.number().int().positive(), currentSetNumber: z.number().int().positive(),
   currentLegNumber: z.number().int().positive(), currentLegVersion: z.number().int().nonnegative(),
