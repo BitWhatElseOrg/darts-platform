@@ -1,4 +1,4 @@
-import { isDeadlockError } from "../common/postgres-error.js";
+import { isDeadlockError } from "./postgres-error.js";
 
 /**
  * Ein Sperrzyklus (40P01) trifft eine der beteiligten Transaktionen zufaellig;

@@ -12,6 +12,7 @@ import type { AbortMatchInput, AbortMatchResponse, CorrectTournamentResultInput,
 import type { AuthContext } from "../auth/auth.types.js";
 import { isBoardInProgressConflict, isBoardOccupied } from "../boards/board-occupancy.js";
 import type { AuditContext } from "../common/audit-context.js";
+import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
 import { DatabaseService } from "../database/database.service.js";
 import { applyWithdrawalPropagation } from "../tournaments/apply-withdrawal-propagation.js";
 import { resolveCompletedTournamentGroup } from "../tournaments/resolve-completed-group.js";
@@ -22,7 +23,6 @@ import {
 } from "../encounters/sync-encounter-slot.js";
 import { abortScoringMatch } from "./abort-match.js";
 import { lockEncounterScoringContext } from "./encounter-scoring-lock.js";
-import { retryOnDeadlock } from "./retry-on-deadlock.js";
 import { lockTournamentScoringContext } from "./tournament-scoring-lock.js";
 
 export type MutationResult = "ok" | "not-found" | "version-conflict" | "controller-conflict";

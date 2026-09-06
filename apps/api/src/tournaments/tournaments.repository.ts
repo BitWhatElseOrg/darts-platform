@@ -45,6 +45,7 @@ import {
   lockPlayers,
 } from "../boards/board-occupancy.js";
 import type { AuditContext } from "../common/audit-context.js";
+import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
 import { DatabaseService } from "../database/database.service.js";
 import { abortScoringMatch } from "../matches/abort-match.js";
 import { resolveCompletedTournamentGroup } from "./resolve-completed-group.js";
@@ -585,7 +586,10 @@ export class TournamentsRepository {
 
   public async assign(input: ActorInput & { readonly data: AssignMatchInput }): Promise<TournamentMutationResult> {
     try {
-      return await this.assignInTransaction(input);
+      // Ruling 10: Sperrzyklus (40P01) hinterlaesst nichts, die Wiederholung
+      // ist gefahrlos; bleibt es beim Zyklus, ist die Antwort ein
+      // Versionskonflikt statt eines 500 (siehe retryOnDeadlock).
+      return await retryOnDeadlock(() => this.assignInTransaction(input), "version-conflict");
     } catch (error) {
       // Der partielle Unique-Index auf `matches` faengt die Zuweisung ab, die
       // gleichzeitig mit einer zweiten durch die Anwendungspruefung kam. Der
@@ -769,6 +773,14 @@ export class TournamentsRepository {
   }
 
   public withdrawParticipant(input: ActorInput & { readonly data: WithdrawTournamentParticipantInput }): Promise<TournamentMutationResult> {
+    // Ruling 10: siehe retryOnDeadlock — der Advisory Lock faellt mit der
+    // abgebrochenen Transaktion, die Wiederholung erwirbt ihn neu.
+    return retryOnDeadlock(() => this.withdrawParticipantInTransaction(input), "version-conflict");
+  }
+
+  private withdrawParticipantInTransaction(
+    input: ActorInput & { readonly data: WithdrawTournamentParticipantInput },
+  ): Promise<TournamentMutationResult> {
     return this.databaseService.database.transaction(async (transaction) => {
       await transaction.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.data.commandId}, 0))`);
       const [duplicate] = await transaction.select({ organizationId: tournamentCommands.organizationId, tournamentId: tournamentCommands.tournamentId, type: tournamentCommands.type, payload: tournamentCommands.payload }).from(tournamentCommands).where(eq(tournamentCommands.commandId, input.data.commandId)).limit(1);
@@ -889,6 +901,14 @@ export class TournamentsRepository {
   }
 
   public releaseBoard(
+    input: ActorInput & { readonly data: ReleaseBoardInput },
+  ): Promise<TournamentMutationResult> {
+    // Ruling 10: siehe retryOnDeadlock — der Sperrzyklus hinterlaesst nichts,
+    // die Wiederholung ist gefahrlos.
+    return retryOnDeadlock(() => this.releaseBoardInTransaction(input), "version-conflict");
+  }
+
+  private releaseBoardInTransaction(
     input: ActorInput & { readonly data: ReleaseBoardInput },
   ): Promise<TournamentMutationResult> {
     return this.databaseService.database.transaction(async (transaction) => {
