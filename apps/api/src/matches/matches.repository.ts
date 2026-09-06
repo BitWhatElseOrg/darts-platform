@@ -7,7 +7,7 @@ import {
   tournaments, tournamentStages,
   visitDarts, visits,
 } from "@darts-platform/database";
-import { ScoringValidationError, createX01Match, executeX01Command, projectX01Match, type InRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
+import { ScoringValidationError, createX01Match, defaultCheckoutAttempts, executeX01Command, projectX01Match, type InRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
 import type { AbortMatchInput, AbortMatchResponse, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
 import { isBoardInProgressConflict, isBoardOccupied } from "../boards/board-occupancy.js";
@@ -424,11 +424,25 @@ export class MatchesRepository {
       if (commandSide === undefined) {
         throw new ScoringValidationError("INVALID_MATCH_PARTICIPANTS", "The player does not belong to this match.");
       }
+      // `checkoutAttempts` wird HIER materialisiert (nicht dem `?? 0` in
+      // `storedSubmitSchema` ueberlassen), damit ein Replay denselben Wert
+      // sieht wie die Schreibzeit: die gespeicherte Nutzlast (`payload:
+      // command` unten) traegt das Feld dann immer explizit. Dieselbe
+      // Ableitung wie die Engine selbst (`defaultCheckoutAttempts`), damit ein
+      // API-Client, der z.B. `checkoutSegment` ohne `checkoutAttempts`
+      // schickt, nicht als Checkout mit null Versuchen gezaehlt wird
+      // (PR-Agent-Runde 3, Befund B).
+      const normalizedCheckoutDouble = input.data.checkoutDouble === undefined || input.data.checkoutDouble === null ? undefined : input.data.checkoutDouble;
+      const checkoutAttempts = input.data.checkoutAttempts ?? defaultCheckoutAttempts({
+        ...(normalizedCheckoutDouble === undefined ? {} : { checkoutDouble: normalizedCheckoutDouble }),
+        ...(input.data.checkoutSegment === undefined ? {} : { checkoutSegment: input.data.checkoutSegment }),
+        ...(input.data.checkoutMissed === undefined ? {} : { checkoutMissed: input.data.checkoutMissed }),
+      });
       const command: X01Command = {
         type: "SUBMIT_VISIT", commandId: input.data.commandId, seat: commandSide.seat,
         throwerPlayerId: input.data.playerId, points: input.data.points, dartsThrown: input.data.dartsThrown,
-        checkoutAttempts: input.data.checkoutAttempts ?? 0,
-        ...(input.data.checkoutDouble === undefined || input.data.checkoutDouble === null ? {} : { checkoutDouble: input.data.checkoutDouble }),
+        checkoutAttempts,
+        ...(normalizedCheckoutDouble === undefined ? {} : { checkoutDouble: normalizedCheckoutDouble }),
         ...(input.data.darts === undefined ? {} : { darts: input.data.darts }),
         ...(input.data.checkoutSegment === undefined ? {} : { checkoutSegment: input.data.checkoutSegment }),
         ...(input.data.checkoutMissed === true ? { checkoutMissed: true } : {}),

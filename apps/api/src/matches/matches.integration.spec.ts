@@ -527,10 +527,11 @@ describe("persistent X01 match", () => {
       data: {
         commandId: randomUUID(), expectedVersion: state.version, playerId: playerOneId,
         points: 60, dartsThrown: 1, checkoutSegment: { segment: 20, multiplier: 3 },
-        // Wie die Flaeche: der Versuch wird ausdruecklich gemeldet. Die API
-        // setzt `checkoutAttempts` sonst auf 0 und der Rueckfall der Engine
-        // kommt gar nicht erst zum Zug.
-        checkoutAttempts: 1,
+        // `checkoutAttempts` wird bewusst NICHT mitgeschickt, wie ein
+        // API-Client es tun koennte: die API muss den Versuch selbst ableiten
+        // (`defaultCheckoutAttempts`), statt ihn stillschweigend auf 0 zu
+        // normalisieren -- sonst zaehlt die Checkout-Quote diesen Checkout
+        // nicht (PR-Agent-Runde 3, Befund B).
       },
     });
     expect(finished.status).toBe("COMPLETED");
@@ -542,10 +543,14 @@ describe("persistent X01 match", () => {
     expect(finished.visits[0]?.checkoutAttempts).toBe(1);
     expect(finished.visits[0]?.outcome).toBe("MATCH_WON");
 
-    // Replay aus der gespeicherten Nutzlast: derselbe Zustand.
+    // Replay aus der gespeicherten Nutzlast: derselbe Zustand, insbesondere
+    // derselbe `checkoutAttempts`-Wert -- die API hat ihn beim Schreiben
+    // materialisiert, der Replay liest also dieselbe explizite 1, nicht den
+    // `.default(0)` von `storedSubmitSchema`.
     const reloaded = await repository.getState(organizationId, matchId);
     expect(reloaded?.status).toBe("COMPLETED");
     expect(reloaded?.winnerPlayerId).toBe(playerOneId);
+    expect(reloaded?.visits[0]?.checkoutAttempts).toBe(1);
   });
 
   it("reports the opening state of each side under double in", async () => {

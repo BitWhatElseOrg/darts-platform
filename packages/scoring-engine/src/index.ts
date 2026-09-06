@@ -2,6 +2,7 @@ export {
   ScoringValidationError,
   createX01Match,
   dartValue,
+  defaultCheckoutAttempts,
   executeX01Command,
   isAttainableScore,
   previewVisitOutcome,

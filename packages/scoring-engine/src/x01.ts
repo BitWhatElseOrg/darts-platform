@@ -400,6 +400,25 @@ function checkoutAttemptsFromDarts(scoreBefore: number, darts: readonly Dart[], 
   return attempts;
 }
 
+/**
+ * Ableitung von `checkoutAttempts`, wenn ein Kommando ohne Einzelwuerfe das
+ * Feld nicht mitgibt: ein gemeldetes `checkoutDouble`, `checkoutSegment` oder
+ * ein ausdruecklich gemeldeter Fehlversuch (`checkoutMissed`) zaehlt als ein
+ * Versuch, sonst null. Exportiert, damit ein Aufrufer, der das gespeicherte
+ * Kommando VOR der Ausfuehrung materialisieren muss (z.B. die API, damit ein
+ * Replay denselben Wert sieht wie die Schreibzeit), dieselbe Regel verwendet
+ * statt einer zweiten Kopie (PR-Agent-Runde 3, Befund B).
+ */
+export function defaultCheckoutAttempts(command: {
+  readonly checkoutDouble?: number;
+  readonly checkoutSegment?: Dart;
+  readonly checkoutMissed?: boolean;
+}): 0 | 1 {
+  return command.checkoutDouble === undefined && command.checkoutSegment === undefined && command.checkoutMissed !== true
+    ? 0
+    : 1;
+}
+
 function closesLegWithDarts(outRule: OutRule, finishing: Dart): boolean {
   switch (outRule) {
     case "SINGLE":
@@ -916,8 +935,7 @@ export function projectX01Match(match: X01Match): X01MatchState {
       checkoutDouble: darts === undefined ? (command.checkoutDouble ?? segmentCheckoutDouble) : derivedCheckoutDouble,
       checkoutAttempts:
         darts === undefined
-          ? (command.checkoutAttempts ??
-            (command.checkoutDouble === undefined && command.checkoutSegment === undefined && command.checkoutMissed !== true ? 0 : 1))
+          ? (command.checkoutAttempts ?? defaultCheckoutAttempts(command))
           : checkoutAttemptsFromDarts(scoreBefore, darts, match.rules.outRule),
       outcome,
       darts: darts ?? [],
