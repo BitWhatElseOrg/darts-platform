@@ -702,7 +702,17 @@ Bestandscheck vor dem Ausrollen:
 ```sql
 select match_id, resulting_version from score_commands
 group by match_id, resulting_version having count(*) > 1;
+select tournament_id, resulting_version from tournament_commands
+group by tournament_id, resulting_version having count(*) > 1;
+select encounter_id, resulting_version from encounter_commands
+group by encounter_id, resulting_version having count(*) > 1;
 ```
+
+Sperrdauer: `CREATE UNIQUE INDEX` ohne `CONCURRENTLY` nimmt für die Dauer des
+Aufbaus ein `SHARE`-Lock auf die jeweilige Tabelle und blockiert währenddessen
+jedes Schreiben darauf — bei `score_commands` insbesondere jeden neuen
+Score-Command. Bei der heutigen Grösse Sekundenbruchteile; das Deployment
+gehört wie die übrigen Tabellen dieser Migration ausserhalb des Spielbetriebs.
 
 ### Visit-Kommando: `checkoutMissed`
 
@@ -1055,7 +1065,9 @@ Migration `0023_tier2_integrity_constraints` ergänzt die Spalte `sequence`
 (`bigserial`, unique) und zwei partielle Indexe. `occurred_at` ist `now()` und
 damit die Transaktions**start**zeit — eine länger laufende Transaktion, die
 nach einer kürzeren committet, würde vor ihr publiziert. Die Verteilung ordnet
-deshalb nach `sequence`, die beim `INSERT` vergeben wird.
+deshalb nach `sequence`, die beim `INSERT` vergeben wird. Die Poller bestellen
+heute noch nach `occurred_at`; die Umstellung auf `sequence` folgt im
+nächsten Schritt.
 
 ```text
 unique (sequence)                                    -- outbox_events_sequence_unique
@@ -1066,8 +1078,9 @@ unique (sequence)                                    -- outbox_events_sequence_u
 
 Der Statistik-Poller im Worker lief bis dahin sekündlich als Seq Scan über die
 ganze Tabelle. Der zweite partielle Index deckt genau seinen Filter. Der ältere
-Index `(published_at, occurred_at)` bleibt für die Aufräumregel stehen, die
-verarbeitete Zeilen nach 30 Tagen entfernt (`apps/worker/src/prune-outbox.ts`).
+Index `(published_at, occurred_at)` bleibt für eine im Worker geplante,
+noch nicht implementierte Aufräumregel stehen, die verarbeitete Zeilen nach
+30 Tagen entfernen soll.
 
 Bestandscheck vor dem Ausrollen:
 
@@ -1077,7 +1090,8 @@ select count(*) from outbox_events;
 
 Sperrdauer: `ADD COLUMN … bigserial NOT NULL` schreibt jede Zeile der Tabelle
 neu und nimmt dafür ein `ACCESS EXCLUSIVE`-Lock auf `outbox_events`. Bei der
-heutigen Grösse (rund 4200 Zeilen) sind das Sekundenbruchteile. Wächst die
+heutigen Grösse (5589 Zeilen, gemessen am 06.09.2026) sind das
+Sekundenbruchteile. Wächst die
 Tabelle vor dem Ausrollen deutlich, ist die Aufräumregel **vor** der Migration
 einmal von Hand zu fahren.
 
