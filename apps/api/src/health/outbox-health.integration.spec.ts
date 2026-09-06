@@ -63,10 +63,16 @@ describe("OutboxHealthService", () => {
 
     const after = await service.read();
 
-    expect(after.deadLettered).toBe(before.deadLettered + 1);
-    // Die Dead-Letter-Zeile ist aelter als alles andere; tauchte sie im
-    // Rueckstand auf, waere der Wert jetzt jenseits von 2020.
-    expect(after.publishLagSeconds).toBe(before.publishLagSeconds);
+    // Eigenschaften statt exakter Werte: beide Zahlen sind global und aus
+    // `now()` abgeleitet, parallel laufende Spezifikationen legen eigene
+    // Outbox-Zeilen an, und die Sekundenrundung in `toSeconds` verschiebt
+    // zwei Messungen ohnehin gegeneinander.
+    expect(after.deadLettered).toBeGreaterThanOrEqual(before.deadLettered + 1);
+    // Die Dead-Letter-Zeile ist aelter als alles andere; taeuchte sie im
+    // Rueckstand auf, laege der Wert jenseits von 2020, also weit ueber
+    // einem Tag.
+    expect(after.publishLagSeconds ?? 0).toBeLessThan(86_400);
+    expect(after.statisticsLagSeconds ?? 0).toBeLessThan(86_400);
   });
 
   it("ignoriert Ereignistypen, die der Statistik-Konsument nie verarbeitet", async () => {
@@ -84,6 +90,8 @@ describe("OutboxHealthService", () => {
 
     const after = await service.read();
 
-    expect(after.statisticsLagSeconds).toBe(before.statisticsLagSeconds);
+    // Waere `ENCOUNTER_STARTED` mitgezaehlt, stammte der Rueckstand aus 2019.
+    expect(after.statisticsLagSeconds ?? 0).toBeLessThan(86_400);
+    expect(before.statisticsLagSeconds ?? 0).toBeLessThan(86_400);
   });
 });

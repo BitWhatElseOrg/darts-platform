@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { STATISTICS_OUTBOX_EVENT_TYPE, outboxEvents } from "@darts-platform/database";
 import type { OutboxHealth } from "@darts-platform/schemas";
@@ -27,11 +27,16 @@ import { DatabaseService } from "../database/database.service.js";
  * `outbox_events_pending_publication_idx` (`published_at is null`),
  * `outbox_events_pending_statistics_idx` (`statistics_processed_at is null
  * and event_type = 'MATCH_COMPLETED'`) und `outbox_events_dead_lettered_idx`
- * für die Zählung — geprüft mit `explain`, alle drei Abfragen scannen genau
- * diesen Index. Sortiert wird danach über `occurred_at`, also über den
- * Rückstand selbst und nie über die ganze Tabelle; die Indexe ordnen nach
- * `sequence`, was der Poll-Reihenfolge entspricht, für das Alter aber nicht
- * dasselbe ist (`occurred_at` ist die Transaktions-Startzeit).
+ * für die Zählung — mit `explain` geprüft, alle drei Abfragen scannen genau
+ * diesen Index.
+ *
+ * Das Alter kommt aus `min(occurred_at)` statt aus `order by … limit 1`:
+ * die Aggregation läuft in einem Durchgang über den Rückstand, ohne
+ * Sortierknoten, der bei einem grossen Rückstand — also genau in der Lage,
+ * die dieser Endpunkt melden soll — teuer würde. Über die Indexspalte
+ * `sequence` zu sortieren wäre noch billiger, misst aber das Alter des
+ * Kopfes der Warteschlange statt des ältesten Ereignisses; bei
+ * rückdatierten `occurred_at` fallen beide Werte auseinander.
  */
 @Injectable()
 export class OutboxHealthService {
@@ -41,7 +46,10 @@ export class OutboxHealthService {
 
   public async read(): Promise<OutboxHealth> {
     const database = this.databaseService.database;
-    const lagSeconds = sql<string>`extract(epoch from (now() - ${outboxEvents.occurredAt}))`;
+    // `min` über eine leere Menge liefert `null`, daher der nullable Typ.
+    const lagSeconds = sql<
+      string | null
+    >`extract(epoch from (now() - min(${outboxEvents.occurredAt})))`;
 
     const [publishOldest] = await database
       .select({ lagSeconds })
@@ -51,9 +59,7 @@ export class OutboxHealthService {
           isNull(outboxEvents.publishedAt),
           isNull(outboxEvents.publishDeadLetteredAt),
         ),
-      )
-      .orderBy(asc(outboxEvents.occurredAt))
-      .limit(1);
+      );
 
     const [statisticsOldest] = await database
       .select({ lagSeconds })
@@ -64,9 +70,7 @@ export class OutboxHealthService {
           isNull(outboxEvents.statisticsProcessedAt),
           isNull(outboxEvents.statisticsDeadLetteredAt),
         ),
-      )
-      .orderBy(asc(outboxEvents.occurredAt))
-      .limit(1);
+      );
 
     const [deadLettered] = await database
       .select({ total: sql<string>`count(*)` })
@@ -86,7 +90,7 @@ export class OutboxHealthService {
   }
 }
 
-function toSeconds(value: string | undefined): number | null {
-  if (value === undefined) return null;
+function toSeconds(value: string | null | undefined): number | null {
+  if (value === undefined || value === null) return null;
   return Math.max(0, Math.round(Number(value)));
 }
