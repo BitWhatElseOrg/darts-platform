@@ -285,6 +285,43 @@ async function walkover(
   });
 }
 
+/**
+ * Führt eine Begegnung bis zum Entscheidungsdoppel (9:9 nach Walkover in
+ * beiden Positionsgruppen, siehe „awards the decider bonus after nine games
+ * each") und weist dessen Slot (Sequenz 19) einer Scheibe zu, ohne ihn
+ * auszuspielen. Reglement 2.2.9: genau dieser Slotstart muss
+ * `bullOffFromLegOne` setzen.
+ */
+async function startDeciderSlot(): Promise<{ readonly matchId: string; readonly slotId: string }> {
+  const competitionId = await createCompetition();
+  let encounter = await openEncounter(competitionId);
+  for (let sequence = 1; sequence <= 9; sequence += 1) {
+    encounter = await walkover(encounter, sequence, "HOME");
+  }
+  for (let sequence = 10; sequence <= 18; sequence += 1) {
+    encounter = await walkover(encounter, sequence, "AWAY");
+  }
+  encounter = await submitDoubles(encounter, "HOME", [
+    { sequence: 19, playerIds: [homePlayerIds[0]!, homePlayerIds[1]!] },
+  ]);
+  encounter = await submitDoubles(encounter, "AWAY", [
+    { sequence: 19, playerIds: [awayPlayerIds[0]!, awayPlayerIds[1]!] },
+  ]);
+  const slot = encounter.slots.find((entry) => entry.sequence === 19);
+  if (slot === undefined) throw new Error("Expected the decider slot.");
+  const assigned = await encountersService.assignSlot({
+    organizationId,
+    encounterId: encounter.id,
+    slotId: slot.id,
+    data: { commandId: randomUUID(), expectedVersion: encounter.version, boardId: boardIds[0]! },
+    auth,
+    audit,
+  });
+  const matchId = assigned.slots.find((entry) => entry.sequence === 19)?.matchId;
+  if (matchId === null || matchId === undefined) throw new Error("Expected a scoring match.");
+  return { matchId, slotId: slot.id };
+}
+
 async function openEncounter(competitionId: string): Promise<EncounterDetail> {
   let encounter = await scheduleEncounter(competitionId);
   encounter = await nominate(encounter, "HOME", homePlayerIds.slice(0, 4), [homePlayerIds[4]!]);
@@ -1351,6 +1388,38 @@ describe("team encounter persistence", () => {
       homeLegs: 3,
       awayLegs: 0,
     });
+  }, 60_000);
+
+  it("bullt den Anwurf des Entscheidungsdoppels schon fuer Leg eins aus", async () => {
+    // Reglement 2.2.9: „Der Spielbeginn wird beim sudden death immer durch
+    // Wurf auf Bull entschieden."
+    const { matchId, slotId } = await startDeciderSlot();
+    const [row] = await databaseService.database
+      .select({ bullOff: matchesTable.bullOffFromLegOne })
+      .from(matchesTable)
+      .where(eq(matchesTable.id, matchId));
+    expect(row?.bullOff).toBe(true);
+
+    const state = await matchesService.decideLegStart({
+      organizationId,
+      matchId,
+      data: {
+        commandId: randomUUID(),
+        expectedVersion: 0,
+        legNumber: 1,
+        startingSeat: 2,
+      },
+      auth,
+      audit,
+    });
+
+    expect(state.bullOffFromLegOne).toBe(true);
+    const storedLegs = await databaseService.database
+      .select({ legNumber: legsTable.legNumber, startingSeat: legsTable.startingSeat })
+      .from(legsTable)
+      .where(eq(legsTable.matchId, matchId));
+    expect(storedLegs.find((leg) => leg.legNumber === 1)?.startingSeat).toBe(2);
+    expect(slotId).toBeDefined();
   }, 60_000);
 
   /** Reglement 2.1.1: der Heim-Captain darf verdeckt melden. */
