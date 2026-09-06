@@ -782,8 +782,13 @@ export class EncountersRepository {
           bestOfLegs: slot.bestOfLegs,
           legsToWinSet: slot.legsToWinSet,
           setsToWin: slot.setsToWin,
+          // Reglement 2.2.9: der Spielbeginn des Entscheidungsdoppels wird
+          // immer ausgebullt. `startingSeat` bleibt die Heimseite als Vorbelegung;
+          // sobald das Ausbullen erfasst ist, setzt `DECIDE_LEG_START` fuer
+          // Leg 1 den tatsaechlichen Anwurf.
           startingSeat: 1,
           currentSeat: 1,
+          bullOffFromLegOne: slot.role === "DECIDER",
         })
         .returning();
       if (scoringMatch === undefined) throw new Error("Scoring match insert did not return a row.");
