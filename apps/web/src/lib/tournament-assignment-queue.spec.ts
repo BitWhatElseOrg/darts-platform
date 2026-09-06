@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { OfflineCommand } from "./offline-command-queue";
-import { assignmentQueueEntries, tournamentQueueScope, unsentAssignments } from "./tournament-assignment-queue";
+import { assignmentQueueEntries, assignmentRequestBody, tournamentQueueScope, unsentAssignments } from "./tournament-assignment-queue";
 
 const matchId = "11111111-1111-4111-8111-111111111111";
 const boardId = "22222222-2222-4222-8222-222222222222";
@@ -52,5 +52,38 @@ describe("unsentAssignments", () => {
   it("gibt Board und Match einer abgelehnten Zuweisung wieder frei", () => {
     const entries = assignmentQueueEntries([command({ status: "REJECTED", error: "Board belegt." })]);
     expect(unsentAssignments(entries)).toEqual([]);
+  });
+});
+
+describe("assignmentRequestBody", () => {
+  it("baut die Nutzlast mit der uebergebenen Version", () => {
+    expect(assignmentRequestBody({ commandId, matchId, boardId }, 12)).toEqual({
+      commandId,
+      expectedVersion: 12,
+      matchId,
+      boardId,
+    });
+  });
+
+  /**
+   * PR-Agent-Befund F2 ("Stale Versions"): ein alter Warteschlangeneintrag
+   * traegt eine eingefrorene, moeglicherweise laengst ueberholte
+   * `expectedVersion`. Sie ist nur ein Anzeigehinweis (siehe
+   * `AssignmentQueueEntry.expectedVersion`) und fliesst hier nicht ein --
+   * gesendet wird ausschliesslich die explizit uebergebene, aktuelle Version.
+   */
+  it("ignoriert eine im Kommando mitgefuehrte, eingefrorene Version", () => {
+    const staleEntry: { readonly commandId: string; readonly matchId: string; readonly boardId: string; readonly expectedVersion: number } = {
+      commandId,
+      matchId,
+      boardId,
+      expectedVersion: 3,
+    };
+    expect(assignmentRequestBody(staleEntry, 50)).toEqual({
+      commandId,
+      expectedVersion: 50,
+      matchId,
+      boardId,
+    });
   });
 });

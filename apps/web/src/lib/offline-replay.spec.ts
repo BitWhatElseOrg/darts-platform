@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { ApiClientError } from "./api-error";
 import type { OfflineCommand } from "./offline-command-queue";
@@ -8,6 +8,8 @@ import {
   queueBlocksControl,
   queuedCommandNotice,
   replayFailure,
+  replayWithCurrentVersion,
+  withCurrentExpectedVersion,
 } from "./offline-replay";
 
 function command(overrides: Partial<OfflineCommand> = {}): OfflineCommand {
@@ -161,6 +163,90 @@ describe("localCleanupFailureMessage", () => {
     expect(localCleanupFailureMessage("kaputt")).toBe(
       "Der Server hat den Befehl angenommen, die lokale Warteschlange konnte aber nicht aktualisiert werden (unbekannter Fehler). Bitte Seite neu laden.",
     );
+  });
+});
+
+describe("replayWithCurrentVersion", () => {
+  it("gibt dem ersten Kommando die Startversion und jedem folgenden die Version aus der vorherigen Antwort", async () => {
+    const calls: Array<{ readonly command: string; readonly expectedVersion: number }> = [];
+    const result = await replayWithCurrentVersion(["a", "b", "c"], 10, async (command, expectedVersion) => {
+      calls.push({ command, expectedVersion });
+      return { successful: true, version: expectedVersion + 1 };
+    });
+    expect(calls).toEqual([
+      { command: "a", expectedVersion: 10 },
+      { command: "b", expectedVersion: 11 },
+      { command: "c", expectedVersion: 12 },
+    ]);
+    expect(result).toEqual({ sentCount: 3 });
+  });
+
+  /**
+   * PR-Agent-Befund F2 ("Stale Versions"): urspruenglich standen drei
+   * Kommandos in der Warteschlange, "b" wurde verworfen, bevor die
+   * Wiedergabe lief -- sie sieht nur noch "a" und "c" und baut die Kette
+   * ausschliesslich aus deren tatsaechlichen Antworten auf. Vorher haette
+   * "c" die fuer drei Kommandos vorausberechnete, nun unerreichbare Version
+   * gesendet und wäre sofort konfligiert.
+   */
+  it("baut die Kette nach dem Verwerfen eines mittleren Kommandos aus den verbleibenden auf, kein Konflikt", async () => {
+    const calls: Array<{ readonly command: string; readonly expectedVersion: number }> = [];
+    const result = await replayWithCurrentVersion(["a", "c"], 5, async (command, expectedVersion) => {
+      calls.push({ command, expectedVersion });
+      return { successful: true, version: expectedVersion + 1 };
+    });
+    expect(calls).toEqual([
+      { command: "a", expectedVersion: 5 },
+      { command: "c", expectedVersion: 6 },
+    ]);
+    expect(result).toEqual({ sentCount: 2 });
+  });
+
+  /**
+   * Wird stattdessen der erste eines urspruenglichen Paars verworfen, sieht
+   * die Wiedergabe nur noch den verbleibenden -- er bekommt die uebergebene
+   * Startversion direkt, ohne Ruecksicht auf den verworfenen Vorgaenger.
+   */
+  it("sendet den einzig verbleibenden Nachfolger mit der Startversion, wenn der Kopf verworfen wurde", async () => {
+    const calls: number[] = [];
+    const result = await replayWithCurrentVersion(["b"], 9, async (_command, expectedVersion) => {
+      calls.push(expectedVersion);
+      return { successful: true, version: 10 };
+    });
+    expect(calls).toEqual([9]);
+    expect(result).toEqual({ sentCount: 1 });
+  });
+
+  it("bricht beim ersten Fehlschlag ab und zaehlt ihn nicht mit", async () => {
+    const result = await replayWithCurrentVersion(["a", "b", "c"], 1, async (command) =>
+      command === "b" ? { successful: false } : { successful: true, version: 2 },
+    );
+    expect(result).toEqual({ sentCount: 1 });
+  });
+
+  it("sendet nichts und meldet null Kommandos bei einer leeren Kette", async () => {
+    const send = vi.fn();
+    const result = await replayWithCurrentVersion([], 1, send);
+    expect(send).not.toHaveBeenCalled();
+    expect(result).toEqual({ sentCount: 0 });
+  });
+});
+
+describe("withCurrentExpectedVersion", () => {
+  /**
+   * PR-Agent-Befund F2 / Gesamtaudit C11 ("Stale Versions"): ein alter
+   * Warteschlangeneintrag traegt eine eingefrorene `expectedVersion` in
+   * seiner gespeicherten Nutzlast. Beim naechsten Wiedergabeversuch wird sie
+   * durch die aktuelle Version ersetzt, alle uebrigen Felder bleiben
+   * unveraendert.
+   */
+  it("ersetzt eine eingefrorene Version durch die aktuelle und laesst uebrige Felder unveraendert", () => {
+    const stale = { commandId: "c1", expectedVersion: 3, points: 60 };
+    expect(withCurrentExpectedVersion(stale, 42)).toEqual({ commandId: "c1", expectedVersion: 42, points: 60 });
+  });
+
+  it("ergaenzt die Version, auch wenn die Nutzlast keine trug", () => {
+    expect(withCurrentExpectedVersion({ commandId: "c1" }, 7)).toEqual({ commandId: "c1", expectedVersion: 7 });
   });
 });
 

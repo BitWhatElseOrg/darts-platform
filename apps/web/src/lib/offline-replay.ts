@@ -113,6 +113,74 @@ export function localCleanupFailureMessage(error: unknown): string {
   return `Der Server hat den Befehl angenommen, die lokale Warteschlange konnte aber nicht aktualisiert werden (${detail}). Bitte Seite neu laden.`;
 }
 
+/**
+ * Ergebnis eines einzelnen Wiedergabeversuchs. `version` ist die vom Server
+ * bestaetigte neue Version -- nur bei Erfolg vorhanden, weil ein
+ * Fehlschlag kein Urteil ueber die Version liefert.
+ */
+export type ReplayOutcome =
+  | { readonly successful: true; readonly version: number }
+  | { readonly successful: false };
+
+export interface ReplayResult {
+  /** Wie viele Kommandos tatsaechlich durchgingen, bevor entweder alle durch waren oder eines fehlschlug. */
+  readonly sentCount: number;
+}
+
+/**
+ * Ueberträgt eine geordnete Folge wartender Kommandos und haelt dabei die
+ * `expectedVersion` jedes Kommandos aktuell: das erste bekommt `startVersion`
+ * -- den zuletzt bestaetigten Serverstand --, jedes folgende die Version aus
+ * der erfolgreichen Antwort auf das vorherige.
+ *
+ * Eine beim Einreihen gespeicherte, moeglicherweise eingefrorene
+ * `expectedVersion` fliesst hier bewusst nicht ein. Vorher trug jedes
+ * Kommando seine beim Einreihen berechnete Version fest in sich, ohne
+ * Ruecksicht auf inzwischen verworfene Vorgaenger: ein verworfenes Kommando
+ * wurde trotzdem mitgezaehlt, und die Nachfolger sendeten eine Version, die
+ * der Server nie erreichen konnte -- sie konfligierten sofort, obwohl sich
+ * am echten Serverzustand nichts geaendert hatte (PR-Agent-Befund F2,
+ * "Stale Versions"). Ein Konflikt entsteht mit dieser Kette nur noch, wenn
+ * tatsaechlich jemand anderes den Zustand veraendert hat.
+ *
+ * Bricht beim ersten Fehlschlag ab: die Reihenfolge ist verbindlich, kein
+ * Nachfolger darf vor seinem Vorgaenger ankommen.
+ *
+ * Gemeinsam genutzt von der Kommandozentrale (Board-Zuweisungen) und der
+ * Scoringflaeche (Einzelaufnahmen) -- beide reihen Kommandos in derselben
+ * IndexedDB-Warteschlange ein und muessen dieselbe Versionskette bilden.
+ */
+export async function replayWithCurrentVersion<T>(
+  commands: readonly T[],
+  startVersion: number,
+  send: (command: T, expectedVersion: number) => Promise<ReplayOutcome>,
+): Promise<ReplayResult> {
+  let version = startVersion;
+  let sentCount = 0;
+  for (const command of commands) {
+    const outcome = await send(command, version);
+    if (!outcome.successful) break;
+    sentCount += 1;
+    version = outcome.version;
+  }
+  return { sentCount };
+}
+
+/**
+ * Ersetzt die `expectedVersion` einer gespeicherten Kommando-Nutzlast durch
+ * die waehrend der Wiedergabe aufgebaute, aktuelle Version. Die gespeicherte
+ * Version ist seit PR-Agent-Befund F2 ("Stale Versions") nur noch ein
+ * Anzeigehinweis und kann veraltet sein -- etwa weil ein davorstehendes
+ * Kommando inzwischen verworfen wurde. Alle uebrigen Felder der Nutzlast
+ * (Punkte, Einzelwuerfe, Checkout-Angaben, ...) bleiben unveraendert.
+ */
+export function withCurrentExpectedVersion(
+  body: Readonly<Record<string, unknown>>,
+  expectedVersion: number,
+): Readonly<Record<string, unknown>> {
+  return { ...body, expectedVersion };
+}
+
 export interface QueuedCommandNotice {
   readonly text: string;
   /** `DISCARD`: nur Verwerfen hilft. `RETRY`: erneut uebertragen ist sinnvoll. */

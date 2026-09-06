@@ -24,7 +24,29 @@ export interface AssignmentQueueEntry {
   readonly command: OfflineCommand;
   readonly matchId: string;
   readonly boardId: string;
+  /**
+   * Die beim Einreihen gespeicherte Version -- nur ein Anzeigehinweis und
+   * kann veraltet sein. Gesendet wird sie nicht mehr: seit PR-Agent-Befund F2
+   * ("Stale Versions") baut die Wiedergabe die tatsaechliche
+   * `expectedVersion` aus dem zuletzt bestaetigten Serverstand
+   * (`offline-replay.ts`, `replayWithCurrentVersion`).
+   */
   readonly expectedVersion: number;
+}
+
+/**
+ * Nutzlast einer Zuweisung fuer die API. `expectedVersion` wird immer
+ * explizit uebergeben, nie aus der Warteschlange gelesen -- die dort
+ * gespeicherte Version ist nur ein Anzeigehinweis, kein Sendewert (siehe
+ * `AssignmentQueueEntry.expectedVersion`). Dieselbe Funktion baut sowohl die
+ * Nutzlast fuer das direkte Senden als auch fuer das Einreihen, damit beide
+ * dieselbe Form erzeugen.
+ */
+export function assignmentRequestBody(
+  command: { readonly commandId: string; readonly matchId: string; readonly boardId: string },
+  expectedVersion: number,
+): { readonly commandId: string; readonly expectedVersion: number; readonly matchId: string; readonly boardId: string } {
+  return { commandId: command.commandId, expectedVersion, matchId: command.matchId, boardId: command.boardId };
 }
 
 /**
