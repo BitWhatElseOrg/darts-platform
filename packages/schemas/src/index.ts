@@ -1,7 +1,9 @@
 export {
   healthResponseSchema,
+  outboxHealthSchema,
   serviceHealthStatusSchema,
   type HealthResponse,
+  type OutboxHealth,
   type ServiceHealthStatus,
 } from "./health";
 export { apiErrorSchema, type ApiErrorResponse } from "./api-error";
