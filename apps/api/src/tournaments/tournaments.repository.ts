@@ -201,8 +201,18 @@ export class TournamentsRepository {
       .limit(1);
     if (tournament === undefined) return null;
 
-    const [participantRows, boardRows, groupRows, groupParticipantRows, matchRows] =
-      await Promise.all([
+    // Keine dieser Abfragen haengt vom Ergebnis einer anderen ab; sie gehoeren
+    // in EIN Promise.all. Die Belegtmengen liefen bis hierher als zweite
+    // Rundreise hinterher -- auf dem heissesten Leseweg der Turnieransicht.
+    const [
+      participantRows,
+      boardRows,
+      groupRows,
+      groupParticipantRows,
+      matchRows,
+      occupiedBoardIds,
+      activePlayerIds,
+    ] = await Promise.all([
         this.databaseService.database
           .select({
             id: tournamentParticipants.id,
@@ -280,11 +290,9 @@ export class TournamentsRepository {
             asc(tournamentMatches.round),
             asc(tournamentMatches.position),
           ),
+        loadOccupiedBoardIds(this.databaseService.database, organizationId),
+        loadActivePlayerIds(this.databaseService.database, organizationId),
       ]);
-    const [occupiedBoardIds, activePlayerIds] = await Promise.all([
-      loadOccupiedBoardIds(this.databaseService.database, organizationId),
-      loadActivePlayerIds(this.databaseService.database, organizationId),
-    ]);
     return {
       tournament,
       participants: participantRows,
