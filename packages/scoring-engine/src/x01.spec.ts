@@ -68,6 +68,7 @@ function rules(overrides: Partial<X01Rules> = {}): X01Rules {
     maxRounds: null,
     legsToWinSet: 1,
     setsToWin: 1,
+    bullOffFromLegOne: false,
     ...overrides,
   };
 }
@@ -267,6 +268,46 @@ describe("X01 scoring", () => {
         startingSeat: 2,
       });
       expect.unreachable("leg two is fixed by the reglement");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("LEG_START_FIXED");
+    }
+  });
+
+  it("laesst das sudden-death-Doppel schon Leg eins ausbullen", () => {
+    // Reglement 2.2.9: „Ausgenommen von dieser Regel ist das
+    // Entscheidungs-Doppel sudden death. Der Spielbeginn wird beim sudden death
+    // immer durch Wurf auf Bull entschieden."
+    const match = createX01Match({
+      sides: singles("one", "two"),
+      startingSeat: 1,
+      rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, bullOffFromLegOne: true }),
+    });
+    const decided = executeX01Command(match, {
+      type: "DECIDE_LEG_START",
+      commandId: "bull-leg-one",
+      legNumber: 1,
+      startingSeat: 2,
+    }).match;
+    const state = projectX01Match(decided);
+
+    expect(state.legNumber).toBe(1);
+    expect(state.legStartingSeat).toBe(2);
+    expect(state.activeSeat).toBe(2);
+  });
+
+  it("haelt ohne das Flag am festen Legbeginn der ersten beiden Legs fest", () => {
+    const match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ bullOffFromLegOne: false }),
+    });
+    try {
+      executeX01Command(match, {
+        type: "DECIDE_LEG_START",
+        commandId: "too-early",
+        legNumber: 1,
+        startingSeat: 2,
+      });
+      expect.unreachable("leg one belongs to the home side");
     } catch (error: unknown) {
       expect((error as ScoringValidationError).code).toBe("LEG_START_FIXED");
     }
