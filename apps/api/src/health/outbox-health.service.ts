@@ -27,7 +27,11 @@ import { DatabaseService } from "../database/database.service.js";
  * `outbox_events_pending_publication_idx` (`published_at is null`),
  * `outbox_events_pending_statistics_idx` (`statistics_processed_at is null
  * and event_type = 'MATCH_COMPLETED'`) und `outbox_events_dead_lettered_idx`
- * für die Zählung.
+ * für die Zählung — geprüft mit `explain`, alle drei Abfragen scannen genau
+ * diesen Index. Sortiert wird danach über `occurred_at`, also über den
+ * Rückstand selbst und nie über die ganze Tabelle; die Indexe ordnen nach
+ * `sequence`, was der Poll-Reihenfolge entspricht, für das Alter aber nicht
+ * dasselbe ist (`occurred_at` ist die Transaktions-Startzeit).
  */
 @Injectable()
 export class OutboxHealthService {
