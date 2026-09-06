@@ -1,4 +1,10 @@
-export type OfflineCommandStatus = "PENDING" | "CONFLICT";
+/**
+ * `PENDING` wartet auf die Uebertragung, `CONFLICT` auf eine Entscheidung der
+ * Person (Serverstand uebernehmen, Steuerung uebernehmen). `REJECTED` hat der
+ * Server fachlich abgelehnt -- eine Wiederholung scheitert immer wieder, das
+ * Kommando laesst sich nur noch verwerfen (siehe `offline-replay.ts`).
+ */
+export type OfflineCommandStatus = "PENDING" | "CONFLICT" | "REJECTED";
 
 export interface OfflineCommand {
   readonly commandId: string;
@@ -9,6 +15,11 @@ export interface OfflineCommand {
   readonly createdAt: string;
   readonly status: OfflineCommandStatus;
   readonly error: string | null;
+  /**
+   * Fehlercode der Ablehnung. Optional, weil vor dieser Erweiterung
+   * gespeicherte Kommandos das Feld nicht tragen.
+   */
+  readonly code?: string | null;
 }
 
 const DATABASE_NAME = "dart-ost-offline";
@@ -62,4 +73,8 @@ export async function removeOfflineCommandsForScope(scope: string): Promise<numb
 
 export async function markOfflineCommandConflict(command: OfflineCommand, message: string): Promise<void> {
   await saveOfflineCommand({ ...command, status: "CONFLICT", error: message });
+}
+
+export async function markOfflineCommandRejected(command: OfflineCommand, code: string, message: string): Promise<void> {
+  await saveOfflineCommand({ ...command, status: "REJECTED", error: message, code });
 }

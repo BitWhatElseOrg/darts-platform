@@ -5,16 +5,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   abortMatchResponseSchema, matchStateSchema, type Dart, type MatchStateResponse,
 } from "@darts-platform/schemas";
-import { ApiClientError, apiRequest } from "@/lib/api-client";
+import { apiRequest } from "@/lib/api-client";
+import { ApiClientError } from "@/lib/api-error";
 import { generateId } from "@/lib/id";
 import {
   listOfflineCommands,
   markOfflineCommandConflict,
+  markOfflineCommandRejected,
   removeOfflineCommand,
   removeOfflineCommandsForScope,
   saveOfflineCommand,
   type OfflineCommand,
 } from "@/lib/offline-command-queue";
+import { queueBlocksControl, replayFailure } from "@/lib/offline-replay";
 import { useBoardControllerLock } from "@/lib/use-board-controller-lock";
 
 /**
@@ -50,6 +53,7 @@ export interface MatchScoring {
     readonly points: number;
     readonly dartsThrown: 1 | 2 | 3;
     readonly checkoutDouble?: number;
+    readonly checkoutSegment?: Dart;
     readonly checkoutMissed?: boolean;
     readonly checkoutAttempted?: boolean;
     readonly darts?: readonly Dart[];
@@ -100,11 +104,21 @@ export function useMatchScoring({ organizationId, match, canScore }: {
         await apiRequest({ path: command.path, method: "POST", body: command.body, schema: matchStateSchema });
         await removeOfflineCommand(command.commandId);
       } catch (error) {
-        if (error instanceof ApiClientError && ["MATCH_VERSION_CONFLICT", "BOARD_CONTROLLER_CONFLICT"].includes(error.code)) {
-          const message = error.code === "BOARD_CONTROLLER_CONFLICT"
-            ? "Ein anderes Gerät steuert dieses Board. Übernimm zuerst die Steuerung."
-            : "Der Serverzustand hat sich geändert. Synchronisiere, bevor du weiterzählst.";
-          await markOfflineCommandConflict(command, message);
+        // Ein fachlich abgelehntes Kommando (4xx mit Fehlercode) wird als
+        // solches markiert statt endlos wiederholt -- sonst bliebe es
+        // dauerhaft `PENDING` und sperrte ueber `queueBlocksControl` die
+        // ganze Flaeche (Befund F2). Die Wiedergabe bricht in jedem Fehlerfall
+        // ab: die Reihenfolge der Aufnahmen ist verbindlich.
+        const failure = replayFailure(error);
+        switch (failure.kind) {
+          case "CONFLICT":
+            await markOfflineCommandConflict(command, failure.message);
+            break;
+          case "REJECTED":
+            await markOfflineCommandRejected(command, failure.code, failure.message);
+            break;
+          case "RETRY":
+            break;
         }
         break;
       }
@@ -126,7 +140,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
 
   const submit = useMutation({
     networkMode: "always",
-    mutationFn: async (visit: { readonly points: number; readonly dartsThrown: 1 | 2 | 3; readonly checkoutDouble?: number; readonly checkoutMissed?: boolean; readonly checkoutAttempted?: boolean; readonly darts?: readonly Dart[] }) => {
+    mutationFn: async (visit: { readonly points: number; readonly dartsThrown: 1 | 2 | 3; readonly checkoutDouble?: number; readonly checkoutSegment?: Dart; readonly checkoutMissed?: boolean; readonly checkoutAttempted?: boolean; readonly darts?: readonly Dart[] }) => {
       const commandId = generateId();
       const path = `/organizations/${organizationId}/matches/${match.id}/visits`;
       const body = {
@@ -138,14 +152,17 @@ export function useMatchScoring({ organizationId, match, canScore }: {
         checkoutDouble: visit.checkoutDouble ?? null,
         // Der Bust-Knopf meldet ausdruecklich einen verpassten Checkout-Versuch
         // (`checkoutMissed`) -- das zaehlt fuer die Checkout-Quote genauso als
-        // Versuch wie ein getroffenes Doppel. Ein Master-Out-Finish auf einem
-        // Triple traegt `checkoutAttempted`, aber bewusst kein `checkoutDouble`
-        // (die Engine kennt darin nur Doppel-Segmente, siehe round-entry.ts) --
-        // ohne dieses Feld wuerde die Checkout-Quote den Versuch sonst
-        // unterschlagen.
-        checkoutAttempts: visit.checkoutAttempted === true || visit.checkoutDouble !== undefined || visit.checkoutMissed === true ? 1 : 0,
+        // Versuch wie ein getroffenes Doppel. Ein Master-Out-Finish traegt sein
+        // Feld als `checkoutSegment` (round-entry.ts, `checkoutCommandFields`)
+        // und ebenfalls `checkoutAttempted` -- ohne das Feld wuerde die
+        // Checkout-Quote den Versuch unterschlagen.
+        checkoutAttempts:
+          visit.checkoutAttempted === true || visit.checkoutDouble !== undefined || visit.checkoutSegment !== undefined || visit.checkoutMissed === true
+            ? 1
+            : 0,
         controllerId: lock.controllerId,
         ...(visit.darts === undefined ? {} : { darts: visit.darts }),
+        ...(visit.checkoutSegment === undefined ? {} : { checkoutSegment: visit.checkoutSegment }),
         ...(visit.checkoutMissed === true ? { checkoutMissed: true } : {}),
       };
       if (!navigator.onLine) {
@@ -193,12 +210,15 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     },
   });
   const error = submit.error ?? undo.error ?? abort.error;
-  const hasPending = queued.length > 0;
-  const mayControl = canScore && match.status === "IN_PROGRESS" && lock.state === "EIGEN" && !hasPending;
+  // Nur unuebertragene Kommandos sperren die Bedienung; ein abgelehntes bleibt
+  // sichtbar, macht das Board aber nicht unbedienbar (offline-replay.ts).
+  const mayControl = canScore && match.status === "IN_PROGRESS" && lock.state === "EIGEN" && !queueBlocksControl(queued);
 
+  // Nach dem Verwerfen laeuft die Wiedergabe weiter: hinter einem abgelehnten
+  // Kommando koennen weitere warten, die jetzt an der Reihe sind.
   const discardQueued = useCallback((commandId: string) => {
-    void removeOfflineCommand(commandId).then(refreshQueue).then(refresh);
-  }, [refreshQueue, refresh]);
+    void removeOfflineCommand(commandId).then(refreshQueue).then(refresh).then(replay);
+  }, [refreshQueue, refresh, replay]);
 
   return {
     lock,
