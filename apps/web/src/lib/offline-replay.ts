@@ -91,9 +91,23 @@ export function nextReplayable<T extends { readonly status: OfflineCommandStatus
  * Board nicht unbedienbar. Steht ein `PENDING` dahinter, sperrt dieses; die
  * Wiedergabe bricht am abgelehnten Kommando ohnehin ab, damit die Reihenfolge
  * haelt.
+ *
+ * `acceptedButStuck` traegt die `commandId`s, die der Server bereits
+ * angenommen hat und die nur lokal nicht entfernt werden konnten
+ * (`use-offline-queue.ts`). Sie stehen NICHT mehr vor dem Serverstand -- er
+ * kennt sie -- und duerfen die Flaeche deshalb nicht sperren. Ohne diese
+ * Ausnahme blieb die Scoringflaeche nach einem gescheiterten lokalen
+ * Aufraeumen dauerhaft unbedienbar (Runde 7).
  */
-export function queueBlocksControl(queued: readonly OfflineCommand[]): boolean {
-  return queued.some((command) => command.status === "PENDING" || command.status === "CONFLICT");
+export function queueBlocksControl(
+  queued: readonly OfflineCommand[],
+  acceptedButStuck: ReadonlySet<string>,
+): boolean {
+  return queued.some(
+    (command) =>
+      (command.status === "PENDING" || command.status === "CONFLICT") &&
+      !acceptedButStuck.has(command.commandId),
+  );
 }
 
 /**
@@ -231,24 +245,51 @@ export interface QueuedCommandNotice {
   readonly action: "DISCARD" | "RETRY";
 }
 
+export interface QueuedCommandView {
+  readonly online: boolean;
+  /**
+   * Was mit einem wartenden Kommando bei bestehender Verbindung geschieht:
+   * die Scoringflaeche wiederholt von selbst, die Kommandozentrale wartet auf
+   * den Knopf.
+   */
+  readonly pendingOnline?: string;
+  /**
+   * Der Server hat genau dieses Kommando angenommen; nur das lokale Entfernen
+   * scheiterte (`acceptedButStuck` in `use-offline-queue.ts`).
+   */
+  readonly acceptedButStuck?: boolean;
+}
+
 /**
- * Was die Warteschlangenansicht zu einem Kommando sagt.
+ * Was die Warteschlangenansicht zu einem Kommando sagt -- und ob sie das
+ * Verwerfen anbieten darf. Diese Entscheidung gehoert hierher und nicht in
+ * die Komponenten: sie haengt am einzelnen Eintrag, nicht am Scope.
  *
- * `pendingOnline` benennt, was mit einem wartenden Kommando bei bestehender
- * Verbindung geschieht: die Scoringflaeche wiederholt von selbst, die
- * Kommandozentrale wartet auf den Knopf.
+ * Ein angenommener, nur lokal haengender Eintrag bekommt einen eigenen Text
+ * und `DISCARD`. Er ist der einzige wartende Eintrag, der verworfen werden
+ * darf, und die Meldung sagt, warum das nichts kostet: der Server kennt ihn
+ * bereits, verworfen wird nur die lokale Kopie. Vorher bot das
+ * Warteschlangen-Band das Verwerfen fuer JEDEN wartenden Eintrag an, sobald
+ * irgendein Schreibfehler des Scopes anstand -- ein Klick loeschte damit auch
+ * eine dahinterstehende, von Hand erfasste und nie gesendete Aufnahme
+ * endgueltig (Runde 7).
  */
-export function queuedCommandNotice(
-  command: OfflineCommand,
-  online: boolean,
-  pendingOnline = "Wiederholung läuft",
-): QueuedCommandNotice {
+export function queuedCommandNotice(command: OfflineCommand, view: QueuedCommandView): QueuedCommandNotice {
   switch (command.status) {
     case "CONFLICT":
       return { text: `${command.label} · ${command.error ?? "Konflikt mit dem Serverstand"}`, action: "DISCARD" };
     case "REJECTED":
       return { text: `${command.label} · Vom Server abgelehnt: ${command.error ?? "unbekannter Grund"}`, action: "DISCARD" };
     case "PENDING":
-      return { text: `${command.label} · ${online ? pendingOnline : "Offline"}`, action: "RETRY" };
+      if (view.acceptedButStuck === true) {
+        return {
+          text: `${command.label} · Vom Server angenommen; nur lokal nicht entfernt. Verwerfen räumt den Eintrag hier auf, am Serverstand ändert sich nichts.`,
+          action: "DISCARD",
+        };
+      }
+      return {
+        text: `${command.label} · ${view.online ? view.pendingOnline ?? "Wiederholung läuft" : "Offline"}`,
+        action: "RETRY",
+      };
   }
 }

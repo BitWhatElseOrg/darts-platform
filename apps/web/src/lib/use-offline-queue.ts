@@ -42,6 +42,20 @@ export interface OfflineQueue {
    * naechsten erfolgreichen Schreiben.
    */
   readonly writeError: string | null;
+  /**
+   * Die `commandId`s der Eintraege, die der Server ANGENOMMEN hat und die
+   * trotzdem noch lokal in der Warteschlange stehen, weil ihr Entfernen
+   * scheiterte.
+   *
+   * `writeError` gilt fuer den ganzen Scope, diese Auskunft gilt fuer den
+   * einzelnen Eintrag -- und nur der einzelne Eintrag darf daraufhin verworfen
+   * werden duerfen und die Bedienung nicht laenger sperren. Ohne diese
+   * Unterscheidung bot die Flaeche das Verwerfen fuer JEDEN wartenden Eintrag
+   * an, sobald irgendein Schreibfehler des Scopes anstand -- ein Klick
+   * loeschte damit auch eine von Hand erfasste, nie gesendete Aufnahme
+   * (Runde 7).
+   */
+  readonly acceptedButStuck: ReadonlySet<string>;
   /** Liest die Warteschlange, ohne `queued` zu setzen. `null` heisst: Lesen gescheitert. */
   readonly readQueue: () => Promise<readonly OfflineCommand[] | null>;
   /** Liest die Warteschlange und uebernimmt sie in `queued`. Wirft nie. */
@@ -86,12 +100,39 @@ export function useOfflineQueue(scope: string): OfflineQueue {
   const [queued, setQueued] = useState<readonly OfflineCommand[]>([]);
   const [readError, setReadError] = useState<string | null>(null);
   const [writeError, setWriteError] = useState<string | null>(null);
+  const [acceptedButStuck, setAcceptedButStuck] = useState<ReadonlySet<string>>(() => new Set());
   // Kein `setState` mehr, nachdem die Flaeche verlassen wurde: IndexedDB und
   // Netz laufen laenger als die Ansicht.
   const active = useRef(true);
   useEffect(() => {
     active.current = true;
     return () => { active.current = false; };
+  }, []);
+
+  /**
+   * Vergisst einen Eintrag, der nicht mehr haengt -- weil er entfernt wurde
+   * oder beim naechsten Lesen gar nicht mehr auftauchte. Gibt bei
+   * unveraendertem Inhalt dieselbe Menge zurueck, damit die Konsumenten nicht
+   * bei jedem Durchgang neu rendern.
+   */
+  const forgetStuck = useCallback((commandId: string): void => {
+    if (!active.current) return;
+    setAcceptedButStuck((current) => {
+      if (!current.has(commandId)) return current;
+      const next = new Set(current);
+      next.delete(commandId);
+      return next;
+    });
+  }, []);
+
+  const keepStuckAmong = useCallback((commands: readonly OfflineCommand[]): void => {
+    if (!active.current) return;
+    setAcceptedButStuck((current) => {
+      if (current.size === 0) return current;
+      const present = new Set(commands.map((command) => command.commandId));
+      const next = new Set([...current].filter((commandId) => present.has(commandId)));
+      return next.size === current.size ? current : next;
+    });
   }, []);
 
   const readQueue = useCallback(async (): Promise<readonly OfflineCommand[] | null> => {
@@ -107,8 +148,10 @@ export function useOfflineQueue(scope: string): OfflineQueue {
 
   const refreshQueue = useCallback(async (): Promise<void> => {
     const commands = await readQueue();
-    if (commands !== null && active.current) setQueued(commands);
-  }, [readQueue]);
+    if (commands === null || !active.current) return;
+    setQueued(commands);
+    keepStuckAmong(commands);
+  }, [keepStuckAmong, readQueue]);
 
   /**
    * Ein Schreibgriff mit eigener Meldung. `writeError` wird bei Erfolg
@@ -146,18 +189,30 @@ export function useOfflineQueue(scope: string): OfflineQueue {
   );
 
   const remove = useCallback(
-    (commandId: string) => write(() => removeOfflineCommand(commandId), queueUpdateFailureMessage),
-    [write],
+    async (commandId: string): Promise<boolean> => {
+      const removed = await write(() => removeOfflineCommand(commandId), queueUpdateFailureMessage);
+      if (removed) forgetStuck(commandId);
+      return removed;
+    },
+    [forgetStuck, write],
   );
 
   const removeAccepted = useCallback(
-    (commandId: string) => write(() => removeOfflineCommand(commandId), localCleanupFailureMessage),
-    [write],
+    async (commandId: string): Promise<boolean> => {
+      const removed = await write(() => removeOfflineCommand(commandId), localCleanupFailureMessage);
+      // Gelingt es, ist der Eintrag weg; scheitert es, steht er weiter da,
+      // obwohl der Server ihn laengst angenommen hat -- genau das merkt sich
+      // `acceptedButStuck` fuer diesen einen Eintrag.
+      if (removed) forgetStuck(commandId);
+      else if (active.current) setAcceptedButStuck((current) => new Set(current).add(commandId));
+      return removed;
+    },
+    [forgetStuck, write],
   );
 
   const clearScope = useCallback(async (): Promise<boolean> => {
     const cleared = await write(async () => { await removeOfflineCommandsForScope(scope); }, queueUpdateFailureMessage);
-    if (cleared && active.current) setQueued([]);
+    if (cleared && active.current) { setQueued([]); setAcceptedButStuck(new Set()); }
     return cleared;
   }, [scope, write]);
 
@@ -177,5 +232,5 @@ export function useOfflineQueue(scope: string): OfflineQueue {
     return () => { current = false; };
   }, [scope]);
 
-  return { queued, readError, writeError, readQueue, refreshQueue, persist, markOutcome, remove, removeAccepted, clearScope };
+  return { queued, readError, writeError, acceptedButStuck, readQueue, refreshQueue, persist, markOutcome, remove, removeAccepted, clearScope };
 }

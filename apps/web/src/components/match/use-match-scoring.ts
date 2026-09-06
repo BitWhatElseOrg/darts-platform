@@ -47,6 +47,13 @@ export interface MatchScoring {
    * Meldung deshalb nicht loeschen (siehe `use-offline-queue.ts`).
    */
   readonly queueWriteError: string | null;
+  /**
+   * Die `commandId`s der Aufnahmen, die der Server angenommen hat und die nur
+   * lokal nicht aus der Warteschlange entfernt werden konnten. Eintragsbezogen
+   * -- anders als `queueWriteError`, das fuer die ganze Flaeche gilt (siehe
+   * `use-offline-queue.ts`).
+   */
+  readonly queueAcceptedButStuck: ReadonlySet<string>;
   readonly online: boolean;
   readonly replaying: boolean;
   readonly mayControl: boolean;
@@ -92,6 +99,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     queued,
     readError: queueReadError,
     writeError: queueWriteError,
+    acceptedButStuck: queueAcceptedButStuck,
     readQueue,
     refreshQueue,
     markOutcome: markQueuedOutcome,
@@ -294,7 +302,9 @@ export function useMatchScoring({ organizationId, match, canScore }: {
   const error = submit.error ?? undo.error ?? abort.error;
   // Nur unuebertragene Kommandos sperren die Bedienung; ein abgelehntes bleibt
   // sichtbar, macht das Board aber nicht unbedienbar (offline-replay.ts).
-  const mayControl = canScore && match.status === "IN_PROGRESS" && lock.state === "EIGEN" && !queueBlocksControl(queued);
+  // Ebenso wenig sperrt eine Aufnahme, die der Server angenommen hat und die
+  // nur lokal haengt: sie steht nicht mehr vor dem Serverstand.
+  const mayControl = canScore && match.status === "IN_PROGRESS" && lock.state === "EIGEN" && !queueBlocksControl(queued, queueAcceptedButStuck);
 
   // Nach dem Verwerfen laeuft die Wiedergabe weiter: hinter einem abgelehnten
   // Kommando koennen weitere warten, die jetzt an der Reihe sind.
@@ -316,6 +326,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     queued,
     queueReadError,
     queueWriteError,
+    queueAcceptedButStuck,
     online,
     replaying,
     mayControl,

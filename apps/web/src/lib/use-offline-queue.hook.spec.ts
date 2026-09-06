@@ -125,6 +125,64 @@ describe("useOfflineQueue", () => {
     expect(view.result.current.readError).toBeNull();
   });
 
+  /**
+   * Runde 7: `writeError` gilt fuer den ganzen Scope, "dieser Eintrag haengt"
+   * gilt fuer den einzelnen Eintrag. Ohne diese Unterscheidung bot das
+   * Warteschlangen-Band das Verwerfen fuer jede wartende Aufnahme an, sobald
+   * irgendein Schreibfehler anstand -- und ein Klick loeschte auch eine von
+   * Hand erfasste, nie gesendete Aufnahme endgueltig.
+   */
+  it("merkt sich den Eintrag, dessen Entfernen nach Serverannahme scheiterte", async () => {
+    const view = await mounted([command()]);
+    store.removeOfflineCommand.mockRejectedValueOnce(new Error("IndexedDB ist blockiert."));
+
+    await act(async () => { await view.result.current.removeAccepted("kommando-1"); });
+
+    expect([...view.result.current.acceptedButStuck]).toEqual(["kommando-1"]);
+  });
+
+  it("vergisst den Eintrag, sobald er tatsaechlich entfernt wurde", async () => {
+    const view = await mounted([command()]);
+    store.removeOfflineCommand.mockRejectedValueOnce(new Error("IndexedDB ist blockiert."));
+    await act(async () => { await view.result.current.removeAccepted("kommando-1"); });
+    expect(view.result.current.acceptedButStuck.has("kommando-1")).toBe(true);
+
+    // Das spaetere Verwerfen von Hand geht durch -- der Eintrag ist weg und
+    // haengt nicht mehr.
+    store.removeOfflineCommand.mockResolvedValueOnce(undefined);
+    let removed = false;
+    await act(async () => { removed = await view.result.current.remove("kommando-1"); });
+
+    expect(removed).toBe(true);
+    expect(view.result.current.acceptedButStuck.size).toBe(0);
+  });
+
+  it("vergisst den Eintrag, wenn ihn ein spaeteres Lesen nicht mehr vorfindet", async () => {
+    // Etwa nach einem Neuladen oder weil ein anderer Tab ihn entfernt hat.
+    const view = await mounted([command()]);
+    store.removeOfflineCommand.mockRejectedValueOnce(new Error("IndexedDB ist blockiert."));
+    await act(async () => { await view.result.current.removeAccepted("kommando-1"); });
+    expect(view.result.current.acceptedButStuck.has("kommando-1")).toBe(true);
+
+    store.listOfflineCommands.mockResolvedValueOnce([command({ commandId: "kommando-2" })]);
+    await act(async () => { await view.result.current.refreshQueue(); });
+
+    expect(view.result.current.acceptedButStuck.size).toBe(0);
+    // Der Schreibfehler selbst ueberlebt das Lesen weiterhin.
+    expect(view.result.current.writeError).not.toBeNull();
+  });
+
+  it("behaelt den Eintrag, solange er weiter in der Warteschlange steht", async () => {
+    const view = await mounted([command()]);
+    store.removeOfflineCommand.mockRejectedValueOnce(new Error("IndexedDB ist blockiert."));
+    await act(async () => { await view.result.current.removeAccepted("kommando-1"); });
+
+    store.listOfflineCommands.mockResolvedValueOnce([command(), command({ commandId: "kommando-2" })]);
+    await act(async () => { await view.result.current.refreshQueue(); });
+
+    expect([...view.result.current.acceptedButStuck]).toEqual(["kommando-1"]);
+  });
+
   it("loescht den Schreibfehler erst beim naechsten erfolgreichen Schreiben", async () => {
     const view = await mounted();
     store.saveOfflineCommand.mockRejectedValueOnce(new Error("Quota überschritten."));

@@ -49,7 +49,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   readonly organizationId: string;
 }) {
   const scoring = useMatchScoring({ organizationId, match, canScore });
-  const { lock, queued, queueReadError, queueWriteError, online, replaying, mayControl, error } = scoring;
+  const { lock, queued, queueReadError, queueWriteError, queueAcceptedButStuck, online, replaying, mayControl, error } = scoring;
   const settings = useSyncExternalStore(subscribeScoreboardSettings, readScoreboardSettings, () => defaultScoreboardSettings);
   // Im Doppel ist `currentPlayerId` die werfende Person, nicht die erste der
   // Seite. Am Oche steht die Seite mit `isActive`.
@@ -362,19 +362,22 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
                 <p className="text-body text-amber-100" role="status">{queueWriteError}</p>
               ) : null}
               {queued.map((command) => {
-                const notice = queuedCommandNotice(command, online);
+                // Ob ein Eintrag verworfen werden darf, entscheidet
+                // `queuedCommandNotice` -- eintragsbezogen. Bis Runde 7 stand
+                // hier zusaetzlich `|| queueWriteError !== null`: der
+                // Schreibfehler gilt fuer den ganzen Scope, und ein einziger
+                // haengender Eintrag bot damit das Verwerfen fuer JEDE
+                // wartende Aufnahme an -- auch fuer eine dahinterstehende, von
+                // Hand erfasste und nie gesendete. Ein Klick loeschte sie
+                // endgueltig.
+                const notice = queuedCommandNotice(command, {
+                  online,
+                  acceptedButStuck: queueAcceptedButStuck.has(command.commandId),
+                });
                 return (
                   <div className="flex flex-wrap items-center justify-between gap-3 text-body text-amber-100" key={command.commandId}>
                     <span>{notice.text}</span>
-                    {/* Verwerfen steht sonst nur bei CONFLICT/REJECTED. Steht
-                        ein Schreibfehler der Warteschlange an, muss es auch
-                        fuer einen PENDING-Eintrag gehen: sein haeufigster
-                        Grund ist ein Eintrag, den der Server laengst
-                        angenommen hat und der sich lokal nicht entfernen
-                        liess. Ohne diesen Weg bleibt die Flaeche ueber
-                        `queueBlocksControl` dauerhaft gesperrt (Re-Review,
-                        Befund 2). */}
-                    {notice.action === "DISCARD" || queueWriteError !== null ? (
+                    {notice.action === "DISCARD" ? (
                       <Button onClick={() => scoring.discardQueued(command.commandId)} variant="outline">Verwerfen und synchronisieren</Button>
                     ) : null}
                     {notice.action === "RETRY" ? (

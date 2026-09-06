@@ -130,21 +130,43 @@ describe("nextReplayable", () => {
 });
 
 describe("queueBlocksControl", () => {
+  /** Nichts haengt lokal: der Normalfall. */
+  const nothingStuck: ReadonlySet<string> = new Set();
+
   it("sperrt bei wartenden und bei konfliktbehafteten Kommandos", () => {
-    expect(queueBlocksControl([command({ status: "PENDING" })])).toBe(true);
-    expect(queueBlocksControl([command({ status: "CONFLICT", error: "Konflikt" })])).toBe(true);
+    expect(queueBlocksControl([command({ status: "PENDING" })], nothingStuck)).toBe(true);
+    expect(queueBlocksControl([command({ status: "CONFLICT", error: "Konflikt" })], nothingStuck)).toBe(true);
   });
 
   it("sperrt nicht, wenn nur abgelehnte Kommandos uebrig sind", () => {
-    expect(queueBlocksControl([command({ status: "REJECTED", error: "abgelehnt", code: "X" })])).toBe(false);
-    expect(queueBlocksControl([])).toBe(false);
+    expect(queueBlocksControl([command({ status: "REJECTED", error: "abgelehnt", code: "X" })], nothingStuck)).toBe(false);
+    expect(queueBlocksControl([], nothingStuck)).toBe(false);
   });
 
   it("sperrt weiterhin, wenn hinter einem abgelehnten noch ein wartendes steht", () => {
     expect(queueBlocksControl([
       command({ commandId: "c1", status: "REJECTED", error: "abgelehnt", code: "X" }),
       command({ commandId: "c2", status: "PENDING" }),
-    ])).toBe(true);
+    ], nothingStuck)).toBe(true);
+  });
+
+  /**
+   * Runde 7: Der Server hat die Aufnahme angenommen, nur das lokale Entfernen
+   * scheiterte. Sie steht damit nicht mehr vor dem Serverstand und darf die
+   * Flaeche nicht sperren -- vorher blieb die Scoringflaeche in genau diesem
+   * Fall dauerhaft unbedienbar.
+   */
+  it("sperrt nicht wegen eines wartenden Kommandos, das der Server angenommen hat", () => {
+    const queued = [command({ commandId: "c1", status: "PENDING" })];
+    expect(queueBlocksControl(queued, new Set(["c1"]))).toBe(false);
+    expect(queueBlocksControl(queued, nothingStuck)).toBe(true);
+  });
+
+  it("sperrt weiterhin wegen eines anderen wartenden Kommandos daneben", () => {
+    expect(queueBlocksControl([
+      command({ commandId: "c1", status: "PENDING" }),
+      command({ commandId: "c2", status: "PENDING" }),
+    ], new Set(["c1"]))).toBe(true);
   });
 });
 
@@ -308,15 +330,35 @@ describe("withCurrentExpectedVersion", () => {
 
 describe("queuedCommandNotice", () => {
   it("bietet bei Konflikt und Ablehnung das Verwerfen an", () => {
-    expect(queuedCommandNotice(command({ status: "CONFLICT", error: "Serverzustand geändert." }), true))
+    expect(queuedCommandNotice(command({ status: "CONFLICT", error: "Serverzustand geändert." }), { online: true }))
       .toEqual({ text: "60 Punkte · Serverzustand geändert.", action: "DISCARD" });
-    expect(queuedCommandNotice(command({ status: "REJECTED", error: "Nicht erlaubt." }), true))
+    expect(queuedCommandNotice(command({ status: "REJECTED", error: "Nicht erlaubt." }), { online: true }))
       .toEqual({ text: "60 Punkte · Vom Server abgelehnt: Nicht erlaubt.", action: "DISCARD" });
   });
 
   it("unterscheidet wartende Kommandos nach Verbindung", () => {
-    expect(queuedCommandNotice(command(), true).text).toBe("60 Punkte · Wiederholung läuft");
-    expect(queuedCommandNotice(command(), false).text).toBe("60 Punkte · Offline");
-    expect(queuedCommandNotice(command(), false).action).toBe("RETRY");
+    expect(queuedCommandNotice(command(), { online: true }).text).toBe("60 Punkte · Wiederholung läuft");
+    expect(queuedCommandNotice(command(), { online: false }).text).toBe("60 Punkte · Offline");
+    expect(queuedCommandNotice(command(), { online: false }).action).toBe("RETRY");
+    expect(queuedCommandNotice(command(), { online: true, pendingOnline: "wartet auf Übertragung" }).text)
+      .toBe("60 Punkte · wartet auf Übertragung");
+  });
+
+  /**
+   * Runde 7: Ein wartender Eintrag, den der Server angenommen hat, ist der
+   * einzige, der verworfen werden darf -- und die Meldung sagt, dass dabei
+   * nichts verloren geht. Vorher bot das Band das Verwerfen fuer jeden
+   * wartenden Eintrag an, sobald irgendein Schreibfehler des Scopes anstand.
+   */
+  it("benennt einen angenommenen, nur lokal haengenden Eintrag und bietet das Verwerfen an", () => {
+    expect(queuedCommandNotice(command(), { online: true, acceptedButStuck: true })).toEqual({
+      text: "60 Punkte · Vom Server angenommen; nur lokal nicht entfernt. Verwerfen räumt den Eintrag hier auf, am Serverstand ändert sich nichts.",
+      action: "DISCARD",
+    });
+  });
+
+  it("laesst einen abgelehnten Eintrag unveraendert, auch wenn daneben etwas haengt", () => {
+    expect(queuedCommandNotice(command({ status: "REJECTED", error: "Nicht erlaubt." }), { online: true, acceptedButStuck: false }).action)
+      .toBe("DISCARD");
   });
 });

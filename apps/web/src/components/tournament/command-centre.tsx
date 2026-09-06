@@ -145,6 +145,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
     queued,
     readError: queueReadError,
     writeError: queueWriteError,
+    acceptedButStuck,
     refreshQueue,
     persist: persistQueuedAssignment,
     markOutcome: markQueuedOutcome,
@@ -597,7 +598,15 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
               <SheetLabel as="h2">{queueEntries.length} Befehl{queueEntries.length === 1 ? "" : "e"} in der Warteschlange</SheetLabel>
               <ul className="mt-1.5 flex flex-col gap-1.5">
                 {queueEntries.map((entry) => {
-                  const notice = queuedCommandNotice(entry.command, connection === "live", "wartet auf Übertragung");
+                  // `acceptedButStuck` ist eintragsbezogen: nur eine
+                  // Zuweisung, die der Server angenommen hat und die bloss
+                  // lokal nicht entfernt werden konnte, darf als wartender
+                  // Eintrag verworfen werden (siehe `offline-replay.ts`).
+                  const notice = queuedCommandNotice(entry.command, {
+                    online: connection === "live",
+                    pendingOnline: "wartet auf Übertragung",
+                    acceptedButStuck: acceptedButStuck.has(entry.command.commandId),
+                  });
                   return (
                     <li className="flex flex-wrap items-center justify-between gap-3 font-plate text-body text-wedge-900" key={entry.command.commandId}>
                       <span>{notice.text}</span>
