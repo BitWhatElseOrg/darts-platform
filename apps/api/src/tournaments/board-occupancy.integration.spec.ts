@@ -21,6 +21,7 @@ import {
 import type { AuthContext } from "../auth/auth.types.js";
 import { DatabaseService } from "../database/database.service.js";
 import { MatchesRepository } from "../matches/matches.repository.js";
+import { MatchesService } from "../matches/matches.service.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { OrganizationsRepository } from "../organizations/organizations.repository.js";
 import { TournamentsRepository } from "./tournaments.repository.js";
@@ -29,7 +30,9 @@ import { TournamentsService } from "./tournaments.service.js";
 const databaseService = new DatabaseService(parseApplicationEnvironment(process.env));
 const access = new OrganizationAccessService(new OrganizationsRepository(databaseService));
 const repository = new TournamentsRepository(databaseService);
-const service = new TournamentsService(repository, new MatchesRepository(databaseService), access);
+const matchesRepository = new MatchesRepository(databaseService);
+const service = new TournamentsService(repository, matchesRepository, access);
+const matchesService = new MatchesService(matchesRepository, access);
 
 const organizationId = randomUUID();
 const userId = randomUUID();
@@ -403,5 +406,41 @@ describe("Boardbelegung zwischen Turnier und Liga", () => {
       dashboard.tournament.version + 2,
       dashboard.tournament.version + 2,
     ]);
+  }, 30_000);
+
+  /**
+   * Die freie Paarung (Ad-hoc-Match ohne Turnier- und Ligabezug) prueft die
+   * Scheibe bis hierher nur ueber `boards.status`. Steht dort ein Ligaslot und
+   * hat eine fruehere Freigabe den Status auf AVAILABLE gesetzt, startete sie
+   * ein zweites Spiel auf derselben physischen Scheibe. Der partielle Unique
+   * fing das ab -- aber erst als Constraint-Verstoss, nicht als Pruefung.
+   */
+  it("startet kein Ad-hoc-Match auf einer Scheibe, auf der ein Ligaslot laeuft", async () => {
+    await databaseService.database
+      .update(boards)
+      .set({ status: "AVAILABLE" })
+      .where(eq(boards.id, leagueBoardId));
+    try {
+      await expect(
+        matchesService.create({
+          organizationId,
+          data: {
+            playerOneId: freePlayerIds[0],
+            playerTwoId: freePlayerIds[1],
+            startingPlayerId: freePlayerIds[0],
+            boardId: leagueBoardId,
+            bestOfLegs: 1,
+            bestOfSets: 1,
+          },
+          auth,
+          audit,
+        }),
+      ).rejects.toMatchObject({ response: { code: "BOARD_NOT_AVAILABLE" } });
+    } finally {
+      await databaseService.database
+        .update(boards)
+        .set({ status: "IN_USE" })
+        .where(eq(boards.id, leagueBoardId));
+    }
   }, 30_000);
 });

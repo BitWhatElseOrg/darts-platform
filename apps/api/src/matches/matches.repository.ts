@@ -308,7 +308,19 @@ export class MatchesRepository {
       if (playerRows.length !== 2 || playerRows.some((player) => player.status !== "ACTIVE")) throw new ScoringValidationError("INVALID_MATCH_PARTICIPANTS", "Both match players must be active members of the organization.");
       if (input.data.boardId !== undefined && input.data.boardId !== null) {
         const [board] = await transaction.select().from(boards).where(and(eq(boards.organizationId, input.organizationId), eq(boards.id, input.data.boardId))).for("update").limit(1);
-        if (board === undefined || board.status !== "AVAILABLE") throw new ScoringValidationError("BOARD_NOT_AVAILABLE", "Selected board is not available.");
+        // Der Status der Scheibe allein genuegt nicht: Turnier und Liga
+        // belegen dieselbe physische Scheibe ueber `tournament_matches` und
+        // `encounter_slots`. Beide Quellen zaehlen -- dieselbe Pruefung nutzen
+        // `tournaments.assign`, `tournaments.releaseBoard` und
+        // `encounters.assignSlot`. Der partielle Unique auf `matches` bleibt
+        // die letzte Klammer, nicht die Pruefung.
+        if (
+          board === undefined ||
+          board.status !== "AVAILABLE" ||
+          (await isBoardOccupied(transaction, input.organizationId, input.data.boardId))
+        ) {
+          throw new ScoringValidationError("BOARD_NOT_AVAILABLE", "Selected board is not available.");
+        }
       }
       const startingSeat = input.data.startingPlayerId === input.data.playerOneId ? 1 : 2;
       const [created] = await transaction.insert(matches).values({
