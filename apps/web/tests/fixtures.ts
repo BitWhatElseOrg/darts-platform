@@ -55,6 +55,17 @@ export const test = base.extend<{ cspViolations: readonly CspViolation[] }>({
 
       await use(violations);
 
+      // Die Bindung wird vom Browser aufgerufen, ohne dass die Seite auf die
+      // Zustellung wartet: ein Verstoss aus der letzten Handlung koennte noch
+      // unterwegs sein, waehrend hier schon geprueft wird — die Wache faende
+      // dann nichts und niemand wuesste davon. Ein Roundtrip raeumt das aus:
+      // seine Antwort kommt ueber dieselbe Verbindung und damit zwangslaeufig
+      // nach den Bindungsaufrufen, die der Browser vorher abgeschickt hat.
+      // Was er nicht abdeckt, ist eine Ressource, die erst nach dem Testende
+      // blockiert wird — dann ist der Fall vorbei, und darauf zu warten hiesse,
+      // jeden Lauf zu verlangsamen.
+      await page.evaluate(() => undefined).catch(() => undefined);
+
       expect(
         violations,
         `Die Seite hat gegen die Content-Security-Policy verstossen:\n${violations
