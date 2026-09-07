@@ -70,8 +70,19 @@ export function LiveTournament({ publicId, mode, boardId }: LiveTournamentProps)
           <p className="mt-2 text-body text-slate-400">{dashboard.tournament.stageLabel} · {dashboard.tournament.playedMatches} von {dashboard.tournament.totalMatches} Matches gespielt</p>
         </div>
         <div className="flex items-center gap-3 text-body">
-          <span aria-hidden="true" className="h-3 w-3 rounded-full bg-slate-500" />
-          <span>Aktualisiert alle 5 Sekunden</span>
+          <span
+            aria-hidden="true"
+            className={`h-3 w-3 rounded-full ${query.isError ? "bg-rose-400" : "bg-slate-500"}`}
+          />
+          {/*
+           * Ein Farbwechsel allein reicht nicht (AGENTS.md §19): der Punkt
+           * begleitet nur, den Zustand traegt der Text. Ein ausgefallener
+           * Nachlauf ist ein Hinweis, keine Katastrophe -- deshalb nur eine
+           * ruhige Meldung statt einer Warnfarbe fuer den Text selbst.
+           */}
+          <span className={query.isError ? "text-rose-300" : undefined}>
+            {query.isError ? "Aktualisierung fehlgeschlagen · letzter Stand" : "Aktualisiert alle 5 Sekunden"}
+          </span>
           {mode === "publikum" ? <Link className="rounded border border-slate-600 px-3 py-2" href={`/live/${publicId}/tv`}>TV-Modus</Link> : null}
         </div>
       </header>
