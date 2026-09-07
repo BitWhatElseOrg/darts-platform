@@ -94,6 +94,24 @@ jobs:
       - name: End-to-end test
         run: pnpm test:e2e
 
+      # Ohne diesen Schritt verschwindet jeder Beweis mit dem Runner. Genau
+      # das machte einen sporadisch roten Lauf (`team-encounter.spec.ts`,
+      # Audit-Nachtrag) im Nachhinein unaufklaerbar: Playwright schreibt bei
+      # der ersten Wiederholung eine Trace (`trace: "on-first-retry"`), aber
+      # niemand hob sie auf. `if: failure()` genuegt nicht — ein Lauf, der
+      # erst in der zweiten Wiederholung gruen wird, gilt als Erfolg und
+      # traegt trotzdem die Trace des roten Versuchs.
+      - name: Playwright-Bericht sichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 14
+          if-no-files-found: ignore
+
   deployment-artifacts:
     name: Deployment artifacts
     runs-on: ubuntu-latest

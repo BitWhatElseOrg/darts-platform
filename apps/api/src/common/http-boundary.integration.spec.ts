@@ -8,6 +8,7 @@ import { memberships, organizations, users } from "@darts-platform/database";
 import { apiErrorSchema } from "@darts-platform/schemas";
 
 import { AuthService } from "../auth/auth.service.js";
+import { BoardsService } from "../boards/boards.service.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { DatabaseService } from "../database/database.service.js";
 import { createApiTestApplication } from "../testing/api-harness.js";
@@ -131,6 +132,62 @@ describe("HTTP-Grenze: AuthGuard und ApiExceptionFilter", () => {
 
     expect(response.statusCode).toBe(200);
     expect(getSession).not.toHaveBeenCalled();
+  }, 30_000);
+
+  /**
+   * Der Unbekannt-Zweig des Filters: kein Produktionsendpunkt wirft heute
+   * einen rohen `Error`, aber jeder Programmierfehler kaeme genau hier heraus.
+   * Geprueft wird, dass davon nichts nach aussen dringt — kein Stacktrace,
+   * keine Fehlermeldung des Originals, nur der einheitliche Koerper mit
+   * `INTERNAL_ERROR` und einer Correlation-Id, ueber die sich der Vorfall im
+   * Log wiederfinden laesst.
+   */
+  it("maskiert einen unbekannten Fehler als 500 INTERNAL_ERROR", async () => {
+    vi.spyOn(app.get(AuthService), "getSession").mockResolvedValue(ownerAuth);
+    // Die Fehlermeldung traegt einen erkennbaren Marker: taeuchte sie in der
+    // Antwort auf, waere die Maskierung wirkungslos.
+    vi.spyOn(app.get(BoardsService), "list").mockRejectedValue(
+      new Error("interner Zustand: geheime-tabelle.spalte fehlt"),
+    );
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/organizations/${organizationId}/boards`,
+    });
+
+    expect(response.statusCode).toBe(500);
+    const parsed = apiErrorSchema.parse(response.json());
+    expect(parsed.error.code).toBe("INTERNAL_ERROR");
+    expect(parsed.error.message).toBe("An internal server error occurred.");
+    expect(parsed.error.correlationId.length).toBeGreaterThan(0);
+    expect(response.headers["x-correlation-id"]).toBe(parsed.error.correlationId);
+
+    const body = response.body;
+    expect(body).not.toContain("geheime-tabelle");
+    expect(body).not.toContain("at ");
+    expect(body).not.toContain("stack");
+  }, 30_000);
+
+  /**
+   * Ein rohes Objekt statt eines `Error` — so wirft zum Beispiel eine
+   * Bibliothek, die mit `Promise.reject({ ... })` arbeitet. Auch das darf
+   * nichts durchreichen.
+   */
+  it("maskiert auch einen geworfenen Nicht-Error", async () => {
+    vi.spyOn(app.get(AuthService), "getSession").mockResolvedValue(ownerAuth);
+    vi.spyOn(app.get(BoardsService), "list").mockRejectedValue({
+      internal: "geheime-tabelle",
+      hint: "nicht nach aussen",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/organizations/${organizationId}/boards`,
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(apiErrorSchema.parse(response.json()).error.code).toBe("INTERNAL_ERROR");
+    expect(response.body).not.toContain("geheime-tabelle");
   }, 30_000);
 
   it("gibt den Fehlercode einer Domain-Exception unveraendert weiter", async () => {

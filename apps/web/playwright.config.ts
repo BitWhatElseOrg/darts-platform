@@ -17,7 +17,14 @@ export default defineConfig({
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
-  reporter: process.env.CI ? "github" : "list",
+  // Im CI zusaetzlich der HTML-Bericht: die Annotationen des
+  // `github`-Reporters stehen in der Job-Zusammenfassung, aber ein
+  // sporadisch roter Lauf laesst sich erst mit Bericht und Trace aufklaeren
+  // (`.github/workflows/ci.yml` hebt beides als Artefakt auf). `open: never`,
+  // damit der Lauf nicht auf einen Browser wartet, den es dort nicht gibt.
+  reporter: process.env.CI
+    ? [["github"], ["html", { open: "never" }]]
+    : "list",
   use: {
     baseURL: webOrigin,
     trace: "on-first-retry",
