@@ -8,6 +8,14 @@ import type { ApplicationEnvironment } from "@darts-platform/config";
 const RATE_LIMIT_WINDOW = "1 minute";
 const PUBLIC_PATH_PREFIX = "/api/v1/public/";
 const HEALTH_PATH = "/api/v1/health";
+/**
+ * Die Verstoss-Meldungen der Content-Security-Policy kommen aus den Browsern
+ * echter Besucherinnen und Besucher — ein Stapel je Seitenaufruf ist normal.
+ * Sie gehoeren deshalb in die oeffentliche Stufe, nicht in die allgemeine:
+ * sonst zaehlten sie gegen dieselbe Grenze wie die Anfragen der angemeldeten
+ * Person und koennten sie aussperren.
+ */
+const CSP_REPORT_PATH = "/api/v1/csp-reports";
 
 /**
  * Routen, die ein Geheimnis pruefen: `accept` prueft ein Claim-Token, die
@@ -41,7 +49,7 @@ function resolveRateLimitTier(path: string): RateLimitTier {
     return "sensitive";
   }
 
-  if (path.startsWith(PUBLIC_PATH_PREFIX)) {
+  if (path.startsWith(PUBLIC_PATH_PREFIX) || path === CSP_REPORT_PATH) {
     return "public";
   }
 

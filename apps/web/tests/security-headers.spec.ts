@@ -18,4 +18,13 @@ test("die Weboberflaeche liefert die Sicherheits-Header", async ({ page }) => {
   expect(contentSecurityPolicy).toContain("object-src 'none'");
   // Erzwungen wird noch nicht: der harte Header darf nicht gesetzt sein.
   expect(headers["content-security-policy"]).toBeUndefined();
+
+  // Die Meldungen laufen jetzt irgendwohin — ueber beide Wege, damit sowohl
+  // Browser mit der alten `report-uri`-Form als auch solche mit der
+  // Reporting-API melden. `report-to` ist ohne den Header wirkungslos.
+  expect(contentSecurityPolicy).toContain("report-uri ");
+  expect(contentSecurityPolicy).toContain("/api/v1/csp-reports");
+  expect(contentSecurityPolicy).toContain("report-to csp-endpoint");
+  expect(headers["reporting-endpoints"]).toContain('csp-endpoint="');
+  expect(headers["reporting-endpoints"]).toContain("/api/v1/csp-reports");
 });

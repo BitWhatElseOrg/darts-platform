@@ -680,6 +680,66 @@ describe("persistent X01 match", () => {
   }, 30_000);
 
   /**
+   * Reglement 2.2.9: das Scoreboard muss den Anwurf verlangen koennen, ohne
+   * ihn aus Legnummer und Regelwerk selbst herzuleiten. Der Zustand nennt ihn
+   * deshalb als `legStartPending`, und er faellt mit dem Entscheid.
+   */
+  it("nennt den ausstehenden Anwurf im Zustand und loescht ihn mit dem Entscheid", async () => {
+    const created = await service.create({ organizationId, data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId: null, bestOfLegs: 5, bestOfSets: 1 }, auth, audit });
+    const controllerId = randomUUID();
+    await service.acquireControllerLease({ organizationId, matchId: created.id, controllerId, force: false, auth, audit });
+    expect(created.legStartPending).toBe(false);
+    expect(created.roundLimitReached).toBe(false);
+
+    const throwVisit = async (
+      playerId: string,
+      points: number,
+      version: number,
+      checkout?: { readonly segment: number; readonly multiplier: 2 },
+    ) =>
+      service.submitVisit({
+        organizationId,
+        matchId: created.id,
+        data: {
+          commandId: randomUUID(),
+          expectedVersion: version,
+          playerId,
+          points,
+          dartsThrown: 3 as const,
+          ...(checkout === undefined ? {} : { checkoutSegment: checkout }),
+          controllerId,
+        },
+        auth,
+        audit,
+      });
+
+    // 501 in drei Aufnahmen: 180, 180, 141 mit Doppel 12 als Finish (T20 T19
+    // D12). Die
+    // Gegenseite wirft dazwischen null, damit die Reihenfolge stimmt.
+    const playLeg = async (winner: string, loser: string, version: number) => {
+      let state = await throwVisit(winner, 180, version);
+      state = await throwVisit(loser, 0, state.version);
+      state = await throwVisit(winner, 180, state.version);
+      state = await throwVisit(loser, 0, state.version);
+      return throwVisit(winner, 141, state.version, { segment: 12, multiplier: 2 });
+    };
+
+    // Leg eins und zwei ausspielen: erst ab Leg drei entscheidet ein Wurf auf
+    // Bull, wer beginnt.
+    const afterLegOne = await playLeg(playerOneId, playerTwoId, created.version);
+    expect(afterLegOne.currentLegNumber).toBe(2);
+    expect(afterLegOne.legStartPending).toBe(false);
+
+    const afterLegTwo = await playLeg(playerTwoId, playerOneId, afterLegOne.version);
+    expect(afterLegTwo.currentLegNumber).toBe(3);
+    expect(afterLegTwo.legStartPending).toBe(true);
+
+    const decided = await service.decideLegStart({ organizationId, matchId: created.id, data: { commandId: randomUUID(), expectedVersion: afterLegTwo.version, legNumber: 3, startingSeat: 2 as const, controllerId }, auth, audit });
+    expect(decided.legStartPending).toBe(false);
+    expect(decided.participants.find((side) => side.seat === 2)?.isActive).toBe(true);
+  }, 30_000);
+
+  /**
    * Befund I1: Original und Client-Wiederholung treffen gleichzeitig ein. Beide
    * verfehlen die Kommandozeile in der Vorpruefung; ohne eine zweite Pruefung
    * unter der Aggregatsperre bekaeme die zweite einen Versionskonflikt fuer

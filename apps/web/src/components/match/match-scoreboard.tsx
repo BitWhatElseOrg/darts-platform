@@ -15,7 +15,9 @@ import {
 import {
   defaultScoreboardSettings, readScoreboardSettings, subscribeScoreboardSettings, writeScoreboardSettings,
 } from "@/lib/scoreboard-settings";
+import { pendingLegDecision } from "@/lib/scoreboard-view";
 import { AbortMatchDialog } from "./abort-match-dialog";
+import { LegDecisionDialog } from "./leg-decision-dialog";
 import { CheckoutDialog } from "./checkout-dialog";
 import { DartKeypad } from "./dart-keypad";
 import { RoundKeypad } from "./round-keypad";
@@ -60,6 +62,11 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   // Fuer genau diese Aufnahme zeigt die Flaeche deshalb das Dart-Keypad, auch
   // wenn der Runden-Modus eingestellt ist; danach kehrt er von selbst zurueck.
   const dartEntryRequired = requiresDartEntry(match, activeParticipant);
+  // Reglement 2.2.9 / Anhang 2: steht ein Entscheid aus, nimmt der Server
+  // fuer dieses Leg keine Aufnahme an. Die Flaeche sperrt deshalb die Eingabe
+  // und verlangt ihn zuerst — nur, wer ohnehin steuern darf, bekommt den
+  // Dialog; alle anderen sehen die gesperrte Flaeche.
+  const legDecision = mayControl ? pendingLegDecision(match) : null;
   const inputMode = dartEntryRequired ? "DART" : settings.mode;
   const quickScores = useQuickScores({ organizationId, playerId: match.currentPlayerId, enabled: inputMode === "ROUND" });
   const [roundValue, setRoundValue] = useState("");
@@ -407,7 +414,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
                 </p>
               ) : null}
               <DartKeypad
-                disabled={!mayControl || activeParticipant === undefined || pendingConfirmation !== null || scoring.submitPending}
+                disabled={!mayControl || legDecision !== null || activeParticipant === undefined || pendingConfirmation !== null || scoring.submitPending}
                 modifier={entry.modifier}
                 onBackspace={handleDartBackspace}
                 onModifier={(multiplier) => dispatchEntry({ type: "MODIFIER", multiplier })}
@@ -429,7 +436,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
             // Dart-Keypad und ueberlief sonst sichtbar in "Letzte Aufnahmen".
             <div className="h-full min-h-0 overflow-y-auto border-b border-slate-800 p-3">
               <RoundKeypad
-                disabled={!mayControl || activeParticipant === undefined || scoring.submitPending || checkoutOpen}
+                disabled={!mayControl || legDecision !== null || activeParticipant === undefined || scoring.submitPending || checkoutOpen}
                 onBackspace={handleRoundBackspace}
                 onDigit={handleRoundDigit}
                 onQuickScore={handleRoundQuickScore}
@@ -464,6 +471,17 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
               (use-dialog-focus-return.ts) gegeneinander laufen, mit
               Playwright gemessen. Erst ein Erfolg schliesst beide (siehe
               lastAbortSuccess oben). */}
+          <LegDecisionDialog
+            decision={legDecision}
+            error={scoring.legDecisionError !== null ? mutationMessage(scoring.legDecisionError) : null}
+            onDecide={(seat) => {
+              if (legDecision === null) return;
+              if (legDecision.kind === "LEG_START") scoring.decideLegStart(seat);
+              else scoring.decideLegByBull(seat);
+            }}
+            pending={scoring.legDecisionPending}
+            sideNames={[sideNames(match.participants[0]), sideNames(match.participants[1])]}
+          />
           <AbortMatchDialog error={scoring.abortError !== null ? mutationMessage(scoring.abortError) : null} onCancel={() => { scoring.resetAbort(); setAbortOpen(false); }} onSubmit={(reason) => scoring.abortMatch(reason)} open={abortOpen} pending={scoring.abortPending} queuedCount={queued.length} />
           <ScoreboardSettingsDialog abortDisabled={!online || lock.state !== "EIGEN" || scoring.abortPending} backHref={backHref} backLabel={backLabel} canAbort={canAbort && match.status === "IN_PROGRESS"} lockState={lock.state} onAbort={() => { scoring.resetAbort(); setAbortOpen(true); }} onChange={(next) => writeScoreboardSettings(next)} onClose={() => setSettingsOpen(false)} onTakeOver={lock.takeOver} open={settingsOpen} settings={settings} visits={match.visits} />
           {/* Rücknahme = schnelle Korrektur beim Zählen, kein Einstellungsvorgang. */}

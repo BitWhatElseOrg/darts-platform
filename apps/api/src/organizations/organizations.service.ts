@@ -12,6 +12,7 @@ import {
   createdInvitationSchema,
   invitationListSchema,
   organizationListSchema,
+  organizationMemberListSchema,
   organizationSummarySchema,
   type AcceptInvitationInput,
   type CreateInvitationInput,
@@ -110,6 +111,77 @@ export class OrganizationsService {
     return createdInvitationSchema.parse(invitation);
   }
 
+  /**
+   * Die Mitglieder einer Organisation. Wer Mitglieder verwalten darf, darf sie
+   * auch sehen — dieselbe Berechtigung wie beim Einladen; die Rollenaenderung
+   * verlangt darueber hinaus `organization:manage_roles`.
+   */
+  public async listMembers(input: {
+    readonly organizationId: string;
+    readonly auth: AuthContext;
+  }): Promise<OrganizationMember[]> {
+    await this.organizationAccessService.requirePermission({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      permission: "organization:manage_members",
+    });
+
+    const members = await this.organizationsRepository.listMembers({
+      organizationId: input.organizationId,
+    });
+    return organizationMemberListSchema.parse(members);
+  }
+
+  /** Die offenen Einladungen einer Organisation. */
+  public async listOrganizationInvitations(input: {
+    readonly organizationId: string;
+    readonly auth: AuthContext;
+  }): Promise<Invitation[]> {
+    await this.organizationAccessService.requirePermission({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      permission: "organization:manage_members",
+    });
+
+    const invitations =
+      await this.organizationsRepository.listInvitationsOfOrganization({
+        organizationId: input.organizationId,
+      });
+    return invitationListSchema.parse(invitations);
+  }
+
+  /**
+   * Nimmt eine offene Einladung zurueck. `not-found` deckt beides ab: eine
+   * fremde Einladungskennung und eine, die nicht mehr offen ist — beides
+   * unterscheidet der Aufrufer nicht, und beides ist fuer ihn dasselbe.
+   */
+  public async cancelInvitation(input: {
+    readonly organizationId: string;
+    readonly invitationId: string;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<{ readonly cancelled: true }> {
+    await this.organizationAccessService.requirePermission({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      permission: "organization:manage_members",
+    });
+
+    const outcome = await this.organizationsRepository.cancelInvitation({
+      organizationId: input.organizationId,
+      invitationId: input.invitationId,
+      actorUserId: input.auth.user.id,
+      audit: input.audit,
+    });
+
+    if (outcome === "not-found") {
+      throw new NotFoundException(
+        "This invitation does not exist or is no longer open.",
+      );
+    }
+    return { cancelled: true };
+  }
+
   public async listInvitations(auth: AuthContext): Promise<Invitation[]> {
     const invitations =
       await this.organizationsRepository.listPendingInvitations(
@@ -124,7 +196,7 @@ export class OrganizationsService {
     readonly auth: AuthContext;
     readonly audit: AuditContext;
   }): Promise<{ readonly accepted: true }> {
-    const invitation = await this.organizationsRepository.acceptInvitation({
+    const result = await this.organizationsRepository.acceptInvitation({
       invitationId: input.invitationId,
       userId: input.auth.user.id,
       email: input.auth.user.email.toLowerCase(),
@@ -132,13 +204,23 @@ export class OrganizationsService {
       audit: input.audit,
     });
 
-    if (invitation === null) {
-      throw new NotFoundException(
-        "The invitation does not exist, has expired, or belongs to another user.",
-      );
+    switch (result.outcome) {
+      case "not-found":
+        throw new NotFoundException(
+          "The invitation does not exist, has expired, or belongs to another user.",
+        );
+      case "membership-suspended":
+        // Eine Einladung hebt keine Deaktivierung auf; das bleibt
+        // `updateMembership` mit seinen Eigentumsregeln vorbehalten. Die
+        // Einladung selbst bleibt offen und gilt nach der Reaktivierung.
+        throw new ConflictException({
+          code: "MEMBERSHIP_SUSPENDED",
+          message:
+            "This membership is deactivated. An owner has to reactivate it before the invitation can be accepted.",
+        });
+      case "accepted":
+        return { accepted: true };
     }
-
-    return { accepted: true };
   }
 
   public async updateMembership(input: {

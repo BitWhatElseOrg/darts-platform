@@ -173,6 +173,14 @@ export interface X01MatchState {
   readonly sides: readonly [X01SideState, X01SideState];
   readonly roundsPlayedInLeg: number;
   readonly roundLimitReached: boolean;
+  /**
+   * Reglement 2.2.9: fuer das laufende Leg steht der Anwurf noch aus. Wahr
+   * genau dann, wenn der Schreibpfad ein `DECIDE_LEG_START` dafuer noch
+   * annaehme — entscheidbare Legnummer (`bullOffFromLegOne ? 1 : 3`), kein
+   * Entscheid vorhanden, noch keine Aufnahme im Leg und das Match laeuft.
+   * Die Flaeche verlangt daran den Anwurf, bevor sie die Eingabe freigibt.
+   */
+  readonly legStartPending: boolean;
   readonly visits: readonly AppliedVisit[];
   readonly legDecisions: readonly LegDecision[];
   readonly revertedCommandIds: readonly string[];
@@ -997,6 +1005,11 @@ export function projectX01Match(match: X01Match): X01MatchState {
     sides,
     roundsPlayedInLeg: roundsCompleted(visitsInLeg),
     roundLimitReached: isRoundLimitReached(match.rules.maxRounds, visitsInLeg),
+    legStartPending:
+      winnerSeat === null &&
+      legNumber >= (match.rules.bullOffFromLegOne ? 1 : 3) &&
+      !active.legStarts.has(legNumber) &&
+      visitsInLeg[0] + visitsInLeg[1] === 0,
     visits,
     legDecisions: decisions,
     revertedCommandIds: active.reverted,

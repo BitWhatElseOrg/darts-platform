@@ -6,6 +6,7 @@ import type { ApplicationEnvironment } from "@darts-platform/config";
 
 import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 import { AuthService } from "./auth.service.js";
+import { CLIENT_IP_HEADER } from "./client-ip.js";
 import { Public } from "./public.decorator.js";
 
 @Controller("auth")
@@ -40,6 +41,9 @@ export class AuthController {
     const url = new URL(request.url, this.environment.BETTER_AUTH_URL);
     const headers = fromNodeHeaders(request.headers);
     headers.delete("content-length");
+    // `set` statt `append`: ein vom Client mitgeschickter Wert wird
+    // ueberschrieben, nicht ergaenzt (siehe `client-ip.ts`).
+    headers.set(CLIENT_IP_HEADER, request.ip);
 
     const hasBody = request.method !== "GET" && request.method !== "HEAD";
     const authRequest = new Request(url, {

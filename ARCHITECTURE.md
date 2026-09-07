@@ -335,6 +335,22 @@ kryptografische Einladungscode vorliegen. Nach der Registrierung nimmt der
 Benutzer die Einladung mit demselben Code atomisch einmalig an und erhält erst
 dadurch die zugewiesene Organisationsrolle.
 
+Die Annahme legt eine Mitgliedschaft an, überschreibt aber keine bestehende:
+eine gesperrte bleibt gesperrt (409 `MEMBERSHIP_SUSPENDED`, die Einladung
+bleibt offen und gilt nach der Reaktivierung), und die Rolle einer aktiven
+bleibt unverändert. Rollenwechsel und Reaktivierung laufen ausschliesslich über
+`PATCH /organizations/:id/members/:userId` — dort liegen die Eigentumsregeln,
+der Schutz des letzten aktiven OWNER und der Audit-Eintrag.
+
+Die Verwaltung dazu liegt unter `/mitglieder` und liest
+`GET /organizations/:id/members` (alle Mitgliedschaften, aktive wie gesperrte)
+und `GET /organizations/:id/invitations` (die offenen Einladungen dieser
+Organisation). `DELETE /organizations/:id/invitations/:invitationId` nimmt eine
+offene Einladung zurück und entwertet dabei ihren Claim-Token; eine bereits
+angenommene oder zurückgezogene Einladung meldet 404. Alle drei verlangen
+`organization:manage_members`, der Rollen- und Statuswechsel darüber hinaus
+`organization:manage_roles`.
+
 ### Einmaliger Production-Owner-Bootstrap
 
 Für eine leere Production-Datenbank gibt es einen separaten, kompilierten
@@ -696,6 +712,12 @@ Grundregel:
 
 > Persistieren vor Broadcast.
 
+Der Handshake hängt am HTTP-Server und läuft damit nicht durch das
+Fastify-Rate-Limit; er hat seine eigene Bremse je Client-Adresse und Minute
+(`RATE_LIMIT_SOCKET_MAX_PER_MINUTE`, Adresse über dieselbe Hop-Zählung wie
+`request.ip`). Ein Socket abonniert höchstens 20 Räume; darüber antwortet der
+Server mit `subscription:rejected`. Die Autorisierung je Kanal steht aus.
+
 ---
 
 ## 18. REST API
@@ -909,6 +931,15 @@ Beide Konsumenten führen je Zeile einen Versuchszähler und einen
 Dead-Letter-Stempel. Ein Ereignis, das fünfmal scheitert, wird übersprungen
 und als `outbox.dead_letter` protokolliert, statt die Schlange anzuhalten.
 
+Beide beanspruchen ihren Stapel mit `FOR UPDATE SKIP LOCKED`: eine zweite
+Replik überspringt gesperrte Zeilen, statt dieselben Ereignisse noch einmal zu
+senden oder zu aggregieren. Innerhalb des Stapels läuft jedes Ereignis in einem
+eigenen Savepoint — ein Postgres-Fehler beendet sonst die ganze Transaktion und
+ein einzelnes kaputtes Ereignis kostete den ganzen Durchlauf. Der Fehlversuch
+wird noch innerhalb derselben Transaktion gebucht, also unter der Zeilensperre:
+Zähler und Backoff stehen in dem Moment, in dem die Sperre fällt, und eine
+zweite Replik greift die Zeile nicht ohne Wartezeit erneut.
+
 ---
 
 ## 26. Background Jobs
@@ -1052,6 +1083,51 @@ OpenTelemetry
 Sentry
 Grafana optional
 ```
+
+### Alarmierung
+
+Die API prüft ihren eigenen Health-Zustand jede Minute selbst
+(`health-alarm.service.ts`) und meldet ihn ins Log, statt darauf zu warten,
+dass jemand `/api/v1/health` abfragt. Alarmiert wird über genau ein Ereignis:
+
+```text
+health.alarm       status=degraded  → Warnstufe
+health.alarm       status=unhealthy → Fehlerstufe
+health.recovered   downForSeconds=… → Normalstufe
+```
+
+Eine einzige Railway-Regel auf das Muster `health.alarm` deckt damit beide
+Stufen ab. Gemeldet wird bei jedem Statuswechsel und danach alle 15 Minuten
+erneut, solange die Störung anhält — ohne Wiederholung feuerte eine
+musterbasierte Regel nur ein einziges Mal. Ein Dienst, der bereits
+beeinträchtigt hochkommt, meldet sofort; ein gesunder Start meldet nichts.
+
+Scheitert die Messung selbst, gilt das als `unhealthy` und läuft durch
+dieselbe Meldung samt Entprellung (`checkFailed: true` im Feld). Ein eigenes
+Ereignis fiele sonst durch die Regel und stünde ohne Entprellung jede Minute
+neu im Log.
+
+Der Wachdienst liegt bewusst in der API und nicht im Worker: der Zustand
+entsteht dort, und der CI-Rauchtest greift die Worker-Logs auf Fehlerstufen ab
+(`.github/workflows/ci.yml`) — ein Alarm von dort liesse ihn scheitern.
+
+### CSP-Verstösse
+
+`POST /api/v1/csp-reports` nimmt die Verstoss-Meldungen der
+Content-Security-Policy entgegen — öffentlich, ohne Anmeldung (der Browser
+sendet keine), in der öffentlichen Rate-Limit-Stufe und immer mit 204, auch
+auf Unsinn. Die Policy spricht ihn über beide Wege an: `report-uri` für
+Browser mit der alten Form und `report-to` samt `Reporting-Endpoints`-Header
+für die Reporting-API. Übernommen wird je Meldung eine schmale Auswahl an
+Feldern, gekürzt auf 300 Zeichen; die vollständige Policy und der
+Script-Ausschnitt bleiben aussen vor, weil letzterer Seiteninhalt tragen kann.
+Von den drei Adressfeldern bleiben nur Ursprung und Pfad — Zugangsdaten,
+Abfragezeichenkette und Fragment fallen weg, damit ein Einladungscode oder ein
+Zurücksetzen-Token aus der Adresszeile nicht in den Betriebslogs landet.
+Protokolliert wird als `csp.violation` auf Warnstufe.
+
+Die Policy bleibt vorerst Report-Only. Erzwungen wird sie in einem eigenen PR,
+sobald echte Meldungen zeigen, dass nichts Notwendiges blockiert würde.
 
 ---
 

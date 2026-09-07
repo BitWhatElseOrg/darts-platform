@@ -9,6 +9,34 @@ import { registerRateLimit } from "./rate-limit.js";
 import { registerSecurityHeaders } from "./security-headers.js";
 
 /**
+ * Browser senden Verstoss-Meldungen der Content-Security-Policy nicht als
+ * `application/json`, sondern als `application/csp-report` (die Form von
+ * `report-uri`) beziehungsweise `application/reports+json` (die Form von
+ * `report-to`). Fastify kennt beide nicht und antwortete darauf mit 415, die
+ * Meldung ginge verloren. Beide werden deshalb wie JSON gelesen.
+ *
+ * Ein unlesbarer Koerper ergibt `undefined` statt eines Fehlers: der Endpunkt
+ * bestaetigt jede Meldung still (`csp-report.controller.ts`), und ein 400 auf
+ * eine Browser-Meldung hilft niemandem.
+ */
+function registerCspReportContentTypes(app: NestFastifyApplication): void {
+  const instance = app.getHttpAdapter().getInstance();
+  for (const contentType of ["application/csp-report", "application/reports+json"]) {
+    instance.addContentTypeParser(
+      contentType,
+      { parseAs: "string" },
+      (_request, body, done) => {
+        try {
+          done(null, JSON.parse(typeof body === "string" ? body : body.toString("utf8")));
+        } catch {
+          done(null, undefined);
+        }
+      },
+    );
+  }
+}
+
+/**
  * Verkabelt die Produktions-Pipeline einer Nest-Fastify-Anwendung: CORS-
  * Allowlist, Sicherheits-Header, Rate-Limiting, globaler Fehlerfilter und
  * Logging-Interceptor — in dieser Reihenfolge, wie bisher in `main.ts`.
@@ -38,6 +66,7 @@ export async function configureApplication(
       "X-Dartbase-Invitation-Claim",
     ],
   });
+  registerCspReportContentTypes(app);
   await registerSecurityHeaders(app);
   await registerRateLimit(app, environment);
   app.useGlobalFilters(new ApiExceptionFilter());

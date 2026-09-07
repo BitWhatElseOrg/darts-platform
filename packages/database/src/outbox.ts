@@ -1,6 +1,6 @@
 import { and, eq, isNull, lte, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 
-import type { Database } from "./client.js";
+import type { DatabaseExecutor } from "./client.js";
 import { outboxEvents } from "./schema.js";
 
 /** Ereignistyp, den der Statistik-Konsument als einziger verarbeitet. */
@@ -40,7 +40,12 @@ export interface OutboxLogger {
 export type OutboxFailureResult = "retry" | "dead_letter" | "already_processed";
 
 export interface OutboxFailureInput {
-  readonly database: Database;
+  /**
+   * Verbindung oder offene Transaktion. Beide Poller buchen innerhalb der
+   * Transaktion, die den Stapel beansprucht — nur dort haelt die Zeilensperre
+   * noch, unter der die Zeile gelesen wurde.
+   */
+  readonly executor: DatabaseExecutor;
   readonly consumer: OutboxConsumer;
   readonly eventId: string;
   readonly error: unknown;
@@ -126,14 +131,16 @@ function backoffMillisSql(attemptsColumn: SQLWrapper) {
  * Bedeutung mehr, und ein manuelles Wiedereinreihen (siehe
  * `DATABASE_SCHEMA.md` §18) setzt sie ohnehin frisch.
  *
- * Das `WHERE` verlangt zusätzlich, dass der jeweilige Konsument die Zeile
- * noch nicht abgeschlossen hat (`published_at is null` bzw.
- * `statistics_processed_at is null`): ein Sendevorgang kann zwischen dem
- * fehlgeschlagenen Versuch, der zu dieser Buchung führte, und deren Ausführung
- * noch erfolgreich nachgeholt werden — der Poller sendet vor dem Stempeln,
- * bucht Fehlversuche aber erst nach dem Commit der Transaktion. Trifft das
- * zu, betrifft das `UPDATE` keine Zeile mehr; das ist kein Fehler, sondern
- * bedeutet, dass die Zeile bereits erledigt ist.
+ * Gebucht wird innerhalb der Transaktion, die den Stapel beansprucht hat, und
+ * damit unter derselben Zeilensperre: Zähler und Backoff stehen in dem
+ * Moment, in dem die Sperre fällt. Eine zweite Replik, die unmittelbar danach
+ * liest, sieht die Wartezeit bereits und greift die Zeile nicht erneut.
+ *
+ * Das `WHERE` verlangt zusätzlich, dass der jeweilige Konsument die Zeile noch
+ * nicht abgeschlossen hat (`published_at is null` bzw.
+ * `statistics_processed_at is null`). Betrifft das `UPDATE` deshalb keine
+ * Zeile mehr, ist das kein Fehler, sondern bedeutet, dass die Zeile bereits
+ * erledigt ist.
  */
 export async function recordOutboxFailure(
   input: OutboxFailureInput,
@@ -151,7 +158,7 @@ export async function recordOutboxFailure(
   let rows: readonly OutboxFailureUpdateResult[];
   switch (consumer) {
     case "publish": {
-      rows = await input.database
+      rows = await input.executor
         .update(outboxEvents)
         .set({
           publishAttempts: sql`${outboxEvents.publishAttempts} + 1`,
@@ -176,7 +183,7 @@ export async function recordOutboxFailure(
       break;
     }
     case "statistics": {
-      rows = await input.database
+      rows = await input.executor
         .update(outboxEvents)
         .set({
           statisticsAttempts: sql`${outboxEvents.statisticsAttempts} + 1`,

@@ -1,8 +1,8 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { ScoringValidationError } from "@darts-platform/scoring-engine";
+import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { abortMatchResponseSchema, boardControllerLeaseSchema, matchListSchema, matchStateSchema, type AbortMatchInput, type AbortMatchResponse, type BoardControllerLeaseResponse, type CreateMatchInput, type DecideLegByBullInput, type DecideLegStartInput, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
+import { rethrowScoringError } from "../common/scoring-error.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { MatchesRepository, type UndoMutationResult } from "./matches.repository.js";
 
@@ -108,16 +108,8 @@ export class MatchesService {
   }
 
   private rethrowDomainError(error: unknown): never {
-    if (error instanceof ScoringValidationError) {
-      // Ein zu frühes Ausbullen ist kein Eingabefehler, sondern ein Zustand:
-      // die Rundengrenze ist schlicht noch nicht erreicht.
-      // Eine belegte Scheibe ist ebenso wenig ein Eingabefehler: die Anfrage
-      // ist gueltig, der Zustand steht ihr entgegen.
-      if (error.code === "ROUND_LIMIT_NOT_REACHED" || error.code === "BOARD_NOT_AVAILABLE") {
-        throw new ConflictException({ code: error.code, message: error.message });
-      }
-      throw new BadRequestException({ code: error.code, message: error.message });
-    }
-    throw error;
+    // Die Zuordnung Engine-Code -> HTTP-Status steht in `common/scoring-error.ts`,
+    // weil der Turnier-Service dieselbe braucht.
+    rethrowScoringError(error);
   }
 }

@@ -76,6 +76,19 @@ export interface MatchScoring {
     readonly darts?: readonly Dart[];
   }) => void;
   readonly undoVisit: () => void;
+  /**
+   * Reglement 2.2.9: die ausgebullte Anwurfseite fuer das laufende Leg.
+   * Reglement Anhang 2: die Seite, die das Leg an der Rundengrenze gewinnt.
+   * Beide gehen wie `undoVisit` direkt an den Server, ohne Offline-Warte-
+   * schlange: sie sind Entscheide am Board, die dem naechsten Wurf
+   * vorausgehen — eine zwischengespeicherte Entscheidung waere beim
+   * Uebertragen langst ueberholt.
+   */
+  readonly decideLegStart: (startingSeat: 1 | 2) => void;
+  readonly decideLegByBull: (winnerSeat: 1 | 2) => void;
+  readonly legDecisionError: unknown;
+  readonly legDecisionPending: boolean;
+  readonly resetLegDecision: () => void;
   readonly abortMatch: (reason: string) => void;
   readonly resetSubmit: () => void;
   readonly resetAbort: () => void;
@@ -308,6 +321,26 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     onSuccess: refresh,
     onError: async (error) => { if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") await refresh(); },
   });
+  const legDecision = useMutation({
+    mutationFn: (decision:
+      | { readonly kind: "LEG_START"; readonly startingSeat: 1 | 2 }
+      | { readonly kind: "LEG_BY_BULL"; readonly winnerSeat: 1 | 2 }) =>
+      apiRequest({
+        path: `/organizations/${organizationId}/matches/${match.id}/${decision.kind === "LEG_START" ? "leg-start" : "leg-by-bull"}`,
+        method: "POST",
+        body: {
+          commandId: generateId(),
+          expectedVersion: match.version,
+          controllerId: lock.controllerId,
+          ...(decision.kind === "LEG_START"
+            ? { legNumber: match.currentLegNumber, startingSeat: decision.startingSeat }
+            : { winnerSeat: decision.winnerSeat }),
+        },
+        schema: matchStateSchema,
+      }),
+    onSuccess: refresh,
+    onError: async (error) => { if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") await refresh(); },
+  });
   const abort = useMutation({
     mutationFn: (reason: string) => apiRequest({
       path: `/organizations/${organizationId}/matches/${match.id}/abort`,
@@ -328,7 +361,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
       if (abortError instanceof ApiClientError && abortError.code === "MATCH_VERSION_CONFLICT") await refresh();
     },
   });
-  const error = submit.error ?? undo.error ?? abort.error;
+  const error = submit.error ?? undo.error ?? legDecision.error ?? abort.error;
   // Nur unuebertragene Kommandos sperren die Bedienung; ein abgelehntes bleibt
   // sichtbar, macht das Board aber nicht unbedienbar (offline-replay.ts).
   // Ebenso wenig sperrt eine Aufnahme, die der Server angenommen hat und die
@@ -372,6 +405,11 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     abortSucceededAt,
     submitVisit: (visit) => submit.mutate(visit),
     undoVisit: () => undo.mutate(),
+    decideLegStart: (startingSeat) => legDecision.mutate({ kind: "LEG_START", startingSeat }),
+    decideLegByBull: (winnerSeat) => legDecision.mutate({ kind: "LEG_BY_BULL", winnerSeat }),
+    legDecisionError: legDecision.error,
+    legDecisionPending: legDecision.isPending,
+    resetLegDecision: () => legDecision.reset(),
     abortMatch: (reason) => abort.mutate(reason),
     resetSubmit: () => submit.reset(),
     resetAbort: () => abort.reset(),

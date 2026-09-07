@@ -39,6 +39,7 @@ import {
 
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
+import { rethrowScoringError } from "../common/scoring-error.js";
 import { MatchesRepository } from "../matches/matches.repository.js";
 import type { TournamentCorrectionResult } from "../matches/matches.repository.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
@@ -615,6 +616,9 @@ export class TournamentsService {
     if (error instanceof TournamentValidationError) {
       throw new BadRequestException({ code: error.code, message: error.message });
     }
-    throw error;
+    // `correctResult` laeuft ueber `MatchesRepository` und traegt damit auch
+    // die Fehler der Scoring Engine — ohne diese Abbildung kaeme eine fremde
+    // `commandId` als 500 heraus statt als 400.
+    rethrowScoringError(error);
   }
 }

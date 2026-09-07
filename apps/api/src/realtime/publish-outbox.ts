@@ -11,7 +11,12 @@ import {
 } from "@darts-platform/database";
 
 import type { DatabaseService } from "../database/database.service.js";
-import { toBroadcast, type RealtimeBroadcast, type RealtimeScope } from "./event-routing.js";
+import {
+  toBroadcast,
+  type RealtimeBroadcast,
+  type RealtimeScope,
+  type RoutableEvent,
+} from "./event-routing.js";
 
 type Database = DatabaseService["database"];
 type DatabaseTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
@@ -81,11 +86,21 @@ export async function resolveScope(
   return slot === undefined ? null : { kind: "encounter", id: slot.encounterId };
 }
 
+export type ResolveScope = (
+  executor: OutboxExecutor,
+  event: ResolvableEvent & RoutableEvent,
+) => Promise<RealtimeScope | null>;
+
 export interface PublishOutboxOptions {
   readonly logger: OutboxLogger;
   readonly limit?: number;
   readonly maxAttempts?: number;
   readonly now?: () => Date;
+  /**
+   * Nur fuer Tests: die Zuordnung austauschen, um einen Datenbankfehler
+   * genau in ihr zu erzeugen. In der Anwendung bleibt es bei `resolveScope`.
+   */
+  readonly resolveScope?: ResolveScope;
 }
 
 /**
@@ -111,23 +126,27 @@ export interface PublishOutboxOptions {
  * UI-Zustaende, die sie aktualisieren, idempotent sind.
  *
  * Schlaegt der Versand fehl, bleibt die Zeile innerhalb der Transaktion
- * ungestempelt. Erst NACH dem Commit — die abgeschlossene Transaktion kann
- * nicht mehr schreiben — bucht `recordOutboxFailure` je fehlgeschlagenem
- * Ereignis einen Fehlversuch in einer eigenen Anweisung: Zaehler hoch,
- * Backoff gesetzt, und nach `maxAttempts` Versuchen ein Dead-Letter-Stempel,
- * der die Zeile fortan von `outboxPending` ausschliesst. Diese Funktion wirft
- * dafuer bewusst kein `AggregateError` mehr (anders als vor diesem Befund):
- * ein fehlgeschlagenes Ereignis ist damit vollstaendig behandelt — gebucht
- * und ueber `options.logger` als `outbox.retry_scheduled` bzw.
- * `outbox.dead_letter` protokolliert (`recordOutboxFailure` erzeugt diesen
- * Log-Eintrag selbst) — und muss den Aufrufer nicht mehr zusaetzlich per
- * Exception alarmieren. Ein einzelnes kaputtes Ereignis haelt so weder den
- * Rest des Stapels noch kuenftige Durchlaeufe auf; geworfen wird nur noch,
- * wenn das Beanspruchen des Stapels selbst scheitert (Infrastrukturfehler),
- * unveraendert gegenueber Teil A. Scheitert die Buchung selbst (z. B. eine
- * Verbindungsstoerung waehrend des `UPDATE`), faengt ein eigenes try/catch je
- * Ereignis das ab und protokolliert `outbox.failure_booking_failed`, statt
- * die Buchung der uebrigen Ereignisse dieses Stapels zu verhindern.
+ * ungestempelt, und `recordOutboxFailure` bucht den Fehlversuch noch in
+ * derselben Transaktion — unter der Zeilensperre, die das Beanspruchen
+ * gesetzt hat: Zaehler hoch, Backoff gesetzt, und nach `maxAttempts`
+ * Versuchen ein Dead-Letter-Stempel, der die Zeile fortan von
+ * `outboxPending` ausschliesst. Nach dem Commit zu buchen liess ein Fenster
+ * offen, in dem die Zeile bereits entsperrt, aber noch ohne Zaehler und
+ * Backoff war; eine zweite Replik konnte sie darin greifen und den Backoff
+ * umgehen. Die Buchung liegt dafuer in einem eigenen Savepoint: schluege sie
+ * mit einem Postgres-Fehler fehl, waere sonst die ganze Transaktion beendet
+ * und der Stapel verloren; ein try/catch je Ereignis protokolliert diesen
+ * Fall als `outbox.failure_booking_failed`.
+ *
+ * Diese Funktion wirft dafuer bewusst kein `AggregateError` mehr (anders als
+ * vor diesem Befund): ein fehlgeschlagenes Ereignis ist vollstaendig
+ * behandelt — gebucht und ueber `options.logger` als
+ * `outbox.retry_scheduled` bzw. `outbox.dead_letter` protokolliert
+ * (`recordOutboxFailure` erzeugt diesen Log-Eintrag selbst) — und muss den
+ * Aufrufer nicht mehr zusaetzlich per Exception alarmieren. Ein einzelnes
+ * kaputtes Ereignis haelt so weder den Rest des Stapels noch kuenftige
+ * Durchlaeufe auf; geworfen wird nur noch, wenn das Beanspruchen des Stapels
+ * selbst scheitert (Infrastrukturfehler), unveraendert gegenueber Teil A.
  *
  * Jedes Ereignis wird einzeln abgesichert, damit ein Fehler in der Mitte des
  * Stapels nur dieses eine Ereignis kostet statt den ganzen Rest zu blockieren.
@@ -149,7 +168,6 @@ export async function publishOutboxBatch(
   const maxAttempts = options.maxAttempts ?? OUTBOX_MAX_ATTEMPTS;
   const limit = options.limit ?? 100;
 
-  const failures: { outboxId: string; error: unknown }[] = [];
   const claimed = await database.transaction(async (transaction) => {
     const events = await transaction
       .select()
@@ -161,13 +179,20 @@ export async function publishOutboxBatch(
     if (events.length === 0) return 0;
 
     const stampable: string[] = [];
+    const resolve = options.resolveScope ?? resolveScope;
     for (const event of events) {
       // `resolveScope` liegt bewusst mit im `try`: sein DB-Zugriff kann
       // genauso fehlschlagen wie der Versand selbst, und ein einzelnes
       // kaputtes Ereignis soll auch dann nur sich selbst kosten, nicht den
-      // Rest des Stapels abbrechen.
+      // Rest des Stapels abbrechen. Der Savepoint
+      // (`transaction.transaction`) ist dafuer noetig: ein Postgres-Fehler
+      // beendet sonst die ganze Transaktion, jede weitere Anweisung
+      // scheitert danach mit "current transaction is aborted" — auch die
+      // Zuordnung der uebrigen Ereignisse und der Stempel-`UPDATE`.
       try {
-        const broadcast = toBroadcast(event, await resolveScope(transaction, event));
+        const broadcast = await transaction.transaction(async (savepoint) =>
+          toBroadcast(event, await resolve(savepoint, event)),
+        );
         if (broadcast === null) {
           stampable.push(event.id);
           continue;
@@ -175,7 +200,31 @@ export async function publishOutboxBatch(
         broadcaster.emit(broadcast.room, broadcast.event, broadcast.payload);
         stampable.push(event.id);
       } catch (error) {
-        failures.push({ outboxId: event.id, error });
+        // Eigener Savepoint um die Buchung: scheitert sie mit einem
+        // Postgres-Fehler, kostet das nur dieses Ereignis, nicht den Stapel.
+        try {
+          await transaction.transaction(async (savepoint) => {
+            await recordOutboxFailure({
+              executor: savepoint,
+              consumer: "publish",
+              eventId: event.id,
+              error,
+              now: currentTime,
+              maxAttempts,
+              logger: options.logger,
+            });
+          });
+        } catch (bookingError) {
+          options.logger.emit("error", {
+            event: "outbox.failure_booking_failed",
+            consumer: "publish",
+            eventId: event.id,
+            error:
+              bookingError instanceof Error
+                ? bookingError.message
+                : String(bookingError),
+          });
+        }
       }
     }
 
@@ -189,31 +238,6 @@ export async function publishOutboxBatch(
     }
     return events.length;
   });
-
-  for (const failure of failures) {
-    // Eigenes try/catch je Buchung: scheitert `recordOutboxFailure` selbst
-    // (z. B. eine Verbindungsstoerung zur Datenbank), darf das nicht die
-    // Buchung der uebrigen fehlgeschlagenen Ereignisse dieses Stapels
-    // verhindern.
-    try {
-      await recordOutboxFailure({
-        database,
-        consumer: "publish",
-        eventId: failure.outboxId,
-        error: failure.error,
-        now: currentTime,
-        maxAttempts,
-        logger: options.logger,
-      });
-    } catch (error) {
-      options.logger.emit("error", {
-        event: "outbox.failure_booking_failed",
-        consumer: "publish",
-        eventId: failure.outboxId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
 
   return claimed;
 }
