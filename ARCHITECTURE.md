@@ -342,6 +342,15 @@ bleibt unverändert. Rollenwechsel und Reaktivierung laufen ausschliesslich übe
 `PATCH /organizations/:id/members/:userId` — dort liegen die Eigentumsregeln,
 der Schutz des letzten aktiven OWNER und der Audit-Eintrag.
 
+Die Verwaltung dazu liegt unter `/mitglieder` und liest
+`GET /organizations/:id/members` (alle Mitgliedschaften, aktive wie gesperrte)
+und `GET /organizations/:id/invitations` (die offenen Einladungen dieser
+Organisation). `DELETE /organizations/:id/invitations/:invitationId` nimmt eine
+offene Einladung zurück und entwertet dabei ihren Claim-Token; eine bereits
+angenommene oder zurückgezogene Einladung meldet 404. Alle drei verlangen
+`organization:manage_members`, der Rollen- und Statuswechsel darüber hinaus
+`organization:manage_roles`.
+
 ### Einmaliger Production-Owner-Bootstrap
 
 Für eine leere Production-Datenbank gibt es einen separaten, kompilierten

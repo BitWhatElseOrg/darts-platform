@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentRoundNumber, dartKeypadLabel, dartLabel, liveHref, quickScoresSourceLabel, threeDartAverage } from "./scoreboard-view";
+import { currentRoundNumber, dartKeypadLabel, dartLabel, liveHref, pendingLegDecision, quickScoresSourceLabel, threeDartAverage } from "./scoreboard-view";
 
 describe("currentRoundNumber", () => {
   it("beginnt bei eins ohne Aufnahme im Leg", () => {
@@ -135,5 +135,49 @@ describe("threeDartAverage", () => {
       playerIds: ["p1"],
       legNumber: 1,
     })).toBeCloseTo(60, 1);
+  });
+});
+
+
+describe("pendingLegDecision", () => {
+  const laufend = {
+    status: "IN_PROGRESS" as const,
+    currentLegNumber: 3,
+    legStartPending: false,
+    roundLimitReached: false,
+  };
+
+  it("verlangt nichts, solange der Server nichts offen meldet", () => {
+    expect(pendingLegDecision(laufend)).toBeNull();
+  });
+
+  it("verlangt den Anwurf mit der Legnummer", () => {
+    expect(pendingLegDecision({ ...laufend, legStartPending: true })).toEqual({
+      kind: "LEG_START",
+      legNumber: 3,
+    });
+  });
+
+  it("verlangt das Ausbullen an der Rundengrenze", () => {
+    expect(pendingLegDecision({ ...laufend, roundLimitReached: true })).toEqual({
+      kind: "LEG_BY_BULL",
+    });
+  });
+
+  /**
+   * Beide zugleich kann der Server nicht melden — die Rundengrenze setzt
+   * Aufnahmen im Leg voraus, und die loeschen den offenen Anwurf. Faende sich
+   * doch einmal beides, gilt das Ausbullen: es beendet das laufende Leg,
+   * waehrend der Anwurf ein Leg eroeffnet, das dann schon laeuft.
+   */
+  it("laesst das Ausbullen vorgehen, wenn beides gemeldet waere", () => {
+    expect(pendingLegDecision({ ...laufend, legStartPending: true, roundLimitReached: true })).toEqual({
+      kind: "LEG_BY_BULL",
+    });
+  });
+
+  it("verlangt im beendeten Match nichts", () => {
+    expect(pendingLegDecision({ ...laufend, status: "COMPLETED", legStartPending: true })).toBeNull();
+    expect(pendingLegDecision({ ...laufend, status: "ABORTED", roundLimitReached: true })).toBeNull();
   });
 });

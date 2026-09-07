@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Inject,
   Param,
@@ -18,6 +19,7 @@ import {
   type CreateInvitationInput,
   type CreateOrganizationInput,
   type CreatedInvitation,
+  type Invitation,
   type OrganizationMember,
   type OrganizationSummary,
   type UpdateMembershipInput,
@@ -71,6 +73,40 @@ export class OrganizationsController {
     return this.organizationsService.invite({
       organizationId,
       data,
+      auth,
+      audit: getAuditContext(request),
+    });
+  }
+
+  @Get(":organizationId/members")
+  public async listMembers(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<OrganizationMember[]> {
+    return this.organizationsService.listMembers({ organizationId, auth });
+  }
+
+  @Get(":organizationId/invitations")
+  public async listInvitations(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<Invitation[]> {
+    return this.organizationsService.listOrganizationInvitations({
+      organizationId,
+      auth,
+    });
+  }
+
+  @Delete(":organizationId/invitations/:invitationId")
+  public async cancelInvitation(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("invitationId", ParseUUIDPipe) invitationId: string,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<{ readonly cancelled: true }> {
+    return this.organizationsService.cancelInvitation({
+      organizationId,
+      invitationId,
       auth,
       audit: getAuditContext(request),
     });
