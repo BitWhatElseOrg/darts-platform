@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Post, Req } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Req } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 
 import {
@@ -7,6 +7,7 @@ import {
   correctTournamentResultSchema,
   createTournamentSchema,
   releaseBoardSchema,
+  setTournamentVisibilitySchema,
   tournamentStructurePreviewInputSchema,
   withdrawTournamentParticipantSchema,
   type AssignMatchInput,
@@ -15,6 +16,7 @@ import {
   type CorrectTournamentResultInput,
   type CreateTournamentInput,
   type ReleaseBoardInput,
+  type SetTournamentVisibilityInput,
   type TournamentDashboard,
   type TournamentStructurePreview,
   type TournamentStructurePreviewInput,
@@ -147,5 +149,23 @@ export class TournamentsController {
   ): Promise<TournamentDashboard> {
     const data: WithdrawTournamentParticipantInput = parseBody(withdrawTournamentParticipantSchema, body);
     return this.service.withdrawParticipant({ organizationId, tournamentId, data, auth, audit: getAuditContext(request) });
+  }
+
+  @Patch(":tournamentId/visibility")
+  public setVisibility(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("tournamentId", ParseUUIDPipe) tournamentId: string,
+    @Body() body: unknown,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<TournamentDashboard> {
+    const data: SetTournamentVisibilityInput = parseBody(setTournamentVisibilitySchema, body);
+    return this.service.setVisibility({
+      organizationId,
+      tournamentId,
+      data,
+      auth,
+      audit: getAuditContext(request),
+    });
   }
 }

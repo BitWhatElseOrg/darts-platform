@@ -27,6 +27,7 @@ import {
   type KnockoutParticipantReference,
   type PlannedMatch,
 } from "@darts-platform/tournament-engine";
+import type { TournamentVisibility } from "@darts-platform/domain";
 import type {
   AssignMatchInput,
   CreateTournamentInput,
@@ -1004,6 +1005,54 @@ export class TournamentsRepository {
         entityId: input.data.boardId,
         oldValue: selected.board,
         newValue: { status: "AVAILABLE" },
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+      return "ok";
+    });
+  }
+
+  /**
+   * Eine Freigabe nach aussen ist keine Score-/Match-Aktion mit
+   * Wiederholungsrisiko (AGENTS.md 11) und traegt deshalb keine `commandId`
+   * und keine `expectedVersion` — anders als `assign`, `releaseBoard` & Co.
+   * Die Sperre auf der Turnierzeile dient hier nur dazu, den vorherigen Wert
+   * fuer den Audit-Satz verlustfrei zu lesen.
+   */
+  public async updateVisibility(
+    input: ActorInput & { readonly visibility: TournamentVisibility },
+  ): Promise<TournamentMutationResult> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [tournament] = await transaction
+        .select()
+        .from(tournaments)
+        .where(
+          and(
+            eq(tournaments.organizationId, input.organizationId),
+            eq(tournaments.id, input.tournamentId),
+          ),
+        )
+        .for("update")
+        .limit(1);
+      if (tournament === undefined) return "not-found";
+      await transaction
+        .update(tournaments)
+        .set({ visibility: input.visibility, updatedAt: new Date() })
+        .where(
+          and(
+            eq(tournaments.organizationId, input.organizationId),
+            eq(tournaments.id, input.tournamentId),
+          ),
+        );
+      await transaction.insert(auditEvents).values({
+        organizationId: input.organizationId,
+        actorUserId: input.auth.user.id,
+        action: "TOURNAMENT_VISIBILITY_CHANGED",
+        entityType: "Tournament",
+        entityId: input.tournamentId,
+        oldValue: { visibility: tournament.visibility },
+        newValue: { visibility: input.visibility },
         ip: input.audit.ip,
         userAgent: input.audit.userAgent,
         correlationId: input.audit.correlationId,

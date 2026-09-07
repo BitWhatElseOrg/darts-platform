@@ -411,6 +411,9 @@ export const withdrawTournamentParticipantSchema = z.object({
   commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), playerId: z.uuid(),
   reason: z.string().trim().min(3).max(500),
 });
+export const setTournamentVisibilitySchema = z.object({
+  visibility: tournamentVisibilitySchema,
+});
 
 export type TournamentStatus = z.infer<typeof tournamentStatusSchema>;
 export type TournamentFormat = z.infer<typeof tournamentFormatSchema>;
@@ -445,3 +448,4 @@ export type AssignMatchInput = z.infer<typeof assignMatchSchema>;
 export type ReleaseBoardInput = z.infer<typeof releaseBoardSchema>;
 export type CorrectTournamentResultInput = z.infer<typeof correctTournamentResultSchema>;
 export type WithdrawTournamentParticipantInput = z.infer<typeof withdrawTournamentParticipantSchema>;
+export type SetTournamentVisibilityInput = z.infer<typeof setTournamentVisibilitySchema>;

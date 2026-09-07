@@ -30,6 +30,7 @@ import {
   type GroupStanding,
   type PublicTournamentDashboard,
   type ReleaseBoardInput,
+  type SetTournamentVisibilityInput,
   type TournamentDashboard,
   type TournamentStructurePreview,
   type TournamentStructurePreviewInput,
@@ -249,6 +250,34 @@ export class TournamentsService {
   }): Promise<TournamentDashboard> {
     await this.require(input, "tournament:update");
     return this.mutate(input, () => this.repository.withdrawParticipant(input));
+  }
+
+  /**
+   * Eine Freigabe nach aussen ist eine kritische Benutzeraktion und wird
+   * auditiert (AGENTS.md §4) — der Audit-Satz entsteht in derselben
+   * Transaktion wie die Aenderung, in `repository.updateVisibility`, genau
+   * wie bei den uebrigen Mutationen dieser Datei. Die Berechtigung ist
+   * `tournament:update`: die Sichtbarkeit ist eine Eigenschaft des Turniers.
+   * Das Verteilen von Anzeige-Schluesseln bekommt in Plan 2 eine eigene
+   * Berechtigung, weil es eine andere Handlung ist.
+   */
+  public async setVisibility(input: {
+    readonly organizationId: string;
+    readonly tournamentId: string;
+    readonly data: SetTournamentVisibilityInput;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<TournamentDashboard> {
+    await this.require(input, "tournament:update");
+    return this.mutate(input, () =>
+      this.repository.updateVisibility({
+        organizationId: input.organizationId,
+        tournamentId: input.tournamentId,
+        visibility: input.data.visibility,
+        auth: input.auth,
+        audit: input.audit,
+      }),
+    );
   }
 
   private async mutate(

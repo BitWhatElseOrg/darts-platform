@@ -1189,4 +1189,99 @@ describe("persistent tournament MVP", () => {
   it("meldet fuer eine unbekannte interne ID ebenfalls 404", async () => {
     await expect(service.publicAddress(randomUUID())).rejects.toThrow(NotFoundException);
   }, 30_000);
+
+  it("schaltet die Sichtbarkeit um und auditiert das", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Visibility Toggle Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T18:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+
+    const dashboard = await service.setVisibility({
+      organizationId,
+      tournamentId: created.id,
+      data: { visibility: "PUBLIC" },
+      auth,
+      audit,
+    });
+
+    expect(dashboard.tournament.visibility).toBe("PUBLIC");
+
+    const [row] = await databaseService.database
+      .select({ visibility: tournaments.visibility })
+      .from(tournaments)
+      .where(eq(tournaments.id, created.id))
+      .limit(1);
+    expect(row?.visibility).toBe("PUBLIC");
+
+    const [event] = await databaseService.database
+      .select()
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.entityType, "Tournament"),
+          eq(auditEvents.entityId, created.id),
+          eq(auditEvents.action, "TOURNAMENT_VISIBILITY_CHANGED"),
+        ),
+      )
+      .orderBy(desc(auditEvents.createdAt))
+      .limit(1);
+    expect(event).toMatchObject({
+      organizationId,
+      actorUserId: userId,
+      newValue: { visibility: "PUBLIC" },
+    });
+  }, 30_000);
+
+  it("laesst eine Freigabe ohne tournament:update nicht zu", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Visibility Forbidden Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T19:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+
+    await expect(
+      service.setVisibility({
+        organizationId,
+        tournamentId: created.id,
+        data: { visibility: "PUBLIC" },
+        auth: foreignAuth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+  }, 30_000);
 });
