@@ -22,9 +22,12 @@ export interface CareerStatistics {
   readonly matchesPlayed: number; readonly wins: number; readonly losses: number;
   readonly threeDartAverage: number; readonly firstNineAverage: number;
   /**
-   * Die drei Checkout-Kennzahlen sind `null`, wenn keine einzige gewertete
-   * Aufnahme aus einem Match mit Doppel- oder Master-Out stammt — „nicht
-   * anwendbar", nicht „null Checkouts". Siehe DATABASE_SCHEMA.md, Abschnitt 10.
+   * Die drei Checkout-Kennzahlen sind `null`, wenn keine einzige aktive
+   * Aufnahme (nicht zurueckgenommen) aus einem Match mit Doppel- oder
+   * Master-Out stammt — „nicht anwendbar", nicht „null Checkouts". Ein
+   * kampflos gewertetes Match oder eines, dessen Aufnahmen dieser Person
+   * vollstaendig zurueckgenommen wurden, zaehlt daher nicht mit. Siehe
+   * DATABASE_SCHEMA.md, Abschnitt 10.
    */
   readonly checkoutPercentage: number | null;
   readonly checkoutAttempts: number | null;
@@ -68,7 +71,7 @@ export function calculatePlayerStatistics(playerId: string, matches: readonly St
   let firstNineDarts = 0;
   let checkoutAttempts = 0;
   let checkouts = 0;
-  let checkoutRatedMatches = 0;
+  let hasCheckoutRatedActiveVisit = false;
   let oneEighties = 0;
   let highFinish = 0;
   const legDarts: number[] = [];
@@ -108,11 +111,14 @@ export function calculatePlayerStatistics(playerId: string, matches: readonly St
     // Umrechnung der Historie ist unmoeglich: fuer alte Aufnahmen existieren
     // die Wurfdaten nicht. Siehe DATABASE_SCHEMA.md, Abschnitt 10.
     //
-    // Dritte Einheit: unter `SINGLE` gibt es keinen Doppelversuch. Solche
-    // Matches fliessen gar nicht erst ein; bleibt am Ende kein einziges
-    // gewertetes Match uebrig, sind die drei Kennzahlen `null`.
-    if (match.outRule !== "SINGLE") {
-      checkoutRatedMatches += 1;
+    // Dritte Einheit: unter `SINGLE` gibt es keinen Doppelversuch. Massgeblich
+    // ist nicht das Match, sondern die AKTIVE Aufnahme: ein kampflos gewertetes
+    // oder vollstaendig zurueckgenommenes Double-/Master-Out-Match liefert
+    // keine aktive Aufnahme dieser Person und darf daher nicht mitzaehlen.
+    // Bleibt am Ende keine einzige gewertete Aufnahme uebrig, sind die drei
+    // Kennzahlen `null`.
+    if (match.outRule !== "SINGLE" && activeVisits.length > 0) {
+      hasCheckoutRatedActiveVisit = true;
       checkoutAttempts += activeVisits.reduce((sum, visit) => sum + visit.checkoutAttempts, 0);
       checkouts += activeVisits.filter((visit) => visit.checkoutAttempts > 0 && visit.outcome.endsWith("WON")).length;
     }
@@ -145,7 +151,7 @@ export function calculatePlayerStatistics(playerId: string, matches: readonly St
   }
   const wins = history.filter((match) => match.won).length;
   const completedLegCount = ordered.reduce((sum, match) => sum + match.legs.filter((leg) => leg.winnerPlayerId !== null).length, 0);
-  const checkoutApplicable = checkoutRatedMatches > 0;
+  const checkoutApplicable = hasCheckoutRatedActiveVisit;
   const checkoutPercentage = !checkoutApplicable
     ? null
     : checkoutAttempts === 0
