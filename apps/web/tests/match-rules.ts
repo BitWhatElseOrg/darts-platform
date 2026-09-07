@@ -19,7 +19,12 @@ import { createDatabaseConnection, matches } from "@darts-platform/database";
  */
 export async function applyMatchRules(
   organizationId: string,
-  rules: { readonly inRule?: "STRAIGHT" | "DOUBLE"; readonly outRule?: "SINGLE" | "DOUBLE" | "MASTER" },
+  rules: {
+    readonly inRule?: "STRAIGHT" | "DOUBLE";
+    readonly outRule?: "SINGLE" | "DOUBLE" | "MASTER";
+    /** Reglement 2.2.9: das Entscheidungsdoppel bullt schon Leg eins aus. */
+    readonly bullOffFromLegOne?: boolean;
+  },
 ): Promise<void> {
   const environment = parseApplicationEnvironment(process.env);
   const connection = createDatabaseConnection(environment.DATABASE_URL);
