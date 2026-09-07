@@ -9,6 +9,7 @@ import { DatabaseService } from "../database/database.service.js";
 import { RedisService } from "../redis/redis.service.js";
 import { createRedisRateLimitStorage } from "./auth-rate-limit-storage.js";
 import { createAuth, type DartsAuth } from "./auth.factory.js";
+import { CLIENT_IP_HEADER } from "./client-ip.js";
 import type { AuthContext } from "./auth.types.js";
 
 @Injectable()
@@ -31,8 +32,14 @@ export class AuthService {
   public async getSession(
     headers: IncomingHttpHeaders,
   ): Promise<AuthContext | null> {
+    const authHeaders = fromNodeHeaders(headers);
+    // Diese Header kommen unveraendert vom Client. Den Adress-Header setzt
+    // allein `AuthController` aus `request.ip`; auf dem Lesepfad gibt es
+    // keine Anfrage, aus der er sich ableiten liesse, also wird ein
+    // mitgeschickter Wert verworfen statt geglaubt (siehe `client-ip.ts`).
+    authHeaders.delete(CLIENT_IP_HEADER);
     const result = await this.auth.api.getSession({
-      headers: fromNodeHeaders(headers),
+      headers: authHeaders,
     });
 
     if (result === null) {

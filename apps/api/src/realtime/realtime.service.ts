@@ -9,7 +9,9 @@ import type { Server as HttpServer } from "node:http";
 import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 import { DatabaseService } from "../database/database.service.js";
 import { parseSubscriptionId } from "./event-routing.js";
+import { createHandshakeGate } from "./handshake-guard.js";
 import { publishOutboxBatch, type RealtimeBroadcaster } from "./publish-outbox.js";
+import { joinSubscription } from "./subscription-limit.js";
 
 interface SubscribePayload {
   readonly tournamentId?: unknown;
@@ -58,6 +60,19 @@ export class RealtimeService implements OnApplicationShutdown, RealtimeBroadcast
         credentials: true,
       },
       transports: ["websocket", "polling"],
+      // Der Handshake laeuft am Fastify-Rate-Limit vorbei (eigener Endpunkt am
+      // HTTP-Server); ohne diese Bremse liesse sich der Verbindungsaufbau
+      // beliebig oft wiederholen.
+      allowRequest: createHandshakeGate({
+        max: this.environment.RATE_LIMIT_SOCKET_MAX_PER_MINUTE,
+        trustProxyHops: this.environment.TRUST_PROXY_HOPS,
+        onRejected: (address) => {
+          this.logger.warn({
+            event: "realtime.handshake_rate_limited",
+            address,
+          });
+        },
+      }),
     });
     this.io.adapter(createAdapter(this.publisher, this.subscriber));
     this.io.on("connection", (socket) => this.register(socket));
@@ -73,13 +88,23 @@ export class RealtimeService implements OnApplicationShutdown, RealtimeBroadcast
     socket.on("tournament:subscribe", (payload: SubscribePayload) => {
       const tournamentId = parseSubscriptionId(payload?.tournamentId);
       if (tournamentId === null) return;
-      void socket.join(`tournament:${tournamentId}`);
+      this.subscribe(socket, `tournament:${tournamentId}`);
     });
     socket.on("encounter:subscribe", (payload: SubscribePayload) => {
       const encounterId = parseSubscriptionId(payload?.encounterId);
       if (encounterId === null) return;
-      void socket.join(`encounter:${encounterId}`);
+      this.subscribe(socket, `encounter:${encounterId}`);
     });
+  }
+
+  private subscribe(socket: Socket, room: string): void {
+    if (joinSubscription(socket, room) === "limit-reached") {
+      this.logger.warn({
+        event: "realtime.subscription_limit_reached",
+        socketId: socket.id,
+        room,
+      });
+    }
   }
 
   private async publishOutbox(): Promise<void> {

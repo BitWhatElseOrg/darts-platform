@@ -44,6 +44,9 @@ export default defineConfig({
         RATE_LIMIT_MAX_PER_MINUTE: "100000",
         RATE_LIMIT_PUBLIC_MAX_PER_MINUTE: "100000",
         RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: "100000",
+        // Der Entwicklungsserver baut den Socket bei jedem Neuladen neu auf;
+        // die Handshake-Bremse soll den Lauf nicht treffen.
+        RATE_LIMIT_SOCKET_MAX_PER_MINUTE: "100000",
         WEB_ORIGIN: webOrigin,
       },
       reuseExistingServer: false,

@@ -335,6 +335,13 @@ kryptografische Einladungscode vorliegen. Nach der Registrierung nimmt der
 Benutzer die Einladung mit demselben Code atomisch einmalig an und erhält erst
 dadurch die zugewiesene Organisationsrolle.
 
+Die Annahme legt eine Mitgliedschaft an, überschreibt aber keine bestehende:
+eine gesperrte bleibt gesperrt (409 `MEMBERSHIP_SUSPENDED`, die Einladung
+bleibt offen und gilt nach der Reaktivierung), und die Rolle einer aktiven
+bleibt unverändert. Rollenwechsel und Reaktivierung laufen ausschliesslich über
+`PATCH /organizations/:id/members/:userId` — dort liegen die Eigentumsregeln,
+der Schutz des letzten aktiven OWNER und der Audit-Eintrag.
+
 ### Einmaliger Production-Owner-Bootstrap
 
 Für eine leere Production-Datenbank gibt es einen separaten, kompilierten
@@ -696,6 +703,12 @@ Grundregel:
 
 > Persistieren vor Broadcast.
 
+Der Handshake hängt am HTTP-Server und läuft damit nicht durch das
+Fastify-Rate-Limit; er hat seine eigene Bremse je Client-Adresse und Minute
+(`RATE_LIMIT_SOCKET_MAX_PER_MINUTE`, Adresse über dieselbe Hop-Zählung wie
+`request.ip`). Ein Socket abonniert höchstens 20 Räume; darüber antwortet der
+Server mit `subscription:rejected`. Die Autorisierung je Kanal steht aus.
+
 ---
 
 ## 18. REST API
@@ -908,6 +921,15 @@ Webhooks
 Beide Konsumenten führen je Zeile einen Versuchszähler und einen
 Dead-Letter-Stempel. Ein Ereignis, das fünfmal scheitert, wird übersprungen
 und als `outbox.dead_letter` protokolliert, statt die Schlange anzuhalten.
+
+Beide beanspruchen ihren Stapel mit `FOR UPDATE SKIP LOCKED`: eine zweite
+Replik überspringt gesperrte Zeilen, statt dieselben Ereignisse noch einmal zu
+senden oder zu aggregieren. Innerhalb des Stapels läuft jedes Ereignis in einem
+eigenen Savepoint — ein Postgres-Fehler beendet sonst die ganze Transaktion und
+ein einzelnes kaputtes Ereignis kostete den ganzen Durchlauf. Der Fehlversuch
+wird noch innerhalb derselben Transaktion gebucht, also unter der Zeilensperre:
+Zähler und Backoff stehen in dem Moment, in dem die Sperre fällt, und eine
+zweite Replik greift die Zeile nicht ohne Wartezeit erneut.
 
 ---
 

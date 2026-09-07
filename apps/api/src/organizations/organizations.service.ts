@@ -124,7 +124,7 @@ export class OrganizationsService {
     readonly auth: AuthContext;
     readonly audit: AuditContext;
   }): Promise<{ readonly accepted: true }> {
-    const invitation = await this.organizationsRepository.acceptInvitation({
+    const result = await this.organizationsRepository.acceptInvitation({
       invitationId: input.invitationId,
       userId: input.auth.user.id,
       email: input.auth.user.email.toLowerCase(),
@@ -132,13 +132,23 @@ export class OrganizationsService {
       audit: input.audit,
     });
 
-    if (invitation === null) {
-      throw new NotFoundException(
-        "The invitation does not exist, has expired, or belongs to another user.",
-      );
+    switch (result.outcome) {
+      case "not-found":
+        throw new NotFoundException(
+          "The invitation does not exist, has expired, or belongs to another user.",
+        );
+      case "membership-suspended":
+        // Eine Einladung hebt keine Deaktivierung auf; das bleibt
+        // `updateMembership` mit seinen Eigentumsregeln vorbehalten. Die
+        // Einladung selbst bleibt offen und gilt nach der Reaktivierung.
+        throw new ConflictException({
+          code: "MEMBERSHIP_SUSPENDED",
+          message:
+            "This membership is deactivated. An owner has to reactivate it before the invitation can be accepted.",
+        });
+      case "accepted":
+        return { accepted: true };
     }
-
-    return { accepted: true };
   }
 
   public async updateMembership(input: {

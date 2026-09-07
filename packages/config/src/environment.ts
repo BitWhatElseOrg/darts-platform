@@ -72,6 +72,15 @@ export const applicationEnvironmentSchema = z.object({
    */
   RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: rateLimitMaxSchema.default(10),
   /**
+   * Obergrenze fuer Socket.IO-Handshakes je Client-Adresse und Minute.
+   * `/socket.io/` haengt am HTTP-Server und laeuft nicht durch Fastify, die
+   * allgemeine Bremse greift dort also nicht. Ein Client baut die Verbindung
+   * einmal auf und danach nur bei Verbindungsverlust neu; eine ganze Halle
+   * hinter einer NAT-Adresse bleibt trotzdem im Rahmen (60 Versuche je
+   * Minute).
+   */
+  RATE_LIMIT_SOCKET_MAX_PER_MINUTE: rateLimitMaxSchema.default(60),
+  /**
    * Anzahl vertrauter Reverse-Proxy-Hops vor der Anwendung — lokal `0`
    * (kein Proxy), hinter Railway `1`. Bestimmt, welcher Eintrag der
    * `X-Forwarded-For`-Kette als tatsaechliche Client-Adresse gilt

@@ -36,6 +36,11 @@ export type UpdateMembershipResult =
   | { readonly outcome: "owner-grant-requires-owner" }
   | { readonly outcome: "owner-change-requires-owner" };
 
+export type AcceptInvitationResult =
+  | { readonly outcome: "accepted" }
+  | { readonly outcome: "not-found" }
+  | { readonly outcome: "membership-suspended" };
+
 interface ActorInput {
   readonly userId: string;
   readonly audit: AuditContext;
@@ -212,13 +217,23 @@ export class OrganizationsRepository {
       .orderBy(organizationInvitations.createdAt);
   }
 
+  /**
+   * Nimmt eine Einladung an. Die Mitgliedschaft wird dabei angelegt, aber
+   * eine bestehende nie ueberschrieben: eine gesperrte bleibt gesperrt
+   * (`membership-suspended`, die Einladung bleibt offen) und die Rolle einer
+   * aktiven bleibt, wie sie ist. Wer eine Rolle aendert oder eine
+   * Deaktivierung aufhebt, tut das ueber `updateMembership` — dort liegen die
+   * Eigentumsregeln, der Schutz des letzten OWNER und der Audit-Eintrag.
+   * Eine als `INVITED` vorgemerkte Zeile ist der eine Fall, den die Annahme
+   * aktiviert; genau dafuer ist sie da.
+   */
   public async acceptInvitation(input: {
     readonly invitationId: string;
     readonly userId: string;
     readonly email: string;
     readonly claimToken: string;
     readonly audit: AuditContext;
-  }) {
+  }): Promise<AcceptInvitationResult> {
     const claimTokenHash = hashInvitationClaimToken(input.claimToken);
 
     return this.databaseService.database.transaction(async (transaction) => {
@@ -238,7 +253,29 @@ export class OrganizationsRepository {
         .for("update");
 
       if (invitation === undefined) {
-        return null;
+        return { outcome: "not-found" };
+      }
+
+      // Bestehende Mitgliedschaft unter der Zeilensperre lesen, bevor die
+      // Einladung verbraucht wird: eine gesperrte Person soll ihren
+      // Claim-Token behalten, damit die Einladung nach einer Reaktivierung
+      // noch gilt. Die Reihenfolge Einladung -> Mitgliedschaft kreuzt sich
+      // nicht mit `updateMembership` (Organisation -> Mitgliedschaft), es
+      // entsteht kein Zyklus.
+      const [existing] = await transaction
+        .select({ status: memberships.status })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.organizationId, invitation.organizationId),
+            eq(memberships.userId, input.userId),
+          ),
+        )
+        .limit(1)
+        .for("update");
+
+      if (existing?.status === "SUSPENDED") {
+        return { outcome: "membership-suspended" };
       }
 
       const [claimedInvitation] = await transaction
@@ -258,21 +295,55 @@ export class OrganizationsRepository {
         .returning({ id: organizationInvitations.id });
 
       if (claimedInvitation === undefined) {
-        return null;
+        return { outcome: "not-found" };
       }
 
-      await transaction
-        .insert(memberships)
-        .values({
-          organizationId: invitation.organizationId,
-          userId: input.userId,
-          role: invitation.role,
-          status: "ACTIVE",
-        })
-        .onConflictDoUpdate({
-          target: [memberships.organizationId, memberships.userId],
-          set: { role: invitation.role, status: "ACTIVE" },
-        });
+      // Ob diese Annahme die Mitgliedschaft wirklich angelegt hat, sagt erst
+      // die zurueckgegebene Zeile: `on conflict do nothing` schreibt nichts,
+      // wenn eine gleichzeitige Transaktion schneller war.
+      let created: readonly { readonly userId: string }[] = [];
+      if (existing === undefined) {
+        created = await transaction
+          .insert(memberships)
+          .values({
+            organizationId: invitation.organizationId,
+            userId: input.userId,
+            role: invitation.role,
+            status: "ACTIVE",
+          })
+          // Auf eine fehlende Zeile laesst sich keine Sperre nehmen: legt
+          // eine gleichzeitige Transaktion die Mitgliedschaft zwischen der
+          // Pruefung oben und diesem `INSERT` an, waere der Primaerschluessel
+          // verletzt. Nichts zu tun ist hier richtig — die bestehende Zeile
+          // bleibt unangetastet, genau wie in den beiden Faellen darunter.
+          .onConflictDoNothing({
+            target: [memberships.organizationId, memberships.userId],
+          })
+          .returning({ userId: memberships.userId });
+      } else if (existing.status === "INVITED") {
+        await transaction
+          .update(memberships)
+          .set({ role: invitation.role, status: "ACTIVE" })
+          .where(
+            and(
+              eq(memberships.organizationId, invitation.organizationId),
+              eq(memberships.userId, input.userId),
+            ),
+          );
+      }
+
+      // Haelt fest, ob die Annahme die Mitgliedschaft ueberhaupt angefasst
+      // hat — bei einer bestehenden aktiven bleibt die Rolle der Einladung
+      // ohne Wirkung, und bei einem verlorenen Wettlauf um den `INSERT`
+      // ebenso.
+      const membershipEffect =
+        existing === undefined
+          ? created.length > 0
+            ? "created"
+            : "unchanged"
+          : existing.status === "INVITED"
+            ? "activated"
+            : "unchanged";
 
       await transaction.insert(auditEvents).values({
         organizationId: invitation.organizationId,
@@ -280,13 +351,13 @@ export class OrganizationsRepository {
         action: "MEMBER_INVITATION_ACCEPTED",
         entityType: "OrganizationInvitation",
         entityId: invitation.id,
-        newValue: { role: invitation.role },
+        newValue: { role: invitation.role, membership: membershipEffect },
         ip: input.audit.ip,
         userAgent: input.audit.userAgent,
         correlationId: input.audit.correlationId,
       });
 
-      return invitation;
+      return { outcome: "accepted" };
     });
   }
 

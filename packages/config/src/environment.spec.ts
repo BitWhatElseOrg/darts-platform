@@ -94,6 +94,7 @@ describe("parseApplicationEnvironment", () => {
     expect(environment.RATE_LIMIT_MAX_PER_MINUTE).toBe(300);
     expect(environment.RATE_LIMIT_PUBLIC_MAX_PER_MINUTE).toBe(600);
     expect(environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE).toBe(10);
+    expect(environment.RATE_LIMIT_SOCKET_MAX_PER_MINUTE).toBe(60);
   });
 
   it("uebernimmt konfigurierte Rate-Limit-Werte als Zahlen", () => {
@@ -102,11 +103,13 @@ describe("parseApplicationEnvironment", () => {
       RATE_LIMIT_MAX_PER_MINUTE: "50",
       RATE_LIMIT_PUBLIC_MAX_PER_MINUTE: "20",
       RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: "3",
+      RATE_LIMIT_SOCKET_MAX_PER_MINUTE: "7",
     });
 
     expect(environment.RATE_LIMIT_MAX_PER_MINUTE).toBe(50);
     expect(environment.RATE_LIMIT_PUBLIC_MAX_PER_MINUTE).toBe(20);
     expect(environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE).toBe(3);
+    expect(environment.RATE_LIMIT_SOCKET_MAX_PER_MINUTE).toBe(7);
   });
 
   it("vertraut standardmaessig keinem Reverse-Proxy-Hop", () => {
