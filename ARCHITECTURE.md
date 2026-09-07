@@ -1084,6 +1084,51 @@ Sentry
 Grafana optional
 ```
 
+### Alarmierung
+
+Die API prüft ihren eigenen Health-Zustand jede Minute selbst
+(`health-alarm.service.ts`) und meldet ihn ins Log, statt darauf zu warten,
+dass jemand `/api/v1/health` abfragt. Alarmiert wird über genau ein Ereignis:
+
+```text
+health.alarm       status=degraded  → Warnstufe
+health.alarm       status=unhealthy → Fehlerstufe
+health.recovered   downForSeconds=… → Normalstufe
+```
+
+Eine einzige Railway-Regel auf das Muster `health.alarm` deckt damit beide
+Stufen ab. Gemeldet wird bei jedem Statuswechsel und danach alle 15 Minuten
+erneut, solange die Störung anhält — ohne Wiederholung feuerte eine
+musterbasierte Regel nur ein einziges Mal. Ein Dienst, der bereits
+beeinträchtigt hochkommt, meldet sofort; ein gesunder Start meldet nichts.
+
+Scheitert die Messung selbst, gilt das als `unhealthy` und läuft durch
+dieselbe Meldung samt Entprellung (`checkFailed: true` im Feld). Ein eigenes
+Ereignis fiele sonst durch die Regel und stünde ohne Entprellung jede Minute
+neu im Log.
+
+Der Wachdienst liegt bewusst in der API und nicht im Worker: der Zustand
+entsteht dort, und der CI-Rauchtest greift die Worker-Logs auf Fehlerstufen ab
+(`.github/workflows/ci.yml`) — ein Alarm von dort liesse ihn scheitern.
+
+### CSP-Verstösse
+
+`POST /api/v1/csp-reports` nimmt die Verstoss-Meldungen der
+Content-Security-Policy entgegen — öffentlich, ohne Anmeldung (der Browser
+sendet keine), in der öffentlichen Rate-Limit-Stufe und immer mit 204, auch
+auf Unsinn. Die Policy spricht ihn über beide Wege an: `report-uri` für
+Browser mit der alten Form und `report-to` samt `Reporting-Endpoints`-Header
+für die Reporting-API. Übernommen wird je Meldung eine schmale Auswahl an
+Feldern, gekürzt auf 300 Zeichen; die vollständige Policy und der
+Script-Ausschnitt bleiben aussen vor, weil letzterer Seiteninhalt tragen kann.
+Von den drei Adressfeldern bleiben nur Ursprung und Pfad — Zugangsdaten,
+Abfragezeichenkette und Fragment fallen weg, damit ein Einladungscode oder ein
+Zurücksetzen-Token aus der Adresszeile nicht in den Betriebslogs landet.
+Protokolliert wird als `csp.violation` auf Warnstufe.
+
+Die Policy bleibt vorerst Report-Only. Erzwungen wird sie in einem eigenen PR,
+sobald echte Meldungen zeigen, dass nichts Notwendiges blockiert würde.
+
 ---
 
 ## 32. Testing
