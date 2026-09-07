@@ -45,8 +45,8 @@ export function liveHref(input: {
   if (input.liveTarget === null) return null;
   if (input.liveTarget.kind === "ENCOUNTER") return `/live/begegnungen/${input.liveTarget.publicId}`;
   return input.boardId === null
-    ? `/live/${input.liveTarget.tournamentId}`
-    : `/live/${input.liveTarget.tournamentId}/board/${input.boardId}`;
+    ? `/live/${input.liveTarget.publicId}`
+    : `/live/${input.liveTarget.publicId}/board/${input.boardId}`;
 }
 
 /**

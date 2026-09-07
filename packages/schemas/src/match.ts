@@ -130,7 +130,7 @@ export const matchVisitSchema = z.object({
  * ohne Wettbewerbsbezug traegt null.
  */
 export const matchLiveTargetSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("TOURNAMENT"), tournamentId: z.uuid() }),
+  z.object({ kind: z.literal("TOURNAMENT"), tournamentId: z.uuid(), publicId: z.uuid() }),
   z.object({ kind: z.literal("ENCOUNTER"), publicId: z.uuid() }),
 ]).nullable();
 export const matchStateSchema = z.object({
