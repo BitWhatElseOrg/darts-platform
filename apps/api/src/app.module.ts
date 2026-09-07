@@ -8,6 +8,7 @@ import { DatabaseModule } from "./database/database.module.js";
 import { EncountersModule } from "./encounters/encounters.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { MatchesModule } from "./matches/matches.module.js";
+import { ObservabilityModule } from "./observability/observability.module.js";
 import { OrganizationsModule } from "./organizations/organizations.module.js";
 import { PlayersModule } from "./players/players.module.js";
 import { RedisModule } from "./redis/redis.module.js";
@@ -27,6 +28,7 @@ import { TeamsModule } from "./teams/teams.module.js";
     OrganizationsModule,
     PlayersModule,
     HealthModule,
+    ObservabilityModule,
     MatchesModule,
     TournamentsModule,
     StatisticsModule,

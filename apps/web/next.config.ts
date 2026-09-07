@@ -15,6 +15,11 @@ const apiOrigin =
     ? "http://localhost:3001"
     : new URL(configuredApiUrl).origin;
 const websocketOrigin = apiOrigin.replace(/^http/u, "ws");
+// Ziel der Verstoss-Meldungen. Es liegt auf der API, nicht auf der Seite
+// selbst: Next.js hat keinen Ort fuer einen Endpunkt, der aus der Policy
+// heraus angesprochen wird, und die API traegt bereits Rate-Limiting,
+// strukturiertes Logging und die einheitliche Fehlerform.
+const cspReportUri = `${apiOrigin}/api/v1/csp-reports`;
 
 /**
  * Erste Stufe: nur berichten, nicht erzwingen. `script-src` erlaubt vorerst
@@ -28,6 +33,14 @@ const websocketOrigin = apiOrigin.replace(/^http/u, "ws");
  * entgegennimmt, oder zwei Wochen Betrieb ohne Konsolen-Verletzungen auf den
  * Hauptseiten dokumentiert sind. Danach erfolgt die Umstellung auf
  * erzwingend in einem eigenen PR, nicht stillschweigend hier.
+ *
+ * Der Endpunkt existiert seit `apps/api/src/observability/csp-report.controller.ts`
+ * und wird ueber beide Wege angesprochen: `report-uri` fuer die Browser, die
+ * nur die alte Form kennen, und `report-to` samt `Reporting-Endpoints`-Header
+ * fuer die neuere Reporting-API. Beide duerfen nebeneinander stehen; ein
+ * Browser waehlt den Weg, den er beherrscht. Damit ist die erste Bedingung
+ * erfuellt — erzwungen wird trotzdem erst, wenn echte Meldungen zeigen, dass
+ * nichts Notwendiges blockiert wuerde.
  */
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -41,10 +54,15 @@ const contentSecurityPolicy = [
   "img-src 'self' data:",
   "font-src 'self' data:",
   `connect-src 'self' ${apiOrigin} ${websocketOrigin}`,
+  `report-uri ${cspReportUri}`,
+  "report-to csp-endpoint",
 ].join("; ");
 
 const securityHeaders = [
   { key: "Content-Security-Policy-Report-Only", value: contentSecurityPolicy },
+  // Benennt, wohin `report-to csp-endpoint` zeigt. Ohne diesen Header ist die
+  // Direktive wirkungslos, und nur `report-uri` traegt noch.
+  { key: "Reporting-Endpoints", value: `csp-endpoint="${cspReportUri}"` },
   { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
