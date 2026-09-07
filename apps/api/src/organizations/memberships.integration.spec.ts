@@ -16,6 +16,10 @@ import { apiErrorSchema } from "@darts-platform/schemas";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 
 import { AuthService } from "../auth/auth.service.js";
+import {
+  generateInvitationClaimToken,
+  hashInvitationClaimToken,
+} from "../auth/invitation-claim.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { DatabaseService } from "../database/database.service.js";
 import { OrganizationAccessService } from "./organization-access.service.js";
@@ -71,6 +75,9 @@ const foreignUserId = randomUUID();
 // die andere aktives MEMBER. Beide werden von keinem anderen Test angefasst.
 const suspendedUserId = randomUUID();
 const rejoiningUserId = randomUUID();
+// Nimmt zwei gleichzeitig gueltige Einladungen an; ohne Mitgliedschaft zu
+// Beginn, damit beide Annahmen um denselben `INSERT` konkurrieren.
+const newcomerUserId = randomUUID();
 
 /** Rolle und Status einer Mitgliedschaft, direkt aus der Datenbank. */
 async function readMembership(userId: string, inOrganizationId = organizationId) {
@@ -113,6 +120,7 @@ const adminAuth = authFor(adminUserId, "admin");
 const viewerAuth = authFor(viewerUserId, "viewer");
 const suspendedAuth = authFor(suspendedUserId, "suspended");
 const rejoiningAuth = authFor(rejoiningUserId, "rejoining");
+const newcomerAuth = authFor(newcomerUserId, "newcomer");
 const audit = {
   correlationId: randomUUID(),
   ip: "127.0.0.1",
@@ -130,6 +138,7 @@ beforeAll(async () => {
     { id: foreignUserId, email: `foreign-${foreignUserId}@example.test`, displayName: "Fremde Person" },
     { id: suspendedUserId, email: suspendedAuth.user.email, displayName: "Gesperrte Person" },
     { id: rejoiningUserId, email: rejoiningAuth.user.email, displayName: "Bestehendes Mitglied" },
+    { id: newcomerUserId, email: newcomerAuth.user.email, displayName: "Neue Person" },
   ]);
   await databaseService.database.insert(organizations).values([
     { id: organizationId, name: "Mitglieder Club", slug: `members-${organizationId}`, timezone: "Europe/Zurich", locale: "de-CH" },
@@ -151,7 +160,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await databaseService.database.delete(organizations).where(eq(organizations.id, organizationId));
   await databaseService.database.delete(organizations).where(eq(organizations.id, foreignOrganizationId));
-  for (const userId of [ownerUserId, successorUserId, managerUserId, adminUserId, scorerUserId, viewerUserId, foreignUserId, suspendedUserId, rejoiningUserId]) {
+  for (const userId of [ownerUserId, successorUserId, managerUserId, adminUserId, scorerUserId, viewerUserId, foreignUserId, suspendedUserId, rejoiningUserId, newcomerUserId]) {
     await databaseService.database.delete(users).where(eq(users.id, userId));
   }
   await databaseService.onApplicationShutdown();
@@ -515,6 +524,90 @@ describe("Einladung annehmen", () => {
       .from(organizationInvitations)
       .where(eq(organizationInvitations.id, invitation.id));
     expect(stored?.status).toBe("ACCEPTED");
+  }, 30_000);
+
+  /**
+   * Auf eine noch fehlende Mitgliedschaft laesst sich keine Zeilensperre
+   * nehmen: eine gleichzeitige Transaktion kann sie zwischen dem Lesen und
+   * dem `INSERT` anlegen. Die Annahme laeuft dann in `on conflict do nothing`
+   * und aendert nichts — der Audit-Eintrag darf trotzdem nicht `created`
+   * behaupten. Die Wirkung steht erst nach dem `INSERT` fest.
+   *
+   * Deterministisch gestellt: eine offene Transaktion schreibt die
+   * Mitgliedschaft und haelt sie ungesehen fest. Die Annahme liest sie
+   * deshalb als fehlend, blockiert dann aber am Unique-Index, bis die andere
+   * Transaktion committet.
+   *
+   * Die Einladung wird direkt geschrieben, weil `createInvitation` eine
+   * offene Einladung derselben Adresse zurueckzieht.
+   */
+  it("auditiert eine Annahme als unveraendert, wenn die Mitgliedschaft nebenher entsteht", async () => {
+    const claimToken = generateInvitationClaimToken();
+    const [invitation] = await databaseService.database
+      .insert(organizationInvitations)
+      .values({
+        organizationId,
+        email: newcomerAuth.user.email,
+        role: "ADMIN",
+        status: "PENDING",
+        claimTokenHash: hashInvitationClaimToken(claimToken),
+        invitedByUserId: ownerUserId,
+        expiresAt: new Date(Date.now() + 3_600_000),
+      })
+      .returning({ id: organizationInvitations.id });
+
+    let membershipWritten!: () => void;
+    const written = new Promise<void>((resolve) => {
+      membershipWritten = resolve;
+    });
+    let releaseHolder!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    const holder = databaseService.database.transaction(async (transaction) => {
+      await transaction.insert(memberships).values({
+        organizationId,
+        userId: newcomerUserId,
+        role: "VIEWER",
+        status: "ACTIVE",
+      });
+      membershipWritten();
+      await held;
+    });
+
+    await written;
+    const accepting = service.acceptInvitation({
+      invitationId: invitation?.id ?? "",
+      data: { claimToken },
+      auth: newcomerAuth,
+      audit,
+    });
+    // Zeit, bis die Annahme am Unique-Index haengt. Laeuft sie schneller,
+    // sieht sie die Mitgliedschaft nach dem Commit ohnehin als bestehend —
+    // die Zusicherung unten gilt in beiden Faellen.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    releaseHolder();
+    await holder;
+
+    expect(await accepting).toEqual({ accepted: true });
+    // Die Rolle der Einladung (ADMIN) bleibt ohne Wirkung.
+    expect(await readMembership(newcomerUserId)).toEqual({
+      role: "VIEWER",
+      status: "ACTIVE",
+    });
+
+    const rows = await databaseService.database
+      .select({ newValue: auditEvents.newValue })
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.organizationId, organizationId),
+          eq(auditEvents.actorUserId, newcomerUserId),
+          eq(auditEvents.action, "MEMBER_INVITATION_ACCEPTED"),
+        ),
+      );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.newValue).toMatchObject({ membership: "unchanged" });
   }, 30_000);
 });
 

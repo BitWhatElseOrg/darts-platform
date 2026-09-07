@@ -298,8 +298,12 @@ export class OrganizationsRepository {
         return { outcome: "not-found" };
       }
 
+      // Ob diese Annahme die Mitgliedschaft wirklich angelegt hat, sagt erst
+      // die zurueckgegebene Zeile: `on conflict do nothing` schreibt nichts,
+      // wenn eine gleichzeitige Transaktion schneller war.
+      let created: readonly { readonly userId: string }[] = [];
       if (existing === undefined) {
-        await transaction
+        created = await transaction
           .insert(memberships)
           .values({
             organizationId: invitation.organizationId,
@@ -314,7 +318,8 @@ export class OrganizationsRepository {
           // bleibt unangetastet, genau wie in den beiden Faellen darunter.
           .onConflictDoNothing({
             target: [memberships.organizationId, memberships.userId],
-          });
+          })
+          .returning({ userId: memberships.userId });
       } else if (existing.status === "INVITED") {
         await transaction
           .update(memberships)
@@ -329,10 +334,13 @@ export class OrganizationsRepository {
 
       // Haelt fest, ob die Annahme die Mitgliedschaft ueberhaupt angefasst
       // hat — bei einer bestehenden aktiven bleibt die Rolle der Einladung
-      // ohne Wirkung.
+      // ohne Wirkung, und bei einem verlorenen Wettlauf um den `INSERT`
+      // ebenso.
       const membershipEffect =
         existing === undefined
-          ? "created"
+          ? created.length > 0
+            ? "created"
+            : "unchanged"
           : existing.status === "INVITED"
             ? "activated"
             : "unchanged";
