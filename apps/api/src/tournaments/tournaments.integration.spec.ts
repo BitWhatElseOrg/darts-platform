@@ -42,6 +42,7 @@ const organizationId = randomUUID();
 const foreignOrganizationId = randomUUID();
 const userId = randomUUID();
 const foreignUserId = randomUUID();
+const scorerUserId = randomUUID();
 const playerIds = Array.from({ length: 4 }, () => randomUUID());
 const boardIds = [randomUUID(), randomUUID()] as const;
 const auth: AuthContext = {
@@ -50,6 +51,14 @@ const auth: AuthContext = {
 };
 const foreignAuth: AuthContext = {
   user: { id: foreignUserId, email: `foreign-${foreignUserId}@example.test`, name: "Foreign Owner" },
+  session: { id: randomUUID(), expiresAt: new Date(Date.now() + 60_000) },
+};
+// SCORER in derselben Organisation wie `auth` (OWNER) -- Befund 4 des
+// Abschlussreviews: der Test fuer eine Freigabe ohne `tournament:update`
+// verwendete bisher `foreignAuth`, das gar nicht in dieser Organisation ist
+// und damit Mandantentrennung statt fehlender Berechtigung prueft.
+const scorerAuth: AuthContext = {
+  user: { id: scorerUserId, email: `scorer-${scorerUserId}@example.test`, name: "Tournament Scorer" },
   session: { id: randomUUID(), expiresAt: new Date(Date.now() + 60_000) },
 };
 const audit = { correlationId: randomUUID(), ip: "127.0.0.1", userAgent: "vitest" } as const;
@@ -116,6 +125,7 @@ beforeAll(async () => {
   await databaseService.database.insert(users).values([
     { id: userId, email: auth.user.email, displayName: auth.user.name },
     { id: foreignUserId, email: foreignAuth.user.email, displayName: foreignAuth.user.name },
+    { id: scorerUserId, email: scorerAuth.user.email, displayName: scorerAuth.user.name },
   ]);
   await databaseService.database.insert(organizations).values([
     { id: organizationId, name: "Tournament Club", slug: `tournament-${organizationId}`, timezone: "Europe/Zurich", locale: "de-CH" },
@@ -124,6 +134,7 @@ beforeAll(async () => {
   await databaseService.database.insert(memberships).values([
     { organizationId, userId, role: "OWNER", status: "ACTIVE" },
     { organizationId: foreignOrganizationId, userId: foreignUserId, role: "OWNER", status: "ACTIVE" },
+    { organizationId, userId: scorerUserId, role: "SCORER", status: "ACTIVE" },
   ]);
   await databaseService.database.insert(players).values(
     playerIds.map((id, index) => ({
@@ -143,6 +154,7 @@ afterAll(async () => {
   await databaseService.database.delete(organizations).where(eq(organizations.id, foreignOrganizationId));
   await databaseService.database.delete(users).where(eq(users.id, userId));
   await databaseService.database.delete(users).where(eq(users.id, foreignUserId));
+  await databaseService.database.delete(users).where(eq(users.id, scorerUserId));
   await databaseService.onApplicationShutdown();
 });
 
@@ -1250,6 +1262,46 @@ describe("persistent tournament MVP", () => {
     });
   }, 30_000);
 
+  it("laesst eine Freigabe aus einer fremden Organisation nicht zu", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Visibility Foreign Org Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T19:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+
+    // `foreignAuth` ist OWNER der *fremden* Organisation `foreignOrganizationId`
+    // und hat dort gar keine Mitgliedschaft in `organizationId` -- das prueft
+    // Mandantentrennung, nicht das Fehlen von `tournament:update` (dafuer
+    // siehe den folgenden Fall mit `scorerAuth`, Befund 2 des
+    // Abschlussreviews).
+    await expect(
+      service.setVisibility({
+        organizationId,
+        tournamentId: created.id,
+        data: { visibility: "PUBLIC" },
+        auth: foreignAuth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+  }, 30_000);
+
   it("laesst eine Freigabe ohne tournament:update nicht zu", async () => {
     const created = await service.create({
       organizationId,
@@ -1274,12 +1326,16 @@ describe("persistent tournament MVP", () => {
       audit,
     });
 
+    // `scorerAuth` gehoert derselben Organisation an, aber SCORER hat laut
+    // `packages/domain/src/permissions.ts` `tournament:read`, nicht
+    // `tournament:update` -- der eigentliche Fall aus Befund 2 des
+    // Abschlussreviews (der Freigabe-Schalter selbst).
     await expect(
       service.setVisibility({
         organizationId,
         tournamentId: created.id,
         data: { visibility: "PUBLIC" },
-        auth: foreignAuth,
+        auth: scorerAuth,
         audit,
       }),
     ).rejects.toMatchObject({ status: 403 });

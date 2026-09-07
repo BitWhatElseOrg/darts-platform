@@ -15,7 +15,7 @@ export function TournamentDashboardRoute({ requestedOrganizationId, tournamentId
   if (query.error) return <Notice message={userFacingErrorMessage(query.error)} />;
   if (organization === null) return <Notice message="Keine zugängliche Organisation gefunden." />;
   const canCorrect = hasOrganizationPermission(organization.role, "tournament:update");
-  return <CommandCentre canCorrect={canCorrect} canWithdraw={canCorrect} organizationId={organization.id} tournamentId={tournamentId} />;
+  return <CommandCentre canCorrect={canCorrect} canShare={canCorrect} canWithdraw={canCorrect} organizationId={organization.id} tournamentId={tournamentId} />;
 }
 
 function Notice({ message }: { readonly message: string }) {

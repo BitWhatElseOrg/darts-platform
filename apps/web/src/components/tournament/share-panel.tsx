@@ -38,6 +38,13 @@ interface SharePanelProps {
   readonly tournamentId: string;
   readonly publicId: string;
   readonly visibility: TournamentVisibility;
+  /**
+   * `tournament:update`, wie `canCorrect`/`canWithdraw` in
+   * `tournament-dashboard-route.tsx` bereits fuer diesen Bereich berechnen.
+   * Die serverseitige Pruefung bleibt unveraendert massgeblich -- ohne die
+   * Berechtigung soll der Schalter aber erst gar keine Handlung vortaeuschen.
+   */
+  readonly canShare: boolean;
 }
 
 /**
@@ -47,7 +54,7 @@ interface SharePanelProps {
  * Abfrage-Cache der Kommandozentrale zurueck -- derselbe Weg wie jedes
  * andere Kommando dort (`command-centre.tsx`, `queryClient.setQueryData`).
  */
-export function SharePanel({ organizationId, publicId, tournamentId, visibility }: SharePanelProps) {
+export function SharePanel({ canShare, organizationId, publicId, tournamentId, visibility }: SharePanelProps) {
   const queryClient = useQueryClient();
   const [copied, setCopied] = useState(false);
   const state = shareState(visibility);
@@ -114,7 +121,7 @@ export function SharePanel({ organizationId, publicId, tournamentId, visibility 
           aria-checked={visibility === "PUBLIC"}
           aria-label={`Öffentliche Freigabe: ${visibility === "PUBLIC" ? "JA" : "NEIN"}`}
           className="flex min-h-11 items-center overflow-hidden rounded-full border border-sisal-400 font-plate text-label font-bold uppercase tracking-[0.08em] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green disabled:opacity-40"
-          disabled={mutation.isPending}
+          disabled={!canShare || mutation.isPending}
           onClick={() => {
             setCopied(false);
             mutation.mutate(state.next);
