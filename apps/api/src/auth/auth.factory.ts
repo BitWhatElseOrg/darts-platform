@@ -13,6 +13,7 @@ import {
 } from "@darts-platform/database";
 
 import type { RateLimitStorage } from "./auth-rate-limit-storage.js";
+import { CLIENT_IP_HEADER } from "./client-ip.js";
 import {
   INVITATION_CLAIM_HEADER,
   invitationClaimMatches,
@@ -112,6 +113,12 @@ export function createAuth(
     advanced: {
       database: {
         generateId: "uuid",
+      },
+      // Nur dieser eine Header gilt als Adressquelle; `X-Forwarded-For`
+      // wertet Better Auth damit nicht mehr selbst aus (siehe
+      // `client-ip.ts`).
+      ipAddress: {
+        ipAddressHeaders: [CLIENT_IP_HEADER],
       },
     },
   });
