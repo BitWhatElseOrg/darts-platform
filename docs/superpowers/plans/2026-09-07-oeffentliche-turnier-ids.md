@@ -276,10 +276,37 @@ Erwartet: PASS, drei Fälle.
 In `packages/schemas/src/tournament.ts`, oberhalb von `tournamentDashboardSchema`:
 
 ```ts
-export const tournamentVisibilitySchema = z.enum(tournamentVisibilities);
+/**
+ * Die Werte stehen hier woertlich und nicht als Import aus
+ * `@darts-platform/domain`: `packages/schemas` haengt bewusst an nichts ausser
+ * `zod`, und zwei Zeichenketten rechtfertigen keine neue Kante im
+ * Abhaengigkeitsgraphen. Dass beide Listen uebereinstimmen, sichert ein Test
+ * in `apps/api` ab, das ohnehin beide Pakete kennt.
+ */
+export const tournamentVisibilitySchema = z.enum(["PRIVATE", "PUBLIC"]);
 ```
 
-Der Import am Dateikopf: `import { tournamentVisibilities } from "@darts-platform/domain";` — dem bestehenden Importstil der Datei folgen.
+**Kein Import aus `@darts-platform/domain`** in dieser Datei — `packages/schemas/package.json` hat ausser `zod` keine Abhaengigkeiten, und das bleibt so.
+
+Stattdessen entsteht die Klammer als Test. Create `apps/api/src/tournaments/visibility-vocabulary.spec.ts`:
+
+```ts
+import { describe, expect, it } from "vitest";
+
+import { tournamentVisibilities } from "@darts-platform/domain";
+import { tournamentVisibilitySchema } from "@darts-platform/schemas";
+
+describe("Sichtbarkeitsstufen", () => {
+  it("sind in Domain und Schemas dieselben", () => {
+    // Die beiden Listen leben getrennt, damit `packages/schemas` keine
+    // Abhaengigkeit auf die Domain braucht. Diese Zusicherung ist der Preis
+    // dafuer: driften sie auseinander, faellt es hier auf und nicht im Betrieb.
+    expect([...tournamentVisibilities]).toEqual(tournamentVisibilitySchema.options);
+  });
+});
+```
+
+Run: `cd apps/api && npx vitest run src/tournaments/visibility-vocabulary.spec.ts` — erwartet: PASS.
 
 In `tournamentDashboardSchema.shape.tournament` (Zeile 173–187) nach `id` ergänzen:
 
