@@ -23,9 +23,14 @@ export const HEALTH_ALARM_INTERVAL_MS = 60_000;
  * `degraded` schon vorher — nur sah es niemand, solange kein Mensch hinschaute
  * (offener Punkt aus dem Audit: „Alarmierung auf `degraded` fehlt").
  *
- * Alarmiert wird ueber genau EIN Ereignis, `health.alarm`, mit dem Status im
- * Feld: so genuegt in Railway eine einzige Regel auf dieses Muster fuer beide
- * Stufen. Die Erholung meldet `health.recovered`.
+ * Gemeldet wird ueber genau EIN Ereignis, `health.alarm`, mit dem Status im
+ * Feld; die Erholung meldet `health.recovered`.
+ *
+ * Die Alarmierung haengt NICHT an diesem Log: Railway kann nicht auf Logmuster
+ * alarmieren (Begruendung in ARCHITECTURE.md, Abschnitt „Alarmierung"). Sie
+ * laeuft ueber einen externen Keyword-Monitor auf `/api/v1/health`, der
+ * anschlaegt, sobald die Antwort `"status":"ok"` nicht mehr enthaelt. Dieses
+ * Log traegt die Details, die der Monitor von aussen nicht sieht.
  *
  * Bewusst in der API und nicht im Worker: der Zustand entsteht hier, ein
  * zweiter Dienst muesste ihn ueber HTTP erfragen und braeuchte dafuer eine
@@ -71,8 +76,8 @@ export class HealthAlarmService implements OnApplicationBootstrap, OnApplication
       // Scheitert die Messung selbst, ist der Dienst genauso wenig gesund wie
       // bei einer fehlenden Abhaengigkeit — nur ohne Messwerte. Er laeuft
       // deshalb durch DIESELBE Meldung und dieselbe Entprellung: ein eigenes
-      // Ereignis fiele durch die Alarmregel, die auf `health.alarm` horcht,
-      // und stuende ohne Entprellung jede Minute neu im Log.
+      // Ereignis stuende ohne Entprellung jede Minute neu im Log und truebe
+      // damit genau die Spur, die der Ursachenanalyse dient.
       let status: "ok" | "degraded" | "unhealthy";
       let detail: Readonly<Record<string, unknown>>;
       try {
