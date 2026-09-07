@@ -7,6 +7,7 @@ import { parseApplicationEnvironment } from "@darts-platform/config";
 import {
   auditEvents,
   memberships,
+  organizationInvitations,
   organizations,
   users,
 } from "@darts-platform/database";
@@ -66,6 +67,10 @@ const adminUserId = randomUUID();
 const scorerUserId = randomUUID();
 const viewerUserId = randomUUID();
 const foreignUserId = randomUUID();
+// Nur fuer den Annahmepfad einer Einladung: die eine Person ist gesperrt,
+// die andere aktives MEMBER. Beide werden von keinem anderen Test angefasst.
+const suspendedUserId = randomUUID();
+const rejoiningUserId = randomUUID();
 
 /** Rolle und Status einer Mitgliedschaft, direkt aus der Datenbank. */
 async function readMembership(userId: string, inOrganizationId = organizationId) {
@@ -106,6 +111,8 @@ const successorAuth = authFor(successorUserId, "successor");
 const managerAuth = authFor(managerUserId, "manager");
 const adminAuth = authFor(adminUserId, "admin");
 const viewerAuth = authFor(viewerUserId, "viewer");
+const suspendedAuth = authFor(suspendedUserId, "suspended");
+const rejoiningAuth = authFor(rejoiningUserId, "rejoining");
 const audit = {
   correlationId: randomUUID(),
   ip: "127.0.0.1",
@@ -121,6 +128,8 @@ beforeAll(async () => {
     { id: scorerUserId, email: `scorer-${scorerUserId}@example.test`, displayName: "Scorer" },
     { id: viewerUserId, email: viewerAuth.user.email, displayName: "Viewer" },
     { id: foreignUserId, email: `foreign-${foreignUserId}@example.test`, displayName: "Fremde Person" },
+    { id: suspendedUserId, email: suspendedAuth.user.email, displayName: "Gesperrte Person" },
+    { id: rejoiningUserId, email: rejoiningAuth.user.email, displayName: "Bestehendes Mitglied" },
   ]);
   await databaseService.database.insert(organizations).values([
     { id: organizationId, name: "Mitglieder Club", slug: `members-${organizationId}`, timezone: "Europe/Zurich", locale: "de-CH" },
@@ -134,13 +143,15 @@ beforeAll(async () => {
     { organizationId, userId: scorerUserId, role: "SCORER", status: "ACTIVE" },
     { organizationId, userId: viewerUserId, role: "VIEWER", status: "ACTIVE" },
     { organizationId: foreignOrganizationId, userId: foreignUserId, role: "ADMIN", status: "ACTIVE" },
+    { organizationId, userId: suspendedUserId, role: "MEMBER", status: "SUSPENDED" },
+    { organizationId, userId: rejoiningUserId, role: "MEMBER", status: "ACTIVE" },
   ]);
 });
 
 afterAll(async () => {
   await databaseService.database.delete(organizations).where(eq(organizations.id, organizationId));
   await databaseService.database.delete(organizations).where(eq(organizations.id, foreignOrganizationId));
-  for (const userId of [ownerUserId, successorUserId, managerUserId, adminUserId, scorerUserId, viewerUserId, foreignUserId]) {
+  for (const userId of [ownerUserId, successorUserId, managerUserId, adminUserId, scorerUserId, viewerUserId, foreignUserId, suspendedUserId, rejoiningUserId]) {
     await databaseService.database.delete(users).where(eq(users.id, userId));
   }
   await databaseService.onApplicationShutdown();
@@ -433,6 +444,77 @@ describe("Mitgliedschaften verwalten", () => {
 
     expect(await readMembership(managerUserId)).toEqual({ role: "ADMIN", status: "ACTIVE" });
     expect(await auditRowsOf(managerUserId)).toHaveLength(0);
+  }, 30_000);
+});
+
+/**
+ * Die Annahme einer Einladung schrieb die Mitgliedschaft per
+ * `onConflictDoUpdate` und setzte sie dabei unbesehen auf `ACTIVE` mit der
+ * Rolle der Einladung. Eine erneute Einladung hob damit eine Deaktivierung
+ * auf und aenderte eine bestehende Rolle — beides gehoert allein in
+ * `updateMembership`, das dafuer die Eigentumsregeln und den Audit-Eintrag
+ * traegt.
+ */
+describe("Einladung annehmen", () => {
+  it("hebt eine gesperrte Mitgliedschaft nicht auf", async () => {
+    const invitation = await service.invite({
+      organizationId,
+      data: { email: suspendedAuth.user.email, role: "ADMIN" },
+      auth: ownerAuth,
+      audit,
+    });
+
+    await expect(
+      service.acceptInvitation({
+        invitationId: invitation.id,
+        data: { claimToken: invitation.claimToken },
+        auth: suspendedAuth,
+        audit,
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: { code: "MEMBERSHIP_SUSPENDED" },
+    });
+
+    expect(await readMembership(suspendedUserId)).toEqual({
+      role: "MEMBER",
+      status: "SUSPENDED",
+    });
+    // Die Einladung bleibt offen: nach einer Reaktivierung durch einen OWNER
+    // soll sie noch annehmbar sein.
+    const [stored] = await databaseService.database
+      .select({ status: organizationInvitations.status })
+      .from(organizationInvitations)
+      .where(eq(organizationInvitations.id, invitation.id));
+    expect(stored?.status).toBe("PENDING");
+  }, 30_000);
+
+  it("laesst die Rolle eines bestehenden aktiven Mitglieds unveraendert", async () => {
+    const invitation = await service.invite({
+      organizationId,
+      data: { email: rejoiningAuth.user.email, role: "ADMIN" },
+      auth: ownerAuth,
+      audit,
+    });
+
+    expect(
+      await service.acceptInvitation({
+        invitationId: invitation.id,
+        data: { claimToken: invitation.claimToken },
+        auth: rejoiningAuth,
+        audit,
+      }),
+    ).toEqual({ accepted: true });
+
+    expect(await readMembership(rejoiningUserId)).toEqual({
+      role: "MEMBER",
+      status: "ACTIVE",
+    });
+    const [stored] = await databaseService.database
+      .select({ status: organizationInvitations.status })
+      .from(organizationInvitations)
+      .where(eq(organizationInvitations.id, invitation.id));
+    expect(stored?.status).toBe("ACCEPTED");
   }, 30_000);
 });
 
