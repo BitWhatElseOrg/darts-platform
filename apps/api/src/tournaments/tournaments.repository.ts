@@ -181,14 +181,29 @@ export class TournamentsRepository {
     );
   }
 
-  public async getPublicDashboardData(tournamentId: string): Promise<TournamentDashboardData | null> {
+  /**
+   * Die eine Abfrage dieses Repositories ohne `organizationId` (AGENTS.md §14).
+   * Das ist kein Versehen: die `public_id` IST der Schluessel einer oeffentlich
+   * geteilten Adresse, und der Mandant faellt aus dem Treffer heraus. Jede
+   * andere Abfrage bleibt mandantengebunden.
+   */
+  public async getPublicDashboardDataByPublicId(
+    publicId: string,
+  ): Promise<TournamentDashboardData | null> {
     const [tournament] = await this.databaseService.database
-      .select({ organizationId: tournaments.organizationId })
+      .select({
+        organizationId: tournaments.organizationId,
+        id: tournaments.id,
+        visibility: tournaments.visibility,
+      })
       .from(tournaments)
-      .where(eq(tournaments.id, tournamentId))
+      .where(eq(tournaments.publicId, publicId))
       .limit(1);
     if (tournament === undefined) return null;
-    return this.getDashboardData(tournament.organizationId, tournamentId);
+    // Ein privates Turnier ist von aussen nicht von einem nicht existierenden
+    // zu unterscheiden — der Aufrufer wirft in beiden Faellen 404.
+    if (tournament.visibility !== "PUBLIC") return null;
+    return this.getDashboardData(tournament.organizationId, tournament.id);
   }
 
   public async getDashboardData(
