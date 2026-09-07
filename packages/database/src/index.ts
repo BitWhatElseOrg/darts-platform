@@ -2,6 +2,8 @@ export {
   createDatabaseConnection,
   type Database,
   type DatabaseConnection,
+  type DatabaseExecutor,
+  type DatabaseTransaction,
 } from "./client.js";
 export { migrateDatabase } from "./migration-runner.js";
 export {

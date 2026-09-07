@@ -48,13 +48,22 @@ export interface ProcessStatisticsOutboxOptions {
  * transaction is aborted" — und ein einzelnes kaputtes Ereignis kostete den
  * ganzen Stapel statt nur sich selbst.
  *
- * Scheitert ein Ereignis, wird der Fehlversuch ueber `recordOutboxFailure`
- * NACH dem Commit auf der Zeile gebucht — innerhalb der Transaktion waere
- * die Buchung vom Rollback des Savepoints nicht betroffen, wohl aber von
- * einem spaeteren Fehler des Stapels. Nach `maxAttempts` Versuchen wandert
- * das Ereignis ins Dead Letter und faellt damit aus `outboxPending` heraus;
- * `recordOutboxFailure` protokolliert das selbst als
- * `outbox.retry_scheduled` beziehungsweise `outbox.dead_letter`.
+ * Scheitert ein Ereignis, bucht `recordOutboxFailure` den Fehlversuch noch
+ * INNERHALB der beanspruchenden Transaktion, unmittelbar nachdem der
+ * Savepoint zurueckgerollt ist. Nach dem Commit zu buchen liess ein Fenster
+ * offen, in dem die Zeile bereits entsperrt, aber noch ohne Zaehler und
+ * Backoff war: eine zweite Replik konnte sie darin greifen und den Backoff
+ * umgehen. Unter der Sperre gebucht, steht beides in dem Moment, in dem die
+ * Sperre faellt. Verloren geht die Buchung dadurch nur, wenn die Transaktion
+ * selbst scheitert — dann bliebe sie ohnehin aus, weil dieser Aufruf dann
+ * wirft, bevor irgendetwas nachgelagert laufen koennte.
+ *
+ * Die Buchung liegt dafuer in einem eigenen Savepoint: schluege sie mit einem
+ * Postgres-Fehler fehl, waere sonst die ganze Transaktion beendet und der
+ * Stapel verloren. Nach `maxAttempts` Versuchen wandert das Ereignis ins Dead
+ * Letter und faellt damit aus `outboxPending` heraus; `recordOutboxFailure`
+ * protokolliert das selbst als `outbox.retry_scheduled` beziehungsweise
+ * `outbox.dead_letter`.
  *
  * Der Poller liest organisationsuebergreifend: ein Systemprozess ohne
  * Benutzeranfrage, der je Ereignis mit dessen eigener `organizationId`
@@ -68,7 +77,6 @@ export async function processStatisticsOutbox(
   const currentTime = now();
   const maxAttempts = options.maxAttempts ?? OUTBOX_MAX_ATTEMPTS;
 
-  const failures: { readonly eventId: string; readonly error: unknown }[] = [];
   const claimed = await database.transaction(async (transaction) => {
     const events = await transaction
       .select()
@@ -133,37 +141,36 @@ export async function processStatisticsOutbox(
           });
         });
       } catch (error) {
-        failures.push({ eventId: event.id, error });
+        // Eigener Savepoint um die Buchung: scheitert sie mit einem
+        // Postgres-Fehler, kostet das nur dieses Ereignis, nicht den Stapel.
+        try {
+          await transaction.transaction(async (savepoint) => {
+            await recordOutboxFailure({
+              executor: savepoint,
+              consumer: "statistics",
+              eventId: event.id,
+              error,
+              now: currentTime,
+              maxAttempts,
+              logger,
+            });
+          });
+        } catch (bookingError) {
+          logger.emit("error", {
+            event: "outbox.failure_booking_failed",
+            consumer: "statistics",
+            eventId: event.id,
+            error:
+              bookingError instanceof Error
+                ? bookingError.message
+                : String(bookingError),
+          });
+        }
       }
     }
 
     return events.length;
   });
-
-  for (const failure of failures) {
-    // Eigenes try/catch um die Buchung selbst: scheitert sie (z. B. eine
-    // Verbindungsstoerung waehrend des `UPDATE`), soll das die Buchung der
-    // uebrigen fehlgeschlagenen Ereignisse dieses Stapels nicht verhindern.
-    try {
-      await recordOutboxFailure({
-        database,
-        consumer: "statistics",
-        eventId: failure.eventId,
-        error: failure.error,
-        now: currentTime,
-        maxAttempts,
-        logger,
-      });
-    } catch (bookingError) {
-      logger.emit("error", {
-        event: "outbox.failure_booking_failed",
-        consumer: "statistics",
-        eventId: failure.eventId,
-        error:
-          bookingError instanceof Error ? bookingError.message : String(bookingError),
-      });
-    }
-  }
 
   return claimed;
 }

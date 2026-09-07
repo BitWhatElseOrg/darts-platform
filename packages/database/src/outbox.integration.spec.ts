@@ -130,7 +130,7 @@ describe("recordOutboxFailure gegen Postgres", () => {
 
       const record = (error: string, at: Date) =>
         recordOutboxFailure({
-          database: connection.database,
+          executor: connection.database,
           consumer: "publish",
           eventId: id,
           error: new Error(error),
@@ -172,7 +172,7 @@ describe("recordOutboxFailure gegen Postgres", () => {
 
       await Promise.all([
         recordOutboxFailure({
-          database: connection.database,
+          executor: connection.database,
           consumer: "publish",
           eventId: id,
           error: new Error("gleichzeitiger Fehlversuch A"),
@@ -181,7 +181,7 @@ describe("recordOutboxFailure gegen Postgres", () => {
           logger: silentLogger,
         }),
         recordOutboxFailure({
-          database: connection.database,
+          executor: connection.database,
           consumer: "publish",
           eventId: id,
           error: new Error("gleichzeitiger Fehlversuch B"),
@@ -211,7 +211,7 @@ describe("recordOutboxFailure gegen Postgres", () => {
       const id = await insertOutboxEvent(organizationId, { publishedAt });
 
       const result = await recordOutboxFailure({
-        database: connection.database,
+        executor: connection.database,
         consumer: "publish",
         eventId: id,
         error: new Error("zu spaet"),

@@ -927,7 +927,9 @@ Replik überspringt gesperrte Zeilen, statt dieselben Ereignisse noch einmal zu
 senden oder zu aggregieren. Innerhalb des Stapels läuft jedes Ereignis in einem
 eigenen Savepoint — ein Postgres-Fehler beendet sonst die ganze Transaktion und
 ein einzelnes kaputtes Ereignis kostete den ganzen Durchlauf. Der Fehlversuch
-wird nach dem Commit gebucht.
+wird noch innerhalb derselben Transaktion gebucht, also unter der Zeilensperre:
+Zähler und Backoff stehen in dem Moment, in dem die Sperre fällt, und eine
+zweite Replik greift die Zeile nicht ohne Wartezeit erneut.
 
 ---
 
