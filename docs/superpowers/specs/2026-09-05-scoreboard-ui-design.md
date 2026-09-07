@@ -227,6 +227,22 @@ vorbelegt, wenn rechnerisch nur eine Möglichkeit bleibt. Das Doppelfeld ist in
 beiden Fällen Teil des Dialogs. Ohne Segmentangabe sendet der Dialog stets
 drei Darts.
 
+**Nachtrag (Audit-Korrektur F2).** Unter `inRule: "DOUBLE"` — der Vorgabe
+jedes voreingestellten Ligawettbewerbs — zählt eine Aufnahme erst ab dem
+eröffnenden Doppel. Aus einer blossen Rundensumme ist der Anteil davor nicht
+zu rekonstruieren, die Engine lehnt sie ab
+(`DARTS_REQUIRED_FOR_DOUBLE_IN`). Solange die Seite am Oche im laufenden Leg
+nicht eröffnet hat, zeigt die Fläche deshalb auch im Runden-Modus das
+Dart-Keypad und nennt den Grund in einem Satz; Ziffernfeld und Schnellwerte
+bleiben so lange aus. Sobald die Seite eröffnet hat, kehrt der Runden-Modus
+zurück, und mit jedem neuen Leg beginnt die Regel von vorn. Die Bedingung
+steht als reine Funktion `requiresDartEntry` in `round-entry.ts`; sie liest
+`openedInLeg` aus dem übertragenen Matchzustand.
+
+Der Checkout-Schritt sendet unter Master Out das getroffene Feld als
+`checkoutSegment` (Segment mit Multiplikator) statt als `checkoutDouble` —
+nur so lässt sich ein Triple-Finish belegen.
+
 ### Abweichung von der ursprünglichen Fassung
 
 Ein früherer Entwurf dieses Abschnitts liess den Checkout-Dialog nur bei

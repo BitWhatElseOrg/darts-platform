@@ -326,6 +326,13 @@ export const matches = pgTable(
   (table) => [
     index("matches_organization_status_idx").on(table.organizationId, table.status),
     index("matches_board_id_idx").on(table.boardId),
+    // Turnier und Liga schreiben in getrennte Tabellen; kein Fremdschluessel
+    // verbindet sie. `matches` ist ihre gemeinsame Wurzel — hier greift die
+    // Klammer, die zwei laufende Matches auf einer physischen Scheibe
+    // ausschliesst, auch wenn die Anwendungspruefung einmal danebengreift.
+    uniqueIndex("matches_board_in_progress_unique")
+      .on(table.boardId)
+      .where(sql`${table.status} = 'IN_PROGRESS'`),
     check("matches_status_check", sql`${table.status} in ('IN_PROGRESS', 'COMPLETED', 'ABORTED')`),
     check("matches_starting_score_check", sql`${table.startingScore} >= 2`),
     check("matches_best_of_legs_check", sql`${table.bestOfLegs} > 0 and mod(${table.bestOfLegs}, 2) = 1`),

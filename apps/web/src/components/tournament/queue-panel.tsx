@@ -9,10 +9,16 @@ interface QueuePanelProps {
   readonly queue: readonly QueueEntry[];
   /** The board a manual assignment would go to, if any is open. */
   readonly openBoardName: string | null;
+  /**
+   * Ein Befehl der Zentrale laeuft gerade: die Zuweisung ist gesperrt. Ohne
+   * dieses `disabled` haengt die Sperre allein an der Wache in `assign`
+   * (Render-Closure) und der Knopf sieht bedienbar aus (Re-Review, Befund 3).
+   */
+  readonly disabled: boolean;
   readonly onAssign: (matchId: string) => void;
 }
 
-export function QueuePanel({ onAssign, openBoardName, queue }: QueuePanelProps) {
+export function QueuePanel({ disabled, onAssign, openBoardName, queue }: QueuePanelProps) {
   return (
     <section aria-labelledby="queue-heading" className="flex min-h-0 flex-col">
       <div className="flex items-baseline justify-between gap-3 pb-2">
@@ -60,6 +66,7 @@ export function QueuePanel({ onAssign, openBoardName, queue }: QueuePanelProps) 
                   <Control
                     className="mt-1.5 ml-6.5"
                     density="tight"
+                    disabled={disabled}
                     icon={<MarkFlight size={12} />}
                     onClick={() => onAssign(entry.matchId)}
                     variant="wire"

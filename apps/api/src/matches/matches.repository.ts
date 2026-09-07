@@ -7,9 +7,10 @@ import {
   tournaments, tournamentStages,
   visitDarts, visits,
 } from "@darts-platform/database";
-import { ScoringValidationError, createX01Match, executeX01Command, projectX01Match, type InRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
+import { ScoringValidationError, createX01Match, defaultCheckoutAttempts, executeX01Command, projectX01Match, type InRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
 import type { AbortMatchInput, AbortMatchResponse, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
+import { isBoardInProgressConflict, isBoardOccupied } from "../boards/board-occupancy.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { DatabaseService } from "../database/database.service.js";
 import { applyWithdrawalPropagation } from "../tournaments/apply-withdrawal-propagation.js";
@@ -23,6 +24,12 @@ import { abortScoringMatch } from "./abort-match.js";
 import { lockTournamentScoringContext } from "./tournament-scoring-lock.js";
 
 export type MutationResult = "ok" | "not-found" | "version-conflict" | "controller-conflict";
+/**
+ * Ein Undo eroeffnet ein beendetes Match wieder. Steht auf seiner Scheibe
+ * inzwischen ein anderes Spiel, ist das keine ungueltige Eingabe, sondern ein
+ * Zustand — er wird wie ueberall als belegte Scheibe beantwortet.
+ */
+export type UndoMutationResult = MutationResult | "board-unavailable";
 export type AbortMutationResult = AbortMatchResponse | Exclude<MutationResult, "ok">;
 export type TournamentCorrectionResult =
   | Exclude<MutationResult, "controller-conflict">
@@ -45,6 +52,10 @@ const storedSubmitSchema = z.object({
   seat: seatSchema.optional(), throwerPlayerId: z.uuid().optional(), points: z.number().int(),
   dartsThrown: z.union([z.literal(1), z.literal(2), z.literal(3)]), checkoutDouble: z.number().int().optional(), checkoutAttempts: z.number().int().min(0).max(3).default(0),
   darts: z.array(storedDartSchema).min(1).max(3).optional(),
+  // Das abschliessende Segment mit Multiplikator (x01.ts,
+  // `SubmitVisitCommand.checkoutSegment`). Optional: gespeicherte Kommandos
+  // ohne das Feld werden unveraendert gewertet.
+  checkoutSegment: storedDartSchema.optional(),
   checkoutMissed: z.boolean().optional(),
 });
 const storedUndoSchema = z.object({ type: z.literal("UNDO_LAST_VISIT"), commandId: z.uuid(), targetCommandId: z.uuid() });
@@ -87,6 +98,7 @@ function parseStoredCommand(payload: unknown, seatOfPlayer: (playerId: string) =
     checkoutAttempts: parsed.checkoutAttempts,
     ...(parsed.checkoutDouble === undefined ? {} : { checkoutDouble: parsed.checkoutDouble }),
     ...(parsed.darts === undefined ? {} : { darts: parsed.darts }),
+    ...(parsed.checkoutSegment === undefined ? {} : { checkoutSegment: parsed.checkoutSegment }),
     ...(parsed.checkoutMissed === undefined ? {} : { checkoutMissed: parsed.checkoutMissed }),
   };
 }
@@ -237,6 +249,10 @@ export class MatchesRepository {
         players: rows.map((row) => ({ playerId: row.playerId, displayName: row.displayName, isThrowing: projection.activeThrowerPlayerId === row.playerId })),
         playerId: lead.playerId, displayName: lead.displayName, remaining: projected.remaining, legsWon: projected.totalLegsWon, legsWonInSet: projected.legsWonInSet, setsWon: projected.setsWon,
         isActive: rows.some((row) => projection.activeThrowerPlayerId === row.playerId),
+        // Direkt aus der Projektion: die Flaeche verlangt unter Double In vor
+        // der Eroeffnung Wurfdaten (x01.ts, `assertWritableVisit`) und darf
+        // den Eroeffnungsstand nicht aus `remaining` raten.
+        openedInLeg: projected.openedInLeg,
       };
     };
     return {
@@ -267,6 +283,21 @@ export class MatchesRepository {
   }
 
   public async create(input: { readonly organizationId: string; readonly data: CreateMatchInput; readonly auth: AuthContext; readonly audit: AuditContext }): Promise<string> {
+    try {
+      return await this.createInTransaction(input);
+    } catch (error) {
+      // Der Status der Scheibe wird gesperrt gelesen; kommt trotzdem eine
+      // zweite Zuweisung gleichzeitig durch, meldet der partielle Unique auf
+      // `matches` den Verstoss. Er wird zur selben Fachantwort wie die
+      // Vorpruefung — die Postgres-Meldung erreicht den Client nie.
+      if (isBoardInProgressConflict(error)) {
+        throw new ScoringValidationError("BOARD_NOT_AVAILABLE", "Selected board is not available.");
+      }
+      throw error;
+    }
+  }
+
+  private createInTransaction(input: { readonly organizationId: string; readonly data: CreateMatchInput; readonly auth: AuthContext; readonly audit: AuditContext }): Promise<string> {
     return this.databaseService.database.transaction(async (transaction) => {
       const playerRows = await transaction.select({ id: players.id, status: players.status }).from(players)
         .where(and(eq(players.organizationId, input.organizationId), inArray(players.id, [input.data.playerOneId, input.data.playerTwoId])));
@@ -393,12 +424,27 @@ export class MatchesRepository {
       if (commandSide === undefined) {
         throw new ScoringValidationError("INVALID_MATCH_PARTICIPANTS", "The player does not belong to this match.");
       }
+      // `checkoutAttempts` wird HIER materialisiert (nicht dem `?? 0` in
+      // `storedSubmitSchema` ueberlassen), damit ein Replay denselben Wert
+      // sieht wie die Schreibzeit: die gespeicherte Nutzlast (`payload:
+      // command` unten) traegt das Feld dann immer explizit. Dieselbe
+      // Ableitung wie die Engine selbst (`defaultCheckoutAttempts`), damit ein
+      // API-Client, der z.B. `checkoutSegment` ohne `checkoutAttempts`
+      // schickt, nicht als Checkout mit null Versuchen gezaehlt wird
+      // (PR-Agent-Runde 3, Befund B).
+      const normalizedCheckoutDouble = input.data.checkoutDouble === undefined || input.data.checkoutDouble === null ? undefined : input.data.checkoutDouble;
+      const checkoutAttempts = input.data.checkoutAttempts ?? defaultCheckoutAttempts({
+        ...(normalizedCheckoutDouble === undefined ? {} : { checkoutDouble: normalizedCheckoutDouble }),
+        ...(input.data.checkoutSegment === undefined ? {} : { checkoutSegment: input.data.checkoutSegment }),
+        ...(input.data.checkoutMissed === undefined ? {} : { checkoutMissed: input.data.checkoutMissed }),
+      });
       const command: X01Command = {
         type: "SUBMIT_VISIT", commandId: input.data.commandId, seat: commandSide.seat,
         throwerPlayerId: input.data.playerId, points: input.data.points, dartsThrown: input.data.dartsThrown,
-        checkoutAttempts: input.data.checkoutAttempts ?? 0,
-        ...(input.data.checkoutDouble === undefined || input.data.checkoutDouble === null ? {} : { checkoutDouble: input.data.checkoutDouble }),
+        checkoutAttempts,
+        ...(normalizedCheckoutDouble === undefined ? {} : { checkoutDouble: normalizedCheckoutDouble }),
         ...(input.data.darts === undefined ? {} : { darts: input.data.darts }),
+        ...(input.data.checkoutSegment === undefined ? {} : { checkoutSegment: input.data.checkoutSegment }),
         ...(input.data.checkoutMissed === true ? { checkoutMissed: true } : {}),
       };
       const result = executeX01Command(aggregate, command);
@@ -819,8 +865,20 @@ export class MatchesRepository {
     });
   }
 
-  public undo(input: ActorInput & { readonly data: UndoVisitInput }): Promise<MutationResult> {
-    return this.databaseService.database.transaction(async (transaction): Promise<MutationResult> => {
+  public async undo(input: ActorInput & { readonly data: UndoVisitInput }): Promise<UndoMutationResult> {
+    try {
+      return await this.undoInTransaction(input);
+    } catch (error) {
+      // Zweites Netz: faellt die Pruefung durch ein Rennen hindurch, meldet
+      // der partielle Unique auf `matches` die Doppelbelegung. Fachlich ist
+      // das dieselbe Antwort, kein Serverfehler.
+      if (isBoardInProgressConflict(error)) return "board-unavailable";
+      throw error;
+    }
+  }
+
+  private undoInTransaction(input: ActorInput & { readonly data: UndoVisitInput }): Promise<UndoMutationResult> {
+    return this.databaseService.database.transaction(async (transaction): Promise<UndoMutationResult> => {
       const [duplicate] = await transaction.select({ organizationId: scoreCommands.organizationId, matchId: scoreCommands.matchId }).from(scoreCommands).where(eq(scoreCommands.commandId, input.data.commandId)).limit(1);
       if (duplicate !== undefined) {
         if (duplicate.organizationId === input.organizationId && duplicate.matchId === input.matchId) return "ok";
@@ -849,6 +907,24 @@ export class MatchesRepository {
             "TOURNAMENT_RESULT_REQUIRES_CORRECTION",
             "Published tournament results must be reopened through result correction.",
           );
+        }
+        // Mit dem Ende gibt `syncProjection` die Scheibe frei; das naechste
+        // Paar kann dort laengst stehen. Ein Undo setzt das Match zurueck auf
+        // IN_PROGRESS und stellte damit ein zweites laufendes Spiel auf
+        // dieselbe physische Scheibe. Der Turnierpfad kennt diesen Schutz seit
+        // je (`correctTournamentResult`); Ligaslots und freie Paarungen hatten
+        // ihn nicht.
+        if (match.boardId !== null) {
+          const [board] = await transaction
+            .select()
+            .from(boards)
+            .where(and(eq(boards.organizationId, input.organizationId), eq(boards.id, match.boardId)))
+            .for("update")
+            .limit(1);
+          if (board === undefined || board.status !== "AVAILABLE") return "board-unavailable";
+          if (await isBoardOccupied(transaction, input.organizationId, match.boardId)) {
+            return "board-unavailable";
+          }
         }
       }
       const [latest] = await transaction.select().from(visits).where(and(eq(visits.organizationId, input.organizationId), eq(visits.matchId, input.matchId), isNull(visits.revertedAt))).orderBy(desc(visits.sequence)).limit(1);

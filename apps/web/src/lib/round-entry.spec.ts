@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   appendRoundDigit,
+  checkoutCommandFields,
   checkoutDoubleFromField,
   checkoutFieldOptions,
   checkoutMissLabel,
   checkoutOutRuleFor,
+  checkoutSegmentFromField,
   decodeCheckoutField,
   encodeCheckoutField,
   isRoundEntrySubmittable,
   onlyPossibleDouble,
   removeRoundDigit,
+  requiresDartEntry,
 } from "./round-entry";
 
 describe("appendRoundDigit", () => {
@@ -185,5 +188,61 @@ describe("checkoutDoubleFromField", () => {
 
   it("liefert undefined bei leerem Feld", () => {
     expect(checkoutDoubleFromField("")).toBeUndefined();
+  });
+});
+
+describe("checkoutSegmentFromField", () => {
+  it("liefert das Doppel mit Multiplikator 2", () => {
+    expect(checkoutSegmentFromField("20")).toEqual({ segment: 20, multiplier: 2 });
+  });
+
+  it("liefert Bull als Doppel 25", () => {
+    expect(checkoutSegmentFromField("25")).toEqual({ segment: 25, multiplier: 2 });
+  });
+
+  it("liefert das Triple mit Multiplikator 3", () => {
+    expect(checkoutSegmentFromField("T19")).toEqual({ segment: 19, multiplier: 3 });
+  });
+
+  it("liefert undefined bei leerem Feld", () => {
+    expect(checkoutSegmentFromField("")).toBeUndefined();
+  });
+});
+
+describe("checkoutCommandFields", () => {
+  it("sendet unter Double Out weiterhin checkoutDouble", () => {
+    expect(checkoutCommandFields("16", "DOUBLE")).toEqual({ checkoutDouble: 16 });
+  });
+
+  it("sendet unter Master Out auch fuer ein Doppel das Segment", () => {
+    expect(checkoutCommandFields("16", "MASTER")).toEqual({ checkoutSegment: { segment: 16, multiplier: 2 } });
+  });
+
+  /** Der Befund: ohne Belegfeld lehnt die Engine das Triple-Finish ab. */
+  it("sendet unter Master Out das Triple als Segment", () => {
+    expect(checkoutCommandFields("T20", "MASTER")).toEqual({ checkoutSegment: { segment: 20, multiplier: 3 } });
+  });
+
+  it("sendet ohne gewaehltes Feld gar kein Belegfeld", () => {
+    expect(checkoutCommandFields("", "DOUBLE")).toEqual({});
+    expect(checkoutCommandFields("", "MASTER")).toEqual({});
+  });
+});
+
+describe("requiresDartEntry", () => {
+  it("verlangt unter Double In vor der Eroeffnung die Wurfeingabe", () => {
+    expect(requiresDartEntry({ inRule: "DOUBLE" }, { openedInLeg: false })).toBe(true);
+  });
+
+  it("laesst den Runden-Modus zu, sobald die Seite eroeffnet hat", () => {
+    expect(requiresDartEntry({ inRule: "DOUBLE" }, { openedInLeg: true })).toBe(false);
+  });
+
+  it("laesst den Runden-Modus unter Straight In immer zu", () => {
+    expect(requiresDartEntry({ inRule: "STRAIGHT" }, { openedInLeg: false })).toBe(false);
+  });
+
+  it("verlangt nichts, solange keine Seite am Oche steht", () => {
+    expect(requiresDartEntry({ inRule: "DOUBLE" }, undefined)).toBe(false);
   });
 });

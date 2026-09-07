@@ -461,7 +461,67 @@ tournament_id
 stage_id
 board_id
 (tournament_id, status)
+unique (board_id) where status = 'IN_PROGRESS'   -- matches_board_in_progress_unique
 ```
+
+`matches_board_in_progress_unique` (Migration `0022_board_in_progress_unique`)
+ist die strukturelle Klammer gegen die Doppelbelegung einer physischen Scheibe.
+Turnier (`tournament_matches`) und Liga (`encounter_slots`) tragen je einen
+eigenen partiellen Unique auf `board_id`, doch kein Constraint greift über zwei
+Tabellen. `matches` ist die gemeinsame Wurzel beider Wege und der freien
+Paarung; der partielle Unique lässt dort nur ein laufendes Match je Scheibe zu.
+Ein Verstoss wird in den Zuweisungs-, Erstellungs- und Undo-Pfaden als
+`BOARD_NOT_AVAILABLE` (HTTP 409) beantwortet, nicht als Postgres-Meldung.
+
+Vor dem Ausrollen den Bestand prüfen — die Migration schlägt fehl, wenn heute
+schon zwei laufende Matches auf einer Scheibe stehen:
+
+```sql
+select board_id, count(*) from matches
+where status = 'IN_PROGRESS' and board_id is not null
+group by board_id having count(*) > 1;
+```
+
+Die Migration prüft diesen Bestand seit PR-Agent-Runde 4 (Befund B) selbst,
+in einem `DO $$ … $$`-Block vor `CREATE UNIQUE INDEX`: findet er Duplikate,
+bricht er mit `RAISE EXCEPTION` und einer lesbaren Meldung samt der
+betroffenen `board_id`s und `match_id`s ab, statt Postgres' rohe
+"key is duplicated"-Meldung stehen zu lassen. Die Auswahl, welches der beiden
+Matches beendet wird, bleibt bewusst eine menschliche Entscheidung — eine
+automatische Auswahl in SQL wäre Raten. Bei einem Abbruch: die genannten
+Matches sichten, eines davon über den bestehenden Abbruchpfad (`abort`)
+beenden, danach die Migration erneut laufen lassen.
+
+Sperrdauer: `CREATE UNIQUE INDEX` ohne `CONCURRENTLY` nimmt für die Dauer des
+Aufbaus ein `SHARE`-Lock auf `matches` — der heissesten Tabelle — und blockiert
+solange jedes Schreiben darauf. Bei der heutigen Grösse sind das
+Sekundenbruchteile; das Deployment gehört trotzdem ausserhalb des
+Spielbetriebs. Wächst `matches` deutlich, ist die Migration auf
+`CREATE UNIQUE INDEX CONCURRENTLY` umzustellen (dann ausserhalb einer
+Transaktion, mit anschliessender Prüfung auf `INVALID`).
+
+Commit `5a9c260` korrigiert in `winLeg`, dass `legsWonInSet` beim Satzgewinn
+auf beiden Seiten zurückgesetzt wird — vorher nahm die unterlegene Seite ihre
+Legs aus dem verlorenen Satz in den nächsten Satz mit. Das ist die einzige
+Änderung dieses Branches, die gespeicherte Matches beim nächsten Lesen anders
+wertet: bei `sets_to_win > 1` kann sich der projizierte Zustand eines bereits
+abgeschlossenen Matches ändern (anderer Satzstand, im Extremfall anderer
+Sieger), während `matches.status`, `matches.winner_seat` und ein
+fortgeschriebener Turnierbaum den alten Stand tragen — `syncProjection` läuft
+nur bei Mutationen, nicht beim Lesen.
+
+Vor dem Deploy auf Staging **und** Produktion prüfen:
+
+```sql
+select count(*) from matches where sets_to_win > 1;
+```
+
+- Ergebnis 0: K1 folgenlos, kein weiterer Schritt nötig.
+- Ergebnis > 0: vor dem Ausrollen prüfen, ob unter diesen Matches eines
+  `COMPLETED` ist, dessen Neuprojektion einen anderen Sieger ergibt. Das wäre
+  eine Ergebniskorrektur und eine menschliche Entscheidung nach dem Muster
+  `correctTournamentResult`, keine Deploy-Nebenwirkung. In der Dev-DB: 0
+  solche Matches.
 
 ---
 
@@ -592,6 +652,31 @@ einer Heuristik (`finishesOnMasterSegment` in
 ohne dieses Feld werden unverändert gewertet wie bisher. Es schliesst sich
 mit `checkoutDouble` und mit explizit übergebenen Einzelwürfen (`darts`)
 gegenseitig aus.
+
+### Visit-Kommando: `checkoutSegment`
+
+Dasselbe Kommando trägt ausserdem das optionale Feld `checkoutSegment`
+(`{ segment, multiplier }` wie ein einzelner Wurf). Es benennt das
+abschliessende Segment einer Aufnahme **ohne** Einzelwürfe und verallgemeinert
+damit `checkoutDouble`, das über `checkoutValue` nur D1–D20 und Bull kodieren
+kann: ein Triple-Finish unter der Ausgangsregel `MASTER` (Reglement 1.1,
+Klasse B) liess sich vorher gar nicht belegen.
+
+Gewertet wird es wie der letzte Wurf der Aufnahme — `closesLegWithDarts`
+entscheidet über den Legabschluss —, zusätzlich muss sein Wert in der
+Rundensumme enthalten und der Rest mit den übrigen Darts erreichbar sein. Ein
+gemeldetes Doppel füllt weiterhin `visits.checkout_double`; ein Triple lässt
+die Spalte auf `NULL`, sie kann kein Triple tragen.
+
+`checkoutSegment` ist optional und abwärtskompatibel: gespeicherte Kommandos
+ohne dieses Feld werden unverändert gewertet. Es schliesst sich mit `darts`,
+`checkoutMissed` und `checkoutDouble` gegenseitig aus — zwei Belege zur
+selben Aufnahme wären nicht entscheidbar.
+
+Die Scoringfläche sendet es unter `MASTER` für Doppel wie Triple, unter
+`DOUBLE` bleibt es beim bestehenden `checkoutDouble`
+(`checkoutCommandFields` in
+[`apps/web/src/lib/round-entry.ts`](apps/web/src/lib/round-entry.ts)).
 
 ### Visit-Kommando: `checkoutAttempts` — zwei Einheiten in einer Spalte
 

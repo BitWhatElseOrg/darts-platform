@@ -358,6 +358,31 @@ läuft zunächst mit genau einer Replik, um parallele Migrationsstarts zu
 verhindern. Vor horizontaler Skalierung wird ein eigenständiger
 Pre-Deploy-/Migration-Job eingeführt.
 
+## Deploy-Reihenfolge bei erweitertem Antwortvertrag
+
+Web und API sind getrennte Railway-Dienste und werden nicht atomar
+ausgerollt. Macht ein Release den Antwortvertrag um ein Pflichtfeld reicher,
+scheitert der Zod-Parse im Web an einer noch alten API-Antwort, sobald das
+neue Web zuerst online ist — betroffen ist dann jede Fläche, die diesen
+Vertrag parst, im ersten dokumentierten Fall jede Scoringfläche.
+
+Verbindlich:
+
+- Bei Releases, die den Antwortvertrag um Pflichtfelder erweitern, wird die
+  **API vor dem Web** ausgerollt.
+- Ein Rollback läuft in umgekehrter Reihenfolge: **Web vor API**.
+
+Erster Fall: `openedInLeg` in `matchParticipantStateSchema`
+(`packages/schemas/src/match.ts`, Commits `ca38fc7`/`16bb2aa`) wurde
+Pflichtfeld; `apps/web/src/components/match/match-scoreboard-route.tsx`
+parst die API-Antwort damit.
+
+Rollback-Detail: Ein Zurückrollen der API allein strippt `checkoutSegment`
+aus gespeicherten Kommandos, da `storedSubmitSchema` nicht `.strict()` ist —
+betroffene Master-Out-Finishes fallen dann auf die alte Heuristik zurück; für
+die von der UI erzeugten Fälle liefert sie dasselbe Ergebnis, garantiert ist
+es nicht.
+
 ## Verifikation und Smoke-Test
 
 DNS und Zertifikate werden sowohl bei Cloudflare als auch im Railway-Domainstatus
