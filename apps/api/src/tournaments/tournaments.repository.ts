@@ -206,6 +206,19 @@ export class TournamentsRepository {
     return this.getDashboardData(tournament.organizationId, tournament.id);
   }
 
+  /** Siehe `TournamentsService.publicAddress` — Uebergangsweg mit Frist. */
+  public async getPublicAddress(
+    tournamentId: string,
+  ): Promise<{ readonly publicId: string } | null> {
+    const [row] = await this.databaseService.database
+      .select({ publicId: tournaments.publicId, visibility: tournaments.visibility })
+      .from(tournaments)
+      .where(eq(tournaments.id, tournamentId))
+      .limit(1);
+    if (row === undefined || row.visibility !== "PUBLIC") return null;
+    return { publicId: row.publicId };
+  }
+
   public async getDashboardData(
     organizationId: string,
     tournamentId: string,

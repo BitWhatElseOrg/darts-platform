@@ -200,6 +200,13 @@ export class TournamentsService {
     });
   }
 
+  /** Siehe `PublicTournamentsController.address` — Uebergangsweg mit Frist. */
+  public async publicAddress(tournamentId: string): Promise<{ readonly publicId: string }> {
+    const address = await this.repository.getPublicAddress(tournamentId);
+    if (address === null) throw new NotFoundException("Turnier nicht gefunden.");
+    return address;
+  }
+
   public async assign(input: {
     readonly organizationId: string;
     readonly tournamentId: string;
