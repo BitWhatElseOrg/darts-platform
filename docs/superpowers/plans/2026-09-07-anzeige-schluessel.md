@@ -368,7 +368,7 @@ In `packages/schemas/src/tournament.ts`:
 ```ts
 export const createDisplayKeySchema = z.object({
   label: z.string().trim().min(1).max(80),
-  /** Ohne Angabe: 24 Stunden nach dem Turnierbeginn (der Service setzt sie). */
+  /** Ohne Angabe: 48 Stunden nach dem Turnierbeginn (der Service setzt sie). */
   expiresAt: z.coerce.date().optional(),
 });
 
@@ -409,12 +409,12 @@ Create `apps/api/src/tournaments/display-keys.integration.spec.ts` mit diesen F�
     expect(Object.keys(found ?? {})).not.toContain("secret");
   });
 
-  it("setzt den Ablauf ohne Angabe auf 24 Stunden nach Turnierbeginn", async () => {
+  it("setzt den Ablauf ohne Angabe auf 48 Stunden nach Turnierbeginn", async () => {
     const created = await service.create({
       organizationId, tournamentId, data: { label: "Beamer" }, auth, audit,
     });
 
-    expect(created.expiresAt.getTime()).toBe(tournamentStartsAt.getTime() + 24 * 60 * 60 * 1000);
+    expect(created.expiresAt.getTime()).toBe(tournamentStartsAt.getTime() + 48 * 60 * 60 * 1000);
   });
 
   it("laesst einen gueltigen Schluessel das private Turnier aufloesen", async () => {
@@ -501,7 +501,7 @@ Erwartet: FAIL — die Module fehlen.
 
 - [ ] **Step 5: Service schreiben**
 
-`apps/api/src/tournaments/display-keys.service.ts`. `create` prüft `tournament:share` über `this.access.requirePermission({ organizationId, userId: auth.user.id, permission: "tournament:share" })`, erzeugt Klartext und Hash, setzt `expiresAt` per Vorgabe auf `starts_at + 24 h`, schreibt die Zeile, auditiert (`tournament.display_key_issued` beziehungsweise `tournament.display_key_revoked`) und gibt den Klartext **nur** in dieser einen Antwort zurück.
+`apps/api/src/tournaments/display-keys.service.ts`. `create` prüft `tournament:share` über `this.access.requirePermission({ organizationId, userId: auth.user.id, permission: "tournament:share" })`, erzeugt Klartext und Hash, setzt `expiresAt` per Vorgabe auf `starts_at + 48 h` (ein Turnier laeuft ueber den Abend hinaus oder geht am Folgetag weiter; der Zugang soll nicht mitten im Betrieb sterben), schreibt die Zeile, auditiert (`tournament.display_key_issued` beziehungsweise `tournament.display_key_revoked`) und gibt den Klartext **nur** in dieser einen Antwort zurück.
 
 `resolve` ist der Weg der öffentlichen Route:
 

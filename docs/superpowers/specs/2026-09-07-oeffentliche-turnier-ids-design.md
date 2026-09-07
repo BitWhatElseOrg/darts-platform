@@ -72,8 +72,10 @@ created_by       uuid NOT NULL -> users(id)
 
 Der Klartext des Schlüssels existiert genau einmal: in der Antwort, die ihn erzeugt.
 Danach steht in der Datenbank nur der Hash — ein Datenbankleck gibt keine Zugänge
-her. `expires_at` steht per Vorgabe 24 Stunden nach `starts_at` des Turniers, ist
-beim Ausstellen überschreibbar und jederzeit widerrufbar.
+her. `expires_at` steht per Vorgabe 48 Stunden nach `starts_at` des Turniers, ist
+beim Ausstellen überschreibbar und jederzeit widerrufbar. 48 statt 24 Stunden,
+damit ein Turnier, das über den Abend hinausläuft oder am Folgetag fortgesetzt
+wird, den Zugang nicht mitten im Betrieb verliert.
 
 Ein Schlüssel gilt für ein Turnier, nicht für ein Board: die Board-Ansicht wählt das
 Board über die Adresse, und ein Schlüssel je Board hiesse, an einem Turnierabend acht
@@ -152,12 +154,18 @@ schlägt nach und entscheidet:
 | `PUBLIC` | keiner nötig | Beitritt |
 | `PRIVATE` | Sitzung mit Mitgliedschaft in der Organisation | Beitritt |
 | `PRIVATE` | gültiger Anzeige-Schlüssel (nicht abgelaufen, nicht widerrufen) | Beitritt |
-| `PRIVATE` | keiner | `tournament:denied`, kein Beitritt |
-| unbekannte `public_id` | — | `tournament:denied` |
+| `PRIVATE` | keiner | `subscription:rejected`, kein Beitritt |
+| unbekannte `public_id` | — | `subscription:rejected` |
 
 Die Ablehnung wird gemeldet. Heute kehrt `subscribe` bei ungültiger Eingabe still
 zurück; ein Client wartet dann ewig auf Ereignisse, die nie kommen — die schlechtere
 Variante desselben Fehlers.
+
+Gemeldet wird über das **bestehende** Ereignis `subscription:rejected`, das
+`subscription-limit.ts` für abgewiesene Beitritte schon sendet, mit zwei neuen
+Gründen (`SUBSCRIPTION_FORBIDDEN`, `SUBSCRIPTION_UNKNOWN_ROOM`). Ein eigenes
+`tournament:denied` wäre ein zweiter Zustand für „du bist nicht drin" in jedem
+Client.
 
 Die Entscheidung selbst wird eine reine Funktion in `packages/domain`:
 
