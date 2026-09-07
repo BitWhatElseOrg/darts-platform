@@ -94,7 +94,7 @@ Create `packages/database/src/display-keys.integration.spec.ts` mit drei Fällen
 
 - [ ] **Step 4: Test laufen lassen und scheitern sehen**
 
-Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run ../../packages/database/src/display-keys.integration.spec.ts`
+Run: `cd packages/database && npx dotenv -e ../../.env -- npx vitest run src/display-keys.integration.spec.ts`
 Erwartet: FAIL — Tabelle existiert nicht.
 
 - [ ] **Step 5: Migration einspielen und bestätigen**

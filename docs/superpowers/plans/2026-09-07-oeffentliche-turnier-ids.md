@@ -167,7 +167,7 @@ describe("tournaments.public_id und visibility", () => {
 
 - [ ] **Step 5: Test laufen lassen und scheitern sehen**
 
-Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run ../../packages/database/src/tournament-visibility.integration.spec.ts`
+Run: `cd packages/database && npx dotenv -e ../../.env -- npx vitest run src/tournament-visibility.integration.spec.ts`
 
 Erwartet: FAIL — die Spalten existieren in der Testdatenbank noch nicht.
 
@@ -176,7 +176,7 @@ Hinweis zum Testaufruf: `pnpm --filter … test -- <datei>` filtert in diesem Re
 - [ ] **Step 6: Migration einspielen und Test bestätigen**
 
 Run: `cd packages/database && npx dotenv -e ../../.env -- pnpm db:migrate`
-Dann: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run ../../packages/database/src/tournament-visibility.integration.spec.ts`
+Dann: `cd packages/database && npx dotenv -e ../../.env -- npx vitest run src/tournament-visibility.integration.spec.ts`
 
 Erwartet: PASS, drei Fälle.
 
