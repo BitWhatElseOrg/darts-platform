@@ -12,6 +12,7 @@ import {
   organizations,
   outboxEvents,
   players,
+  tournamentCommands,
   tournamentMatches,
   tournamentParticipants,
   tournamentStages,
@@ -937,5 +938,65 @@ describe("persistent tournament MVP", () => {
     // Was die Live-Ansicht braucht, bleibt.
     expect(dashboard.tournament.name.length).toBeGreaterThan(0);
     expect(dashboard.participants.length).toBeGreaterThan(0);
+  }, 30_000);
+  it("maps a command ID used by another tournament to 400 instead of 500", async () => {
+    const createInput = (name: string) => ({
+      organizationId,
+      data: {
+        name: `${name} ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T15:00:00.000Z"),
+        format: "SINGLE_ELIMINATION" as const,
+        startingScore: 501,
+        inRule: "STRAIGHT" as const,
+        outRule: "DOUBLE" as const,
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED" as const,
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    const target = await service.create(createInput("Foreign Command Cup"));
+    const other = await service.create(createInput("Foreign Command Reference Cup"));
+
+    // Dieselbe `commandId` ist bereits im anderen Turnier verbucht — genau die
+    // Kollision, die `findDuplicateTournamentCommand` mit
+    // `COMMAND_ID_ALREADY_USED` beantwortet. Das ist ein Eingabefehler des
+    // Clients und muss als 400 herauskommen, nicht als 500.
+    const foreignCommandId = randomUUID();
+    await databaseService.database.insert(tournamentCommands).values({
+      commandId: foreignCommandId,
+      organizationId,
+      tournamentId: other.id,
+      type: "ASSIGN_MATCH",
+      payload: {},
+      resultingVersion: 99,
+    });
+
+    await expect(
+      service.correctResult({
+        organizationId,
+        tournamentId: target.id,
+        data: {
+          commandId: foreignCommandId,
+          // Die Duplikatpruefung laeuft vor der Versionspruefung; der Wert ist
+          // hier deshalb ohne Bedeutung.
+          expectedVersion: 0,
+          matchId: randomUUID(),
+          reason: "Die Korrektur traegt eine fremde Kommando-Id.",
+        },
+        auth,
+        audit,
+      }),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: { code: "COMMAND_ID_ALREADY_USED" },
+    });
   }, 30_000);
 });
