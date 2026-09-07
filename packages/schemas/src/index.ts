@@ -78,6 +78,7 @@ export {
   tournamentStructurePreviewSchema,
   tournamentStructurePreviewInputSchema,
   tournamentSummarySchema,
+  tournamentVisibilitySchema,
   withdrawTournamentParticipantSchema,
   type AssignMatchInput,
   type BoardSlot,
