@@ -75,6 +75,9 @@ export default defineRailway(() => {
       NODE_ENV: preserve(),
       PORT: preserve(),
       REDIS_URL: preserve(),
+      // Pflicht in Produktion seit Tier 2 (Rate-Limit-Schluessel je Client
+      // hinter Railways Edge-Proxy); Wert 1 = ein vertrauter Hop.
+      TRUST_PROXY_HOPS: preserve(),
       WEB_ADDITIONAL_ORIGINS: preserve(),
       WEB_ORIGIN: preserve(),
     },
@@ -109,6 +112,9 @@ export default defineRailway(() => {
       LOG_LEVEL: preserve(),
       NODE_ENV: preserve(),
       REDIS_URL: preserve(),
+      // Der Worker parst dieselbe Umgebung; ohne den Wert startet er in
+      // Produktion nicht.
+      TRUST_PROXY_HOPS: preserve(),
       WEB_ORIGIN: preserve(),
     },
   });
