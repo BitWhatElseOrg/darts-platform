@@ -140,6 +140,17 @@ export const matchStateSchema = z.object({
   inRule: inRuleSchema, outRule: outRuleSchema,
   /** Reglement 2.2.9: beim Entscheidungsdoppel wird schon Leg 1 ausgebullt. */
   bullOffFromLegOne: z.boolean(),
+  /**
+   * Reglement 2.2.9: fuer das laufende Leg steht der Anwurf noch aus. Die
+   * Flaeche sperrt daran die Eingabe und verlangt zuerst den Entscheid; der
+   * Schreibpfad nimmt genau in dieser Lage ein `DECIDE_LEG_START` an.
+   */
+  legStartPending: z.boolean(),
+  /**
+   * Anhang 2: die Rundengrenze ist erreicht — das Leg wird ausgebullt statt
+   * weitergeworfen. Die Flaeche zeigt daran das Ausbullen statt der Tastatur.
+   */
+  roundLimitReached: z.boolean(),
   bestOfLegs: z.number().int().positive(), legsToWin: z.number().int().positive(),
   bestOfSets: z.number().int().positive(), setsToWin: z.number().int().positive(), currentSetNumber: z.number().int().positive(),
   currentLegNumber: z.number().int().positive(), currentLegVersion: z.number().int().nonnegative(),

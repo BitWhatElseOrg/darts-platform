@@ -341,6 +341,89 @@ describe("X01 scoring", () => {
     expect(projectX01Match(replayed)).toEqual(expectedFullState);
   });
 
+  /**
+   * Reglement 2.2.9: die Flaeche muss den Anwurf verlangen koennen, bevor
+   * das Leg laeuft. `legStartPending` benennt genau die Lage, in der der
+   * Schreibpfad ein `DECIDE_LEG_START` noch annimmt — entscheidbare
+   * Legnummer, kein Entscheid vorhanden, noch keine Aufnahme im Leg.
+   */
+  describe("legStartPending", () => {
+    it("verlangt den Anwurf im Entscheidungsdoppel schon fuer Leg eins", () => {
+      const match = createX01Match({
+        sides: singles("one", "two"),
+        rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, bullOffFromLegOne: true }),
+      });
+
+      expect(projectX01Match(match).legStartPending).toBe(true);
+    });
+
+    it("verlangt ihn nach dem Entscheid nicht mehr", () => {
+      const match = createX01Match({
+        sides: singles("one", "two"),
+        rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, bullOffFromLegOne: true }),
+      });
+      const decided = executeX01Command(match, {
+        type: "DECIDE_LEG_START",
+        commandId: "bull-leg-one",
+        legNumber: 1,
+        startingSeat: 2,
+      }).match;
+
+      expect(projectX01Match(decided).legStartPending).toBe(false);
+    });
+
+    it("laesst Leg eins und zwei ohne das Flag unangetastet", () => {
+      let match = createX01Match({
+        sides: singles("one", "two"),
+        rules: rules({ startingScore: 40, legsToWinSet: 3, setsToWin: 1 }),
+      });
+      expect(projectX01Match(match).legStartPending).toBe(false);
+
+      match = executeX01Command(match, visit("leg1", 1, "one", 40, 1, 20)).match;
+      expect(projectX01Match(match).legNumber).toBe(2);
+      expect(projectX01Match(match).legStartPending).toBe(false);
+    });
+
+    it("verlangt ihn ab Leg drei", () => {
+      let match = createX01Match({
+        sides: singles("one", "two"),
+        rules: rules({ startingScore: 40, legsToWinSet: 3, setsToWin: 1 }),
+      });
+      match = executeX01Command(match, visit("leg1", 1, "one", 40, 1, 20)).match;
+      match = executeX01Command(match, visit("leg2", 2, "two", 40, 1, 20)).match;
+
+      const state = projectX01Match(match);
+      expect(state.legNumber).toBe(3);
+      expect(state.legStartPending).toBe(true);
+    });
+
+    it("verlangt ihn nicht mehr, sobald im Leg geworfen wurde", () => {
+      let match = createX01Match({
+        sides: singles("one", "two"),
+        rules: rules({ startingScore: 40, legsToWinSet: 3, setsToWin: 1 }),
+      });
+      match = executeX01Command(match, visit("leg1", 1, "one", 40, 1, 20)).match;
+      match = executeX01Command(match, visit("leg2", 2, "two", 40, 1, 20)).match;
+      match = executeX01Command(match, visit("leg3-open", 1, "one", 20, 1)).match;
+
+      // Deckungsgleich mit `LEG_ALREADY_STARTED` im Schreibpfad: was der
+      // Server nicht mehr annimmt, verlangt die Flaeche auch nicht.
+      expect(projectX01Match(match).legStartPending).toBe(false);
+    });
+
+    it("verlangt ihn im beendeten Match nicht", () => {
+      const match = createX01Match({
+        sides: singles("one", "two"),
+        rules: rules({ startingScore: 40, legsToWinSet: 1, setsToWin: 1, bullOffFromLegOne: true }),
+      });
+      const finished = executeX01Command(match, visit("out", 1, "one", 40, 1, 20)).match;
+
+      const state = projectX01Match(finished);
+      expect(state.status).toBe("COMPLETED");
+      expect(state.legStartPending).toBe(false);
+    });
+  });
+
   it("refuses to decide the start of a leg that is already running", () => {
     let match = createX01Match({
       sides: singles("one", "two"),

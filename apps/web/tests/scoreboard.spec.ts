@@ -275,3 +275,27 @@ test("the round mode finishes on a treble under master out", async ({ page }) =>
   await expect(page.getByText("Match beendet")).toBeVisible();
   await expect(page.getByText(`${playerOneName} gewinnt`)).toBeVisible();
 });
+
+/**
+ * Reglement 2.2.9: beim Entscheidungsdoppel (sudden death) wird schon der
+ * Anwurf von Leg eins ausgebullt. Bis zu diesem Test hatte der Entscheid
+ * keinen Weg durch die Oberflaeche — `POST .../leg-start` war nur per API
+ * ausloesbar, und die Flaeche startete stillschweigend auf Sitz eins.
+ */
+test("the scoreboard demands the bull-off before the first leg of a decider", async ({ page }) => {
+  const { organizationId, playerTwoName } = await openScoreboard(page, "anwurf");
+  await applyMatchRules(organizationId, { bullOffFromLegOne: true });
+
+  // Die Flaeche fragt den Matchzustand alle vier Sekunden neu ab; der Dialog
+  // erscheint, sobald die geaenderte Regel angekommen ist.
+  const dialog = page.getByRole("dialog", { name: /Anwurf ausbullen/ });
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole("button", { name: "Single 20" })).toBeDisabled();
+
+  await dialog.getByRole("button", { name: playerTwoName }).click();
+
+  await expect(dialog).toHaveCount(0);
+  // Die ausgebullte Seite ist am Wurf, nicht die vorbelegte Heimseite.
+  await expect(page.getByText(`${playerTwoName} (am Wurf)`)).toBeAttached();
+  await expect(page.getByRole("button", { name: "Single 20" })).toBeEnabled();
+});

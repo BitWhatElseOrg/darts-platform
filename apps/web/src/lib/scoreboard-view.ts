@@ -115,3 +115,31 @@ export function threeDartAverage(input: {
   if (darts === 0) return 0;
   return (own.reduce((sum, visit) => sum + visit.appliedPoints, 0) / darts) * 3;
 }
+
+
+/**
+ * Was die Flaeche entscheiden lassen muss, bevor wieder gezaehlt werden darf.
+ * Beide Lagen meldet der Server im Matchzustand; hergeleitet wird hier nur,
+ * welche von beiden gilt.
+ */
+export type PendingLegDecision =
+  | { readonly kind: "LEG_START"; readonly legNumber: number }
+  | { readonly kind: "LEG_BY_BULL" };
+
+/**
+ * Reglement 2.2.9 (Anwurf ausbullen) und Anhang 2 (Rundengrenze). Ein
+ * beendetes oder abgebrochenes Match entscheidet nichts mehr. Die
+ * Rundengrenze geht vor: sie beendet das laufende Leg, waehrend der Anwurf
+ * ein Leg eroeffnet, das dann bereits laeuft — der Server nimmt dafuer kein
+ * `DECIDE_LEG_START` mehr an (`LEG_ALREADY_STARTED`).
+ */
+export function pendingLegDecision(match: {
+  readonly status: string;
+  readonly currentLegNumber: number;
+  readonly legStartPending: boolean;
+  readonly roundLimitReached: boolean;
+}): PendingLegDecision | null {
+  if (match.status !== "IN_PROGRESS") return null;
+  if (match.roundLimitReached) return { kind: "LEG_BY_BULL" };
+  return match.legStartPending ? { kind: "LEG_START", legNumber: match.currentLegNumber } : null;
+}
