@@ -18,6 +18,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const client = vi.hoisted(() => ({ apiRequest: vi.fn() }));
 vi.mock("@/lib/api-client", () => client);
 
+// `live-tournament.tsx` ruft seit Befund B (Folgereview
+// oeffentliche-turnier-ids) im Fehlerfall `resolvePublicId` auf, dessen Modul
+// beim Import die oeffentliche Client-Umgebung liest. Dieser Test prueft die
+// Verbindungsanzeige, nicht den Uebergangsweg (siehe
+// `live-tournament.legacy-redirect.spec.tsx`) -- beide Module bleiben deshalb
+// gemockt.
+vi.mock("@/lib/live-address", () => ({ resolvePublicId: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }) }));
+
 import { LiveTournament } from "./live-tournament";
 
 const dashboard = {

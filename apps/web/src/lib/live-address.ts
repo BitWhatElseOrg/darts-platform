@@ -10,8 +10,15 @@ const legacyAddressSchema = z.object({ publicId: z.uuid() });
  * `[publicId]`-Segment unter `/live` und wuerden ohne diesen Umweg in eine
  * 404 laufen. `/address` antwortet fuer eine echte `public_id` selbst mit
  * 404 (es sucht ueber die interne ID) -- der Normalfall ist deshalb ein
- * fehlgeschlagener Aufruf, und nur der Fehlerpfad zahlt die zusaetzliche
- * Rundreise.
+ * fehlgeschlagener Aufruf.
+ *
+ * Nur der Fehlerpfad zahlt die zusaetzliche Rundreise: `live-tournament.tsx`
+ * ruft diese Funktion erst client-seitig auf, wenn die oeffentliche
+ * Live-Abfrage mit der uebergebenen ID scheitert, nicht mehr unbedingt vor
+ * dem Rendern in der Server-Komponente (Befund B, Folgereview
+ * oeffentliche-turnier-ids). Jeder Aufruf mit einer echten `public_id` kam
+ * vorher aus genau EINER IP -- dem Web-Container -- und zaehlte gegen die
+ * oeffentliche Rate-Limit-Stufe der API.
  *
  * Liefert die aufgeloeste `publicId`, wenn `value` eine interne ID eines
  * OEFFENTLICHEN Turniers war, sonst `null` -- auch dann, wenn die Antwort
@@ -21,9 +28,10 @@ const legacyAddressSchema = z.object({ publicId: z.uuid() });
  * Die Umleitung ist eine Bequemlichkeit fuer alte Adressen, kein Grund, die
  * Seite scheitern zu lassen: ein *geworfener* Fehler (Timeout, DNS-Ausfall,
  * abgebrochene Verbindung) faellt deshalb ebenso auf `null` zurueck wie eine
- * Non-2xx-Antwort. Ohne dieses `try`/`catch` riss ein solcher Fehler die
- * gesamte Server-Komponente mit -- ausgerechnet auf dem anonymen
- * Publikumsweg (Review-Befund, Fix-Runde 1).
+ * Non-2xx-Antwort. Ohne dieses `try`/`catch` riss ein solcher Fehler
+ * urspruenglich die gesamte Server-Komponente mit -- ausgerechnet auf dem
+ * anonymen Publikumsweg (Review-Befund, Fix-Runde 1); derselbe Schutz gilt
+ * jetzt fuer den client-seitigen Aufruf.
  *
  * ENTFERNEN mit dem Uebergangsweg in der API: eigener PR, Ende Oktober 2026.
  */

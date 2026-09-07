@@ -5,10 +5,12 @@ import { publicTournamentDashboardSchema, type PublicBoardSlot } from "@darts-pl
 import QRCode from "qrcode";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { apiRequest } from "@/lib/api-client";
 import { buildBracketRounds, knockoutLeadsLiveView, type BracketNode, type BracketRound, type BracketSlot } from "@/lib/bracket-tree";
+import { resolvePublicId } from "@/lib/live-address";
 
 interface LiveTournamentProps {
   readonly publicId: string;
@@ -16,7 +18,23 @@ interface LiveTournamentProps {
   readonly boardId?: string;
 }
 
+/**
+ * Zielseite fuer denselben Modus, aber mit der aufgeloesten `publicId` an der
+ * Stelle, an der `publicId` heute steht (Befund B, Folgereview
+ * oeffentliche-turnier-ids).
+ */
+function legacyRedirectTarget(
+  mode: LiveTournamentProps["mode"],
+  boardId: string | undefined,
+  resolvedPublicId: string,
+): string {
+  if (mode === "tv") return `/live/${resolvedPublicId}/tv`;
+  if (mode === "board") return `/live/${resolvedPublicId}/board/${boardId ?? ""}`;
+  return `/live/${resolvedPublicId}`;
+}
+
 export function LiveTournament({ publicId, mode, boardId }: LiveTournamentProps) {
+  const router = useRouter();
   const queryKey = useMemo(() => ["public-live", publicId] as const, [publicId]);
   const query = useQuery({
     queryKey,
@@ -32,12 +50,48 @@ export function LiveTournament({ publicId, mode, boardId }: LiveTournamentProps)
     refetchInterval: 5_000,
   });
 
-  if (query.isPending) return <LiveNotice text="Live-Turnier wird geladen …" />;
   // Wie `live-encounter.tsx`: die oeffentliche Route antwortet mit 404 sowohl
   // fuer ein nicht existierendes als auch fuer ein privates Turnier (Task 4,
   // Datenschutz vor Auskunft), und `apiRequest`s generische Fehlermeldung
   // fuer einen unbekannten Fehlercode waere hier nur verwirrend.
-  if (query.data === undefined) return <LiveNotice text="Turnier nicht gefunden." />;
+  const initialLoadFailed = !query.isPending && query.data === undefined;
+
+  // Befund B (Folgereview oeffentliche-turnier-ids): `resolvePublicId` zahlt
+  // eine Rundreise gegen `/address`, die fuer eine echte `public_id` planmaessig
+  // mit 404 endet (`live-address.ts`). Sie lohnt sich nur, wenn die
+  // Live-Abfrage selbst mit der uebergebenen ID scheitert -- deshalb erst hier
+  // im Client statt vor dem Rendern in der Server-Komponente. `legacyResolution`
+  // ist an die aktuelle `publicId` gebunden: aendert sie sich, gilt eine
+  // fruehere Aufloesung nicht mehr und wird neu versucht.
+  const [legacyResolution, setLegacyResolution] = useState<{ readonly publicId: string; readonly resolved: string | null } | null>(null);
+  const resolvedForCurrent = legacyResolution?.publicId === publicId ? legacyResolution.resolved : undefined;
+
+  useEffect(() => {
+    if (!initialLoadFailed || resolvedForCurrent !== undefined) return;
+    let cancelled = false;
+    void resolvePublicId(publicId).then((resolved) => {
+      if (!cancelled) setLegacyResolution({ publicId, resolved });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialLoadFailed, publicId, resolvedForCurrent]);
+
+  useEffect(() => {
+    if (typeof resolvedForCurrent === "string") {
+      router.replace(legacyRedirectTarget(mode, boardId, resolvedForCurrent));
+    }
+  }, [boardId, mode, resolvedForCurrent, router]);
+
+  if (query.isPending) return <LiveNotice text="Live-Turnier wird geladen …" />;
+  if (initialLoadFailed) {
+    // Solange die Aufloesung laeuft oder eine Umleitung bevorsteht
+    // (`resolvedForCurrent` ist `undefined` bzw. eine `string`), bleibt es bei
+    // der Lade-Meldung -- sonst blitzt "Turnier nicht gefunden." fuer einen
+    // alten Link kurz auf, bevor die Umleitung greift.
+    if (resolvedForCurrent === null) return <LiveNotice text="Turnier nicht gefunden." />;
+    return <LiveNotice text="Live-Turnier wird geladen …" />;
+  }
   const dashboard = query.data;
   const boards = mode === "board"
     ? dashboard.boards.filter((board) => board.boardId === boardId)
