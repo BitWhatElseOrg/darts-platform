@@ -416,6 +416,7 @@ export const setTournamentVisibilitySchema = z.object({
 });
 
 export type TournamentStatus = z.infer<typeof tournamentStatusSchema>;
+export type TournamentVisibility = z.infer<typeof tournamentVisibilitySchema>;
 export type TournamentFormat = z.infer<typeof tournamentFormatSchema>;
 export type SeedingMode = z.infer<typeof seedingModeSchema>;
 export type InRule = z.infer<typeof inRuleSchema>;

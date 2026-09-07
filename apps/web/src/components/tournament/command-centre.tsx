@@ -40,6 +40,7 @@ import { DisruptionsPanel } from "./disruptions-panel";
 import { QueuePanel } from "./queue-panel";
 import { ParticipantDisruptionPanel } from "./participant-disruption-panel";
 import { ResultsPanel } from "./results-panel";
+import { SharePanel } from "./share-panel";
 import { StandingsSheet } from "./standings-sheet";
 
 /**
@@ -612,6 +613,13 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
           connection={dashboardQuery.error === null ? connection : "offline"}
           dashboard={dashboard}
           pendingCount={pending.length}
+        />
+
+        <SharePanel
+          organizationId={organizationId}
+          publicId={dashboard.tournament.publicId}
+          tournamentId={tournamentId}
+          visibility={dashboard.tournament.visibility}
         />
 
         {conflict ? (

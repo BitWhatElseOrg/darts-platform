@@ -112,6 +112,7 @@ export {
   type TournamentStructurePreview,
   type TournamentStructurePreviewInput,
   type TournamentSummary,
+  type TournamentVisibility,
   type WithdrawTournamentParticipantInput,
 } from "./tournament";
 export {
