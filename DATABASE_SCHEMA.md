@@ -806,9 +806,13 @@ Quote. Der Zähler (erfolgreiche Checkout-Aufnahmen) ist davon nicht
 betroffen. Wer die Quote je Einheit sauber ausweisen will, muss nach dem
 Vorhandensein von `visit_darts`-Zeilen trennen.
 
-Matches mit `out_rule = 'SINGLE'` fliessen gar nicht erst in die
-Checkout-Kennzahlen ein. Hat eine Person ausschliesslich solche Matches
-gespielt, liefert `CareerStatistics` für `checkoutPercentage`,
+Massgeblich ist nicht das Match, sondern die aktive Aufnahme dieser Person
+unter Double- oder Master-Out (`reverted_at IS NULL`): Matches mit
+`out_rule = 'SINGLE'` fliessen gar nicht erst in die Checkout-Kennzahlen ein,
+ebenso wenig ein kampflos gewertetes Double-/Master-Out-Match ohne Aufnahmen
+dieser Person oder eines, dessen Aufnahmen vollständig zurückgenommen wurden.
+Bleibt am Ende keine einzige aktive Aufnahme unter Double- oder Master-Out
+übrig, liefert `CareerStatistics` für `checkoutPercentage`,
 `checkoutAttempts` und `checkouts` jeweils `null` — „nicht anwendbar", nicht
 „null Checkouts". Die Fläche zeigt dafür „–".
 

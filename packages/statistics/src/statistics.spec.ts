@@ -74,6 +74,43 @@ describe("Spielerstatistiken", () => {
     expect(career).toMatchObject({ checkoutAttempts: 2, checkouts: 1, checkoutPercentage: 50 });
   });
 
+  it("weist die Checkout-Kennzahlen bei einem kampflos gewerteten Double-Out-Match als nicht anwendbar aus", () => {
+    // PR-Agent-Finding auf #16 ("Incorrect Nullability"): massgeblich ist die
+    // aktive Aufnahme dieser Person, nicht das Match. Ein Walkover hat gar
+    // keine Aufnahmen dieser Person, obwohl das Match unter Double Out laeuft.
+    const walkover: StatisticsMatch = {
+      id: "walkover", completedAt: new Date("2026-02-03T12:00:00Z"), winnerPlayerId: "a",
+      outRule: "DOUBLE",
+      participants: [{ playerId: "a", displayName: "Anna", legsWon: 0, setsWon: 0 }, { playerId: "b", displayName: "Beat", legsWon: 0, setsWon: 0 }],
+      legs: [],
+      visits: [],
+    };
+    const career = calculatePlayerStatistics("a", [walkover]).career;
+
+    expect(career.checkoutPercentage).toBeNull();
+    expect(career.checkoutAttempts).toBeNull();
+    expect(career.checkouts).toBeNull();
+  });
+
+  it("weist die Checkout-Kennzahlen als nicht anwendbar aus, wenn alle Aufnahmen unter Double Out zurueckgenommen wurden", () => {
+    // Dieselbe Begruendung wie beim Walkover: ohne aktive Aufnahme dieser
+    // Person zaehlt das Match nicht, auch wenn urspruenglich geworfen wurde.
+    const revertedOnly: StatisticsMatch = {
+      id: "reverted-only", completedAt: new Date("2026-02-04T12:00:00Z"), winnerPlayerId: "b",
+      outRule: "DOUBLE",
+      participants: [{ playerId: "a", displayName: "Anna", legsWon: 0, setsWon: 0 }, { playerId: "b", displayName: "Beat", legsWon: 1, setsWon: 1 }],
+      legs: [{ id: "l1", winnerPlayerId: "b" }],
+      visits: [
+        { legId: "l1", playerId: "a", appliedPoints: 40, dartsThrown: 2, checkoutAttempts: 2, outcome: "MATCH_WON", reverted: true },
+      ],
+    };
+    const career = calculatePlayerStatistics("a", [revertedOnly]).career;
+
+    expect(career.checkoutPercentage).toBeNull();
+    expect(career.checkoutAttempts).toBeNull();
+    expect(career.checkouts).toBeNull();
+  });
+
   it("rechnet den Rankingverlauf gegen die Bewertung des tatsaechlichen Gegners", () => {
     const between = (id: string, completedAt: string, winnerPlayerId: string): StatisticsMatch => ({
       id, completedAt: new Date(completedAt), winnerPlayerId, outRule: "DOUBLE",
