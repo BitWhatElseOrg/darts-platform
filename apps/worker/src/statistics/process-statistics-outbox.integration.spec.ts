@@ -239,4 +239,38 @@ describe("processStatisticsOutbox", () => {
       aggregateId: healthyMatchId,
     });
   });
+  /**
+   * Derselbe Befund wie I8 beim Relay, hier fuer den Statistik-Konsumenten:
+   * der Poller las ohne `FOR UPDATE SKIP LOCKED`. Zwei Worker-Repliken lesen
+   * damit denselben Stapel und aggregieren jedes Ereignis zweimal —
+   * idempotent, aber doppelte Arbeit. Zwanzig Ereignisse, damit das Fenster
+   * zwischen Lesen und Stempeln im alten Verhalten sicher getroffen wird.
+   */
+  it("laesst eine zweite Replik denselben Stapel nicht ein zweites Mal aggregieren", async () => {
+    const database = connection.database;
+    await database.insert(outboxEvents).values(
+      Array.from({ length: 20 }, (_unused, index) => ({
+        organizationId,
+        aggregateType: "Match",
+        aggregateId: healthyMatchId,
+        eventType: "MATCH_COMPLETED",
+        payload: { matchId: healthyMatchId },
+        occurredAt: new Date(Date.now() + index),
+      })),
+    );
+    const logger = logRecorder();
+    // Nur die eigenen Aufrufe zaehlen: der Poller arbeitet global, parallel
+    // laufende Testdateien schreiben in dieselbe Outbox.
+    const rebuilt: string[] = [];
+    const countOwn = async (playerId: string): Promise<void> => {
+      if (playerId === healthyPlayerId) rebuilt.push(playerId);
+    };
+
+    await Promise.all([
+      processStatisticsOutbox({ database, logger, limit: 500, rebuild: countOwn }),
+      processStatisticsOutbox({ database, logger, limit: 500, rebuild: countOwn }),
+    ]);
+
+    expect(rebuilt).toHaveLength(20);
+  }, 30_000);
 });
