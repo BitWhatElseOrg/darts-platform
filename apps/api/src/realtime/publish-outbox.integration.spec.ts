@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import {
@@ -19,7 +19,7 @@ import {
 } from "@darts-platform/database";
 
 import { DatabaseService } from "../database/database.service.js";
-import { publishOutboxBatch, type RealtimeBroadcaster } from "./publish-outbox.js";
+import { publishOutboxBatch, resolveScope, type RealtimeBroadcaster } from "./publish-outbox.js";
 
 const databaseService = new DatabaseService(parseApplicationEnvironment(process.env));
 const database = databaseService.database;
@@ -531,4 +531,70 @@ describe("publishOutboxBatch — Fehlerbehandlung", () => {
       .where(eq(outboxEvents.id, dead?.id ?? ""));
     expect(stored?.publishedAt).toBeNull();
   });
+  /**
+   * `resolveScope` liegt im `try` je Ereignis — das genuegt aber nur fuer
+   * JavaScript-Fehler. Ein Postgres-Fehler beendet die ganze Transaktion:
+   * jede weitere Anweisung scheitert danach mit "current transaction is
+   * aborted", also auch die Zuordnung der uebrigen Ereignisse und der
+   * Stempel-`UPDATE`. Ein einzelnes kaputtes Ereignis kostete so den ganzen
+   * Tick. Mit einem Savepoint je Ereignis kostet es nur sich selbst.
+   */
+  it("verliert bei einem Datenbankfehler in der Zuordnung nur das betroffene Ereignis", async () => {
+    const created = await database
+      .insert(outboxEvents)
+      .values(
+        Array.from({ length: 3 }, () => ({
+          organizationId,
+          aggregateType: "Encounter",
+          aggregateId: encounterId,
+          eventType: "ENCOUNTER_STARTED",
+          payload: { encounterId },
+        })),
+      )
+      .returning({ id: outboxEvents.id });
+    const poisonId = created[0]?.id ?? "";
+    const healthyIds = created.slice(1).map((row) => row.id);
+    const broadcaster = recorder();
+    const logger = logRecorder();
+
+    await publishOutboxBatch(database, broadcaster, {
+      logger,
+      limit: 500,
+      resolveScope: async (executor, event) => {
+        if (event.id === poisonId) {
+          // Ein echter Postgres-Fehler, nicht ein geworfenes JS-Objekt: nur
+          // er vergiftet die Transaktion.
+          await executor.execute(sql`select 1 / 0`);
+        }
+        return resolveScope(executor, event);
+      },
+    });
+
+    const deliveredIds = broadcaster.sent
+      .map((entry) => entry.payload.eventId ?? "")
+      .filter((eventId) => created.some((row) => row.id === eventId));
+    expect(deliveredIds.sort()).toEqual([...healthyIds].sort());
+
+    const stored = await database
+      .select({
+        id: outboxEvents.id,
+        publishedAt: outboxEvents.publishedAt,
+        publishAttempts: outboxEvents.publishAttempts,
+      })
+      .from(outboxEvents)
+      .where(
+        inArray(
+          outboxEvents.id,
+          created.map((row) => row.id),
+        ),
+      );
+    for (const row of stored) {
+      if (row.id === poisonId) {
+        expect(row.publishedAt).toBeNull();
+        expect(row.publishAttempts).toBe(1);
+      } else {
+        expect(row.publishedAt).not.toBeNull();
+      }
+    }
+  }, 30_000);
 });

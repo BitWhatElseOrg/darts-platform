@@ -11,7 +11,12 @@ import {
 } from "@darts-platform/database";
 
 import type { DatabaseService } from "../database/database.service.js";
-import { toBroadcast, type RealtimeBroadcast, type RealtimeScope } from "./event-routing.js";
+import {
+  toBroadcast,
+  type RealtimeBroadcast,
+  type RealtimeScope,
+  type RoutableEvent,
+} from "./event-routing.js";
 
 type Database = DatabaseService["database"];
 type DatabaseTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
@@ -81,11 +86,21 @@ export async function resolveScope(
   return slot === undefined ? null : { kind: "encounter", id: slot.encounterId };
 }
 
+export type ResolveScope = (
+  executor: OutboxExecutor,
+  event: ResolvableEvent & RoutableEvent,
+) => Promise<RealtimeScope | null>;
+
 export interface PublishOutboxOptions {
   readonly logger: OutboxLogger;
   readonly limit?: number;
   readonly maxAttempts?: number;
   readonly now?: () => Date;
+  /**
+   * Nur fuer Tests: die Zuordnung austauschen, um einen Datenbankfehler
+   * genau in ihr zu erzeugen. In der Anwendung bleibt es bei `resolveScope`.
+   */
+  readonly resolveScope?: ResolveScope;
 }
 
 /**
@@ -161,13 +176,20 @@ export async function publishOutboxBatch(
     if (events.length === 0) return 0;
 
     const stampable: string[] = [];
+    const resolve = options.resolveScope ?? resolveScope;
     for (const event of events) {
       // `resolveScope` liegt bewusst mit im `try`: sein DB-Zugriff kann
       // genauso fehlschlagen wie der Versand selbst, und ein einzelnes
       // kaputtes Ereignis soll auch dann nur sich selbst kosten, nicht den
-      // Rest des Stapels abbrechen.
+      // Rest des Stapels abbrechen. Der Savepoint
+      // (`transaction.transaction`) ist dafuer noetig: ein Postgres-Fehler
+      // beendet sonst die ganze Transaktion, jede weitere Anweisung
+      // scheitert danach mit "current transaction is aborted" — auch die
+      // Zuordnung der uebrigen Ereignisse und der Stempel-`UPDATE`.
       try {
-        const broadcast = toBroadcast(event, await resolveScope(transaction, event));
+        const broadcast = await transaction.transaction(async (savepoint) =>
+          toBroadcast(event, await resolve(savepoint, event)),
+        );
         if (broadcast === null) {
           stampable.push(event.id);
           continue;
