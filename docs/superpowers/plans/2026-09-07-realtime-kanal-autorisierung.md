@@ -539,5 +539,5 @@ git commit -m "docs: oeffentliche Adressierung und Kanal-Autorisierung"
 
 ## Nach diesem Plan
 
-- Der Übergangsweg aus Plan 1 (`/address` und `/live/legacy/[id]`) kann entfernt werden, sobald seine Frist abgelaufen ist — eigener, kleiner PR.
+- Der Übergangsweg aus Plan 1 (`/address` und die Auflösung in `live-address.ts`) kann entfernt werden, sobald seine Frist abgelaufen ist — eigener, kleiner PR.
 - Damit sind die Audit-Befunde I-1b und I-2 geschlossen. Offen aus Tier 3 bleiben I-7 (zusammengesetzte Fremdschlüssel), C10 (Snapshot und `payload_version`), die Design-System-Konsolidierung und die CSP-Nonce.

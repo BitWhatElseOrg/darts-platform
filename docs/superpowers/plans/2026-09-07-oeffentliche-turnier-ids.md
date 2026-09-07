@@ -786,7 +786,7 @@ git commit -m "feat(api): Sichtbarkeit eines Turniers umschalten"
 
 **Files:**
 - Rename: `apps/web/src/app/live/[id]/` → `apps/web/src/app/live/[publicId]/` (samt `tv/` und `board/[boardId]/`)
-- Create: `apps/web/src/app/live/legacy/[id]/page.tsx` (Umleitung)
+- Create: `apps/web/src/lib/live-address.ts` (Auflösung alter Adressen)
 - Modify: `apps/web/src/components/live/live-tournament.tsx`
 - Create: `apps/web/src/components/tournament/share-panel.tsx`
 - Create: `apps/web/src/components/tournament/share-panel.spec.ts`
@@ -807,46 +807,59 @@ In allen drei `page.tsx` unterhalb des neuen Segments den Parameternamen von `id
 
 - [ ] **Step 2: `LiveTournament` auf die publicId umstellen**
 
-In `apps/web/src/components/live/live-tournament.tsx` die Eigenschaft `tournamentId` in `publicId` umbenennen, den Abfragepfad auf `/public/tournaments/${publicId}/live` setzen und den Abfrageschlüssel auf `["public-live", publicId]`. Der Realtime-Aufruf bleibt in Plan 1 unverändert auf `tournamentId` — er wandert in Plan 3. Setze bis dahin einen Kommentar an die Stelle:
+In `apps/web/src/components/live/live-tournament.tsx` die Eigenschaft `tournamentId` in `publicId` umbenennen, den Abfragepfad auf `/public/tournaments/${publicId}/live` setzen und den Abfrageschlüssel auf `["public-live", publicId]`.
+
+**Den Realtime-Aufruf aus dieser Komponente entfernen** (`connectTournamentRealtime` samt `useEffect` und dem `connection`-Zustand, soweit er nur daran hängt). Der Raum heisst bis Plan 3 nach der internen ID, und die liegt der Komponente nach dieser Umstellung nicht mehr vor — ein Beibehalten wäre nicht übersetzbar. `refetchInterval` wird dafür fest auf `5_000` gesetzt, mit diesem Kommentar:
 
 ```tsx
-  // Der Raum laeuft noch auf der internen ID; die Umstellung auf die publicId
-  // gehoert zu Plan 3 (Realtime). Bis dahin traegt die oeffentliche Ansicht
-  // ihre Aktualisierung ueber das Nachladen im Intervall.
+  // Befristet: der Realtime-Raum heisst bis Plan 3 nach der internen ID, die
+  // diese Ansicht nicht mehr kennt. Bis dahin laedt sie im Intervall nach —
+  // wie die Begegnungsansicht heute auch. Plan 3 nimmt beide zurueck in ihre
+  // Raeume, und dieser Kommentar verschwindet mit ihm.
 ```
 
-Und entferne den Realtime-Aufruf aus dieser Komponente, weil die interne ID hier nicht mehr vorliegt: `refetchInterval` wird auf `5_000` fest gesetzt, bis Plan 3 den Raum liefert. Das ist ein bewusster, befristeter Rückschritt für die öffentliche Turnieransicht — sie verhält sich damit wie die Begegnungsansicht heute.
+Das ist ein bewusster, befristeter Rückschritt für die öffentliche Turnieransicht.
 
-- [ ] **Step 3: Die Umleitung anlegen**
+- [ ] **Step 3: Alte Adressen umleiten**
 
-Create `apps/web/src/app/live/legacy/[id]/page.tsx`:
+Alte Links zeigen auf `/live/<interne-id>`. Dieses Muster trifft nach der Umbenennung auf `[publicId]` — ein eigenes Segment wie `/live/legacy/[id]` würde nie erreicht. Die Umleitung gehört deshalb in die Seite selbst: schlägt die öffentliche Auflösung fehl, wird derselbe Wert einmal als interne ID gedeutet.
+
+In `apps/web/src/app/live/[publicId]/page.tsx`:
 
 ```tsx
 import { redirect } from "next/navigation";
 
 import { publicEnvironment } from "@/lib/environment";
+import { LiveTournament } from "@/components/live/live-tournament";
 
-interface LegacyLiveProps {
-  readonly params: Promise<{ readonly id: string }>;
+interface LivePageProps {
+  readonly params: Promise<{ readonly publicId: string }>;
 }
 
-/**
- * Adressen, die vor der Umstellung geteilt wurden, tragen die interne ID. Sie
- * werden hier einmal uebersetzt und umgeleitet.
- *
- * ENTFERNEN mit dem Uebergangsweg in der API: eigener PR, Ende Oktober 2026.
- */
-export default async function LegacyLivePage({ params }: LegacyLiveProps) {
-  const { id } = await params;
+export default async function LivePage({ params }: LivePageProps) {
+  const { publicId } = await params;
+
+  // Uebergangsweg: Adressen, die vor der Umstellung geteilt wurden, tragen die
+  // interne ID. Sie treffen auf dieses Segment und wuerden ohne diesen Umweg
+  // in eine 404 laufen. Nur der Fehlerpfad zahlt die zusaetzliche Abfrage.
+  //
+  // ENTFERNEN mit dem Uebergangsweg in der API: eigener PR, Ende Oktober 2026.
   const response = await fetch(
-    `${publicEnvironment.NEXT_PUBLIC_API_URL}/public/tournaments/${id}/address`,
+    `${publicEnvironment.NEXT_PUBLIC_API_URL}/public/tournaments/${publicId}/address`,
     { cache: "no-store" },
   );
-  if (!response.ok) redirect("/turniere");
-  const { publicId } = (await response.json()) as { readonly publicId: string };
-  redirect(`/live/${publicId}`);
+  if (response.ok) {
+    const address = (await response.json()) as { readonly publicId: string };
+    if (address.publicId !== publicId) redirect(`/live/${address.publicId}`);
+  }
+
+  return <LiveTournament publicId={publicId} mode="publikum" />;
 }
 ```
+
+Die Abfrage läuft vor dem Rendern und kostet eine Rundreise auf jedem Aufruf. Das ist der Preis der Übergangsfrist und einer der Gründe, sie zu befristen. `/address` antwortet für eine `public_id` mit 404 (es sucht über die interne ID) — deshalb ist der Normalfall ein fehlgeschlagener Aufruf, und die Bedingung `address.publicId !== publicId` fängt den Sonderfall ab, dass beide Werte zusammenfallen.
+
+Für `tv/page.tsx` und `board/[boardId]/page.tsx` gilt dasselbe; ziehe die Auflösung in eine gemeinsame Hilfsfunktion `resolvePublicId(publicId: string): Promise<string | null>` in `apps/web/src/lib/live-address.ts`, statt sie dreimal zu schreiben.
 
 - [ ] **Step 4: Den fehlschlagenden Test für den Freigabe-Bereich schreiben**
 
@@ -923,7 +936,7 @@ git commit -m "feat(web): oeffentliche Turnieradressen und Freigabe-Bereich"
 
 ## Nach diesem Plan
 
-- **In die offenen Punkte eintragen:** Der Übergangsweg (`/address` und `/live/legacy/[id]`) hat eine Frist bis Ende Oktober 2026. Solange er steht, bleibt die interne ID ein gültiger Adressweg.
+- **In die offenen Punkte eintragen:** Der Übergangsweg (`/address` und die Auflösung in `live-address.ts`) hat eine Frist bis Ende Oktober 2026. Solange er steht, bleibt die interne ID ein gültiger Adressweg.
 - **In die offenen Punkte eintragen:** Die öffentliche Turnieransicht lädt bis Plan 3 im 5-Sekunden-Intervall nach, statt im Raum zu hängen.
 - **ARCHITECTURE.md** um den Abschnitt zur öffentlichen Adressierung ergänzen, sobald Plan 3 den Realtime-Teil abgeschlossen hat — nicht dreimal dieselbe Stelle umschreiben.
 - **Plan 2** (Anzeige-Schlüssel) und **Plan 3** (Realtime) schreiben.
