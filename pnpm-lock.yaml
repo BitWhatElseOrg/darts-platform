@@ -301,6 +301,9 @@ importers:
         specifier: ^3.4.7
         version: 3.4.9
     devDependencies:
+      '@darts-platform/config':
+        specifier: workspace:*
+        version: link:../config
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3

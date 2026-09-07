@@ -671,6 +671,18 @@ export const tournaments = pgTable(
     organizationId: uuid("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
+    /**
+     * Zweite, unerratbare Adresse des Turniers. Sie steht in oeffentlichen
+     * Links und in den Realtime-Raeumen; der Primaerschluessel bleibt intern
+     * (Audit B, I-1b). Gleiches Muster wie `encounters.publicId`.
+     */
+    publicId: uuid("public_id").defaultRandom().notNull(),
+    /**
+     * `PRIVATE` ist die Vorgabe: ein neues Turnier ist erst oeffentlich, wenn
+     * die Leitung es freigibt. Der Bestand wurde bei der Migration einmalig
+     * auf `PUBLIC` gehoben, damit sich fuer nichts Laufendes etwas aendert.
+     */
+    visibility: varchar("visibility", { length: 20 }).default("PRIVATE").notNull(),
     name: varchar("name", { length: 120 }).notNull(),
     status: varchar("status", { length: 30 }).default("READY").notNull(),
     format: varchar("format", { length: 40 }).notNull(),
@@ -722,6 +734,11 @@ export const tournaments = pgTable(
       sql`${table.knockoutSize} in (2, 4, 8, 16, 32, 64)`,
     ),
     check("tournaments_seeding_check", sql`${table.seeding} in ('SEEDED', 'RANDOM')`),
+    uniqueIndex("tournaments_public_id_unique").on(table.publicId),
+    check(
+      "tournaments_visibility_check",
+      sql`${table.visibility} in ('PRIVATE', 'PUBLIC')`,
+    ),
   ],
 );
 
