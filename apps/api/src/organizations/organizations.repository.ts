@@ -299,12 +299,22 @@ export class OrganizationsRepository {
       }
 
       if (existing === undefined) {
-        await transaction.insert(memberships).values({
-          organizationId: invitation.organizationId,
-          userId: input.userId,
-          role: invitation.role,
-          status: "ACTIVE",
-        });
+        await transaction
+          .insert(memberships)
+          .values({
+            organizationId: invitation.organizationId,
+            userId: input.userId,
+            role: invitation.role,
+            status: "ACTIVE",
+          })
+          // Auf eine fehlende Zeile laesst sich keine Sperre nehmen: legt
+          // eine gleichzeitige Transaktion die Mitgliedschaft zwischen der
+          // Pruefung oben und diesem `INSERT` an, waere der Primaerschluessel
+          // verletzt. Nichts zu tun ist hier richtig — die bestehende Zeile
+          // bleibt unangetastet, genau wie in den beiden Faellen darunter.
+          .onConflictDoNothing({
+            target: [memberships.organizationId, memberships.userId],
+          });
       } else if (existing.status === "INVITED") {
         await transaction
           .update(memberships)
@@ -317,19 +327,23 @@ export class OrganizationsRepository {
           );
       }
 
+      // Haelt fest, ob die Annahme die Mitgliedschaft ueberhaupt angefasst
+      // hat — bei einer bestehenden aktiven bleibt die Rolle der Einladung
+      // ohne Wirkung.
+      const membershipEffect =
+        existing === undefined
+          ? "created"
+          : existing.status === "INVITED"
+            ? "activated"
+            : "unchanged";
+
       await transaction.insert(auditEvents).values({
         organizationId: invitation.organizationId,
         actorUserId: input.userId,
         action: "MEMBER_INVITATION_ACCEPTED",
         entityType: "OrganizationInvitation",
         entityId: invitation.id,
-        // `membership` haelt fest, ob die Annahme die Mitgliedschaft
-        // ueberhaupt angefasst hat — bei einer bestehenden aktiven bleibt die
-        // Rolle in der Einladung ohne Wirkung.
-        newValue: {
-          role: invitation.role,
-          membership: existing === undefined ? "created" : existing.status === "INVITED" ? "activated" : "unchanged",
-        },
+        newValue: { role: invitation.role, membership: membershipEffect },
         ip: input.audit.ip,
         userAgent: input.audit.userAgent,
         correlationId: input.audit.correlationId,
