@@ -1088,7 +1088,8 @@ Grafana optional
 
 Die API prüft ihren eigenen Health-Zustand jede Minute selbst
 (`health-alarm.service.ts`) und meldet ihn ins Log, statt darauf zu warten,
-dass jemand `/api/v1/health` abfragt. Alarmiert wird über genau ein Ereignis:
+dass jemand `/api/v1/health` abfragt. Das geschieht über genau ein
+Ereignis:
 
 ```text
 health.alarm       status=degraded  → Warnstufe
@@ -1096,16 +1097,40 @@ health.alarm       status=unhealthy → Fehlerstufe
 health.recovered   downForSeconds=… → Normalstufe
 ```
 
-Eine einzige Railway-Regel auf das Muster `health.alarm` deckt damit beide
-Stufen ab. Gemeldet wird bei jedem Statuswechsel und danach alle 15 Minuten
-erneut, solange die Störung anhält — ohne Wiederholung feuerte eine
-musterbasierte Regel nur ein einziges Mal. Ein Dienst, der bereits
-beeinträchtigt hochkommt, meldet sofort; ein gesunder Start meldet nichts.
+Gemeldet wird bei jedem Statuswechsel und danach alle 15 Minuten erneut,
+solange die Störung anhält. Ein Dienst, der bereits beeinträchtigt hochkommt,
+meldet sofort; ein gesunder Start meldet nichts.
 
 Scheitert die Messung selbst, gilt das als `unhealthy` und läuft durch
-dieselbe Meldung samt Entprellung (`checkFailed: true` im Feld). Ein eigenes
-Ereignis fiele sonst durch die Regel und stünde ohne Entprellung jede Minute
-neu im Log.
+dieselbe Meldung samt Entprellung (`checkFailed: true` im Feld) — ein eigenes
+Ereignis stünde ohne Entprellung jede Minute neu im Log.
+
+Diese Logspur trägt die Ursachenanalyse, nicht die Alarmierung: **Railway kann
+nicht auf Logmuster alarmieren.** Monitore hängen zwar an jedem
+Dashboard-Element, auch an einem Log-Element, ihre Konfiguration kennt aber
+ausschliesslich metrische Schwellwerte (`MetricMeasurement` – CPU, RAM, Disk,
+Egress) auf den Ressourcen `SERVICE` und `VOLUME`. Die Benachrichtigungsregeln
+decken Plattformereignisse ab (Deploy, Volume, Monitor), und native Log-Drains
+gibt es nicht. Per GraphQL-Introspektion geprüft am 2026-09-07; Monitore
+setzen zudem den Pro-Tarif voraus, der Workspace läuft auf Hobby.
+
+Alarmiert wird deshalb von aussen, über einen Keyword-Monitor bei Better Stack
+auf `https://api.dartbase.ch/api/v1/health`:
+
+```text
+Bedingung     Antwort enthält "status":"ok" nicht
+Takt          alle 3 Minuten
+Bestätigung   3 Minuten – zwei Fehlprüfungen, damit ein Deploy nicht meldet
+Erholung      3 Minuten
+Kanal         E-Mail an den primären Verantwortlichen
+```
+
+Der Monitor deckt beide Stufen ab, weil `degraded` zwar HTTP 200 liefert, im
+Rumpf aber `"status":"degraded"` steht; `unhealthy` antwortet ohnehin mit 503.
+Wird der Statuscode oder das Feld `status` je umbenannt, ist der Monitor
+mitzuziehen — er ist die einzige Stelle, die eine Störung nach aussen meldet.
+Was das Log dem Monitor voraus hat, sind die Details: `services`, `outbox`,
+`checkFailed` und `downForSeconds`, sieben Tage lang im Railway-Log.
 
 Der Wachdienst liegt bewusst in der API und nicht im Worker: der Zustand
 entsteht dort, und der CI-Rauchtest greift die Worker-Logs auf Fehlerstufen ab
@@ -1126,8 +1151,19 @@ Abfragezeichenkette und Fragment fallen weg, damit ein Einladungscode oder ein
 Zurücksetzen-Token aus der Adresszeile nicht in den Betriebslogs landet.
 Protokolliert wird als `csp.violation` auf Warnstufe.
 
-Die Policy bleibt vorerst Report-Only. Erzwungen wird sie in einem eigenen PR,
-sobald echte Meldungen zeigen, dass nichts Notwendiges blockiert würde.
+Seit 2026-09-07 wird die Policy **erzwungen**. Den Beleg lieferte nicht der
+Betrieb — dort besucht niemand planmässig alle Seiten — sondern die
+E2E-Suite: die Wache in `apps/web/tests/fixtures.ts` horcht auf
+`securitypolicyviolation` und meldete über alle Fälle hinweg ausschliesslich
+`script-src → eval` aus dem Übersetzer von `next dev`, keine einzige Meldung
+zu `img-src`, `connect-src`, `style-src`, `font-src` oder `default-src`. Der
+Produktionsbuild enthält kein `eval`; `'unsafe-eval'` trägt deshalb nur der
+Entwicklungsserver (`apps/web/src/lib/content-security-policy.ts`, dort
+geprüft). Die Wache bleibt stehen und hält den Beleg aufrecht: wer eine
+externe Ressource einbindet, sieht es im E2E-Lauf statt erst im Betrieb.
+
+Gemeldet wird weiterhin über beide Wege — was jetzt als `csp.violation`
+auftaucht, hat ein Browser tatsächlich blockiert.
 
 ---
 
