@@ -87,6 +87,8 @@ export const organizationMemberSchema = z.object({
   status: membershipStatusSchema,
 });
 
+export const organizationMemberListSchema = z.array(organizationMemberSchema);
+
 /**
  * `OWNER` ist hier zugelassen, damit Eigentum uebertragbar bleibt — ein
  * Vorstandswechsel darf nicht am Schema scheitern. Wer OWNER vergeben darf,

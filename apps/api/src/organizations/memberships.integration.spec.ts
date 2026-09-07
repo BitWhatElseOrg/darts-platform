@@ -611,6 +611,121 @@ describe("Einladung annehmen", () => {
   }, 30_000);
 });
 
+/**
+ * Die Mitgliederverwaltung braucht eine Liste: `PATCH` allein liess sich nur
+ * bedienen, wenn die Ziel-`userId` schon bekannt war — eine Oberflaeche gab
+ * es deshalb nicht.
+ */
+describe("Mitglieder auflisten", () => {
+  it("listet die Mitgliedschaften der eigenen Organisation nach Namen", async () => {
+    const members = await service.listMembers({ organizationId, auth: ownerAuth });
+
+    expect(members.map((member) => member.userId)).toContain(ownerUserId);
+    expect(members.map((member) => member.userId)).not.toContain(foreignUserId);
+    expect([...members].sort((left, right) => left.displayName.localeCompare(right.displayName))).toEqual(members);
+    expect(members.find((member) => member.userId === suspendedUserId)).toMatchObject({
+      role: "MEMBER",
+      status: "SUSPENDED",
+      email: suspendedAuth.user.email,
+    });
+  }, 30_000);
+
+  it("weist eine Rolle ohne Mitgliederverwaltung ab", async () => {
+    await expect(
+      service.listMembers({ organizationId, auth: viewerAuth }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  }, 30_000);
+
+  it("weist eine fremde Organisation ab", async () => {
+    await expect(
+      service.listMembers({ organizationId: foreignOrganizationId, auth: ownerAuth }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  }, 30_000);
+});
+
+/**
+ * Eine offene Einladung liess sich bisher nur durch eine neue Einladung
+ * derselben Adresse verdraengen. Zuruecknehmen ist der fehlende Gegenweg —
+ * mit Audit-Eintrag und entwertetem Claim-Token.
+ */
+describe("Einladung zuruecknehmen", () => {
+  it("setzt sie auf CANCELLED und entwertet den Claim-Token", async () => {
+    const invitation = await service.invite({
+      organizationId,
+      data: { email: `zurueckgezogen-${randomUUID()}@example.test`, role: "MEMBER" },
+      auth: ownerAuth,
+      audit,
+    });
+
+    await service.cancelInvitation({ organizationId, invitationId: invitation.id, auth: ownerAuth, audit });
+
+    const [stored] = await databaseService.database
+      .select({ status: organizationInvitations.status, claimTokenHash: organizationInvitations.claimTokenHash })
+      .from(organizationInvitations)
+      .where(eq(organizationInvitations.id, invitation.id));
+    expect(stored).toEqual({ status: "CANCELLED", claimTokenHash: null });
+
+    const events = await databaseService.database
+      .select({ action: auditEvents.action })
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.organizationId, organizationId),
+          eq(auditEvents.entityId, invitation.id),
+          eq(auditEvents.action, "MEMBER_INVITATION_CANCELLED"),
+        ),
+      );
+    expect(events).toHaveLength(1);
+  }, 30_000);
+
+  it("meldet eine bereits zurueckgezogene Einladung als nicht gefunden", async () => {
+    const invitation = await service.invite({
+      organizationId,
+      data: { email: `doppelt-${randomUUID()}@example.test`, role: "MEMBER" },
+      auth: ownerAuth,
+      audit,
+    });
+    await service.cancelInvitation({ organizationId, invitationId: invitation.id, auth: ownerAuth, audit });
+
+    await expect(
+      service.cancelInvitation({ organizationId, invitationId: invitation.id, auth: ownerAuth, audit }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  }, 30_000);
+
+  it("erreicht eine Einladung der eigenen Organisation nicht ueber eine fremde", async () => {
+    const invitation = await service.invite({
+      organizationId,
+      data: { email: `fremd-${randomUUID()}@example.test`, role: "MEMBER" },
+      auth: ownerAuth,
+      audit,
+    });
+
+    // Die handelnde Person ist in der fremden Organisation kein Mitglied: die
+    // Berechtigungspruefung greift vor der Zeile.
+    await expect(
+      service.cancelInvitation({ organizationId: foreignOrganizationId, invitationId: invitation.id, auth: ownerAuth, audit }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    const [stored] = await databaseService.database
+      .select({ status: organizationInvitations.status })
+      .from(organizationInvitations)
+      .where(eq(organizationInvitations.id, invitation.id));
+    expect(stored?.status).toBe("PENDING");
+  }, 30_000);
+
+  it("listet die offenen Einladungen der Organisation", async () => {
+    const email = `offen-${randomUUID()}@example.test`;
+    const invitation = await service.invite({ organizationId, data: { email, role: "SCORER" }, auth: ownerAuth, audit });
+
+    const open = await service.listOrganizationInvitations({ organizationId, auth: ownerAuth });
+    expect(open.find((entry) => entry.id === invitation.id)).toMatchObject({ email, role: "SCORER", status: "PENDING" });
+
+    await service.cancelInvitation({ organizationId, invitationId: invitation.id, auth: ownerAuth, audit });
+    const afterCancel = await service.listOrganizationInvitations({ organizationId, auth: ownerAuth });
+    expect(afterCancel.find((entry) => entry.id === invitation.id)).toBeUndefined();
+  }, 30_000);
+});
+
 describe("PATCH /organizations/:organizationId/members/:userId", () => {
   let app: NestFastifyApplication;
 
@@ -633,6 +748,18 @@ describe("PATCH /organizations/:organizationId/members/:userId", () => {
     expect(response.json()).toMatchObject({
       error: { code: "AUTHENTICATION_REQUIRED" },
     });
+  }, 30_000);
+
+  it("verlangt eine Anmeldung auch fuer Liste und Rueckzug", async () => {
+    for (const request of [
+      { method: "GET" as const, url: `/api/v1/organizations/${organizationId}/members` },
+      { method: "GET" as const, url: `/api/v1/organizations/${organizationId}/invitations` },
+      { method: "DELETE" as const, url: `/api/v1/organizations/${organizationId}/invitations/${randomUUID()}` },
+    ]) {
+      const response = await app.inject(request);
+      expect(response.statusCode).toBe(401);
+      expect(response.json()).toMatchObject({ error: { code: "AUTHENTICATION_REQUIRED" } });
+    }
   }, 30_000);
 
   it("liefert den einheitlichen Fehlerkoerper, wenn die handelnde Person die eigene Mitgliedschaft aendern will", async () => {
