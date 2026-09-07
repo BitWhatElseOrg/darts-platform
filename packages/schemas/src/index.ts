@@ -35,6 +35,7 @@ export {
   invitableOrganizationRoleSchema,
   membershipStatusSchema,
   organizationListSchema,
+  organizationMemberListSchema,
   organizationMemberSchema,
   organizationRoleSchema,
   organizationSummarySchema,

@@ -326,6 +326,16 @@ function OrganizationOverview({
           title="Liga"
           description="Wettbewerbe, Begegnungen und Spielrapporte"
         />
+        {/* Nur fuer Rollen, die Mitglieder verwalten duerfen — der Endpunkt
+            weist alle anderen ohnehin ab, und ein Link ins Leere hilft
+            niemandem. Die Autorisierung bleibt serverseitig. */}
+        {hasOrganizationPermission(organization.role, "organization:manage_members") ? (
+          <OverviewLink
+            href={`/mitglieder${organisationParam}`}
+            title="Mitglieder"
+            description="Rollen, Zugänge und offene Einladungen"
+          />
+        ) : null}
       </nav>
 
       <div className="space-y-3">

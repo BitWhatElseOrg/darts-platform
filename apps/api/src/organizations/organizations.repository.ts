@@ -191,6 +191,105 @@ export class OrganizationsRepository {
     });
   }
 
+  /**
+   * Alle Mitgliedschaften einer Organisation, aktive wie gesperrte — die
+   * Verwaltung muss auch die sehen, die sie reaktivieren soll. Der
+   * Organisationsfilter steht im `WHERE`, nicht im Aufrufer (AGENTS.md §14).
+   */
+  public async listMembers(input: { readonly organizationId: string }) {
+    return this.databaseService.database
+      .select({
+        userId: memberships.userId,
+        email: users.email,
+        displayName: users.displayName,
+        role: memberships.role,
+        status: memberships.status,
+      })
+      .from(memberships)
+      .innerJoin(users, eq(memberships.userId, users.id))
+      .where(eq(memberships.organizationId, input.organizationId))
+      .orderBy(users.displayName);
+  }
+
+  /**
+   * Die offenen Einladungen EINER Organisation — Gegenstueck zu
+   * `listPendingInvitations`, das die Einladungen einer Person ueber alle
+   * Organisationen hinweg liest. Abgelaufene bleiben aussen vor: sie sind
+   * nicht mehr annehmbar, und die Verwaltung soll nicht zum Zuruecknehmen von
+   * etwas auffordern, das ohnehin nicht mehr gilt.
+   */
+  public async listInvitationsOfOrganization(input: {
+    readonly organizationId: string;
+  }) {
+    return this.databaseService.database
+      .select({
+        id: organizationInvitations.id,
+        organizationId: organizationInvitations.organizationId,
+        email: organizationInvitations.email,
+        role: organizationInvitations.role,
+        status: organizationInvitations.status,
+        expiresAt: organizationInvitations.expiresAt,
+      })
+      .from(organizationInvitations)
+      .where(
+        and(
+          eq(organizationInvitations.organizationId, input.organizationId),
+          eq(organizationInvitations.status, "PENDING"),
+          gt(organizationInvitations.expiresAt, new Date()),
+        ),
+      )
+      .orderBy(organizationInvitations.createdAt);
+  }
+
+  /**
+   * Nimmt eine offene Einladung zurueck. Der Claim-Token wird dabei entwertet
+   * (`claim_token_hash` auf null) — eine zurueckgezogene Einladung darf sich
+   * auch mit dem verschickten Code nicht mehr annehmen lassen. Das `WHERE`
+   * verlangt `PENDING`: ein zweiter Rueckzug trifft keine Zeile und meldet
+   * `not-found`, statt eine angenommene Einladung nachtraeglich umzuschreiben.
+   */
+  public async cancelInvitation(input: {
+    readonly organizationId: string;
+    readonly invitationId: string;
+    readonly actorUserId: string;
+    readonly audit: AuditContext;
+  }): Promise<"cancelled" | "not-found"> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [cancelled] = await transaction
+        .update(organizationInvitations)
+        .set({ status: "CANCELLED", claimTokenHash: null, updatedAt: new Date() })
+        .where(
+          and(
+            eq(organizationInvitations.id, input.invitationId),
+            eq(organizationInvitations.organizationId, input.organizationId),
+            eq(organizationInvitations.status, "PENDING"),
+          ),
+        )
+        .returning({
+          id: organizationInvitations.id,
+          email: organizationInvitations.email,
+          role: organizationInvitations.role,
+        });
+
+      if (cancelled === undefined) return "not-found";
+
+      await transaction.insert(auditEvents).values({
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: "MEMBER_INVITATION_CANCELLED",
+        entityType: "OrganizationInvitation",
+        entityId: cancelled.id,
+        oldValue: { status: "PENDING" },
+        newValue: { status: "CANCELLED", email: cancelled.email, role: cancelled.role },
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+
+      return "cancelled";
+    });
+  }
+
   public async listPendingInvitations(email: string) {
     return this.databaseService.database
       .select({
