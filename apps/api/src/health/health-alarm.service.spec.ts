@@ -112,7 +112,13 @@ describe("HealthAlarmService", () => {
     expect((recovered?.[0] as { downForSeconds: number }).downForSeconds).toBeGreaterThanOrEqual(0);
   });
 
-  it("meldet auch einen gescheiterten Durchlauf", async () => {
+  /**
+   * PR-Agent-Befund «Missed Alert»: ein gescheiterter Durchlauf meldete unter
+   * eigenem Namen und ohne Entprellung — die Alarmregel horcht aber auf
+   * `health.alarm`, und ohne Entprellung stuende jede Minute eine neue Zeile
+   * im Log. Er laeuft jetzt durch dieselbe Meldung wie ein echtes Unhealthy.
+   */
+  it("meldet einen gescheiterten Durchlauf als health.alarm und wiederholt ihn nicht", async () => {
     const failing = {
       getHealth: vi.fn(async (): Promise<HealthResponse> => {
         throw new Error("Sondierung nicht moeglich");
@@ -121,12 +127,42 @@ describe("HealthAlarmService", () => {
     const moduleReference = await Test.createTestingModule({
       providers: [HealthAlarmService, { provide: HealthService, useValue: failing }],
     }).compile();
+    const service = moduleReference.get(HealthAlarmService);
 
-    await moduleReference.get(HealthAlarmService).check();
+    await service.check();
+    await service.check();
+    await service.check();
 
-    expect(error.mock.calls.at(-1)?.[0]).toMatchObject({
-      event: "health.alarm_check_failed",
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0]?.[0]).toMatchObject({
+      event: "health.alarm",
+      status: "unhealthy",
+      checkFailed: true,
       message: "Sondierung nicht moeglich",
     });
+  });
+
+  it("meldet die Erholung, nachdem die Messung wieder gelingt", async () => {
+    const health = { getHealth: vi.fn() };
+    health.getHealth.mockRejectedValueOnce(new Error("Sondierung nicht moeglich"));
+    health.getHealth.mockResolvedValue({
+      status: "ok",
+      services: { database: "ok", redis: "ok" },
+      outbox: healthyOutbox,
+    });
+    const moduleReference = await Test.createTestingModule({
+      providers: [HealthAlarmService, { provide: HealthService, useValue: health }],
+    }).compile();
+    const service = moduleReference.get(HealthAlarmService);
+
+    await service.check();
+    await service.check();
+
+    expect(error).toHaveBeenCalledTimes(1);
+    const recovered = log.mock.calls.find(
+      (call: readonly unknown[]) =>
+        (call[0] as { event?: string } | undefined)?.event === "health.recovered",
+    );
+    expect(recovered?.[0]).toMatchObject({ event: "health.recovered" });
   });
 });

@@ -1102,6 +1102,11 @@ erneut, solange die Störung anhält — ohne Wiederholung feuerte eine
 musterbasierte Regel nur ein einziges Mal. Ein Dienst, der bereits
 beeinträchtigt hochkommt, meldet sofort; ein gesunder Start meldet nichts.
 
+Scheitert die Messung selbst, gilt das als `unhealthy` und läuft durch
+dieselbe Meldung samt Entprellung (`checkFailed: true` im Feld). Ein eigenes
+Ereignis fiele sonst durch die Regel und stünde ohne Entprellung jede Minute
+neu im Log.
+
 Der Wachdienst liegt bewusst in der API und nicht im Worker: der Zustand
 entsteht dort, und der CI-Rauchtest greift die Worker-Logs auf Fehlerstufen ab
 (`.github/workflows/ci.yml`) — ein Alarm von dort liesse ihn scheitern.
@@ -1116,6 +1121,9 @@ Browser mit der alten Form und `report-to` samt `Reporting-Endpoints`-Header
 für die Reporting-API. Übernommen wird je Meldung eine schmale Auswahl an
 Feldern, gekürzt auf 300 Zeichen; die vollständige Policy und der
 Script-Ausschnitt bleiben aussen vor, weil letzterer Seiteninhalt tragen kann.
+Von den drei Adressfeldern bleiben nur Ursprung und Pfad — Zugangsdaten,
+Abfragezeichenkette und Fragment fallen weg, damit ein Einladungscode oder ein
+Zurücksetzen-Token aus der Adresszeile nicht in den Betriebslogs landet.
 Protokolliert wird als `csp.violation` auf Warnstufe.
 
 Die Policy bleibt vorerst Report-Only. Erzwungen wird sie in einem eigenen PR,

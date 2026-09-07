@@ -68,11 +68,29 @@ export class HealthAlarmService implements OnApplicationBootstrap, OnApplication
     if (this.checking) return;
     this.checking = true;
     try {
-      const health = await this.healthService.getHealth();
+      // Scheitert die Messung selbst, ist der Dienst genauso wenig gesund wie
+      // bei einer fehlenden Abhaengigkeit — nur ohne Messwerte. Er laeuft
+      // deshalb durch DIESELBE Meldung und dieselbe Entprellung: ein eigenes
+      // Ereignis fiele durch die Alarmregel, die auf `health.alarm` horcht,
+      // und stuende ohne Entprellung jede Minute neu im Log.
+      let status: "ok" | "degraded" | "unhealthy";
+      let detail: Readonly<Record<string, unknown>>;
+      try {
+        const health = await this.healthService.getHealth();
+        status = health.status;
+        detail = { services: health.services, outbox: health.outbox };
+      } catch (error) {
+        status = "unhealthy";
+        detail = {
+          checkFailed: true,
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+
       const now = Date.now();
       const emission = healthAlarmEmission({
         previousStatus: this.previousStatus,
-        currentStatus: health.status,
+        currentStatus: status,
         lastAlarmAt: this.lastAlarmAt,
         notOkSince: this.notOkSince,
         now,
@@ -80,12 +98,7 @@ export class HealthAlarmService implements OnApplicationBootstrap, OnApplication
 
       if (emission.kind === "alarm") {
         this.lastAlarmAt = now;
-        const fields = {
-          event: "health.alarm",
-          status: emission.status,
-          services: health.services,
-          outbox: health.outbox,
-        };
+        const fields = { event: "health.alarm", status: emission.status, ...detail };
         if (emission.status === "unhealthy") this.logger.error(fields);
         else this.logger.warn(fields);
       } else if (emission.kind === "recovered") {
@@ -95,17 +108,9 @@ export class HealthAlarmService implements OnApplicationBootstrap, OnApplication
         });
       }
 
-      this.notOkSince =
-        health.status === "ok" ? null : (this.notOkSince ?? now);
-      if (health.status === "ok") this.lastAlarmAt = null;
-      this.previousStatus = health.status;
-    } catch (error) {
-      // Scheitert der Durchlauf selbst, ist das derselbe Betriebsvorfall wie
-      // ein unhealthy — nur ohne Messwert. Er darf nicht lautlos bleiben.
-      this.logger.error({
-        event: "health.alarm_check_failed",
-        message: error instanceof Error ? error.message : String(error),
-      });
+      this.notOkSince = status === "ok" ? null : (this.notOkSince ?? now);
+      if (status === "ok") this.lastAlarmAt = null;
+      this.previousStatus = status;
     } finally {
       this.checking = false;
     }

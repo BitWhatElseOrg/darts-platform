@@ -11,6 +11,8 @@ const MAX_FIELD_LENGTH = 300;
  * reichen, um zu entscheiden, ob die Policy erzwungen werden kann. Die
  * vollstaendige Policy und der Script-Ausschnitt bleiben aussen vor — sie
  * blaehen jede Zeile auf, und der Ausschnitt kann Seiteninhalt tragen.
+ *
+ * Die drei Adressfelder tragen nur Ursprung und Pfad (`sanitizeUrl`).
  */
 export interface CspViolation {
   readonly directive: string;
@@ -19,6 +21,32 @@ export interface CspViolation {
   readonly sourceFile: string | null;
   readonly lineNumber: number | null;
   readonly disposition: string | null;
+}
+
+/**
+ * Adressen aus einer Verstoss-Meldung tragen alles, was in der Adresszeile
+ * stand — auch eine Abfragezeichenkette mit einem Einladungscode oder einem
+ * Zuruecksetzen-Token. Unveraendert protokolliert landete das Geheimnis in
+ * den Betriebslogs. Fuer die Entscheidung, ob die Policy erzwungen werden
+ * kann, genuegen Ursprung und Pfad; Zugangsdaten, Abfrage und Fragment
+ * fallen weg.
+ *
+ * Was sich nicht als Adresse lesen laesst, bleibt unveraendert: `inline`,
+ * `eval` und `data` sind CSP-Schluesselwoerter, keine Adressen.
+ */
+function sanitizeUrl(value: string | null): string | null {
+  if (value === null) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return value;
+  }
+  parsed.username = "";
+  parsed.password = "";
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString().slice(0, MAX_FIELD_LENGTH);
 }
 
 function text(value: unknown): string | null {
@@ -47,14 +75,14 @@ function fromReportUri(payload: Record<string, unknown>): CspViolation | null {
 
   const directive =
     text(report["effective-directive"]) ?? text(report["violated-directive"]);
-  const documentUri = text(report["document-uri"]);
+  const documentUri = sanitizeUrl(text(report["document-uri"]));
   if (directive === null || documentUri === null) return null;
 
   return {
     directive,
-    blockedUri: text(report["blocked-uri"]) ?? "unknown",
+    blockedUri: sanitizeUrl(text(report["blocked-uri"])) ?? "unknown",
     documentUri,
-    sourceFile: text(report["source-file"]),
+    sourceFile: sanitizeUrl(text(report["source-file"])),
     lineNumber: integer(report["line-number"]),
     disposition: text(report.disposition),
   };
@@ -72,14 +100,14 @@ function fromReportingApi(entry: unknown): CspViolation | null {
   if (body === null) return null;
 
   const directive = text(body.effectiveDirective);
-  const documentUri = text(body.documentURL) ?? text(envelope.url);
+  const documentUri = sanitizeUrl(text(body.documentURL) ?? text(envelope.url));
   if (directive === null || documentUri === null) return null;
 
   return {
     directive,
-    blockedUri: text(body.blockedURL) ?? "unknown",
+    blockedUri: sanitizeUrl(text(body.blockedURL)) ?? "unknown",
     documentUri,
-    sourceFile: text(body.sourceFile),
+    sourceFile: sanitizeUrl(text(body.sourceFile)),
     lineNumber: integer(body.lineNumber),
     disposition: text(body.disposition),
   };
