@@ -68,6 +68,7 @@ function rules(overrides: Partial<X01Rules> = {}): X01Rules {
     maxRounds: null,
     legsToWinSet: 1,
     setsToWin: 1,
+    bullOffFromLegOne: false,
     ...overrides,
   };
 }
@@ -272,6 +273,74 @@ describe("X01 scoring", () => {
     }
   });
 
+  it("laesst das sudden-death-Doppel schon Leg eins ausbullen", () => {
+    // Reglement 2.2.9: „Ausgenommen von dieser Regel ist das
+    // Entscheidungs-Doppel sudden death. Der Spielbeginn wird beim sudden death
+    // immer durch Wurf auf Bull entschieden."
+    const match = createX01Match({
+      sides: singles("one", "two"),
+      startingSeat: 1,
+      rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, bullOffFromLegOne: true }),
+    });
+    const decided = executeX01Command(match, {
+      type: "DECIDE_LEG_START",
+      commandId: "bull-leg-one",
+      legNumber: 1,
+      startingSeat: 2,
+    }).match;
+    const state = projectX01Match(decided);
+
+    expect(state.legNumber).toBe(1);
+    expect(state.legStartingSeat).toBe(2);
+    expect(state.activeSeat).toBe(2);
+  });
+
+  it("haelt ohne das Flag am festen Legbeginn der ersten beiden Legs fest", () => {
+    const match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ bullOffFromLegOne: false }),
+    });
+    try {
+      executeX01Command(match, {
+        type: "DECIDE_LEG_START",
+        commandId: "too-early",
+        legNumber: 1,
+        startingSeat: 2,
+      });
+      expect.unreachable("leg one belongs to the home side");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("LEG_START_FIXED");
+    }
+  });
+
+  it("wertet ein gespeichertes DECIDE_LEG_START fuer Leg drei unveraendert (Replay-Sicherheit)", () => {
+    // Reglement 2.2.9: das Flag ist eine Match-Regel, kein Kommandofeld.
+    // Ein Bestandsmatch traegt `bullOffFromLegOne: false` und muss ein
+    // gespeichertes `DECIDE_LEG_START` fuer Leg drei (vor dieser Aenderung
+    // zulaessig) beim Replay unveraendert werten. Verglichen wird der
+    // VOLLSTAENDIGE projizierte Zustand — nicht nur einzelne Felder — gegen
+    // denselben Kommando-Strom, einmal ueber den Schreibpfad
+    // (`executeX01Command`) aufgebaut: beide muessen exakt uebereinstimmen.
+    const initial = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, bullOffFromLegOne: false }),
+    });
+    const commands: readonly X01Command[] = [
+      visit("leg1", 1, "one", 40, 1, 20),
+      visit("leg2-guest", 2, "two", 40, 1, 20),
+      { type: "DECIDE_LEG_START", commandId: "bull", legNumber: 3, startingSeat: 2 },
+    ];
+
+    let written = initial;
+    for (const command of commands) {
+      written = executeX01Command(written, command).match;
+    }
+    const expectedFullState = projectX01Match(written);
+
+    const { match: replayed } = replay(initial, ...commands);
+    expect(projectX01Match(replayed)).toEqual(expectedFullState);
+  });
+
   it("refuses to decide the start of a leg that is already running", () => {
     let match = createX01Match({
       sides: singles("one", "two"),
@@ -324,6 +393,124 @@ describe("X01 scoring", () => {
     expect(decided.state.winnerSeat).toBe(2);
     expect(decided.state.sides[1].totalLegsWon).toBe(1);
     expect(decided.state.legDecisions).toHaveLength(1);
+  });
+
+  /**
+   * `assertWritableVisit` traegt Regeln fuer die EINGABE (Wurfdaten unter
+   * Double In, Abschlussbeleg unter Master Out). Ein Zustand, in dem gar keine
+   * Aufnahme mehr moeglich ist, geht ihnen vor: sonst verlangt die Flaeche
+   * Wurfdaten fuer ein Leg, das ausgebullt werden muss.
+   */
+  it("meldet an der Rundengrenze den Zustand, nicht die Eingaberegel", () => {
+    let match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ maxRounds: 2, inRule: "DOUBLE" }),
+    });
+    // Beide Seiten eroeffnen mit Wurfdaten und spielen zwei volle Runden.
+    const opening = (commandId: string, seat: 1 | 2, thrower: string): SubmitVisitCommand => ({
+      type: "SUBMIT_VISIT",
+      commandId,
+      seat,
+      throwerPlayerId: thrower,
+      points: 40,
+      dartsThrown: 3,
+      checkoutAttempts: 0,
+      darts: [
+        { segment: 20, multiplier: 2 },
+        { segment: 0, multiplier: 1 },
+        { segment: 0, multiplier: 1 },
+      ],
+    });
+    match = executeX01Command(match, opening("r1-one", 1, "one")).match;
+    match = executeX01Command(match, opening("r1-two", 2, "two")).match;
+    match = executeX01Command(match, visit("r2-one", 1, "one", 60)).match;
+    match = executeX01Command(match, visit("r2-two", 2, "two", 60)).match;
+    expect(projectX01Match(match).roundLimitReached).toBe(true);
+
+    // Eine Rundensumme ohne Wurfdaten: unter Double In waere das eine
+    // Eingaberegel -- aber die Seite hat laengst eroeffnet, und vor allem ist
+    // das Leg an der Rundengrenze.
+    try {
+      executeX01Command(match, visit("too-many", 1, "one", 60));
+      expect.unreachable("the round limit is reached");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("ROUND_LIMIT_REACHED");
+    }
+
+    // Und auch die noch nicht eroeffnete Gegenseite bekommt den Zustand
+    // gemeldet, nicht DARTS_REQUIRED_FOR_DOUBLE_IN.
+    let unopened = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ maxRounds: 1, inRule: "DOUBLE" }),
+    });
+    unopened = executeX01Command(unopened, opening("only-round-one", 1, "one")).match;
+    unopened = executeX01Command(unopened, visit("only-round-two", 2, "two", 0)).match;
+    expect(projectX01Match(unopened).roundLimitReached).toBe(true);
+    try {
+      executeX01Command(unopened, visit("past-limit", 1, "one", 61, 3));
+      expect.unreachable("the round limit is reached");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("ROUND_LIMIT_REACHED");
+    }
+  });
+
+  /**
+   * Regression zum selben Punkt von der anderen Seite: ein beendetes Match
+   * meldet weiterhin MATCH_ALREADY_COMPLETED. Das trug bereits, weil die
+   * Projektion fuer ein beendetes Match `activeSeat: null` liefert und
+   * `assertWritableVisit` an seinem ersten Waechter aussteigt -- der Test
+   * haelt das fest, damit es beim Umbau der Reihenfolge nicht kippt.
+   */
+  it("meldet fuer ein beendetes Match den Zustand, nicht die Eingaberegel", () => {
+    let match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 40, inRule: "DOUBLE", outRule: "DOUBLE" }),
+    });
+    match = executeX01Command(match, {
+      type: "SUBMIT_VISIT",
+      commandId: "finish",
+      seat: 1,
+      throwerPlayerId: "one",
+      points: 40,
+      dartsThrown: 1,
+      checkoutAttempts: 1,
+      checkoutDouble: 20,
+      darts: [{ segment: 20, multiplier: 2 }],
+    }).match;
+    expect(projectX01Match(match).status).toBe("COMPLETED");
+
+    try {
+      executeX01Command(match, visit("after-the-end", 2, "two", 61, 3));
+      expect.unreachable("the match is over");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("MATCH_ALREADY_COMPLETED");
+    }
+  });
+
+  /**
+   * Rundengrenze erreicht, Seite unter Double In noch nicht eroeffnet,
+   * Kommando ohne Wuerfe -- der Zustandsfehler muss vor dem Eingabefehler
+   * kommen. Beide Seiten spielen Runde 1 punktelos (kein Doppel, keine
+   * Eroeffnung); danach ist Seat 1 wieder an der Reihe, aber unter der
+   * Rundengrenze. Ohne die Reihenfolge aus Task 8 meldet die noch
+   * unveroeffnete Seite hier DARTS_REQUIRED_FOR_DOUBLE_IN statt
+   * ROUND_LIMIT_REACHED.
+   */
+  it("meldet an der Rundengrenze den Zustand fuer eine noch unveroeffnete Seite", () => {
+    let match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ maxRounds: 1, inRule: "DOUBLE" }),
+    });
+    match = executeX01Command(match, visit("r1-one", 1, "one", 0)).match;
+    match = executeX01Command(match, visit("r1-two", 2, "two", 0)).match;
+    expect(projectX01Match(match).roundLimitReached).toBe(true);
+
+    try {
+      executeX01Command(match, visit("regression", 1, "one", 60));
+      expect.unreachable("the round limit is reached");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("ROUND_LIMIT_REACHED");
+    }
   });
 
   it("refuses the bull decision before the round limit and without one", () => {

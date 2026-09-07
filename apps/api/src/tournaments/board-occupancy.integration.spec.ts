@@ -21,6 +21,7 @@ import {
 import type { AuthContext } from "../auth/auth.types.js";
 import { DatabaseService } from "../database/database.service.js";
 import { MatchesRepository } from "../matches/matches.repository.js";
+import { MatchesService } from "../matches/matches.service.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { OrganizationsRepository } from "../organizations/organizations.repository.js";
 import { TournamentsRepository } from "./tournaments.repository.js";
@@ -29,7 +30,9 @@ import { TournamentsService } from "./tournaments.service.js";
 const databaseService = new DatabaseService(parseApplicationEnvironment(process.env));
 const access = new OrganizationAccessService(new OrganizationsRepository(databaseService));
 const repository = new TournamentsRepository(databaseService);
-const service = new TournamentsService(repository, new MatchesRepository(databaseService), access);
+const matchesRepository = new MatchesRepository(databaseService);
+const service = new TournamentsService(repository, matchesRepository, access);
+const matchesService = new MatchesService(matchesRepository, access);
 
 const organizationId = randomUUID();
 const userId = randomUUID();
@@ -336,4 +339,108 @@ describe("Boardbelegung zwischen Turnier und Liga", () => {
       response: { code: "TOURNAMENT_PLAYER_BUSY" },
     });
   });
+
+  /**
+   * Befund I1: Zuweisung und Board-Freigabe pruefen das Duplikat nur vor der
+   * Sperre. Zwei gleichzeitige Zustellungen desselben Kommandos verfehlen die
+   * Kommandozeile beide; ohne zweite Pruefung unter der Sperre bekaeme die
+   * zweite einen Versionskonflikt fuer ihr eigenes, angekommenes Kommando.
+   */
+  it("beantwortet dieselbe commandId auch gleichzeitig idempotent", async () => {
+    // Eigene, frische Scheiben und Personen statt `freeBoardIds`/`freePlayerIds`:
+    // die vorige Probe belegt genau eine Scheibe und eine Person dauerhaft
+    // (die gewinnende Zuweisung wird nie freigegeben), und `assign` prueft
+    // echte Belegung ueber `tournament_matches`, nicht nur `boards.status` —
+    // ein blosses Zuruecksetzen des Status waere hier irrefuehrend.
+    const idempotencyBoardIds = [randomUUID(), randomUUID()] as const;
+    await databaseService.database.insert(boards).values(
+      idempotencyBoardIds.map((id, index) => ({
+        id,
+        organizationId,
+        name: `Idempotency Board ${index + 1}`,
+      })),
+    );
+    const idempotencyPlayerIds = [randomUUID(), randomUUID()] as const;
+    await databaseService.database.insert(players).values(
+      idempotencyPlayerIds.map((id, index) => ({
+        id,
+        organizationId,
+        displayName: `Idempotency Player ${index + 1}`,
+        status: "ACTIVE",
+      })),
+    );
+
+    const tournamentId = await createTournament(idempotencyPlayerIds, [...idempotencyBoardIds]);
+    const dashboard = await service.dashboard({ organizationId, tournamentId, auth });
+    const ready = dashboard.queue[0];
+    if (ready === undefined) throw new Error("Expected a queued match.");
+
+    const assignCommandId = randomUUID();
+    const assignInput = {
+      organizationId,
+      tournamentId,
+      data: { commandId: assignCommandId, expectedVersion: dashboard.tournament.version, matchId: ready.matchId, boardId: idempotencyBoardIds[0] },
+      auth,
+      audit,
+    } as const;
+    const assigned = await Promise.all(Array.from({ length: 4 }, () => service.assign(assignInput)));
+    expect(assigned.map((result) => result.tournament.version)).toEqual([
+      dashboard.tournament.version + 1,
+      dashboard.tournament.version + 1,
+      dashboard.tournament.version + 1,
+      dashboard.tournament.version + 1,
+    ]);
+
+    const releaseCommandId = randomUUID();
+    const releaseInput = {
+      organizationId,
+      tournamentId,
+      data: { commandId: releaseCommandId, expectedVersion: dashboard.tournament.version + 1, boardId: idempotencyBoardIds[1] },
+      auth,
+      audit,
+    } as const;
+    const released = await Promise.all(Array.from({ length: 4 }, () => service.releaseBoard(releaseInput)));
+    expect(released.map((result) => result.tournament.version)).toEqual([
+      dashboard.tournament.version + 2,
+      dashboard.tournament.version + 2,
+      dashboard.tournament.version + 2,
+      dashboard.tournament.version + 2,
+    ]);
+  }, 30_000);
+
+  /**
+   * Die freie Paarung (Ad-hoc-Match ohne Turnier- und Ligabezug) prueft die
+   * Scheibe bis hierher nur ueber `boards.status`. Steht dort ein Ligaslot und
+   * hat eine fruehere Freigabe den Status auf AVAILABLE gesetzt, startete sie
+   * ein zweites Spiel auf derselben physischen Scheibe. Der partielle Unique
+   * fing das ab -- aber erst als Constraint-Verstoss, nicht als Pruefung.
+   */
+  it("startet kein Ad-hoc-Match auf einer Scheibe, auf der ein Ligaslot laeuft", async () => {
+    await databaseService.database
+      .update(boards)
+      .set({ status: "AVAILABLE" })
+      .where(eq(boards.id, leagueBoardId));
+    try {
+      await expect(
+        matchesService.create({
+          organizationId,
+          data: {
+            playerOneId: freePlayerIds[0],
+            playerTwoId: freePlayerIds[1],
+            startingPlayerId: freePlayerIds[0],
+            boardId: leagueBoardId,
+            bestOfLegs: 1,
+            bestOfSets: 1,
+          },
+          auth,
+          audit,
+        }),
+      ).rejects.toMatchObject({ response: { code: "BOARD_NOT_AVAILABLE" } });
+    } finally {
+      await databaseService.database
+        .update(boards)
+        .set({ status: "IN_USE" })
+        .where(eq(boards.id, leagueBoardId));
+    }
+  }, 30_000);
 });

@@ -5,7 +5,7 @@ import { buildStatisticsMatches } from "./build-statistics-matches.js";
 const completedAt = new Date("2026-09-03T20:00:00.000Z");
 
 const singles = {
-  matches: [{ id: "match-1", winnerSeat: 1, completedAt }],
+  matches: [{ id: "match-1", winnerSeat: 1, completedAt, outRule: "DOUBLE" }],
   participants: [
     { matchId: "match-1", seat: 1, playerId: "home", displayName: "Heim", legsWon: 2 },
     { matchId: "match-1", seat: 2, playerId: "away", displayName: "Gast", legsWon: 1 },
@@ -75,7 +75,7 @@ describe("buildStatisticsMatches", () => {
   it("verwirft ein Match, dessen Siegersitz keine Person traegt", () => {
     const result = buildStatisticsMatches({
       ...singles,
-      matches: [{ id: "match-1", winnerSeat: 3, completedAt }],
+      matches: [{ id: "match-1", winnerSeat: 3, completedAt, outRule: "DOUBLE" }],
     });
 
     expect(result).toEqual([]);
@@ -93,8 +93,8 @@ describe("buildStatisticsMatches", () => {
   it("ordnet Legs und Visits ihrem eigenen Match zu", () => {
     const result = buildStatisticsMatches({
       matches: [
-        { id: "match-1", winnerSeat: 1, completedAt },
-        { id: "match-2", winnerSeat: 2, completedAt },
+        { id: "match-1", winnerSeat: 1, completedAt, outRule: "DOUBLE" },
+        { id: "match-2", winnerSeat: 2, completedAt, outRule: "DOUBLE" },
       ],
       participants: [
         ...singles.participants,

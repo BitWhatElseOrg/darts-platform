@@ -1,15 +1,24 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, ne } from "drizzle-orm";
 
 import {
   auditEvents,
   memberships,
   organizationInvitations,
   organizations,
+  users,
 } from "@darts-platform/database";
-import type {
-  CreateInvitationInput,
-  CreateOrganizationInput,
+import {
+  isMembershipStatus,
+  isOrganizationRole,
+  type MembershipStatus,
+  type OrganizationRole,
+} from "@darts-platform/domain";
+import {
+  organizationMemberSchema,
+  type CreateInvitationInput,
+  type CreateOrganizationInput,
+  type OrganizationMember,
 } from "@darts-platform/schemas";
 
 import type { AuditContext } from "../common/audit-context.js";
@@ -18,6 +27,14 @@ import {
   generateInvitationClaimToken,
   hashInvitationClaimToken,
 } from "../auth/invitation-claim.js";
+
+export type UpdateMembershipResult =
+  | { readonly outcome: "updated"; readonly member: OrganizationMember }
+  | { readonly outcome: "not-found" }
+  | { readonly outcome: "last-owner" }
+  | { readonly outcome: "actor-not-active" }
+  | { readonly outcome: "owner-grant-requires-owner" }
+  | { readonly outcome: "owner-change-requires-owner" };
 
 interface ActorInput {
   readonly userId: string;
@@ -270,6 +287,191 @@ export class OrganizationsRepository {
       });
 
       return invitation;
+    });
+  }
+
+  /**
+   * Setzt Rolle und/oder Status einer Mitgliedschaft. Lesen, Pruefen,
+   * Schreiben und Auditieren liegen in einer Transaktion. Gesperrt wird
+   * zuerst die Organisationszeile — sie serialisiert alle
+   * Mitgliedschaftsaenderungen dieser Organisation — und danach die
+   * Zielzeile, weil `acceptInvitation` Mitgliedschaften ohne die
+   * Organisationssperre schreibt. Die Reihenfolge ist immer Organisation →
+   * Zeile der handelnden Person → Zielzeile, es entsteht kein Zyklus.
+   *
+   * Die Rolle der handelnden Person wird hier unter der Sperre gelesen und
+   * nicht vom Aufrufer uebernommen: zwischen `requirePermission` im Service
+   * und dieser Transaktion kann eine andere, ebenfalls serialisierte Anfrage
+   * dieselbe Person herabgestuft oder gesperrt haben.
+   */
+  public async updateMembership(input: {
+    readonly organizationId: string;
+    readonly targetUserId: string;
+    readonly role?: OrganizationRole;
+    readonly status?: MembershipStatus;
+    readonly actorUserId: string;
+    readonly audit: AuditContext;
+  }): Promise<UpdateMembershipResult> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      // Serialisierungspunkt fuer alle Mitgliedschaftsaenderungen dieser
+      // Organisation: zwei gleichzeitige Anfragen warten hier aufeinander,
+      // statt beide den jeweils anderen OWNER fuer den verbleibenden zu
+      // halten. Die zweite liest danach den frischen Stand und bekommt einen
+      // sauberen Konflikt zurueck.
+      const [organization] = await transaction
+        .select({ id: organizations.id })
+        .from(organizations)
+        .where(eq(organizations.id, input.organizationId))
+        .limit(1)
+        .for("update");
+
+      if (organization === undefined) {
+        return { outcome: "not-found" };
+      }
+
+      // Massgeblich fuer beide Owner-Pruefungen ist dieser Lesevorgang, nicht
+      // das Ergebnis von `requirePermission`: der Service liest die Rolle vor
+      // der Transaktion, und bis hierher kann sie veraltet sein.
+      const [actor] = await transaction
+        .select({ role: memberships.role, status: memberships.status })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.organizationId, input.organizationId),
+            eq(memberships.userId, input.actorUserId),
+          ),
+        )
+        .limit(1)
+        .for("update", { of: memberships });
+
+      if (
+        actor === undefined ||
+        actor.status !== "ACTIVE" ||
+        !isOrganizationRole(actor.role)
+      ) {
+        return { outcome: "actor-not-active" };
+      }
+
+      const actorRole: OrganizationRole = actor.role;
+
+      const [current] = await transaction
+        .select({
+          id: memberships.id,
+          role: memberships.role,
+          status: memberships.status,
+          email: users.email,
+          displayName: users.displayName,
+        })
+        .from(memberships)
+        .innerJoin(users, eq(memberships.userId, users.id))
+        .where(
+          and(
+            eq(memberships.organizationId, input.organizationId),
+            eq(memberships.userId, input.targetUserId),
+          ),
+        )
+        .limit(1)
+        .for("update", { of: memberships });
+
+      if (current === undefined) {
+        return { outcome: "not-found" };
+      }
+
+      if (!isOrganizationRole(current.role) || !isMembershipStatus(current.status)) {
+        throw new Error("The stored membership carries an unknown role or status.");
+      }
+
+      // Eigentum vergibt nur Eigentum.
+      if (input.role === "OWNER" && actorRole !== "OWNER") {
+        return { outcome: "owner-grant-requires-owner" };
+      }
+
+      // Die Gegenrichtung: eine bestehende OWNER-Zeile aendert nur, wer selbst
+      // aktiver OWNER ist — fuer Rolle und Status gleichermassen. Die heutige
+      // Rolle der Zielperson steht erst unter der Sperre fest, deshalb liegt
+      // auch diese Pruefung hier und nicht im Service.
+      if (current.role === "OWNER" && actorRole !== "OWNER") {
+        return { outcome: "owner-change-requires-owner" };
+      }
+
+      const nextRole: OrganizationRole = input.role ?? current.role;
+      const nextStatus: MembershipStatus = input.status ?? current.status;
+      const losesOwnerAccess =
+        current.role === "OWNER" &&
+        current.status === "ACTIVE" &&
+        (nextRole !== "OWNER" || nextStatus !== "ACTIVE");
+
+      if (losesOwnerAccess) {
+        const [remainingOwner] = await transaction
+          .select({ userId: memberships.userId })
+          .from(memberships)
+          .where(
+            and(
+              eq(memberships.organizationId, input.organizationId),
+              eq(memberships.role, "OWNER"),
+              eq(memberships.status, "ACTIVE"),
+              ne(memberships.userId, input.targetUserId),
+            ),
+          )
+          .limit(1);
+
+        if (remainingOwner === undefined) {
+          return { outcome: "last-owner" };
+        }
+      }
+
+      await transaction
+        .update(memberships)
+        .set({ role: nextRole, status: nextStatus })
+        .where(
+          and(
+            eq(memberships.organizationId, input.organizationId),
+            eq(memberships.userId, input.targetUserId),
+          ),
+        );
+
+      if (nextRole !== current.role) {
+        await transaction.insert(auditEvents).values({
+          organizationId: input.organizationId,
+          actorUserId: input.actorUserId,
+          action: "USER_ROLE_CHANGED",
+          entityType: "Membership",
+          entityId: current.id,
+          oldValue: { role: current.role },
+          newValue: { role: nextRole },
+          ip: input.audit.ip,
+          userAgent: input.audit.userAgent,
+          correlationId: input.audit.correlationId,
+        });
+      }
+
+      if (nextStatus !== current.status) {
+        await transaction.insert(auditEvents).values({
+          organizationId: input.organizationId,
+          actorUserId: input.actorUserId,
+          action: nextStatus === "ACTIVE" ? "MEMBER_REACTIVATED" : "MEMBER_DEACTIVATED",
+          entityType: "Membership",
+          entityId: current.id,
+          oldValue: { status: current.status },
+          newValue: { status: nextStatus },
+          ip: input.audit.ip,
+          userAgent: input.audit.userAgent,
+          correlationId: input.audit.correlationId,
+        });
+      }
+
+      // Noch innerhalb der Transaktion validiert: schlaegt das Schema fehl,
+      // rollt der Schreibvorgang zurueck, statt einem bereits committeten
+      // Update hinterherzulaufen.
+      const member = organizationMemberSchema.parse({
+        userId: input.targetUserId,
+        email: current.email,
+        displayName: current.displayName,
+        role: nextRole,
+        status: nextStatus,
+      });
+
+      return { outcome: "updated", member };
     });
   }
 }

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigserial,
   boolean,
   check,
   index,
@@ -311,6 +312,14 @@ export const matches = pgTable(
     startingScore: integer("starting_score").default(501).notNull(),
     inRule: varchar("in_rule", { length: 10 }).default("STRAIGHT").notNull(),
     outRule: varchar("out_rule", { length: 10 }).default("DOUBLE").notNull(),
+    /**
+     * Reglement 2.2.9: normalerweise beginnt Leg 1 die Heimseite und Leg 2 die
+     * Gastseite; erst ab Leg 3 entscheidet ein Wurf auf Bull. Das
+     * Entscheidungsdoppel (sudden death) ist davon ausgenommen — dort wird der
+     * Spielbeginn IMMER ausgebullt. Das Flag ist eine Match-Regel wie `in_rule`
+     * und kein Teil der Kommandos; gespeicherte Kommandos werten unveraendert.
+     */
+    bullOffFromLegOne: boolean("bull_off_from_leg_one").default(false).notNull(),
     maxRounds: integer("max_rounds"),
     bestOfLegs: integer("best_of_legs").notNull(),
     legsToWinSet: integer("legs_to_win_set").default(2).notNull(),
@@ -345,6 +354,17 @@ export const matches = pgTable(
     check("matches_starting_seat_check", sql`${table.startingSeat} in (1, 2)`),
     check("matches_current_seat_check", sql`${table.currentSeat} is null or ${table.currentSeat} in (1, 2)`),
     check("matches_winner_seat_check", sql`${table.winnerSeat} is null or ${table.winnerSeat} in (1, 2)`),
+    // Ein beendetes Match traegt einen Sieger und einen Abschlusszeitpunkt,
+    // ein laufendes oder abgebrochenes keinen von beiden. Geschrieben werden
+    // diese Spalten aus der Projektion (`syncProjection`); der Check ist die
+    // Klammer, falls dort einmal etwas danebengreift oder von Hand korrigiert
+    // wird. `tournament_matches` und `encounters` tragen die gleiche Bindung
+    // seit je (`tournament_matches_result_type_consistency`,
+    // `encounters_completed_result_check`).
+    check(
+      "matches_completion_check",
+      sql`(${table.status} = 'COMPLETED') = (${table.winnerSeat} is not null and ${table.completedAt} is not null)`,
+    ),
   ],
 );
 
@@ -434,6 +454,11 @@ export const legs = pgTable(
     check("legs_version_check", sql`${table.version} >= 0`),
     check("legs_starting_seat_check", sql`${table.startingSeat} in (1, 2)`),
     check("legs_winner_seat_check", sql`${table.winnerSeat} is null or ${table.winnerSeat} in (1, 2)`),
+    // Ein abgeschlossenes Leg hat einen Gewinner, ein laufendes keinen.
+    check(
+      "legs_completion_check",
+      sql`(${table.status} = 'COMPLETED') = (${table.winnerSeat} is not null)`,
+    ),
   ],
 );
 
@@ -482,6 +507,21 @@ export const visits = pgTable(
     check("visits_checkout_attempts_check", sql`${table.checkoutAttempts} between 0 and ${table.dartsThrown}`),
     check("visits_outcome_check", sql`${table.outcome} in ('SCORED', 'BUST', 'LEG_WON', 'SET_WON', 'MATCH_WON')`),
     check("visits_seat_check", sql`${table.seat} in (1, 2)`),
+    // Die Kernrechnung des Scorings, bisher allein in
+    // `packages/scoring-engine`. Ein gewerteter Wurf zieht genau die
+    // angerechneten Punkte ab.
+    check(
+      "visits_scored_arithmetic_check",
+      sql`${table.outcome} = 'BUST' or ${table.scoreAfter} = ${table.scoreBefore} - ${table.appliedPoints}`,
+    ),
+    // Ein Bust rechnet nichts an und laesst den Rest stehen.
+    check(
+      "visits_bust_arithmetic_check",
+      sql`${table.outcome} <> 'BUST' or (${table.appliedPoints} = 0 and ${table.scoreAfter} = ${table.scoreBefore})`,
+    ),
+    // Ein gewonnenes Leg, ein gewonnener Satz, ein gewonnenes Match enden auf
+    // null. `outcome` kennt nur die fuenf Werte aus `visits_outcome_check`.
+    check("visits_won_arithmetic_check", sql`${table.outcome} not like '%WON' or ${table.scoreAfter} = 0`),
   ],
 );
 
@@ -540,6 +580,12 @@ export const scoreCommands = pgTable(
       sql`${table.type} in ('SUBMIT_VISIT', 'UNDO_LAST_VISIT', 'ABORT_MATCH', 'DECIDE_LEG_START', 'DECIDE_LEG_BY_BULL')`,
     ),
     check("score_commands_version_check", sql`${table.resultingVersion} >= 0`),
+    // Der Zustandsaufbau sortiert den Kommandostrom nach dieser Spalte
+    // (`matches.repository.ts`, `orderBy(asc(scoreCommands.resultingVersion))`).
+    // Zwei Kommandos mit derselben Zielversion machten die Replay-Reihenfolge
+    // und damit den rekonstruierten Spielstand nichtdeterministisch. Der Index
+    // deckt zugleich `match_id` als fuehrende Spalte fuer die Kaskade ab.
+    uniqueIndex("score_commands_match_version_unique").on(table.matchId, table.resultingVersion),
   ],
 );
 
@@ -550,6 +596,11 @@ export const outboxEvents = pgTable(
     organizationId: uuid("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
+    // Die Reihenfolge der Verteilung. `occurred_at` ist `now()` und damit die
+    // Transaktions-STARTzeit: eine laengere Transaktion, die nach einer
+    // kuerzeren committet, wuerde vor ihr publiziert. Die Sequenz wird beim
+    // INSERT vergeben und ist monoton.
+    sequence: bigserial("sequence", { mode: "number" }).notNull(),
     aggregateType: varchar("aggregate_type", { length: 100 }).notNull(),
     aggregateId: uuid("aggregate_id").notNull(),
     eventType: varchar("event_type", { length: 100 }).notNull(),
@@ -557,10 +608,43 @@ export const outboxEvents = pgTable(
     occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     statisticsProcessedAt: timestamp("statistics_processed_at", { withTimezone: true }),
+    // Je Konsument ein eigener Versuchszähler, ein frühester nächster
+    // Versuch und ein Dead-Letter-Stempel. Getrennte Spalten statt einer
+    // generischen Zustandstabelle, weil beide Konsumenten ihren Fortschritt
+    // schon als Spalte führen und die Poll-Abfragen so ohne Join auf ihren
+    // partiellen Indexen bleiben. Ab einem dritten Konsumenten gehört der
+    // Schnitt neu bewertet.
+    publishAttempts: integer("publish_attempts").default(0).notNull(),
+    publishNotBefore: timestamp("publish_not_before", { withTimezone: true }),
+    publishDeadLetteredAt: timestamp("publish_dead_lettered_at", { withTimezone: true }),
+    publishLastError: text("publish_last_error"),
+    statisticsAttempts: integer("statistics_attempts").default(0).notNull(),
+    statisticsNotBefore: timestamp("statistics_not_before", { withTimezone: true }),
+    statisticsDeadLetteredAt: timestamp("statistics_dead_lettered_at", {
+      withTimezone: true,
+    }),
+    statisticsLastError: text("statistics_last_error"),
   },
   (table) => [
+    uniqueIndex("outbox_events_sequence_unique").on(table.sequence),
+    // Beide Poller lesen nur ihren eigenen Rueckstand. Der bisherige Index
+    // `(published_at, occurred_at)` bleibt fuer die Aufraeumregel stehen, die
+    // nach `published_at is not null` und Alter filtert.
     index("outbox_events_unpublished_idx").on(table.publishedAt, table.occurredAt),
+    index("outbox_events_pending_publication_idx")
+      .on(table.sequence)
+      .where(sql`${table.publishedAt} is null`),
+    index("outbox_events_pending_statistics_idx")
+      .on(table.sequence)
+      .where(sql`${table.statisticsProcessedAt} is null and ${table.eventType} = 'MATCH_COMPLETED'`),
     index("outbox_events_organization_aggregate_idx").on(table.organizationId, table.aggregateId),
+    // Dead Letter sind selten; der partielle Index hält die Zählung im
+    // Health-Endpunkt von der wachsenden Tabelle fern.
+    index("outbox_events_dead_lettered_idx")
+      .on(table.occurredAt)
+      .where(
+        sql`${table.publishDeadLetteredAt} is not null or ${table.statisticsDeadLetteredAt} is not null`,
+      ),
   ],
 );
 
@@ -901,6 +985,12 @@ export const tournamentCommands = pgTable(
       sql`${table.type} in ('ASSIGN_MATCH', 'RELEASE_BOARD', 'RESULT_CORRECTION', 'WITHDRAW_PARTICIPANT')`,
     ),
     check("tournament_commands_version_check", sql`${table.resultingVersion} >= 0`),
+    // Wie bei `score_commands`: je Turnier eine Zielversion, und `tournament_id`
+    // als fuehrende Spalte fuer die Kaskade.
+    uniqueIndex("tournament_commands_tournament_version_unique").on(
+      table.tournamentId,
+      table.resultingVersion,
+    ),
   ],
 );
 
@@ -1411,6 +1501,12 @@ export const encounterCommands = pgTable(
       sql`${table.type} in ('SUBMIT_NOMINATIONS', 'SUBMIT_DOUBLES', 'SUBSTITUTE_PLAYER', 'START_ENCOUNTER', 'ASSIGN_SLOT', 'RELEASE_BOARD', 'DECLARE_WALKOVER', 'DECLARE_ENCOUNTER_FORFEIT', 'CANCEL_ENCOUNTER')`,
     ),
     check("encounter_commands_version_check", sql`${table.resultingVersion} >= 0`),
+    // Wie bei `score_commands`: je Begegnung eine Zielversion, und
+    // `encounter_id` als fuehrende Spalte fuer die Kaskade.
+    uniqueIndex("encounter_commands_encounter_version_unique").on(
+      table.encounterId,
+      table.resultingVersion,
+    ),
   ],
 );
 

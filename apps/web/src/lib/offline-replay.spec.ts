@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiClientError } from "./api-error";
 import type { OfflineCommand } from "./offline-command-queue";
 import {
+  hasReplayableEntries,
   localCleanupFailureMessage,
   nextReplayable,
   queueBlocksControl,
@@ -11,6 +12,7 @@ import {
   queueSaveFailureMessage,
   queueUpdateFailureMessage,
   queuedCommandNotice,
+  replayAnnouncement,
   replayChained,
   replayFailure,
   withCurrentExpectedVersion,
@@ -42,9 +44,11 @@ describe("replayFailure", () => {
   });
 
   /**
-   * Antwortet ein Proxy mit HTML statt JSON, scheitert `response.json()` mit
-   * einem `SyntaxError`, bevor irgendein Status gelesen wird. Auch das ist
-   * kein Urteil des Servers.
+   * Ein `SyntaxError` erreicht `replayFailure` heute nur noch vom
+   * ERFOLGSPFAD (2xx mit unlesbarem Koerper) oder von einem abgebrochenen
+   * Transport -- der Fehlerpfad von `apiRequest` liest seit der Korrektur
+   * zuerst den Status und wirft einen `ApiClientError` mit Status. Kein
+   * Urteil des Servers ist beides nicht.
    */
   it("laesst eine nicht lesbare Antwort in der Warteschlange", () => {
     expect(replayFailure(new SyntaxError("Unexpected token < in JSON at position 0"))).toEqual({ kind: "RETRY" });
@@ -140,6 +144,22 @@ describe("nextReplayable", () => {
     const commands = [command({ commandId: "c1" }), command({ commandId: "c2" })];
     expect(nextReplayable(commands)).toEqual(commands);
     expect(nextReplayable([])).toEqual([]);
+  });
+});
+
+describe("hasReplayableEntries", () => {
+  /**
+   * Ruling E8: eine leere Warteschlange darf `flushPending` (Kommandozentrale)
+   * weder `commandBusy` setzen noch "0 Befehle übertragen." in die
+   * `aria-live`-Region ansagen lassen. Diese reine Leerpruefung entscheidet
+   * darueber, ausgelagert, weil `flushPending` selbst DOM und React braucht.
+   */
+  it("verneint bei einer leeren Warteschlange", () => {
+    expect(hasReplayableEntries([])).toBe(false);
+  });
+
+  it("bejaht, sobald mindestens ein Eintrag wartet", () => {
+    expect(hasReplayableEntries([command({ commandId: "c1" })])).toBe(true);
   });
 });
 
@@ -501,5 +521,29 @@ describe("queuedCommandNotice", () => {
   it("laesst einen abgelehnten Eintrag unveraendert, auch wenn daneben etwas haengt", () => {
     expect(queuedCommandNotice(command({ status: "REJECTED", error: "Nicht erlaubt." }), { online: true, acceptedButStuck: false }).action)
       .toBe("DISCARD");
+  });
+});
+
+describe("replayAnnouncement", () => {
+  it("meldet nichts Uebertragenes im Plural", () => {
+    expect(replayAnnouncement({ sentCount: 0, acceptedCount: 0 })).toBe("0 Befehle übertragen.");
+  });
+
+  it("meldet einen einzelnen Befehl im Singular", () => {
+    expect(replayAnnouncement({ sentCount: 1, acceptedCount: 1 })).toBe("1 Befehl übertragen.");
+  });
+
+  /**
+   * Der Befund: der Server hat angenommen, nur das lokale Aufraeumen
+   * scheiterte. `sentCount` bleibt dann auf 0 und die Meldung behauptete, es
+   * sei nichts uebertragen worden -- waehrend die Zuweisung laengst gebucht
+   * war. Gezaehlt wird, was der Server angenommen hat.
+   */
+  it("zaehlt eine angenommene Zuweisung auch ohne lokales Aufraeumen", () => {
+    expect(replayAnnouncement({ sentCount: 0, acceptedCount: 1 })).toBe("1 Befehl übertragen.");
+  });
+
+  it("meldet mehrere Befehle im Plural", () => {
+    expect(replayAnnouncement({ sentCount: 2, acceptedCount: 3 })).toBe("3 Befehle übertragen.");
   });
 });

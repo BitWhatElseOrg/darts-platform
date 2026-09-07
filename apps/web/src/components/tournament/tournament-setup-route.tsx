@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { hasOrganizationPermission } from "@darts-platform/domain";
 import { boardListSchema, playerListSchema } from "@darts-platform/schemas";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
@@ -24,7 +25,7 @@ export function TournamentSetupRoute({ requestedOrganizationId }: { readonly req
   const error = organizationsQuery.error ?? playersQuery.error ?? boardsQuery.error;
   if (error) return <Notice message={userFacingErrorMessage(error)} />;
   if (organization === null) return <Notice message="Lege zuerst eine Organisation an." />;
-  if (!["OWNER", "ADMIN", "TOURNAMENT_DIRECTOR"].includes(organization.role)) {
+  if (!hasOrganizationPermission(organization.role, "tournament:create")) {
     return <Notice message="Dir fehlt die Berechtigung, Turniere anzulegen." />;
   }
   return (

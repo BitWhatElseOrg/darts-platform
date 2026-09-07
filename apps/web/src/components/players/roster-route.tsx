@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import { hasOrganizationPermission } from "@darts-platform/domain";
 import {
   createInvitationSchema,
   createdInvitationSchema,
@@ -96,9 +97,10 @@ function Roster({ organization }: { readonly organization: OrganizationSummary }
       }),
     onSuccess: () => invitationForm.reset(),
   });
-  const canManageMembers = ["OWNER", "ADMIN"].includes(organization.role);
-  const canCreatePlayers = ["OWNER", "ADMIN", "TOURNAMENT_DIRECTOR"].includes(organization.role);
-  const canArchivePlayers = ["OWNER", "ADMIN"].includes(organization.role);
+  const canManageMembers = hasOrganizationPermission(organization.role, "organization:manage_members");
+  const canCreatePlayers = hasOrganizationPermission(organization.role, "player:create");
+  const canEditPlayers = hasOrganizationPermission(organization.role, "player:update");
+  const canArchivePlayers = hasOrganizationPermission(organization.role, "player:archive");
 
   return (
     <div className="space-y-10">
@@ -131,7 +133,7 @@ function Roster({ organization }: { readonly organization: OrganizationSummary }
           {playersQuery.data?.map((player) => (
             <PlayerRow
               canArchive={canArchivePlayers}
-              canEdit={canCreatePlayers}
+              canEdit={canEditPlayers}
               key={player.id}
               onArchive={() => archivePlayer.mutate(player.id)}
               organizationId={organization.id}

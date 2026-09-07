@@ -97,7 +97,31 @@ jobs:
   deployment-artifacts:
     name: Deployment artifacts
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: darts
+          POSTGRES_USER: darts
+          POSTGRES_PASSWORD: darts
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U darts -d darts"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Check out repository
@@ -112,8 +136,46 @@ jobs:
           context: .
           file: Dockerfile.api
           push: false
+          load: true
+          tags: darts-api:ci
           cache-from: type=gha,scope=api
           cache-to: type=gha,mode=max,scope=api
+
+      - name: Smoke-test API image
+        run: |
+          docker run --detach --name api-smoke --network host \
+            --env NODE_ENV=production \
+            --env DATABASE_URL="$DATABASE_URL" \
+            --env REDIS_URL="$REDIS_URL" \
+            --env BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" \
+            --env BETTER_AUTH_URL="$BETTER_AUTH_URL" \
+            --env WEB_ORIGIN="$WEB_ORIGIN" \
+            --env TRUST_PROXY_HOPS=0 \
+            --env API_PORT=3001 \
+            darts-api:ci
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent --max-time 5 http://localhost:3001/api/v1/health > /dev/null; then
+              echo "API antwortet nach ${attempt}s."
+              exit 0
+            fi
+            if [ "$(docker inspect --format '{{.State.Running}}' api-smoke)" != "true" ]; then
+              echo "API-Container ist beendet."
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "API hat in 90 s nicht geantwortet."
+          exit 1
+
+      - name: API logs
+        if: always()
+        run: docker logs api-smoke || true
+
+      - name: Remove API container
+        if: always()
+        run: |
+          docker rm --force api-smoke || true
+          docker image rm --force darts-api:ci || true
 
       - name: Build web deployment image
         uses: docker/build-push-action@v7
@@ -121,10 +183,43 @@ jobs:
           context: .
           file: Dockerfile.web
           push: false
+          load: true
+          tags: darts-web:ci
           build-args: |
             NEXT_PUBLIC_API_URL=https://api.example.test/api/v1
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
+
+      - name: Smoke-test web image
+        run: |
+          docker run --detach --name web-smoke --network host \
+            --env NODE_ENV=production \
+            --env WEB_PORT=3000 \
+            --env NEXT_PUBLIC_API_URL=https://api.example.test/api/v1 \
+            darts-web:ci
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --max-time 5 http://localhost:3000/ > /dev/null; then
+              echo "Web antwortet nach ${attempt}s."
+              exit 0
+            fi
+            if [ "$(docker inspect --format '{{.State.Running}}' web-smoke)" != "true" ]; then
+              echo "Web-Container ist beendet."
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "Web hat in 60 s nicht geantwortet."
+          exit 1
+
+      - name: Web logs
+        if: always()
+        run: docker logs web-smoke || true
+
+      - name: Remove web container
+        if: always()
+        run: |
+          docker rm --force web-smoke || true
+          docker image rm --force darts-web:ci || true
 
       - name: Build worker deployment image
         uses: docker/build-push-action@v7
@@ -132,5 +227,67 @@ jobs:
           context: .
           file: Dockerfile.worker
           push: false
+          load: true
+          tags: darts-worker:ci
           cache-from: type=gha,scope=worker
           cache-to: type=gha,mode=max,scope=worker
+
+      # Der Worker legt selbst keine Migrationen an -- er setzt voraus, dass
+      # das Schema bereits steht. In diesem Job wandert es einzig ueber
+      # `scripts/start-api.mjs` in der Smoke-test-API-image-Stufe oben in die
+      # gemeinsame Postgres-Instanz; ohne einen erfolgreichen API-Rauchtest
+      # zuvor liefe dieser Schritt gegen eine leere Datenbank.
+      - name: Smoke-test worker image
+        run: |
+          docker run --detach --name worker-smoke --network host \
+            --env NODE_ENV=production \
+            --env DATABASE_URL="$DATABASE_URL" \
+            --env REDIS_URL="$REDIS_URL" \
+            --env BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" \
+            --env BETTER_AUTH_URL="$BETTER_AUTH_URL" \
+            --env TRUST_PROXY_HOPS=0 \
+            --env LOG_LEVEL=log \
+            darts-worker:ci
+          started=false
+          for attempt in $(seq 1 30); do
+            if docker logs worker-smoke 2>&1 | grep --quiet worker_started; then
+              started=true
+              echo "Worker gestartet nach ${attempt}s."
+              break
+            fi
+            sleep 1
+          done
+          if [ "$started" != "true" ]; then
+            echo "Worker hat sich in 30 s nicht gemeldet."
+            exit 1
+          fi
+          # Der Poller laeuft im Sekundentakt gegen die Datenbank. Zehn ruhige
+          # Sekunden ohne Fehlerzeile belegen, dass er nicht nur gestartet ist,
+          # sondern auch arbeitet.
+          sleep 10
+          # Strukturierte Fehlerereignisse des Workers (Teil D): jedes
+          # Fehlerereignis des Workers (tick_failed, failure_booking_failed,
+          # prune_failed, ...) ist rot. `createStructuredLogEmitter`
+          # (packages/config/src/structured-logger.ts) schreibt fuer jeden
+          # Aufruf mit Level "error" das Feld `"level":"error"` in die
+          # JSON-Zeile -- der Level traegt das Urteil, nicht der Ereignisname,
+          # und ein kuenftiges Fehlerereignis braucht deshalb keine Ergaenzung
+          # dieser Namensliste mehr.
+          if docker logs worker-smoke 2>&1 | grep --quiet '"level":"error"'; then
+            echo "Worker meldet Fehler."
+            exit 1
+          fi
+          if [ "$(docker inspect --format '{{.State.Running}}' worker-smoke)" != "true" ]; then
+            echo "Worker-Container ist beendet."
+            exit 1
+          fi
+
+      - name: Worker logs
+        if: always()
+        run: docker logs worker-smoke || true
+
+      - name: Remove worker container
+        if: always()
+        run: |
+          docker rm --force worker-smoke || true
+          docker image rm --force darts-worker:ci || true

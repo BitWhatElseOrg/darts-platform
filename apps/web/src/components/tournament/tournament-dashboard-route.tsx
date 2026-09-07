@@ -1,5 +1,7 @@
 "use client";
 
+import { hasOrganizationPermission } from "@darts-platform/domain";
+
 import { CommandCentre } from "./command-centre";
 import { userFacingErrorMessage } from "@/lib/api-client";
 import { useTournamentOrganization } from "./use-tournament-organization";
@@ -12,7 +14,7 @@ export function TournamentDashboardRoute({ requestedOrganizationId, tournamentId
   if (query.isPending) return <Notice message="Organisation wird geladen …" />;
   if (query.error) return <Notice message={userFacingErrorMessage(query.error)} />;
   if (organization === null) return <Notice message="Keine zugängliche Organisation gefunden." />;
-  const canCorrect = ["OWNER", "ADMIN", "TOURNAMENT_DIRECTOR"].includes(organization.role);
+  const canCorrect = hasOrganizationPermission(organization.role, "tournament:update");
   return <CommandCentre canCorrect={canCorrect} canWithdraw={canCorrect} organizationId={organization.id} tournamentId={tournamentId} />;
 }
 

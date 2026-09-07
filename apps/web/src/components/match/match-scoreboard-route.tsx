@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { hasOrganizationPermission } from "@darts-platform/domain";
 import { matchStateSchema } from "@darts-platform/schemas";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
@@ -57,8 +58,8 @@ export function MatchScoreboardRoute({ encounterId, matchId, requestedOrganizati
   }
 
   const match = matchQuery.data;
-  const canScore = ["OWNER", "ADMIN", "TOURNAMENT_DIRECTOR", "SCORER"].includes(organization.role);
-  const canAbort = ["OWNER", "ADMIN", "TOURNAMENT_DIRECTOR"].includes(organization.role);
+  const canScore = hasOrganizationPermission(organization.role, "match:score");
+  const canAbort = hasOrganizationPermission(organization.role, "match:abort");
 
   return (
     <main className="bg-slate-950">

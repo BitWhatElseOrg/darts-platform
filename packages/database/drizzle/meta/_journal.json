@@ -162,6 +162,27 @@
       "when": 1788654917335,
       "tag": "0022_board_in_progress_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1788678606502,
+      "tag": "0023_tier2_integrity_constraints",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788706636474,
+      "tag": "0024_league_decider_bull_off",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1788709063818,
+      "tag": "0025_outbox_dead_letter",
+      "breakpoints": true
     }
   ]
 }

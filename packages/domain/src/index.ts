@@ -7,6 +7,7 @@ export {
 } from "./entity-id";
 export {
   membershipStatuses,
+  isMembershipStatus,
   isOrganizationRole,
   organizationRoles,
   playerStatuses,

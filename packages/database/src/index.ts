@@ -5,6 +5,18 @@ export {
 } from "./client.js";
 export { migrateDatabase } from "./migration-runner.js";
 export {
+  OUTBOX_BACKOFF_BASE_MS,
+  OUTBOX_BACKOFF_CAP_MS,
+  OUTBOX_MAX_ATTEMPTS,
+  STATISTICS_OUTBOX_EVENT_TYPE,
+  outboxPending,
+  outboxRetryDelayMs,
+  recordOutboxFailure,
+  type OutboxConsumer,
+  type OutboxFailureInput,
+  type OutboxLogger,
+} from "./outbox.js";
+export {
   accounts,
   auditEvents,
   boards,

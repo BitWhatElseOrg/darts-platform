@@ -1,9 +1,12 @@
 import {
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+
+import type { ApplicationEnvironment } from "@darts-platform/config";
 
 import {
   createdInvitationSchema,
@@ -15,11 +18,14 @@ import {
   type CreateOrganizationInput,
   type CreatedInvitation,
   type Invitation,
+  type OrganizationMember,
   type OrganizationSummary,
+  type UpdateMembershipInput,
 } from "@darts-platform/schemas";
 
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
+import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 import { OrganizationAccessService } from "./organization-access.service.js";
 import { OrganizationsRepository } from "./organizations.repository.js";
 
@@ -39,6 +45,8 @@ export class OrganizationsService {
     private readonly organizationsRepository: OrganizationsRepository,
     @Inject(OrganizationAccessService)
     private readonly organizationAccessService: OrganizationAccessService,
+    @Inject(APPLICATION_ENVIRONMENT)
+    private readonly environment: ApplicationEnvironment,
   ) {}
 
   public async list(auth: AuthContext): Promise<OrganizationSummary[]> {
@@ -53,6 +61,18 @@ export class OrganizationsService {
     readonly auth: AuthContext;
     readonly audit: AuditContext;
   }): Promise<OrganizationSummary> {
+    // Ohne diese Sperre macht sich jede angemeldete Person zum OWNER eines
+    // eigenen Mandanten und darf von dort aus beliebig einladen — die
+    // einladungsgebundene Registrierung aus ADR 0010 waere damit umgangen
+    // (Audit B, I-3). Mandanten entstehen ueber den Bootstrap-Pfad
+    // (ADR 0012), solange es keine Systemrolle `SUPER_ADMIN` gibt.
+    if (!this.environment.ALLOW_SELF_SERVICE_ORGANIZATIONS) {
+      throw new ForbiddenException({
+        code: "SELF_SERVICE_ORGANIZATIONS_DISABLED",
+        message: "New organizations are created by platform operations.",
+      });
+    }
+
     try {
       const organization = await this.organizationsRepository.create({
         ...input.data,
@@ -119,5 +139,83 @@ export class OrganizationsService {
     }
 
     return { accepted: true };
+  }
+
+  public async updateMembership(input: {
+    readonly organizationId: string;
+    readonly targetUserId: string;
+    readonly data: UpdateMembershipInput;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<OrganizationMember> {
+    // Prueft die Berechtigung; die zurueckgegebene Rolle wird hier bewusst
+    // nicht weiterverwendet. Beide Owner-Pruefungen brauchen einen Stand, der
+    // sich bis zum Schreibvorgang nicht mehr aendern kann — den liest das
+    // Repository unter der Organisationssperre.
+    await this.organizationAccessService.requirePermission({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      permission: "organization:manage_roles",
+    });
+
+    // Die eigene Mitgliedschaft bleibt aussen vor. „Herabstufung“ ist im
+    // Rollenmodell nicht total geordnet (SCORER und MEMBER lassen sich nicht
+    // vergleichen); ein Verbot der Selbstaenderung ist dagegen exakt und
+    // schliesst die Selbstaussperrung vollstaendig aus. Regel: es bleibt
+    // immer ein aktiver OWNER, der die Aenderung vornehmen kann.
+    if (input.targetUserId === input.auth.user.id) {
+      throw new ForbiddenException({
+        code: "SELF_MEMBERSHIP_CHANGE_FORBIDDEN",
+        message: "Your own membership is changed by another administrator.",
+      });
+    }
+
+    // Beide Eigentumsregeln — `OWNER` vergeben und eine bestehende OWNER-Zeile
+    // aendern — liegen im Repository, weil erst dort unter der Sperre
+    // feststeht, welche Rolle die handelnde Person und die Zielperson im
+    // Moment des Schreibens wirklich tragen. `ADMIN` traegt zwar
+    // `organization:manage_roles` und darf jede andere Rolle setzen, aber kein
+    // Eigentum. Die Uebertragung unter OWNERn bleibt moeglich — sonst waere ein
+    // Vorstandswechsel nur noch mit einem manuellen UPDATE auf der
+    // Produktionsdatenbank machbar (AGENTS.md §21).
+    const result = await this.organizationsRepository.updateMembership({
+      organizationId: input.organizationId,
+      targetUserId: input.targetUserId,
+      actorUserId: input.auth.user.id,
+      audit: input.audit,
+      ...(input.data.role === undefined ? {} : { role: input.data.role }),
+      ...(input.data.status === undefined ? {} : { status: input.data.status }),
+    });
+
+    switch (result.outcome) {
+      case "not-found":
+        throw new NotFoundException(
+          "This membership does not exist in this organization.",
+        );
+      case "last-owner":
+        throw new ConflictException({
+          code: "LAST_OWNER_PROTECTED",
+          message: "The last active owner cannot be demoted or deactivated.",
+        });
+      case "actor-not-active":
+        // Die Mitgliedschaft der handelnden Person wurde zwischen der
+        // Berechtigungspruefung und der Sperre entzogen oder herabgestuft.
+        // Antwort wie bei `requirePermission`: 403 `PERMISSION_DENIED`.
+        throw new ForbiddenException(
+          "You do not have permission to access this organization resource.",
+        );
+      case "owner-grant-requires-owner":
+        throw new ForbiddenException({
+          code: "OWNER_GRANT_REQUIRES_OWNER",
+          message: "Only an active owner can grant the owner role.",
+        });
+      case "owner-change-requires-owner":
+        throw new ForbiddenException({
+          code: "OWNER_CHANGE_REQUIRES_OWNER",
+          message: "Only an active owner can change an owner membership.",
+        });
+      case "updated":
+        return result.member;
+    }
   }
 }

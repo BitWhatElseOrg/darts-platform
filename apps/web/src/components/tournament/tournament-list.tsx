@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { hasOrganizationPermission } from "@darts-platform/domain";
 import { tournamentListSchema } from "@darts-platform/schemas";
 import { MarkFlight, Rule, SelectInput, SheetLabel, StateTag } from "@darts-platform/ui";
 import Link from "next/link";
@@ -26,7 +27,8 @@ export function TournamentList({ requestedOrganizationId }: { readonly requested
     enabled: organization !== null,
   });
   const tournaments = tournamentsQuery.data ?? [];
-  const canCreate = organization !== null && ["OWNER", "ADMIN", "TOURNAMENT_DIRECTOR"].includes(organization.role);
+  const canCreate =
+    organization !== null && hasOrganizationPermission(organization.role, "tournament:create");
 
   return (
     <main className="sektorenring min-h-screen">

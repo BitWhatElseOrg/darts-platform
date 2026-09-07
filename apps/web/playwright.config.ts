@@ -33,9 +33,17 @@ export default defineConfig({
       command: "pnpm --filter @darts-platform/api dev",
       url: `http://localhost:${apiPort}/api/v1/health`,
       env: {
+        // Die E2E-Suite legt ihre Mandanten ueber die Oberflaeche an; in
+        // Production bleibt die Selbstbedienung aus (ADR 0012).
+        ALLOW_SELF_SERVICE_ORGANIZATIONS: "true",
         API_PORT: String(apiPort),
         BETTER_AUTH_URL: apiOrigin,
         PORT: String(apiPort),
+        // Der Lauf kommt von einer einzigen Adresse und registriert mehrere
+        // Konten; die Produktionsgrenzen wuerden ihn abwuergen.
+        RATE_LIMIT_MAX_PER_MINUTE: "100000",
+        RATE_LIMIT_PUBLIC_MAX_PER_MINUTE: "100000",
+        RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: "100000",
         WEB_ORIGIN: webOrigin,
       },
       reuseExistingServer: false,

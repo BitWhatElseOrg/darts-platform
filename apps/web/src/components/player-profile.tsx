@@ -36,7 +36,11 @@ export function PlayerProfile({ playerId, requestedOrganizationId }: { readonly 
       <section aria-label="Karrierestatistik" className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Statistic label="Average" value={stats.threeDartAverage.toFixed(2)} />
         <Statistic label="First 9" value={stats.firstNineAverage.toFixed(2)} />
-        <Statistic label="Checkout-Quote" value={`${stats.checkoutPercentage.toFixed(1)} %`} note={`${stats.checkouts} von ${stats.checkoutAttempts}`} />
+        <Statistic
+          label="Checkout-Quote"
+          value={stats.checkoutPercentage === null ? "–" : `${stats.checkoutPercentage.toFixed(1)} %`}
+          note={stats.checkouts === null || stats.checkoutAttempts === null ? "Unter Straight Out nicht anwendbar" : `${stats.checkouts} von ${stats.checkoutAttempts}`}
+        />
         <Statistic label="180er" value={String(stats.oneEighties)} />
         <Statistic label="High Finish" value={String(stats.highFinish)} />
         <Statistic label="Best Leg" value={stats.bestLeg === null ? "–" : `${stats.bestLeg} Darts`} />

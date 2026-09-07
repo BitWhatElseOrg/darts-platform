@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, type OnApplicationShutdown } from "@nestjs/common";
 import type { ApplicationEnvironment } from "@darts-platform/config";
+import type { OutboxLogger } from "@darts-platform/database";
 import { createClient, type RedisClientType } from "redis";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { Server, type Socket } from "socket.io";
@@ -23,6 +24,20 @@ export class RealtimeService implements OnApplicationShutdown, RealtimeBroadcast
   private io: Server | null = null;
   private timer: NodeJS.Timeout | null = null;
   private publishing = false;
+
+  /**
+   * Bindet die Fehlerbuchung des Relays an den Anwendungslogger. In der
+   * Produktion schreibt dieser JSON-Records; `outbox.dead_letter` ist damit
+   * in den Railway-Logs auffindbar.
+   */
+  private readonly outboxLogger: OutboxLogger = {
+    emit: (level, fields) => {
+      if (level === "error") this.logger.error(fields);
+      else if (level === "warn") this.logger.warn(fields);
+      else if (level === "log") this.logger.log(fields);
+      else this.logger.debug(fields);
+    },
+  };
 
   public constructor(
     @Inject(DatabaseService) private readonly database: DatabaseService,
@@ -71,7 +86,9 @@ export class RealtimeService implements OnApplicationShutdown, RealtimeBroadcast
     if (this.publishing || this.io === null) return;
     this.publishing = true;
     try {
-      await publishOutboxBatch(this.database.database, this);
+      await publishOutboxBatch(this.database.database, this, {
+        logger: this.outboxLogger,
+      });
     } catch (error) {
       this.logger.error("Outbox konnte nicht publiziert werden", error);
     } finally {

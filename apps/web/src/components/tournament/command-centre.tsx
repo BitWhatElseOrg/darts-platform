@@ -15,14 +15,17 @@ import { ApiClientError } from "@/lib/api-error";
 import { generateId } from "@/lib/id";
 import { type OfflineCommand } from "@/lib/offline-command-queue";
 import {
+  hasReplayableEntries,
   nextReplayable,
   queueHidesEntries,
   queuedCommandNotice,
+  replayAnnouncement,
   replayChained,
   replayFailure,
   type ReplayOutcome,
 } from "@/lib/offline-replay";
 import { useOfflineQueue } from "@/lib/use-offline-queue";
+import { useOnlineFlush } from "@/lib/use-online-flush";
 import {
   assignmentQueueEntries,
   assignmentRequestBody,
@@ -451,7 +454,18 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
    * die Zentrale wuerde einen veralteten Stand zeigen, waehrend sie schreibt.
    */
   const flushPending = useCallback(async () => {
-    if (commandBusy || connection === "offline") return;
+    // Der Verbindungszustand wird ebenfalls aus dem `online`-Ereignis gesetzt.
+    // Zum Zeitpunkt des Ereignisses traegt `connection` deshalb noch "offline",
+    // und eine Pruefung auf den Zustand haette die automatische Uebertragung
+    // im selben Tick abgewiesen. `navigator.onLine` ist an dieser Stelle die
+    // frische Auskunft; der Knopf bleibt weiterhin ueber `connection`
+    // deaktiviert.
+    if (commandBusy || (typeof navigator !== "undefined" && !navigator.onLine)) return;
+    // Eine leere Warteschlange gibt es nichts zu uebertragen -- weder den
+    // Knopf-Zustand sperren noch "0 Befehle übertragen" in die `aria-live`-
+    // Region ansagen. Ohne diese Wache meldete jedes `online`-Ereignis mit
+    // leerer Warteschlange eine Ansage, die niemand ausgeloest hat (Ruling E8).
+    if (!hasReplayableEntries(replayable)) return;
     setCommandBusy(true);
     try {
       const refreshed = await dashboardQuery.refetch();
@@ -463,7 +477,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         setCommandError(userFacingErrorMessage(refreshed.error, "Serverstand konnte nicht geladen werden; es wurde nichts übertragen."));
         return;
       }
-      const { sentCount } = await replayChained<AssignmentQueueEntry>(
+      const result = await replayChained<AssignmentQueueEntry>(
         replayable,
         // Kopf (`chainedVersion === null`): die gespeicherte Version der
         // Zuweisung. Nachfolger: die Version aus der Antwort auf die
@@ -471,11 +485,16 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
         async (entry, chainedVersion): Promise<ReplayOutcome> =>
           await sendAssignment(pendingCommandOf(entry), chainedVersion ?? entry.expectedVersion, entry.command),
       );
-      setAnnouncement(`${sentCount} Befehl${sentCount === 1 ? "" : "e"} übertragen.`);
+      setAnnouncement(replayAnnouncement(result));
     } finally {
       setCommandBusy(false);
     }
-  }, [commandBusy, connection, dashboardQuery, replayable, sendAssignment]);
+  }, [commandBusy, dashboardQuery, replayable, sendAssignment]);
+
+  // Wartendes geht auch ohne Knopfdruck raus, sobald das Geraet wieder im Netz
+  // ist -- wie die Scoringflaeche. Vorher blieben Zuweisungen liegen, bis
+  // jemand "Jetzt übertragen" traf.
+  useOnlineFlush(flushPending);
 
   /**
    * Verwirft eine Zuweisung, die nur noch im Weg steht -- und holt danach den

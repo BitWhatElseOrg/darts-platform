@@ -135,6 +135,36 @@ Mindestens diese Shared beziehungsweise Service-Variablen werden benötigt:
 | `NEXT_PUBLIC_API_URL` | `https://api.dartbase.ch/api/v1` | API-URL im Browser-Bundle |
 | `DATABASE_URL` | Railway-Referenz auf PostgreSQL | persistente Production-Datenbank |
 | `REDIS_URL` | Railway-Referenz auf Redis | Cache, Queue und Realtime |
+| `RATE_LIMIT_MAX_PER_MINUTE` | `300` | Obergrenze je IP und Minute für alle übrigen Routen (optional, Vorgabe 300) |
+| `RATE_LIMIT_PUBLIC_MAX_PER_MINUTE` | `600` | Obergrenze für `/api/v1/public/**` (optional, Vorgabe 600) |
+| `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE` | `10` | Obergrenze für Anmeldung, Registrierung und die Annahme einer Einladung (optional, Vorgabe 10) |
+| `TRUST_PROXY_HOPS` | `1` | **Pflicht.** Anzahl vertrauter Reverse-Proxy-Hops vor der Anwendung |
+| `ALLOW_SELF_SERVICE_ORGANIZATIONS` | nicht gesetzt (`false`) | öffnet `POST /organizations` für jede angemeldete Person; in Production bewusst aus |
+
+`REDIS_URL` akzeptiert `redis://` und `rediss://`; für die verschlüsselte
+Verbindung wird die TLS-Variante der Railway-Referenz eingetragen.
+
+`TRUST_PROXY_HOPS` muss genau der Anzahl vertrauter Reverse-Proxy-Hops vor der
+Anwendung entsprechen — hinter Railways eigenem Edge-Proxy also `1`. Der Wert
+bestimmt, welcher Eintrag der `X-Forwarded-For`-Kette als tatsächliche
+Client-Adresse gilt (u. a. für das Rate Limiting, siehe `RATE_LIMIT_*` oben).
+Ein zu hoch gesetzter Wert macht `X-Forwarded-For` durch den Client selbst
+fälschbar: wer mehr Hops vorgibt als tatsächlich vorhanden sind, kann eine
+beliebige IP-Adresse als eigene ausgeben. Zulässig sind 0 bis 10.
+
+Der Wert `1` ist eine Annahme über Railways Edge und **beim Deploy zu
+verifizieren**: einmal `request.ip` und den rohen `X-Forwarded-For`-Header
+einer Anfrage von einer bekannten Client-IP protokollieren. Wird der
+Cloudflare-Proxy (heute `DNS only`, siehe Abschnitt DNS) später eingeschaltet,
+kommt ein Hop dazu und der Wert muss auf `2` steigen — sonst teilen sich alle
+Clients wieder einen Rate-Limit-Zähler.
+
+`TRUST_PROXY_HOPS` ist in Production Pflicht: **der Deploy scheitert beim
+Start, bis die Variable gesetzt ist.** Ein stillschweigendes `0` wäre in
+Production ein Fehlgriff, kein sicherer Default — dann zählte Railways
+Edge-Proxy selbst als Client, und das 10/min-Limit der sensiblen Routen träfe
+alle Nutzer gemeinsam. Ein explizit gesetztes `0` bleibt möglich (etwa für
+einen kurzzeitigen Test ohne Proxy davor), nur unbelegt ist unzulässig.
 
 `BETTER_AUTH_SECRET` kann beispielsweise mit `openssl rand -base64 32` erzeugt
 werden. Secret-Werte werden ausschließlich in Railway hinterlegt und weder im
@@ -377,11 +407,37 @@ Erster Fall: `openedInLeg` in `matchParticipantStateSchema`
 Pflichtfeld; `apps/web/src/components/match/match-scoreboard-route.tsx`
 parst die API-Antwort damit.
 
+Zweiter Fall: `bullOffFromLegOne` in `matchStateSchema` (Reglement 2.2.9,
+Tier-2-Task 4) wurde ebenfalls Pflichtfeld — dieselbe Reihenfolge gilt.
+
+Auch `outbox` in `healthResponseSchema` ist ein solches Pflichtfeld:
+`apps/web/src/lib/health.ts` parst die Health-Antwort mit Zod, ein neues Web
+gegen eine alte API bekäme deshalb die Statusübersicht nicht mehr geparst
+(Anzeige „nicht erreichbar", keine weitere Auswirkung). API vor Web.
+
 Rollback-Detail: Ein Zurückrollen der API allein strippt `checkoutSegment`
 aus gespeicherten Kommandos, da `storedSubmitSchema` nicht `.strict()` ist —
 betroffene Master-Out-Finishes fallen dann auf die alte Heuristik zurück; für
 die von der UI erzeugten Fälle liefert sie dasselbe Ergebnis, garantiert ist
 es nicht.
+
+Dritter Fall — umgekehrte Richtung: `careerStatistics.checkoutPercentage`,
+`checkoutAttempts` und `checkouts` (`packages/statistics/src/statistics.ts`)
+sind neu nullable, wo sie vorher immer eine Zahl waren. Hier kippt die
+Reihenfolge: ein noch altes Web-Bundle ruft auf diesen Feldern ungeprüft
+`toFixed` auf `null` auf und stürzt ab; sein Zod-Schema erwartet ausserdem
+weiterhin eine Pflichtzahl und lehnt die Antwort schon beim Parsen ab. Bei
+dieser Art Vertragsänderung — ein Feld wird lockerer statt strenger — muss
+darum das **Web mit oder vor der API** ausgerollt werden. Ein alleiniges
+Rollback des Web ist dabei unsicher, solange die API weiterhin `null`
+liefert: das zurückgerollte, alte Web trifft exakt auf diesen Zustand und
+bricht wieder ab.
+
+Betriebsempfehlung: API und Web im selben Deploy-Fenster ausrollen, dann
+stellt sich die Reihenfolgefrage gar nicht erst. Nicht jede
+Vertragserweiterung trägt dieses Risiko: `StandingsRow.minusPoints`
+(`packages/league-engine/src/standings.ts`) ist additiv und
+reihenfolgeunabhängig, dort gilt keine der beiden Regeln.
 
 ## Verifikation und Smoke-Test
 
@@ -393,8 +449,29 @@ curl --fail https://api.dartbase.ch/api/v1/health
 curl --fail https://dartbase.ch/
 ```
 
-Der Health-Endpunkt muss HTTP 200 liefern. Sobald PostgreSQL oder Redis nicht
-erreichbar sind, wird HTTP 503 erwartet.
+Der Health-Endpunkt muss HTTP 200 liefern. HTTP 503 kommt ausschliesslich bei
+`status: "unhealthy"`, also wenn PostgreSQL oder Redis nicht erreichbar sind;
+Railway nutzt denselben Pfad als Deploy-Gate (`.railway/railway.ts`,
+`healthcheck: "/api/v1/health"`).
+
+`status: "degraded"` antwortet bewusst mit HTTP 200. Der Wert erscheint, wenn
+der Outbox-Rückstand eines Konsumenten 60 Sekunden erreicht oder mindestens
+ein Ereignis im Dead Letter liegt:
+
+```json
+{
+  "status": "degraded",
+  "services": { "database": "ok", "redis": "ok" },
+  "outbox": { "publishLagSeconds": 184, "statisticsLagSeconds": 0, "deadLettered": 1 }
+}
+```
+
+Realtime hinkt dann nach, der Spielbetrieb über HTTP läuft weiter — ein
+Neustart oder ein abgewiesenes Deployment würde die Lage nur verschlimmern.
+Vorgehen: Logs nach `outbox.dead_letter` durchsuchen und die betroffenen
+Zeilen nach `DATABASE_SCHEMA.md` §18 behandeln. Solange `deadLettered` grösser
+als null ist, bleibt der Status `degraded`, bis die betroffene Zeile requeued
+oder gelöscht wird — der Wert sinkt nicht von selbst.
 
 Am 31. August 2026 lieferten beide öffentlichen Smoke-Tests HTTP 200. Der
 API-Health-Endpunkt meldete PostgreSQL und Redis jeweils als `ok`.
@@ -444,6 +521,27 @@ event = deployment_start_failed
 Bei fehlgeschlagenen Deployments werden zuerst Build- und Deployment-Logs des
 betroffenen Service geprüft. DNS-Änderungen beheben keine Build-, Start- oder
 Variablenfehler.
+
+## Abhängigkeiten
+
+`pnpm-workspace.yaml` erzwingt per `overrides.fastify: ^5.12.3` eine einzige
+`fastify`-Version im gesamten Baum. Ohne diese Übersteuerung installiert pnpm
+zwei Instanzen nebeneinander: `@nestjs/platform-fastify@11.2.1` bringt selbst
+einen exakten Pin (`fastify: 5.11.3`) mit, während `apps/api`s eigene
+`fastify`-Abhängigkeit auf die jeweils neueste `5.x`-Version auflöst. Zwei
+Instanzen sind zur Laufzeit unauffällig, führen aber bei `tsc` zu einem
+Strukturkonflikt zwischen zwei gleichnamigen, aber unterschiedlichen
+`FastifyInstance`-Typen, sobald ein Fastify-Plugin (z. B. `@fastify/helmet`,
+`apps/api/src/common/security-headers.ts`) gegen die `NestFastifyApplication`
+registriert wird. Die Übersteuerung zwingt beide Auflösungen auf dieselbe,
+gepatchte Version und behebt den Typkonflikt, ohne die von `@nestjs/platform-
+fastify` gepinnte Version zu unterschreiten.
+
+Dieser Override muss überprüft werden, sobald `@nestjs/platform-fastify` seinen
+internen `fastify`-Pin anhebt: entweder deckt die neue Nest-Version denselben
+Versionsbereich bereits ab (Override kann dann entfallen) oder der Floor in
+`pnpm-workspace.yaml` muss auf die neue Patch-Linie nachgezogen werden, damit
+weiterhin nur eine Instanz im Baum bleibt.
 
 ## Rollback
 

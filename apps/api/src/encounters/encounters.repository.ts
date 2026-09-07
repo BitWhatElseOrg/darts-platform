@@ -55,6 +55,7 @@ import {
   lockPlayers,
 } from "../boards/board-occupancy.js";
 import type { AuditContext } from "../common/audit-context.js";
+import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
 import { DatabaseService } from "../database/database.service.js";
 import { abortScoringMatch } from "../matches/abort-match.js";
 import { toResultInput, updateEncounterProgress } from "./update-encounter-progress.js";
@@ -781,8 +782,13 @@ export class EncountersRepository {
           bestOfLegs: slot.bestOfLegs,
           legsToWinSet: slot.legsToWinSet,
           setsToWin: slot.setsToWin,
+          // Reglement 2.2.9: der Spielbeginn des Entscheidungsdoppels wird
+          // immer ausgebullt. `startingSeat` bleibt die Heimseite als Vorbelegung;
+          // sobald das Ausbullen erfasst ist, setzt `DECIDE_LEG_START` fuer
+          // Leg 1 den tatsaechlichen Anwurf.
           startingSeat: 1,
           currentSeat: 1,
+          bullOffFromLegOne: slot.role === "DECIDER",
         })
         .returning();
       if (scoringMatch === undefined) throw new Error("Scoring match insert did not return a row.");
@@ -889,6 +895,7 @@ export class EncountersRepository {
               and(
                 eq(visits.organizationId, input.organizationId),
                 eq(visits.matchId, slot.matchId),
+                isNull(visits.revertedAt),
               ),
             )
             .limit(1);
@@ -1109,6 +1116,13 @@ export class EncountersRepository {
     });
   }
 
+  /**
+   * Einziger Aufrufpunkt, an dem `runMutation` seine Transaktion oeffnet
+   * (Ruling 10): `retryOnDeadlock` sitzt hier statt in jeder oeffentlichen
+   * Methode einzeln, weil alle ueber `mutate` laufen. Ein Sperrzyklus
+   * (40P01) hinterlaesst nichts, die Wiederholung ist gefahrlos; bleibt es
+   * beim Zyklus, ist die Antwort ein Versionskonflikt statt eines 500.
+   */
   private async mutate(
     input: ActorInput & { readonly slotId?: string },
     data: { readonly commandId: string; readonly expectedVersion: number },
@@ -1122,7 +1136,10 @@ export class EncountersRepository {
     const payload =
       input.slotId === undefined ? data : { ...data, slotId: input.slotId };
     try {
-      return await this.runMutation(input, payload, type, body);
+      return await retryOnDeadlock(
+        () => this.runMutation(input, payload, type, body),
+        "version-conflict",
+      );
     } catch (error: unknown) {
       // Zwei gleichzeitige Zustellungen derselben commandId an zwei
       // verschiedene Begegnungen sperren einander nicht: sie halten

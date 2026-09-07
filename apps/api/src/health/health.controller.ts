@@ -18,7 +18,10 @@ export class HealthController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<HealthResponse> {
     const health = await this.healthService.getHealth();
-    if (health.status === "degraded") {
+    // Nur eine fehlende Abhängigkeit ist ein 503. Ein Outbox-Rückstand
+    // bleibt 200: Railway nutzt diesen Pfad als Deploy-Gate
+    // (.railway/railway.ts) und dürfte deswegen kein Deployment abweisen.
+    if (health.status === "unhealthy") {
       reply.status(503);
     }
     return health;

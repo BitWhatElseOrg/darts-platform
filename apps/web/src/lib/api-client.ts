@@ -16,6 +16,7 @@ function localizedMessage(code: string): string {
     MATCH_VERSION_CONFLICT: "Der Matchzustand hat sich geändert. Synchronisiere mit dem Serverstand.",
     TOURNAMENT_VERSION_CONFLICT: "Der Turnierzustand hat sich geändert. Synchronisiere mit dem Serverstand.",
     BOARD_NOT_AVAILABLE: "Das gewählte Board ist nicht verfügbar.",
+    BOARD_NAME_TAKEN: "Ein Board mit diesem Namen gibt es bereits.",
     BOARD_CONTROLLER_CONFLICT: "Ein anderes Gerät steuert dieses Board.",
     NOT_ACTIVE_PLAYER: "Die Aufnahme gehört nicht zum aktiven Spieler.",
     INVALID_VISIT_SCORE: "Dieser Score ist mit der gewählten Dartanzahl nicht möglich.",
@@ -54,10 +55,22 @@ function localizedMessage(code: string): string {
     ENCOUNTER_SLOT_RUNNING: "Dieses Spiel läuft bereits.",
     BOARD_UNAVAILABLE: "Das gewählte Board ist belegt.",
     PLAYER_BUSY: "Mindestens eine Person spielt bereits an einem anderen Board.",
+    RATE_LIMIT_EXCEEDED:
+      "Zu viele Anfragen in kurzer Zeit. Warte eine Minute und versuche es erneut.",
+    SELF_SERVICE_ORGANIZATIONS_DISABLED:
+      "Neue Organisationen werden vom Betrieb angelegt. Wende dich an die Plattformverwaltung.",
     COMMAND_ID_ALREADY_USED: "Dieser Befehl wurde bereits ausgeführt.",
     TEAM_PLAYER_ALREADY_MEMBER: "Diese Person gehört bereits zum Kader.",
     TEAM_CAPTAIN_TAKEN:
       "Diese Mannschaft führt bereits einen Captain. Nimm die Person als Spielerin oder Spieler auf.",
+    LAST_OWNER_PROTECTED:
+      "Die letzte Eigentümerin oder der letzte Eigentümer kann weder herabgestuft noch deaktiviert werden. Ernenne zuerst eine zweite Person.",
+    OWNER_CHANGE_REQUIRES_OWNER:
+      "Nur eine aktive Eigentümerin oder ein aktiver Eigentümer kann eine Eigentümer-Mitgliedschaft ändern.",
+    OWNER_GRANT_REQUIRES_OWNER:
+      "Nur eine aktive Eigentümerin oder ein aktiver Eigentümer kann Eigentum übertragen.",
+    SELF_MEMBERSHIP_CHANGE_FORBIDDEN:
+      "Die eigene Mitgliedschaft ändert eine andere verwaltende Person.",
   };
   const translated = messages[code];
   if (translated !== undefined) return translated;
@@ -92,16 +105,23 @@ export async function apiRequest<T>(input: {
     },
   );
 
-  const payload: unknown = await response.json();
+  // Erst der Status, dann der Koerper. Vorher lief `await response.json()` VOR
+  // der `ok`-Pruefung: eine 4xx-Antwort mit einem Koerper, der kein JSON ist --
+  // eine Fehlerseite des Proxys, ein leerer 403 --, warf einen `SyntaxError`,
+  // und der Status wurde nie gelesen. Die Wiedergabe der Offline-Warteschlange
+  // sah darin einen Netzwerkfehler (`replayFailure` -> RETRY) und wiederholte
+  // ein Kommando endlos, das der Server bereits abgelehnt hatte.
+  const raw = await response.text();
 
   if (!response.ok) {
-    const error = apiErrorSchema.safeParse(payload);
-    if (error.success) {
+    const payload = parseJson(raw);
+    const parsed = payload === undefined ? null : apiErrorSchema.safeParse(payload);
+    if (parsed !== null && parsed.success) {
       throw new ApiClientError(
-        localizedMessage(error.data.error.code),
-        error.data.error.code,
-        error.data.error.correlationId,
-        error.data.error.details,
+        localizedMessage(parsed.data.error.code),
+        parsed.data.error.code,
+        parsed.data.error.correlationId,
+        parsed.data.error.details,
         response.status,
       );
     }
@@ -114,5 +134,21 @@ export async function apiRequest<T>(input: {
     );
   }
 
-  return input.schema.parse(payload);
+  return input.schema.parse(JSON.parse(raw));
+}
+
+/**
+ * Liest einen Antwortkoerper als JSON. `undefined`, wenn er keins ist -- leer,
+ * HTML, Klartext. Nur der FEHLERPFAD ist tolerant: auf dem Erfolgspfad bleibt
+ * ein unlesbarer Koerper ein `SyntaxError` wie bisher, denn dort ist er ein
+ * echter Vertragsbruch und darf nicht als Serverurteil (`ApiClientError` mit
+ * 2xx) durch die Wiedergabe laufen.
+ */
+function parseJson(raw: string): unknown {
+  if (raw.trim() === "") return undefined;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return undefined;
+  }
 }

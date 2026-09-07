@@ -845,6 +845,14 @@ Beispiel Gruppenranking:
 
 Ranking-Logik darf nicht im Frontend liegen.
 
+Der `rankingHistory`-Verlauf aus `packages/statistics` ist eine
+**Karriereauswertung, keine ligaweite Rangliste**: er rechnet Elo mit K = 24 ab
+1500 paarweise über die Matches der betrachteten Person und führt dabei die
+Bewertung des tatsächlichen Gegners mit. Weil die Eingabe nur die Matches dieser
+Person enthält, bewegt sich die Gegnerbewertung nur in den gemeinsamen
+Begegnungen. Eine ligaweite, konfigurierbare Rangliste gehört in
+`packages/ranking-engine` (ROADMAP Phase 10) und existiert noch nicht.
+
 ---
 
 ## 24. Statistics
@@ -896,6 +904,10 @@ Statistics
 Notifications
 Webhooks
 ```
+
+Beide Konsumenten führen je Zeile einen Versuchszähler und einen
+Dead-Letter-Stempel. Ein Ereignis, das fünfmal scheitert, wird übersprungen
+und als `outbox.dead_letter` protokolliert, statt die Schlange anzuhalten.
 
 ---
 
@@ -975,6 +987,15 @@ Mindestanforderungen:
 - Restore-Tests
 - keine Secrets im Repository
 
+Security Headers: `apps/api/src/common/security-headers.ts` (Helmet, harte
+Content Security Policy) und `apps/web/next.config.ts` (CSP vorerst
+Report-Only, siehe Umstellungskriterium dort). Rate Limiting:
+`apps/api/src/common/rate-limit.ts` setzt einen prozesslokalen Zähler mit
+Stufen (`general`/`public`/`sensitive`) je Route; Better Auths eigener
+`customStorage` über Redis zählt verteilt, aber nur für Sign-in und Sign-up.
+`TRUST_PROXY_HOPS` bestimmt, welcher `X-Forwarded-For`-Eintrag als
+Client-Adresse für beide Zähler gilt und ist in Production Pflicht.
+
 ---
 
 ## 30. Audit Logging
@@ -989,6 +1010,9 @@ TOURNAMENT_RESET
 MATCH_MANUALLY_FINISHED
 BOARD_CONTROL_TAKEN_OVER
 USER_ROLE_CHANGED
+MEMBER_INVITED
+MEMBER_DEACTIVATED
+MEMBER_REACTIVATED
 INTEGRATION_CHANGED
 ```
 
@@ -1016,7 +1040,7 @@ Von Beginn an:
 
 - strukturierte Logs
 - Correlation IDs
-- Health Endpoints
+- Health Endpoints inklusive Outbox-Rückstand je Konsument
 - Metrics
 - Error Tracking
 - später Distributed Tracing
@@ -1048,6 +1072,35 @@ Hohe Testabdeckung für:
 - PostgreSQL
 - Redis
 - Auth
+
+Namenskonvention: `*.integration.spec.ts` bezeichnet Tests, die eine laufende
+Datenbank brauchen (`DATABASE_URL`), zum Beispiel
+`apps/api/src/boards/boards.integration.spec.ts`; `*.spec.ts` läuft ohne
+Infrastruktur. Die HTTP-Grenze -- `AuthGuard`, `@Public()` und der Fehlerfilter
+aus §15 -- ist über `apps/api/src/common/http-boundary.integration.spec.ts`
+mit einem echten Fastify-Zyklus abgedeckt (`createApiTestApplication`,
+Session per Spy auf `AuthService.getSession`); die übrigen Integrationstests
+rufen ihre Services direkt auf.
+
+Deployment-Images: CI baut API, Web und Worker nicht nur, sondern startet
+jedes Image einmal und prüft es (Health-Endpunkt, Startseite, Startzeile im
+Worker-Log).
+
+### Frontend
+
+Hook-Tests heissen `*.hook.spec.ts` und laufen unter `happy-dom`, per
+`// @vitest-environment happy-dom`-Pragma je Datei (Tier-1-Konvention,
+`@testing-library/react`); die übrige Web-Suite bleibt in der schnelleren
+Node-Umgebung. Beispiele: `apps/web/src/lib/use-offline-queue.hook.spec.ts`,
+`apps/web/src/lib/use-online-flush.hook.spec.ts`.
+
+Rollenlisten sind in der Oberfläche verboten: eine ESLint-Regel in
+`eslint.config.mjs` (`no-restricted-syntax`, Geltungsbereich
+`apps/web/src/**/*.{ts,tsx}`) verbietet `[...].includes(role)`-Literale mit
+Rollennamen und verweist auf `hasOrganizationPermission` aus
+`@darts-platform/domain`. Das ist ein Rückfallschutz gegen eine
+Parallelstruktur zum Berechtigungsmodell, keine eigene
+Autorisierungsentscheidung -- die trifft weiterhin ausschliesslich der Server.
 
 ### End-to-End
 

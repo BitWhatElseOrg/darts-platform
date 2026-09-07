@@ -1,11 +1,25 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 
-import { encounterSlots, outboxEvents, tournamentMatches } from "@darts-platform/database";
+import {
+  OUTBOX_MAX_ATTEMPTS,
+  encounterSlots,
+  outboxEvents,
+  outboxPending,
+  recordOutboxFailure,
+  tournamentMatches,
+  type OutboxLogger,
+} from "@darts-platform/database";
 
 import type { DatabaseService } from "../database/database.service.js";
 import { toBroadcast, type RealtimeBroadcast, type RealtimeScope } from "./event-routing.js";
 
 type Database = DatabaseService["database"];
+type DatabaseTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+/**
+ * Die Zuordnung laeuft jetzt innerhalb der Transaktion, die den Stapel
+ * beansprucht — sie muss deshalb beides annehmen.
+ */
+export type OutboxExecutor = Database | DatabaseTransaction;
 
 export interface RealtimeBroadcaster {
   emit(room: string, event: string, payload: RealtimeBroadcast["payload"]): void;
@@ -29,7 +43,7 @@ interface ResolvableEvent {
  * `ENCOUNTER_SLOT_REOPENED`, das dieselbe Transaktion mitschreibt.
  */
 export async function resolveScope(
-  database: Database,
+  executor: OutboxExecutor,
   event: ResolvableEvent,
 ): Promise<RealtimeScope | null> {
   if (event.aggregateType === "Tournament") {
@@ -40,7 +54,7 @@ export async function resolveScope(
   }
   if (event.aggregateType !== "Match") return null;
 
-  const [scheduled] = await database
+  const [scheduled] = await executor
     .select({ tournamentId: tournamentMatches.tournamentId })
     .from(tournamentMatches)
     .where(
@@ -54,7 +68,7 @@ export async function resolveScope(
     return { kind: "tournament", id: scheduled.tournamentId };
   }
 
-  const [slot] = await database
+  const [slot] = await executor
     .select({ encounterId: encounterSlots.encounterId })
     .from(encounterSlots)
     .where(
@@ -67,32 +81,139 @@ export async function resolveScope(
   return slot === undefined ? null : { kind: "encounter", id: slot.encounterId };
 }
 
+export interface PublishOutboxOptions {
+  readonly logger: OutboxLogger;
+  readonly limit?: number;
+  readonly maxAttempts?: number;
+  readonly now?: () => Date;
+}
+
 /**
- * Verteilt einen Stapel unpublizierter Ereignisse und stempelt jedes einzeln.
- * Der Stempel fällt auch dann, wenn kein Raum zuständig ist — sonst liefe der
- * Poller ewig gegen dieselbe Zeile.
+ * Beansprucht einen Stapel unpublizierter Ereignisse und sendet innerhalb
+ * derselben Transaktion, bevor gestempelt wird.
+ *
+ * `FOR UPDATE SKIP LOCKED` macht den Stapel exklusiv: eine zweite Replik
+ * ueberspringt die gesperrten Zeilen, statt sie ein zweites Mal zu senden
+ * (Befund I8). `outboxPending("publish", now)` schraenkt die Auswahl
+ * zusaetzlich ein: bereits im Dead Letter liegende Zeilen und Zeilen mit
+ * noch nicht abgelaufener Backoff-Sperre werden gar nicht erst gezogen.
+ *
+ * Der Kanal ist bewusst At-least-once, nicht At-most-once: `socket.io.emit`
+ * ist synchron und feuert-und-vergisst, traegt also keine Bestaetigung. Eine
+ * Zeile erst zu stempeln und danach zu senden hiesse, bei einem Absturz
+ * zwischen Commit und Versand bis zu `limit` Ereignisse endgueltig zu
+ * verlieren — und zwei Web-Ansichten stellen ihr Polling ein, solange der
+ * Socket verbunden ist (`apps/web/src/components/live/live-tournament.tsx`,
+ * `apps/web/src/components/league/use-encounter-command.ts`), ein verlorenes
+ * Ereignis liesse sie einfrieren. Deshalb wird zuerst gesendet und erst bei
+ * Erfolg gestempelt: ein Absturz zwischen Versand und Commit sendet beim
+ * naechsten Durchlauf noch einmal. Die Duplikate sind harmlos, weil die
+ * UI-Zustaende, die sie aktualisieren, idempotent sind.
+ *
+ * Schlaegt der Versand fehl, bleibt die Zeile innerhalb der Transaktion
+ * ungestempelt. Erst NACH dem Commit — die abgeschlossene Transaktion kann
+ * nicht mehr schreiben — bucht `recordOutboxFailure` je fehlgeschlagenem
+ * Ereignis einen Fehlversuch in einer eigenen Anweisung: Zaehler hoch,
+ * Backoff gesetzt, und nach `maxAttempts` Versuchen ein Dead-Letter-Stempel,
+ * der die Zeile fortan von `outboxPending` ausschliesst. Diese Funktion wirft
+ * dafuer bewusst kein `AggregateError` mehr (anders als vor diesem Befund):
+ * ein fehlgeschlagenes Ereignis ist damit vollstaendig behandelt — gebucht
+ * und ueber `options.logger` als `outbox.retry_scheduled` bzw.
+ * `outbox.dead_letter` protokolliert (`recordOutboxFailure` erzeugt diesen
+ * Log-Eintrag selbst) — und muss den Aufrufer nicht mehr zusaetzlich per
+ * Exception alarmieren. Ein einzelnes kaputtes Ereignis haelt so weder den
+ * Rest des Stapels noch kuenftige Durchlaeufe auf; geworfen wird nur noch,
+ * wenn das Beanspruchen des Stapels selbst scheitert (Infrastrukturfehler),
+ * unveraendert gegenueber Teil A. Scheitert die Buchung selbst (z. B. eine
+ * Verbindungsstoerung waehrend des `UPDATE`), faengt ein eigenes try/catch je
+ * Ereignis das ab und protokolliert `outbox.failure_booking_failed`, statt
+ * die Buchung der uebrigen Ereignisse dieses Stapels zu verhindern.
+ *
+ * Jedes Ereignis wird einzeln abgesichert, damit ein Fehler in der Mitte des
+ * Stapels nur dieses eine Ereignis kostet statt den ganzen Rest zu blockieren.
+ * Ein Ereignis ohne zustaendigen Raum (`resolveScope` liefert `null`) wird wie
+ * bisher gestempelt, ohne gesendet zu werden — sonst liefe der Poller ewig
+ * gegen dieselbe Zeile.
+ *
+ * Sortiert wird nach `sequence`, nicht nach `occurred_at`: letzteres ist
+ * `now()` und damit die Transaktions-STARTzeit, eine laengere Transaktion, die
+ * nach einer kuerzeren committet, wuerde vor ihr publiziert.
  */
 export async function publishOutboxBatch(
   database: Database,
   broadcaster: RealtimeBroadcaster,
-  limit = 100,
+  options: PublishOutboxOptions,
 ): Promise<number> {
-  const events = await database
-    .select()
-    .from(outboxEvents)
-    .where(isNull(outboxEvents.publishedAt))
-    .orderBy(asc(outboxEvents.occurredAt))
-    .limit(limit);
+  const now = options.now ?? ((): Date => new Date());
+  const currentTime = now();
+  const maxAttempts = options.maxAttempts ?? OUTBOX_MAX_ATTEMPTS;
+  const limit = options.limit ?? 100;
 
-  for (const event of events) {
-    const broadcast = toBroadcast(event, await resolveScope(database, event));
-    if (broadcast !== null) {
-      broadcaster.emit(broadcast.room, broadcast.event, broadcast.payload);
+  const failures: { outboxId: string; error: unknown }[] = [];
+  const claimed = await database.transaction(async (transaction) => {
+    const events = await transaction
+      .select()
+      .from(outboxEvents)
+      .where(and(isNull(outboxEvents.publishedAt), outboxPending("publish", currentTime)))
+      .orderBy(asc(outboxEvents.sequence))
+      .limit(limit)
+      .for("update", { skipLocked: true });
+    if (events.length === 0) return 0;
+
+    const stampable: string[] = [];
+    for (const event of events) {
+      // `resolveScope` liegt bewusst mit im `try`: sein DB-Zugriff kann
+      // genauso fehlschlagen wie der Versand selbst, und ein einzelnes
+      // kaputtes Ereignis soll auch dann nur sich selbst kosten, nicht den
+      // Rest des Stapels abbrechen.
+      try {
+        const broadcast = toBroadcast(event, await resolveScope(transaction, event));
+        if (broadcast === null) {
+          stampable.push(event.id);
+          continue;
+        }
+        broadcaster.emit(broadcast.room, broadcast.event, broadcast.payload);
+        stampable.push(event.id);
+      } catch (error) {
+        failures.push({ outboxId: event.id, error });
+      }
     }
-    await database
-      .update(outboxEvents)
-      .set({ publishedAt: new Date() })
-      .where(and(eq(outboxEvents.id, event.id), isNull(outboxEvents.publishedAt)));
+
+    if (stampable.length > 0) {
+      // isNull ist unter der Zeilensperre redundant, bleibt aber als defensive
+      // Absicherung stehen.
+      await transaction
+        .update(outboxEvents)
+        .set({ publishedAt: currentTime })
+        .where(and(inArray(outboxEvents.id, stampable), isNull(outboxEvents.publishedAt)));
+    }
+    return events.length;
+  });
+
+  for (const failure of failures) {
+    // Eigenes try/catch je Buchung: scheitert `recordOutboxFailure` selbst
+    // (z. B. eine Verbindungsstoerung zur Datenbank), darf das nicht die
+    // Buchung der uebrigen fehlgeschlagenen Ereignisse dieses Stapels
+    // verhindern.
+    try {
+      await recordOutboxFailure({
+        database,
+        consumer: "publish",
+        eventId: failure.outboxId,
+        error: failure.error,
+        now: currentTime,
+        maxAttempts,
+        logger: options.logger,
+      });
+    } catch (error) {
+      options.logger.emit("error", {
+        event: "outbox.failure_booking_failed",
+        consumer: "publish",
+        eventId: failure.outboxId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
-  return events.length;
+
+  return claimed;
 }

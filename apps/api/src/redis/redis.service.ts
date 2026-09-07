@@ -59,6 +59,37 @@ export class RedisService implements OnApplicationShutdown {
     }
   }
 
+  /**
+   * Zaehlt eine Anfrage gegen `key` in einem festen Fenster und sagt, ob sie
+   * durchgeht. `INCR` ist atomar; die Ablaufzeit wird mit dem Modus `NX`
+   * gesetzt, greift also nur, wenn der Schluessel noch keine Ablaufzeit hat.
+   * Das Fenster beginnt dadurch nicht bei jeder Anfrage neu — und ein
+   * Schluessel, der seine Ablaufzeit verloren hat (etwa weil der Prozess
+   * zwischen `INCR` und `EXPIRE` abgestuerzt ist), heilt sich bei der
+   * naechsten Anfrage von selbst, statt fuer immer gesperrt zu bleiben.
+   */
+  public async consumeRateLimit(
+    key: string,
+    windowSeconds: number,
+    max: number,
+  ): Promise<{ readonly allowed: boolean; readonly retryAfter: number | null }> {
+    await this.ensureConnected();
+
+    const namespacedKey = `rate-limit:${key}`;
+    const count = await this.client.incr(namespacedKey);
+    await this.client.expire(namespacedKey, windowSeconds, "NX");
+
+    if (count <= max) {
+      return { allowed: true, retryAfter: null };
+    }
+
+    const remainingSeconds = await this.client.ttl(namespacedKey);
+    return {
+      allowed: false,
+      retryAfter: remainingSeconds > 0 ? remainingSeconds : windowSeconds,
+    };
+  }
+
   public async onApplicationShutdown(): Promise<void> {
     if (this.connecting !== undefined) {
       await this.connecting.catch(() => undefined);

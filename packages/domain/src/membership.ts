@@ -17,6 +17,10 @@ export const membershipStatuses = ["INVITED", "ACTIVE", "SUSPENDED"] as const;
 
 export type MembershipStatus = (typeof membershipStatuses)[number];
 
+export function isMembershipStatus(value: string): value is MembershipStatus {
+  return membershipStatuses.some((status) => status === value);
+}
+
 export const playerStatuses = ["ACTIVE", "INACTIVE"] as const;
 
 export type PlayerStatus = (typeof playerStatuses)[number];

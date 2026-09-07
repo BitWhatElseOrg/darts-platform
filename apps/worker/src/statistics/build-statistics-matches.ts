@@ -4,6 +4,7 @@ export interface CompletedMatchRow {
   readonly id: string;
   readonly winnerSeat: number;
   readonly completedAt: Date;
+  readonly outRule: string;
 }
 
 export interface ParticipantRow {
@@ -76,6 +77,10 @@ export function buildStatisticsMatches(source: StatisticsSource): readonly Stati
       {
         id: match.id,
         completedAt: match.completedAt,
+        // `matches.out_rule` ist `varchar` mit Check-Constraint; die Enge des
+        // Typs gehoert an die Domaenengrenze. Der Rueckfall auf DOUBLE trifft
+        // nur einen Wert, den die Constraint gar nicht zulaesst.
+        outRule: match.outRule === "SINGLE" || match.outRule === "MASTER" ? match.outRule : "DOUBLE",
         winnerPlayerId,
         participants: [
           {

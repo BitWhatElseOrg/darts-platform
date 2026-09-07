@@ -88,6 +88,19 @@ export function nextReplayable<T extends { readonly status: OfflineCommandStatus
 }
 
 /**
+ * Gibt es ueberhaupt etwas zu uebertragen?
+ *
+ * Reine Leerpruefung des Ergebnisses von `nextReplayable`, ausgelagert, damit
+ * die Kommandozentrale (`command-centre.tsx`) sie ohne DOM oder React testen
+ * kann. Ohne diese Wache setzte ein `online`-Ereignis bei leerer Warteschlange
+ * trotzdem `commandBusy` und sagte "0 Befehle übertragen." an -- eine Ansage,
+ * die niemand ausgeloest hat (Ruling E8).
+ */
+export function hasReplayableEntries<T>(entries: readonly T[]): boolean {
+  return entries.length > 0;
+}
+
+/**
  * Sperrt die Warteschlange die Bedienung?
  *
  * Ja, solange sie ein Kommando traegt, das noch uebertragen werden soll oder
@@ -320,6 +333,19 @@ export async function replayChained<T>(
 }
 
 /**
+ * Die Ansage nach einem Wiedergabelauf. Sie zaehlt `acceptedCount`, nicht
+ * `sentCount`: gemeldet wird, was der SERVER angenommen hat. Nahm er eine
+ * Zuweisung an und scheiterte danach nur das lokale Aufraeumen, sagte die
+ * Zentrale vorher "0 Befehle übertragen." fuer einen Vorgang, der gebucht war
+ * -- die Meldung zum haengenden Eintrag steht separat in `writeError`
+ * (`localCleanupFailureMessage`).
+ */
+export function replayAnnouncement(result: ReplayResult): string {
+  const count = result.acceptedCount;
+  return `${count} Befehl${count === 1 ? "" : "e"} übertragen.`;
+}
+
+/**
  * Ersetzt die `expectedVersion` einer gespeicherten Kommando-Nutzlast durch
  * die waehrend der Wiedergabe aufgebaute, verkettete Version. Gilt nur fuer
  * NACHFOLGER: deren gespeicherte Version kann veraltet sein, weil ein
@@ -345,9 +371,10 @@ export interface QueuedCommandNotice {
 export interface QueuedCommandView {
   readonly online: boolean;
   /**
-   * Was mit einem wartenden Kommando bei bestehender Verbindung geschieht:
-   * die Scoringflaeche wiederholt von selbst, die Kommandozentrale wartet auf
-   * den Knopf.
+   * Was mit einem wartenden Kommando bei bestehender Verbindung geschieht.
+   * Beide Flaechen wiederholen seit `useOnlineFlush` beim `online`-Ereignis von
+   * selbst; die Kommandozentrale bietet zusaetzlich den Knopf "Jetzt
+   * übertragen".
    */
   readonly pendingOnline?: string;
   /**

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { createTournamentSchema, tournamentDashboardSchema, withdrawTournamentParticipantSchema } from "./tournament";
+import {
+  createTournamentSchema,
+  publicTournamentDashboardSchema,
+  tournamentDashboardSchema,
+  withdrawTournamentParticipantSchema,
+} from "./tournament";
 
 const id = (index: number) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
 const valid = {
@@ -98,5 +103,24 @@ describe("tournament disruption projection", () => {
     ]);
     expect(parsed.bracket[0]?.resultType).toBe("WALKOVER");
     expect(parsed.recentResults[0]?.resultType).toBe("WALKOVER");
+  });
+});
+
+describe("public tournament projection", () => {
+  it("nennt in der oeffentlichen Turnieransicht weder Mandant noch Betriebsinterna", () => {
+    const publicShape = publicTournamentDashboardSchema.shape;
+    const publicTournamentShape = publicShape.tournament.shape;
+
+    expect(Object.keys(publicShape)).not.toContain("conflicts");
+    expect(Object.keys(publicTournamentShape)).not.toContain("organizationId");
+    expect(Object.keys(publicShape.boards.element.shape)).not.toContain("blockedReason");
+    expect(Object.keys(publicShape.queue.element.shape)).not.toContain("blockedReason");
+
+    // Die interne Sicht behaelt alles: sie ist der Arbeitsplatz der
+    // Turnierleitung.
+    expect(Object.keys(tournamentDashboardSchema.shape)).toContain("conflicts");
+    expect(Object.keys(tournamentDashboardSchema.shape.tournament.shape)).toContain(
+      "organizationId",
+    );
   });
 });

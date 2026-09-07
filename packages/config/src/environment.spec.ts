@@ -69,6 +69,145 @@ describe("parseApplicationEnvironment", () => {
       expect((error as EnvironmentValidationError).message).toContain("API_PORT");
     }
   });
+
+  it("erlaubt eine TLS-Redis-Verbindung", () => {
+    const environment = parseApplicationEnvironment({
+      ...validEnvironment,
+      REDIS_URL: "rediss://cache.example.test:6380",
+    });
+
+    expect(environment.REDIS_URL).toBe("rediss://cache.example.test:6380");
+  });
+
+  it("weist ein Redis-Schema ausserhalb von redis und rediss ab", () => {
+    expect(() =>
+      parseApplicationEnvironment({
+        ...validEnvironment,
+        REDIS_URL: "http://localhost:6379",
+      }),
+    ).toThrow(EnvironmentValidationError);
+  });
+
+  it("setzt die Rate-Limit-Vorgaben, wenn nichts konfiguriert ist", () => {
+    const environment = parseApplicationEnvironment(validEnvironment);
+
+    expect(environment.RATE_LIMIT_MAX_PER_MINUTE).toBe(300);
+    expect(environment.RATE_LIMIT_PUBLIC_MAX_PER_MINUTE).toBe(600);
+    expect(environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE).toBe(10);
+  });
+
+  it("uebernimmt konfigurierte Rate-Limit-Werte als Zahlen", () => {
+    const environment = parseApplicationEnvironment({
+      ...validEnvironment,
+      RATE_LIMIT_MAX_PER_MINUTE: "50",
+      RATE_LIMIT_PUBLIC_MAX_PER_MINUTE: "20",
+      RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: "3",
+    });
+
+    expect(environment.RATE_LIMIT_MAX_PER_MINUTE).toBe(50);
+    expect(environment.RATE_LIMIT_PUBLIC_MAX_PER_MINUTE).toBe(20);
+    expect(environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE).toBe(3);
+  });
+
+  it("vertraut standardmaessig keinem Reverse-Proxy-Hop", () => {
+    const environment = parseApplicationEnvironment(validEnvironment);
+
+    expect(environment.TRUST_PROXY_HOPS).toBe(0);
+  });
+
+  it("uebernimmt eine konfigurierte Hop-Zahl", () => {
+    const environment = parseApplicationEnvironment({
+      ...validEnvironment,
+      TRUST_PROXY_HOPS: "1",
+    });
+
+    expect(environment.TRUST_PROXY_HOPS).toBe(1);
+  });
+
+  it("weist eine negative Hop-Zahl ab", () => {
+    expect(() =>
+      parseApplicationEnvironment({
+        ...validEnvironment,
+        TRUST_PROXY_HOPS: "-1",
+      }),
+    ).toThrow(EnvironmentValidationError);
+  });
+
+  it("verlangt TRUST_PROXY_HOPS in Production explizit (Ruling B12)", () => {
+    expect(() =>
+      parseApplicationEnvironment({
+        ...validEnvironment,
+        NODE_ENV: "production",
+        TRUST_PROXY_HOPS: undefined,
+      }),
+    ).toThrow(EnvironmentValidationError);
+
+    try {
+      parseApplicationEnvironment({
+        ...validEnvironment,
+        NODE_ENV: "production",
+        TRUST_PROXY_HOPS: undefined,
+      });
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(EnvironmentValidationError);
+      expect((error as EnvironmentValidationError).message).toContain("TRUST_PROXY_HOPS");
+      expect((error as EnvironmentValidationError).message).toContain(
+        "infrastructure/railway.md",
+      );
+    }
+  });
+
+  it("erlaubt in Production ein explizites TRUST_PROXY_HOPS=0", () => {
+    const environment = parseApplicationEnvironment({
+      ...validEnvironment,
+      NODE_ENV: "production",
+      TRUST_PROXY_HOPS: "0",
+    });
+
+    expect(environment.TRUST_PROXY_HOPS).toBe(0);
+  });
+
+  it("erlaubt in Production ein explizites TRUST_PROXY_HOPS=1", () => {
+    const environment = parseApplicationEnvironment({
+      ...validEnvironment,
+      NODE_ENV: "production",
+      TRUST_PROXY_HOPS: "1",
+    });
+
+    expect(environment.TRUST_PROXY_HOPS).toBe(1);
+  });
+
+  it("vertraut ausserhalb von Production standardmaessig keinem Hop, auch unbelegt", () => {
+    const environment = parseApplicationEnvironment({
+      ...validEnvironment,
+      NODE_ENV: "development",
+      TRUST_PROXY_HOPS: undefined,
+    });
+
+    expect(environment.TRUST_PROXY_HOPS).toBe(0);
+  });
+
+  it("verbietet die Selbstbedienung bei der Mandantenanlage standardmaessig", () => {
+    const environment = parseApplicationEnvironment(validEnvironment);
+
+    expect(environment.ALLOW_SELF_SERVICE_ORGANIZATIONS).toBe(false);
+  });
+
+  it("erlaubt die Selbstbedienung nur bei genau 'true'", () => {
+    expect(
+      parseApplicationEnvironment({
+        ...validEnvironment,
+        ALLOW_SELF_SERVICE_ORGANIZATIONS: "true",
+      }).ALLOW_SELF_SERVICE_ORGANIZATIONS,
+    ).toBe(true);
+
+    expect(() =>
+      parseApplicationEnvironment({
+        ...validEnvironment,
+        ALLOW_SELF_SERVICE_ORGANIZATIONS: "yes",
+      }),
+    ).toThrow(EnvironmentValidationError);
+  });
 });
 
 describe("parsePublicWebEnvironment", () => {

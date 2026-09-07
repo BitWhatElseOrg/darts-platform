@@ -27,6 +27,8 @@ const expected: readonly (readonly [string, string, 409 | 422])[] = [
   ["MULTIPLE_DECIDER_SLOTS", "TEMPLATE_INVALID", 422],
   ["NON_CONTIGUOUS_SLOT_SEQUENCE", "TEMPLATE_INVALID", 422],
   ["INVALID_LEG_DISTANCE", "TEMPLATE_INVALID", 422],
+  ["INVALID_ROUND_ORDER", "TEMPLATE_INVALID", 422],
+  ["MISSING_DOUBLES_SLOTS", "TEMPLATE_INVALID", 422],
 ];
 
 describe("league error mapping", () => {
