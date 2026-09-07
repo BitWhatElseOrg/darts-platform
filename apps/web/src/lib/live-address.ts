@@ -18,15 +18,26 @@ const legacyAddressSchema = z.object({ publicId: z.uuid() });
  * zufaellig dieselbe ID nennt (der Sonderfall, dass Wert und Aufloesung
  * zusammenfallen).
  *
+ * Die Umleitung ist eine Bequemlichkeit fuer alte Adressen, kein Grund, die
+ * Seite scheitern zu lassen: ein *geworfener* Fehler (Timeout, DNS-Ausfall,
+ * abgebrochene Verbindung) faellt deshalb ebenso auf `null` zurueck wie eine
+ * Non-2xx-Antwort. Ohne dieses `try`/`catch` riss ein solcher Fehler die
+ * gesamte Server-Komponente mit -- ausgerechnet auf dem anonymen
+ * Publikumsweg (Review-Befund, Fix-Runde 1).
+ *
  * ENTFERNEN mit dem Uebergangsweg in der API: eigener PR, Ende Oktober 2026.
  */
 export async function resolvePublicId(value: string): Promise<string | null> {
-  const response = await fetch(
-    `${publicEnvironment.NEXT_PUBLIC_API_URL}/public/tournaments/${value}/address`,
-    { cache: "no-store" },
-  );
-  if (!response.ok) return null;
-  const parsed = legacyAddressSchema.safeParse(await response.json());
-  if (!parsed.success || parsed.data.publicId === value) return null;
-  return parsed.data.publicId;
+  try {
+    const response = await fetch(
+      `${publicEnvironment.NEXT_PUBLIC_API_URL}/public/tournaments/${value}/address`,
+      { cache: "no-store" },
+    );
+    if (!response.ok) return null;
+    const parsed = legacyAddressSchema.safeParse(await response.json());
+    if (!parsed.success || parsed.data.publicId === value) return null;
+    return parsed.data.publicId;
+  } catch {
+    return null;
+  }
 }

@@ -606,7 +606,7 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
       <div className="mx-auto max-w-[1600px] px-5 py-6 xl:px-9">
         <PageNav>
           <NavLink href={`/turniere?organisation=${organizationId}`}>Alle Turniere</NavLink>
-          <NavLink href={`/live/${tournamentId}`}>Öffentliche Live-Ansicht</NavLink>
+          <NavLink href={`/live/${dashboard.tournament.publicId}`}>Öffentliche Live-Ansicht</NavLink>
         </PageNav>
 
         <DashboardHeader
