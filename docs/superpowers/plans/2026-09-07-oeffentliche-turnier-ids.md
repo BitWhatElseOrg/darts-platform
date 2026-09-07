@@ -167,7 +167,7 @@ describe("tournaments.public_id und visibility", () => {
 
 - [ ] **Step 5: Test laufen lassen und scheitern sehen**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run ../../packages/database/src/tournament-visibility.integration.spec.ts`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run ../../packages/database/src/tournament-visibility.integration.spec.ts`
 
 Erwartet: FAIL — die Spalten existieren in der Testdatenbank noch nicht.
 
@@ -175,8 +175,8 @@ Hinweis zum Testaufruf: `pnpm --filter … test -- <datei>` filtert in diesem Re
 
 - [ ] **Step 6: Migration einspielen und Test bestätigen**
 
-Run: `cd packages/database && npx dotenv -e ../../apps/api/.env.test -- pnpm db:migrate`
-Dann: `cd apps/api && npx dotenv -e .env.test -- npx vitest run ../../packages/database/src/tournament-visibility.integration.spec.ts`
+Run: `cd packages/database && npx dotenv -e ../../.env -- pnpm db:migrate`
+Dann: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run ../../packages/database/src/tournament-visibility.integration.spec.ts`
 
 Erwartet: PASS, drei Fälle.
 
@@ -389,7 +389,7 @@ Ergänze die Importe der Datei um `tournaments` aus `@darts-platform/database` u
 
 - [ ] **Step 2: Test laufen lassen und scheitern sehen**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run src/tournaments/tournaments.integration.spec.ts`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run src/tournaments/tournaments.integration.spec.ts`
 Erwartet: FAIL — `publicDashboard` löst noch über die interne ID auf.
 
 - [ ] **Step 3: Die Repository-Funktion ersetzen**
@@ -454,7 +454,7 @@ Im Rumpf danach die Projektion anpassen: statt `const { organizationId, ...tourn
 
 - [ ] **Step 5: Tests laufen lassen und bestätigen**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run src/tournaments/tournaments.integration.spec.ts`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run src/tournaments/tournaments.integration.spec.ts`
 Erwartet: PASS.
 
 - [ ] **Step 6: Commit**
@@ -688,7 +688,7 @@ Die genaue Form von `auth` und `audit` aus den bereits vorhandenen Fällen derse
 
 - [ ] **Step 3: Test laufen lassen und scheitern sehen**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run src/tournaments/tournaments.integration.spec.ts`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run src/tournaments/tournaments.integration.spec.ts`
 Erwartet: FAIL — `setVisibility` existiert nicht.
 
 - [ ] **Step 4: Repository, Service und Controller ergänzen**
@@ -770,7 +770,7 @@ Controller, nach `correctResult`:
 
 - [ ] **Step 5: Tests laufen lassen und bestätigen**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run src/tournaments/tournaments.integration.spec.ts`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run src/tournaments/tournaments.integration.spec.ts`
 Erwartet: PASS.
 
 - [ ] **Step 6: Commit**

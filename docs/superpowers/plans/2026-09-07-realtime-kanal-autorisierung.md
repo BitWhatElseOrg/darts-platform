@@ -284,7 +284,7 @@ In `apps/api/src/realtime/publish-outbox.spec.ts` einen Fall, der zweimal dassel
 
 - [ ] **Step 6: Tests laufen lassen und bestätigen**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run src/realtime`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run src/realtime`
 Erwartet: PASS.
 
 - [ ] **Step 7: Commit**
@@ -315,7 +315,7 @@ Create `apps/api/src/realtime/subscription-authorization.integration.spec.ts` mi
 
 - [ ] **Step 2: Test laufen lassen und scheitern sehen**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run src/realtime/subscription-authorization.integration.spec.ts`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run src/realtime/subscription-authorization.integration.spec.ts`
 Erwartet: FAIL — Modul nicht gefunden.
 
 - [ ] **Step 3: Die Zusammenführung schreiben**
@@ -444,7 +444,7 @@ und eine Funktion `rejectSubscription(socket, room, reason: SubscriptionRejectio
 
 - [ ] **Step 6: Tests laufen lassen und bestätigen**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run src/realtime`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run src/realtime`
 Erwartet: PASS.
 
 - [ ] **Step 7: Commit**

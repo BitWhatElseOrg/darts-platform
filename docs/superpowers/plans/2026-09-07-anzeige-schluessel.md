@@ -94,12 +94,12 @@ Create `packages/database/src/display-keys.integration.spec.ts` mit drei Fällen
 
 - [ ] **Step 4: Test laufen lassen und scheitern sehen**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run ../../packages/database/src/display-keys.integration.spec.ts`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run ../../packages/database/src/display-keys.integration.spec.ts`
 Erwartet: FAIL — Tabelle existiert nicht.
 
 - [ ] **Step 5: Migration einspielen und bestätigen**
 
-Run: `cd packages/database && npx dotenv -e ../../apps/api/.env.test -- pnpm db:migrate`
+Run: `cd packages/database && npx dotenv -e ../../.env -- pnpm db:migrate`
 Dann den Test erneut. Erwartet: PASS.
 
 - [ ] **Step 6: Commit**
@@ -467,7 +467,7 @@ Der letzte Fall ist der wichtigste des Tasks: er ist der Unterschied zwischen ei
 
 - [ ] **Step 3: Test laufen lassen und scheitern sehen**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run src/tournaments/display-keys.integration.spec.ts`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run src/tournaments/display-keys.integration.spec.ts`
 Erwartet: FAIL — die Module fehlen.
 
 - [ ] **Step 4: Repository schreiben**
@@ -547,7 +547,7 @@ Beide neuen Klassen in `tournaments.module.ts` unter `providers` beziehungsweise
 
 - [ ] **Step 7: Tests laufen lassen und bestätigen**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run src/tournaments/display-keys.integration.spec.ts`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run src/tournaments/display-keys.integration.spec.ts`
 Erwartet: PASS, sieben Fälle.
 
 - [ ] **Step 8: Commit**
@@ -599,7 +599,7 @@ In `apps/api/src/tournaments/display-keys.integration.spec.ts`:
 
 - [ ] **Step 2: Test laufen lassen und scheitern sehen**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run src/tournaments/display-keys.integration.spec.ts`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run src/tournaments/display-keys.integration.spec.ts`
 Erwartet: FAIL — `publicDashboard` nimmt nur einen Parameter.
 
 - [ ] **Step 3: Service und Repository erweitern**
@@ -646,7 +646,7 @@ Erwartet: FAIL — `publicDashboard` nimmt nur einen Parameter.
 
 - [ ] **Step 5: Tests laufen lassen und bestätigen**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run src/tournaments`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run src/tournaments`
 Erwartet: PASS über alle Turnier-Tests, auch die aus Plan 1.
 
 - [ ] **Step 6: Commit**
