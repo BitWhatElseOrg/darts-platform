@@ -1116,4 +1116,77 @@ describe("persistent tournament MVP", () => {
 
     await expect(service.publicDashboard(created.id)).rejects.toThrow(NotFoundException);
   }, 30_000);
+
+  it("liefert ueber den Uebergangsweg die publicId eines oeffentlichen Turniers", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Public Address Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T19:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    const [row] = await databaseService.database
+      .update(tournaments)
+      .set({ visibility: "PUBLIC" })
+      .where(eq(tournaments.id, created.id))
+      .returning();
+
+    const address = await service.publicAddress(created.id);
+
+    expect(address.publicId).toBe(row?.publicId);
+  }, 30_000);
+
+  it("bestaetigt ueber den Uebergangsweg kein privates Turnier", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Private Address Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T20:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    // Turniere sind standardmaessig PRIVATE (Task 1); die Zuweisung ist hier
+    // nur explizit, damit der Test nicht stillschweigend von der Vorgabe lebt.
+    await databaseService.database
+      .update(tournaments)
+      .set({ visibility: "PRIVATE" })
+      .where(eq(tournaments.id, created.id));
+
+    // Der Kern dieser Zusicherung: der Uebergangsweg darf ein privates
+    // Turnier weder auflosen noch dessen Existenz bestaetigen.
+    await expect(service.publicAddress(created.id)).rejects.toThrow(NotFoundException);
+  }, 30_000);
+
+  it("meldet fuer eine unbekannte interne ID ebenfalls 404", async () => {
+    await expect(service.publicAddress(randomUUID())).rejects.toThrow(NotFoundException);
+  }, 30_000);
 });
