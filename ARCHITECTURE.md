@@ -1126,8 +1126,19 @@ Abfragezeichenkette und Fragment fallen weg, damit ein Einladungscode oder ein
 Zurücksetzen-Token aus der Adresszeile nicht in den Betriebslogs landet.
 Protokolliert wird als `csp.violation` auf Warnstufe.
 
-Die Policy bleibt vorerst Report-Only. Erzwungen wird sie in einem eigenen PR,
-sobald echte Meldungen zeigen, dass nichts Notwendiges blockiert würde.
+Seit 2026-09-07 wird die Policy **erzwungen**. Den Beleg lieferte nicht der
+Betrieb — dort besucht niemand planmässig alle Seiten — sondern die
+E2E-Suite: die Wache in `apps/web/tests/fixtures.ts` horcht auf
+`securitypolicyviolation` und meldete über alle Fälle hinweg ausschliesslich
+`script-src → eval` aus dem Übersetzer von `next dev`, keine einzige Meldung
+zu `img-src`, `connect-src`, `style-src`, `font-src` oder `default-src`. Der
+Produktionsbuild enthält kein `eval`; `'unsafe-eval'` trägt deshalb nur der
+Entwicklungsserver (`apps/web/src/lib/content-security-policy.ts`, dort
+geprüft). Die Wache bleibt stehen und hält den Beleg aufrecht: wer eine
+externe Ressource einbindet, sieht es im E2E-Lauf statt erst im Betrieb.
+
+Gemeldet wird weiterhin über beide Wege — was jetzt als `csp.violation`
+auftaucht, hat ein Browser tatsächlich blockiert.
 
 ---
 

@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+import { buildContentSecurityPolicy } from "./src/lib/content-security-policy";
+
 const configuredWebOrigin = process.env.WEB_ORIGIN;
 const configuredWebHostname =
   configuredWebOrigin === undefined
@@ -14,7 +16,6 @@ const apiOrigin =
   configuredApiUrl === undefined
     ? "http://localhost:3001"
     : new URL(configuredApiUrl).origin;
-const websocketOrigin = apiOrigin.replace(/^http/u, "ws");
 // Ziel der Verstoss-Meldungen. Es liegt auf der API, nicht auf der Seite
 // selbst: Next.js hat keinen Ort fuer einen Endpunkt, der aus der Policy
 // heraus angesprochen wird, und die API traegt bereits Rate-Limiting,
@@ -22,44 +23,34 @@ const websocketOrigin = apiOrigin.replace(/^http/u, "ws");
 const cspReportUri = `${apiOrigin}/api/v1/csp-reports`;
 
 /**
- * Erste Stufe: nur berichten, nicht erzwingen. `script-src` erlaubt vorerst
- * `'unsafe-inline'`, weil Next.js seinen Bootstrap inline ausliefert und eine
- * Nonce eine eigene Middleware auf jeder Anfrage voraussetzen wuerde. Alle
- * uebrigen Direktiven sind bereits scharf gestellt und liefern damit ab
- * sofort brauchbare Verstoss-Meldungen.
+ * Zweite Stufe: erzwingend. Report-Only hat seine Aufgabe erfuellt.
  *
- * Umstellungskriterium (M5): Report-Only bleibt bestehen, bis entweder ein
- * Report-Endpunkt existiert, der die Verstoss-Meldungen tatsaechlich
- * entgegennimmt, oder zwei Wochen Betrieb ohne Konsolen-Verletzungen auf den
- * Hauptseiten dokumentiert sind. Danach erfolgt die Umstellung auf
- * erzwingend in einem eigenen PR, nicht stillschweigend hier.
+ * Umstellungskriterium war (M5), dass echte Meldungen zeigen, dass nichts
+ * Notwendiges blockiert wuerde. Der Beleg kam nicht aus dem Betrieb — dort
+ * besucht niemand planmaessig alle Seiten — sondern aus der E2E-Suite: die
+ * Wache in `tests/fixtures.ts` horcht auf `securitypolicyviolation` und
+ * meldete am 2026-09-07 ueber alle 15 Faelle hinweg ausschliesslich
+ * `script-src → eval` aus dem Uebersetzer von `next dev`. Keine einzige
+ * Meldung zu `img-src`, `connect-src`, `style-src`, `font-src` oder
+ * `default-src`. Die Wache bleibt stehen und haelt den Beleg aufrecht.
  *
- * Der Endpunkt existiert seit `apps/api/src/observability/csp-report.controller.ts`
- * und wird ueber beide Wege angesprochen: `report-uri` fuer die Browser, die
- * nur die alte Form kennen, und `report-to` samt `Reporting-Endpoints`-Header
- * fuer die neuere Reporting-API. Beide duerfen nebeneinander stehen; ein
- * Browser waehlt den Weg, den er beherrscht. Damit ist die erste Bedingung
- * erfuellt — erzwungen wird trotzdem erst, wenn echte Meldungen zeigen, dass
- * nichts Notwendiges blockiert wuerde.
+ * `'unsafe-eval'` traegt deshalb nur der Entwicklungsserver
+ * (`content-security-policy.ts`), der Produktionsbuild kennt es nicht.
+ * `'unsafe-inline'` bleibt in beiden: Next.js liefert seinen Bootstrap
+ * inline aus.
+ *
+ * Gemeldet wird weiter — `report-uri` und `report-to` gelten auch unter der
+ * erzwungenen Richtlinie. Was jetzt auffaellt, ist etwas, das ein Browser
+ * tatsaechlich blockiert hat.
  */
-const contentSecurityPolicy = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "object-src 'none'",
-  "frame-ancestors 'none'",
-  "form-action 'self'",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  // QR-Codes der Board-Ansicht sind `data:`-URLs.
-  "img-src 'self' data:",
-  "font-src 'self' data:",
-  `connect-src 'self' ${apiOrigin} ${websocketOrigin}`,
-  `report-uri ${cspReportUri}`,
-  "report-to csp-endpoint",
-].join("; ");
+const contentSecurityPolicy = buildContentSecurityPolicy({
+  apiOrigin,
+  reportUri: cspReportUri,
+  allowEval: process.env.NODE_ENV !== "production",
+});
 
 const securityHeaders = [
-  { key: "Content-Security-Policy-Report-Only", value: contentSecurityPolicy },
+  { key: "Content-Security-Policy", value: contentSecurityPolicy },
   // Benennt, wohin `report-to csp-endpoint` zeigt. Ohne diesen Header ist die
   // Direktive wirkungslos, und nur `report-uri` traegt noch.
   { key: "Reporting-Endpoints", value: `csp-endpoint="${cspReportUri}"` },
