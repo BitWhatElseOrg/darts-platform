@@ -195,11 +195,45 @@ export const tournamentDashboardSchema = z.object({
   generatedAt: z.coerce.date(),
 });
 
-export const publicTournamentDashboardSchema = tournamentDashboardSchema.extend({
-  participants: z.array(tournamentDashboardParticipantSchema.omit({
-    withdrawnAt: true,
-    withdrawalReason: true,
-  })),
+/**
+ * Die oeffentliche Sicht auf ein Board nennt keinen Sperrgrund: `blockedReason`
+ * ist der Betriebsvermerk der Turnierleitung („Board defekt", „Personal
+ * fehlt") und geht das Publikum nichts an (Audit B, I-1).
+ */
+export const publicBoardSlotSchema = boardSlotSchema.omit({ blockedReason: true });
+
+/** Aus demselben Grund ohne Sperrgrund wie `publicBoardSlotSchema`. */
+export const publicQueueEntrySchema = queueEntrySchema.omit({ blockedReason: true });
+
+/**
+ * Die oeffentliche Projektion (ARCHITECTURE §27) ist keine Durchreiche der
+ * internen Dashboard-Struktur. Sie nennt insbesondere **nicht** die
+ * `organizationId` — die ist der Pfadschluessel jeder authentifizierten
+ * Route und gehoert nicht in eine anonym abrufbare Antwort.
+ *
+ * Bewusst kein `tournamentDashboardSchema.omit(...).extend(...)`: ein
+ * zukuenftiges Feld auf der internen Dashboard-Form (z. B. ein weiterer
+ * Betriebsvermerk) wuerde ueber `.omit` automatisch mitgereicht, sofern es
+ * nicht separat ausgeschlossen wird. Die explizite `z.object`-Form hier
+ * zaehlt jedes oeffentlich sichtbare Feld einzeln auf; ein neues internes
+ * Feld faellt dadurch nicht stillschweigend nach draussen durch.
+ */
+export const publicTournamentDashboardSchema = z.object({
+  tournament: tournamentDashboardSchema.shape.tournament.omit({
+    organizationId: true,
+  }),
+  participants: z.array(
+    tournamentDashboardParticipantSchema.omit({
+      withdrawnAt: true,
+      withdrawalReason: true,
+    }),
+  ),
+  boards: z.array(publicBoardSlotSchema),
+  queue: z.array(publicQueueEntrySchema),
+  groups: tournamentDashboardSchema.shape.groups,
+  bracket: tournamentDashboardSchema.shape.bracket,
+  recentResults: tournamentDashboardSchema.shape.recentResults,
+  generatedAt: tournamentDashboardSchema.shape.generatedAt,
 });
 
 export const tournamentStructurePreviewSchema = z.object({
@@ -378,6 +412,8 @@ export type GroupStandingRow = z.infer<typeof groupStandingRowSchema>;
 export type TournamentResult = z.infer<typeof tournamentResultSchema>;
 export type BracketMatch = z.infer<typeof bracketMatchSchema>;
 export type TournamentDashboard = z.infer<typeof tournamentDashboardSchema>;
+export type PublicBoardSlot = z.infer<typeof publicBoardSlotSchema>;
+export type PublicQueueEntry = z.infer<typeof publicQueueEntrySchema>;
 export type PublicTournamentDashboard = z.infer<typeof publicTournamentDashboardSchema>;
 export type TournamentStructurePreview = z.infer<typeof tournamentStructurePreviewSchema>;
 export type TournamentStructurePreviewInput = z.infer<

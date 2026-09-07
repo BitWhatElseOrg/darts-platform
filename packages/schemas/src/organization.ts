@@ -17,6 +17,15 @@ export const invitableOrganizationRoleSchema = z.enum([
   "VIEWER",
 ]);
 
+/** Alle Zustaende, die die Datenbank kennt (`memberships_status_check`). */
+export const membershipStatusSchema = z.enum(["INVITED", "ACTIVE", "SUSPENDED"]);
+
+/**
+ * Was ueber die API gesetzt werden darf. `INVITED` entsteht ausschliesslich
+ * im Einladungspfad und wird nicht von Hand vergeben.
+ */
+export const assignableMembershipStatusSchema = z.enum(["ACTIVE", "SUSPENDED"]);
+
 export const createOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(255),
   slug: z
@@ -70,9 +79,36 @@ export const acceptInvitationSchema = z.object({
   claimToken: invitationClaimTokenSchema,
 });
 
+export const organizationMemberSchema = z.object({
+  userId: z.uuid(),
+  email: z.email(),
+  displayName: z.string(),
+  role: organizationRoleSchema,
+  status: membershipStatusSchema,
+});
+
+/**
+ * `OWNER` ist hier zugelassen, damit Eigentum uebertragbar bleibt — ein
+ * Vorstandswechsel darf nicht am Schema scheitern. Wer OWNER vergeben darf,
+ * entscheidet der Service: nur eine handelnde Person, die selbst aktiver
+ * OWNER derselben Organisation ist. Der Einladungspfad
+ * (`createInvitationSchema`) schliesst OWNER weiterhin aus.
+ */
+export const updateMembershipSchema = z
+  .object({
+    role: organizationRoleSchema.optional(),
+    status: assignableMembershipStatusSchema.optional(),
+  })
+  .refine((value) => value.role !== undefined || value.status !== undefined, {
+    message: "either role or status must be given",
+  });
+
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
 export type OrganizationSummary = z.infer<typeof organizationSummarySchema>;
 export type CreateInvitationInput = z.infer<typeof createInvitationSchema>;
 export type Invitation = z.infer<typeof invitationSchema>;
 export type CreatedInvitation = z.infer<typeof createdInvitationSchema>;
 export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;
+export type MembershipStatusValue = z.infer<typeof membershipStatusSchema>;
+export type OrganizationMember = z.infer<typeof organizationMemberSchema>;
+export type UpdateMembershipInput = z.infer<typeof updateMembershipSchema>;

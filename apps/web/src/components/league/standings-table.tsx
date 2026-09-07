@@ -8,8 +8,8 @@ import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 
 /**
  * Die Ligatabelle. Gerechnet wird sie im Server (League-Engine); hier steht
- * nur, wie sie aussieht. Die Reihenfolge der Spalten ist die Reihenfolge der
- * Rangkriterien: Punkte, Spieldifferenz, Satzdifferenz.
+ * nur, wie sie aussieht. Rangkriterien nach `Reglement A1.5`: Pluspunkte,
+ * Minuspunkte, gewonnene Spiele.
  */
 export function StandingsTable({
   competitionId,
@@ -56,7 +56,7 @@ export function StandingsTable({
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[36rem] border-collapse">
             <caption className="sr-only">
-              Tabelle des Wettbewerbs, geordnet nach Punkten, Spiel- und Satzdifferenz.
+              Tabelle des Wettbewerbs, geordnet nach Pluspunkten, Minuspunkten und gewonnenen Spielen.
             </caption>
             <thead>
               <tr className="border-b border-sisal-400 text-left font-plate text-caption font-semibold tracking-[0.12em] text-sisal-500 uppercase">
@@ -67,7 +67,7 @@ export function StandingsTable({
                 <th className="py-2 pr-3 text-right" scope="col">U</th>
                 <th className="py-2 pr-3 text-right" scope="col">N</th>
                 <th className="py-2 pr-3 text-right" scope="col">Spiele</th>
-                <th className="py-2 pr-3 text-right" scope="col">Diff</th>
+                <th className="py-2 pr-3 text-right" scope="col">Minus</th>
                 <th className="py-2 text-right" scope="col">Punkte</th>
               </tr>
             </thead>
@@ -102,7 +102,7 @@ export function StandingsTable({
                     {row.gamesFor}:{row.gamesAgainst}
                   </td>
                   <td className="py-3 pr-3 text-right font-numerals tabular text-wedge-900">
-                    {row.gameDifference > 0 ? `+${row.gameDifference}` : row.gameDifference}
+                    {row.minusPoints}
                   </td>
                   <td className="py-3 text-right font-numerals font-bold tabular text-wedge-900">
                     {row.points}

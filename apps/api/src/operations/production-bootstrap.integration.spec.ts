@@ -404,6 +404,10 @@ describe("production bootstrap guard", () => {
           ...process.env,
           NODE_ENV: "production",
           ALLOW_PRODUCTION_BOOTSTRAP: "true",
+          // Seit Ruling B12 verlangt die Environment-Validierung in
+          // Production einen expliziten Wert; ohne ihn wuerde der CLI-Aufruf
+          // schon beim Environment-Parsing scheitern.
+          TRUST_PROXY_HOPS: "1",
           DATABASE_URL: temporary.databaseUrl,
           BETTER_AUTH_SECRET: sentinelAuthSecret,
           BOOTSTRAP_OWNER_EMAIL: input.ownerEmail,

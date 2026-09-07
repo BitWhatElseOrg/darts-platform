@@ -6,6 +6,8 @@ import type { ApplicationEnvironment } from "@darts-platform/config";
 
 import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 import { DatabaseService } from "../database/database.service.js";
+import { RedisService } from "../redis/redis.service.js";
+import { createRedisRateLimitStorage } from "./auth-rate-limit-storage.js";
 import { createAuth, type DartsAuth } from "./auth.factory.js";
 import type { AuthContext } from "./auth.types.js";
 
@@ -17,8 +19,13 @@ export class AuthService {
     @Inject(DatabaseService) databaseService: DatabaseService,
     @Inject(APPLICATION_ENVIRONMENT)
     environment: ApplicationEnvironment,
+    @Inject(RedisService) redisService: RedisService,
   ) {
-    this.auth = createAuth(databaseService.database, environment);
+    this.auth = createAuth(
+      databaseService.database,
+      environment,
+      createRedisRateLimitStorage(redisService),
+    );
   }
 
   public async getSession(

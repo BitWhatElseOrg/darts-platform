@@ -21,7 +21,6 @@ import {
   players,
   teamPlayers,
   teams,
-  tournamentMatches,
   visits,
 } from "@darts-platform/database";
 import { evaluateSlotReadiness } from "@darts-platform/scheduling-engine";
@@ -49,7 +48,14 @@ import type {
 } from "@darts-platform/schemas";
 
 import type { AuthContext } from "../auth/auth.types.js";
+import {
+  isBoardInProgressConflict,
+  isBoardOccupied,
+  loadActivePlayerIds,
+  lockPlayers,
+} from "../boards/board-occupancy.js";
 import type { AuditContext } from "../common/audit-context.js";
+import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
 import { DatabaseService } from "../database/database.service.js";
 import { abortScoringMatch } from "../matches/abort-match.js";
 import { toResultInput, updateEncounterProgress } from "./update-encounter-progress.js";
@@ -681,7 +687,21 @@ export class EncountersRepository {
     });
   }
 
-  public assignSlot(
+  public async assignSlot(
+    input: ActorInput & { readonly slotId: string; readonly data: AssignEncounterSlotInput },
+  ): Promise<EncounterMutationResult> {
+    try {
+      return await this.assignSlotInTransaction(input);
+    } catch (error) {
+      // Der partielle Unique-Index auf `matches` faengt die Zuweisung ab, die
+      // gleichzeitig mit einer Turnierzuweisung durch die Anwendungspruefung
+      // kam. Fachlich ist das eine belegte Scheibe, kein Serverfehler.
+      if (isBoardInProgressConflict(error)) return "board-unavailable";
+      throw error;
+    }
+  }
+
+  private assignSlotInTransaction(
     input: ActorInput & { readonly slotId: string; readonly data: AssignEncounterSlotInput },
   ): Promise<EncounterMutationResult> {
     return this.mutate(input, input.data, "ASSIGN_SLOT", async (context) => {
@@ -714,29 +734,11 @@ export class EncountersRepository {
       if (board === undefined) return "not-found";
 
       // Kein Constraint greift über zwei Tabellen; beide Quellen zählen.
-      const [tournamentUse] = await transaction
-        .select({ id: tournamentMatches.id })
-        .from(tournamentMatches)
-        .where(
-          and(
-            eq(tournamentMatches.organizationId, input.organizationId),
-            eq(tournamentMatches.boardId, input.data.boardId),
-            eq(tournamentMatches.status, "IN_PROGRESS"),
-          ),
-        )
-        .limit(1);
-      const [encounterUse] = await transaction
-        .select({ id: encounterSlots.id })
-        .from(encounterSlots)
-        .where(
-          and(
-            eq(encounterSlots.organizationId, input.organizationId),
-            eq(encounterSlots.boardId, input.data.boardId),
-            eq(encounterSlots.status, "IN_PROGRESS"),
-          ),
-        )
-        .limit(1);
-      if (board.status !== "AVAILABLE" || tournamentUse !== undefined || encounterUse !== undefined) {
+      // Dieselbe Prüfung nutzt der Turnierpfad (`boards/board-occupancy.ts`).
+      if (
+        board.status !== "AVAILABLE" ||
+        (await isBoardOccupied(transaction, input.organizationId, input.data.boardId))
+      ) {
         return "board-unavailable";
       }
 
@@ -746,17 +748,15 @@ export class EncountersRepository {
         input.encounterId,
         slot,
       );
-      // Die Sperre auf der Begegnungszeile serialisiert nur diese Begegnung.
-      // Eine Person kann aber in zwei Begegnungen desselben Vereins gemeldet
-      // sein; ohne Sperre saehen zwei gleichzeitige Zuweisungen sie beide als
-      // frei und stellten sie an zwei Scheiben. Gesperrt wird deshalb ueber
-      // die beteiligten Personen, und zwar in fester Reihenfolge, damit sich
-      // zwei Zuweisungen nicht gegenseitig blockieren.
-      await this.lockPlayers(transaction, input.organizationId, [
+      // Die Sperre auf der Begegnungszeile serialisiert nur diese Begegnung;
+      // gesperrt wird deshalb ueber die beteiligten Personen. Begruendung und
+      // Reihenfolge stehen bei `lockPlayers` in `boards/board-occupancy.ts`,
+      // damit Turnier- und Ligapfad dieselbe Sperre nehmen.
+      await lockPlayers(transaction, input.organizationId, [
         ...occupancy.home.playerIds,
         ...occupancy.away.playerIds,
       ]);
-      const activePlayerIds = await this.loadActivePlayerIds(transaction, input.organizationId);
+      const activePlayerIds = await loadActivePlayerIds(transaction, input.organizationId);
       const decision = evaluateSlotReadiness({
         sidePlayerIds: [occupancy.home.playerIds, occupancy.away.playerIds],
         requiredPlayersPerSide: slot.discipline === "DOUBLES" ? 2 : 1,
@@ -782,8 +782,13 @@ export class EncountersRepository {
           bestOfLegs: slot.bestOfLegs,
           legsToWinSet: slot.legsToWinSet,
           setsToWin: slot.setsToWin,
+          // Reglement 2.2.9: der Spielbeginn des Entscheidungsdoppels wird
+          // immer ausgebullt. `startingSeat` bleibt die Heimseite als Vorbelegung;
+          // sobald das Ausbullen erfasst ist, setzt `DECIDE_LEG_START` fuer
+          // Leg 1 den tatsaechlichen Anwurf.
           startingSeat: 1,
           currentSeat: 1,
+          bullOffFromLegOne: slot.role === "DECIDER",
         })
         .returning();
       if (scoringMatch === undefined) throw new Error("Scoring match insert did not return a row.");
@@ -890,6 +895,7 @@ export class EncountersRepository {
               and(
                 eq(visits.organizationId, input.organizationId),
                 eq(visits.matchId, slot.matchId),
+                isNull(visits.revertedAt),
               ),
             )
             .limit(1);
@@ -1110,6 +1116,13 @@ export class EncountersRepository {
     });
   }
 
+  /**
+   * Einziger Aufrufpunkt, an dem `runMutation` seine Transaktion oeffnet
+   * (Ruling 10): `retryOnDeadlock` sitzt hier statt in jeder oeffentlichen
+   * Methode einzeln, weil alle ueber `mutate` laufen. Ein Sperrzyklus
+   * (40P01) hinterlaesst nichts, die Wiederholung ist gefahrlos; bleibt es
+   * beim Zyklus, ist die Antwort ein Versionskonflikt statt eines 500.
+   */
   private async mutate(
     input: ActorInput & { readonly slotId?: string },
     data: { readonly commandId: string; readonly expectedVersion: number },
@@ -1123,7 +1136,10 @@ export class EncountersRepository {
     const payload =
       input.slotId === undefined ? data : { ...data, slotId: input.slotId };
     try {
-      return await this.runMutation(input, payload, type, body);
+      return await retryOnDeadlock(
+        () => this.runMutation(input, payload, type, body),
+        "version-conflict",
+      );
     } catch (error: unknown) {
       // Zwei gleichzeitige Zustellungen derselben commandId an zwei
       // verschiedene Begegnungen sperren einander nicht: sie halten
@@ -1310,7 +1326,7 @@ export class EncountersRepository {
       );
       const involved = [...occupancy.home.playerIds, ...occupancy.away.playerIds];
       if (involved.length === 0) return [];
-      const active = await this.loadActivePlayerIds(transaction, input.organizationId);
+      const active = await loadActivePlayerIds(transaction, input.organizationId);
       const busy = involved.filter((playerId) => active.has(playerId));
       if (busy.length === 0) return [];
       return transaction
@@ -1318,21 +1334,6 @@ export class EncountersRepository {
         .from(players)
         .where(and(eq(players.organizationId, input.organizationId), inArray(players.id, busy)));
     });
-  }
-
-  private async lockPlayers(
-    transaction: DatabaseTransaction,
-    organizationId: string,
-    playerIds: readonly string[],
-  ): Promise<void> {
-    const ids = [...new Set(playerIds)].sort();
-    if (ids.length === 0) return;
-    await transaction
-      .select({ id: players.id })
-      .from(players)
-      .where(and(eq(players.organizationId, organizationId), inArray(players.id, ids)))
-      .orderBy(asc(players.id))
-      .for("update");
   }
 
   /**
@@ -1507,23 +1508,6 @@ export class EncountersRepository {
       bySlot.set(row.slotId, existing);
     }
     return [...bySlot.values()];
-  }
-
-  private async loadActivePlayerIds(
-    transaction: DatabaseTransaction,
-    organizationId: string,
-  ): Promise<Set<string>> {
-    const rows = await transaction
-      .select({ playerId: matchParticipantPlayers.playerId })
-      .from(matchParticipantPlayers)
-      .innerJoin(matches, eq(matches.id, matchParticipantPlayers.matchId))
-      .where(
-        and(
-          eq(matchParticipantPlayers.organizationId, organizationId),
-          eq(matches.status, "IN_PROGRESS"),
-        ),
-      );
-    return new Set(rows.map((row) => row.playerId));
   }
 
   private async resolveOccupancy(

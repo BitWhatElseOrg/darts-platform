@@ -423,6 +423,7 @@ game_type varchar NOT NULL
 starting_score integer
 in_rule varchar NOT NULL
 out_rule varchar NOT NULL
+bull_off_from_leg_one boolean NOT NULL DEFAULT false
 best_of_legs integer
 best_of_sets integer
 
@@ -461,7 +462,111 @@ tournament_id
 stage_id
 board_id
 (tournament_id, status)
+unique (board_id) where status = 'IN_PROGRESS'   -- matches_board_in_progress_unique
 ```
+
+`matches_board_in_progress_unique` (Migration `0022_board_in_progress_unique`)
+ist die strukturelle Klammer gegen die Doppelbelegung einer physischen Scheibe.
+Turnier (`tournament_matches`) und Liga (`encounter_slots`) tragen je einen
+eigenen partiellen Unique auf `board_id`, doch kein Constraint greift über zwei
+Tabellen. `matches` ist die gemeinsame Wurzel beider Wege und der freien
+Paarung; der partielle Unique lässt dort nur ein laufendes Match je Scheibe zu.
+Ein Verstoss wird in den Zuweisungs-, Erstellungs- und Undo-Pfaden als
+`BOARD_NOT_AVAILABLE` (HTTP 409) beantwortet, nicht als Postgres-Meldung.
+
+Vor dem Ausrollen den Bestand prüfen — die Migration schlägt fehl, wenn heute
+schon zwei laufende Matches auf einer Scheibe stehen:
+
+```sql
+select board_id, count(*) from matches
+where status = 'IN_PROGRESS' and board_id is not null
+group by board_id having count(*) > 1;
+```
+
+Die Migration prüft diesen Bestand seit PR-Agent-Runde 4 (Befund B) selbst,
+in einem `DO $$ … $$`-Block vor `CREATE UNIQUE INDEX`: findet er Duplikate,
+bricht er mit `RAISE EXCEPTION` und einer lesbaren Meldung samt der
+betroffenen `board_id`s und `match_id`s ab, statt Postgres' rohe
+"key is duplicated"-Meldung stehen zu lassen. Die Auswahl, welches der beiden
+Matches beendet wird, bleibt bewusst eine menschliche Entscheidung — eine
+automatische Auswahl in SQL wäre Raten. Bei einem Abbruch: die genannten
+Matches sichten, eines davon über den bestehenden Abbruchpfad (`abort`)
+beenden, danach die Migration erneut laufen lassen.
+
+Sperrdauer: `CREATE UNIQUE INDEX` ohne `CONCURRENTLY` nimmt für die Dauer des
+Aufbaus ein `SHARE`-Lock auf `matches` — der heissesten Tabelle — und blockiert
+solange jedes Schreiben darauf. Bei der heutigen Grösse sind das
+Sekundenbruchteile; das Deployment gehört trotzdem ausserhalb des
+Spielbetriebs. Wächst `matches` deutlich, ist die Migration auf
+`CREATE UNIQUE INDEX CONCURRENTLY` umzustellen (dann ausserhalb einer
+Transaktion, mit anschliessender Prüfung auf `INVALID`).
+
+Commit `5a9c260` korrigiert in `winLeg`, dass `legsWonInSet` beim Satzgewinn
+auf beiden Seiten zurückgesetzt wird — vorher nahm die unterlegene Seite ihre
+Legs aus dem verlorenen Satz in den nächsten Satz mit. Das ist die einzige
+Änderung dieses Branches, die gespeicherte Matches beim nächsten Lesen anders
+wertet: bei `sets_to_win > 1` kann sich der projizierte Zustand eines bereits
+abgeschlossenen Matches ändern (anderer Satzstand, im Extremfall anderer
+Sieger), während `matches.status`, `matches.winner_seat` und ein
+fortgeschriebener Turnierbaum den alten Stand tragen — `syncProjection` läuft
+nur bei Mutationen, nicht beim Lesen.
+
+Vor dem Deploy auf Staging **und** Produktion prüfen:
+
+```sql
+select count(*) from matches where sets_to_win > 1;
+```
+
+- Ergebnis 0: K1 folgenlos, kein weiterer Schritt nötig.
+- Ergebnis > 0: vor dem Ausrollen prüfen, ob unter diesen Matches eines
+  `COMPLETED` ist, dessen Neuprojektion einen anderen Sieger ergibt. Das wäre
+  eine Ergebniskorrektur und eine menschliche Entscheidung nach dem Muster
+  `correctTournamentResult`, keine Deploy-Nebenwirkung. In der Dev-DB: 0
+  solche Matches.
+
+`matches_completion_check` und `legs_completion_check` (Migration
+`0023_tier2_integrity_constraints`) binden Status und Ergebnis aneinander:
+
+```text
+(matches.status = 'COMPLETED') = (winner_seat is not null and completed_at is not null)
+(legs.status = 'COMPLETED')    = (winner_seat is not null)
+```
+
+Geschrieben werden diese Spalten aus der Projektion (`syncProjection` in
+`apps/api/src/matches/matches.repository.ts`). `getState` liest den Status aus
+der Projektion, `list()` aus der gespeicherten Spalte — ohne den Check könnten
+Liste und Detail auseinanderlaufen, ohne dass es jemand bemerkt.
+`tournament_matches` und `encounters` tragen die gleiche Bindung seit je.
+
+Bestandscheck vor dem Ausrollen:
+
+```sql
+select id from matches
+where (status = 'COMPLETED') <> (winner_seat is not null and completed_at is not null);
+select id from legs where (status = 'COMPLETED') <> (winner_seat is not null);
+```
+
+Sperrdauer: `ADD CONSTRAINT … CHECK` ohne `NOT VALID` prüft den Bestand unter
+`ACCESS EXCLUSIVE`. Bei der heutigen Grösse Sekundenbruchteile; das Deployment
+gehört trotzdem ausserhalb des Spielbetriebs.
+
+`bull_off_from_leg_one` bildet die Ausnahme aus Reglement 2.2.9 ab: normalerweise
+beginnt Leg 1 die Heimseite und Leg 2 die Gastseite, erst ab Leg 3 entscheidet
+ein Wurf auf Bull. Beim Entscheidungsdoppel (sudden death) wird der Spielbeginn
+**immer** ausgebullt; `apps/api/src/encounters/encounters.repository.ts` setzt
+das Flag beim Start eines DECIDER-Slots. Es ist eine Match-Regel wie `in_rule`
+und steht bewusst nicht im Kommando: gespeicherte `score_commands` werten
+dadurch unverändert (Migration `0024_league_decider_bull_off.sql`). Die Spalte
+wird ausschliesslich beim Insert gesetzt und darf danach nicht mehr geändert
+werden — es existiert kein Update-Pfad: ein Wechsel true→false bei einem
+Match mit bereits gespeichertem Leg-1-Anwurf (`DECIDE_LEG_START` für Leg 1)
+machte den Kommandostrom beim nächsten Replay unprojizierbar
+(`activeCommands` lehnt das Kommando dann mit `LEG_START_FIXED` ab).
+
+Sperrdauer: `ADD COLUMN … boolean NOT NULL DEFAULT false` nimmt ein
+`ACCESS EXCLUSIVE`-Lock auf `matches`, ist aber ab PostgreSQL 11 eine reine
+Metadatenänderung ohne Tabellen-Rewrite — kein Bestandscheck nötig, bestehende
+Zeilen erhalten `false` und verhalten sich unverändert.
 
 ---
 
@@ -579,6 +684,55 @@ remaining_before >= 0
 remaining_after >= 0
 ```
 
+Migration `0023_tier2_integrity_constraints` bringt die Kernrechnung des
+Scorings in die Datenbank — bis dahin lag sie allein in
+`packages/scoring-engine`:
+
+```text
+outcome <> 'BUST'   =>  score_after = score_before - applied_points
+outcome  = 'BUST'   =>  applied_points = 0 and score_after = score_before
+outcome like '%WON' =>  score_after = 0
+```
+
+Damit fällt eine künftige Änderung an `executeX01Command` oder am Mapping im
+Repository, die für einen Sonderfall (Master-Out, verpasster Checkout,
+Rundenlimit) einen unpassenden `score_after` schriebe, sofort auf — statt erst
+in der Statistik oder gar nicht.
+
+Bestandscheck vor dem Ausrollen:
+
+```sql
+select id from visits where outcome <> 'BUST' and score_after <> score_before - applied_points;
+select id from visits where outcome = 'BUST' and (applied_points <> 0 or score_after <> score_before);
+select id from visits where outcome like '%WON' and score_after <> 0;
+```
+
+Zusätzlich tragen die drei Kommandotabellen je einen Unique auf
+`(Aggregat, resulting_version)` — `score_commands_match_version_unique`,
+`tournament_commands_tournament_version_unique`,
+`encounter_commands_encounter_version_unique`. Der Zustandsaufbau sortiert den
+Kommandostrom nach dieser Spalte; zwei Kommandos mit derselben Zielversion
+machten die Replay-Reihenfolge und damit den rekonstruierten Spielstand
+nichtdeterministisch. Die Indexe decken zugleich `match_id`, `tournament_id`
+und `encounter_id` als führende Spalte für die Löschkaskaden ab.
+
+Bestandscheck vor dem Ausrollen:
+
+```sql
+select match_id, resulting_version from score_commands
+group by match_id, resulting_version having count(*) > 1;
+select tournament_id, resulting_version from tournament_commands
+group by tournament_id, resulting_version having count(*) > 1;
+select encounter_id, resulting_version from encounter_commands
+group by encounter_id, resulting_version having count(*) > 1;
+```
+
+Sperrdauer: `CREATE UNIQUE INDEX` ohne `CONCURRENTLY` nimmt für die Dauer des
+Aufbaus ein `SHARE`-Lock auf die jeweilige Tabelle und blockiert währenddessen
+jedes Schreiben darauf — bei `score_commands` insbesondere jeden neuen
+Score-Command. Bei der heutigen Grösse Sekundenbruchteile; das Deployment
+gehört wie die übrigen Tabellen dieser Migration ausserhalb des Spielbetriebs.
+
 ### Visit-Kommando: `checkoutMissed`
 
 Das Score-Kommando (`submitVisitSchema` in
@@ -593,6 +747,31 @@ ohne dieses Feld werden unverändert gewertet wie bisher. Es schliesst sich
 mit `checkoutDouble` und mit explizit übergebenen Einzelwürfen (`darts`)
 gegenseitig aus.
 
+### Visit-Kommando: `checkoutSegment`
+
+Dasselbe Kommando trägt ausserdem das optionale Feld `checkoutSegment`
+(`{ segment, multiplier }` wie ein einzelner Wurf). Es benennt das
+abschliessende Segment einer Aufnahme **ohne** Einzelwürfe und verallgemeinert
+damit `checkoutDouble`, das über `checkoutValue` nur D1–D20 und Bull kodieren
+kann: ein Triple-Finish unter der Ausgangsregel `MASTER` (Reglement 1.1,
+Klasse B) liess sich vorher gar nicht belegen.
+
+Gewertet wird es wie der letzte Wurf der Aufnahme — `closesLegWithDarts`
+entscheidet über den Legabschluss —, zusätzlich muss sein Wert in der
+Rundensumme enthalten und der Rest mit den übrigen Darts erreichbar sein. Ein
+gemeldetes Doppel füllt weiterhin `visits.checkout_double`; ein Triple lässt
+die Spalte auf `NULL`, sie kann kein Triple tragen.
+
+`checkoutSegment` ist optional und abwärtskompatibel: gespeicherte Kommandos
+ohne dieses Feld werden unverändert gewertet. Es schliesst sich mit `darts`,
+`checkoutMissed` und `checkoutDouble` gegenseitig aus — zwei Belege zur
+selben Aufnahme wären nicht entscheidbar.
+
+Die Scoringfläche sendet es unter `MASTER` für Doppel wie Triple, unter
+`DOUBLE` bleibt es beim bestehenden `checkoutDouble`
+(`checkoutCommandFields` in
+[`apps/web/src/lib/round-entry.ts`](apps/web/src/lib/round-entry.ts)).
+
 ### Visit-Kommando: `checkoutAttempts` — zwei Einheiten in einer Spalte
 
 `checkoutAttempts` trägt seit der Einführung der Einzelwürfe **je nach
@@ -606,6 +785,11 @@ Aufnahme eine andere Einheit**, und der Bruch ist bewusst in Kauf genommen:
   (`checkoutAttemptsFromDarts` in
   [`packages/scoring-engine/src/x01.ts`](packages/scoring-engine/src/x01.ts))
   und zählt jeden Wurf, der aus einer Finish-Position abgegeben wurde.
+- **Aufnahme aus einem Match mit Straight Out** (`matches.out_rule = 'SINGLE'`,
+  Reglement 1.1 Klasse C): **keine Einheit** — unter Straight Out schliesst
+  jedes Feld, es gibt keinen Doppelversuch. `checkoutAttemptsFromDarts` liefert
+  dort per Konstruktion 0, und ohne `checkout_double` bleibt der Wert auch im
+  Runden-Modus 0. Eine Quote ist fachlich nicht definiert.
 
 Die dart-genaue Zählung ist die übliche Definition der Checkout-Quote
 (erfolgreiche Checkouts geteilt durch Darts auf ein Finish) und bleibt
@@ -621,6 +805,16 @@ Aufnahmen von vor und nach der Umstellung enthält, ist deshalb keine saubere
 Quote. Der Zähler (erfolgreiche Checkout-Aufnahmen) ist davon nicht
 betroffen. Wer die Quote je Einheit sauber ausweisen will, muss nach dem
 Vorhandensein von `visit_darts`-Zeilen trennen.
+
+Massgeblich ist nicht das Match, sondern die aktive Aufnahme dieser Person
+unter Double- oder Master-Out (`reverted_at IS NULL`): Matches mit
+`out_rule = 'SINGLE'` fliessen gar nicht erst in die Checkout-Kennzahlen ein,
+ebenso wenig ein kampflos gewertetes Double-/Master-Out-Match ohne Aufnahmen
+dieser Person oder eines, dessen Aufnahmen vollständig zurückgenommen wurden.
+Bleibt am Ende keine einzige aktive Aufnahme unter Double- oder Master-Out
+übrig, liefert `CareerStatistics` für `checkoutPercentage`,
+`checkoutAttempts` und `checkouts` jeweils `null` — „nicht anwendbar", nicht
+„null Checkouts". Die Fläche zeigt dafür „–".
 
 ---
 
@@ -883,23 +1077,188 @@ correlation_id
 
 ```text
 id uuid PK
-organization_id uuid
-event_type varchar NOT NULL
-aggregate_type varchar NOT NULL
+organization_id uuid FK organizations NOT NULL
+sequence bigserial NOT NULL
+aggregate_type varchar(100) NOT NULL
 aggregate_id uuid NOT NULL
+event_type varchar(100) NOT NULL
 payload jsonb NOT NULL
-created_at timestamptz NOT NULL
+occurred_at timestamptz NOT NULL DEFAULT now()
+
 published_at timestamptz
-attempts integer NOT NULL DEFAULT 0
-last_error varchar
+publish_attempts integer NOT NULL DEFAULT 0
+publish_not_before timestamptz
+publish_dead_lettered_at timestamptz
+publish_last_error text
+
+statistics_processed_at timestamptz
+statistics_attempts integer NOT NULL DEFAULT 0
+statistics_not_before timestamptz
+statistics_dead_lettered_at timestamptz
+statistics_last_error text
 ```
 
-Index:
+Zwei Konsumenten teilen sich die Tabelle und führen je einen eigenen Satz
+Spalten: der Realtime-Relay im API-Prozess (`publish_*`) und der
+Statistik-Poller im Worker (`statistics_*`, ausschliesslich Ereignisse vom
+Typ `MATCH_COMPLETED`). Keiner blockiert den anderen.
+
+Die Verteilung ist At-least-once: gesendet wird zuerst, gestempelt (`published_at`)
+erst danach, und beansprucht wird über `FOR UPDATE SKIP LOCKED`, damit zwei
+Repliken sich nicht gegenseitig doppelt zustellen. Ein Absturz zwischen Versand
+und Commit sendet ein Ereignis beim nächsten Durchlauf erneut — die
+UI-Zustände, die es aktualisiert, sind idempotent.
+
+Migration `0023_tier2_integrity_constraints` ergänzt die Spalte `sequence`
+(`bigserial`, unique) und zwei partielle Indexe. `occurred_at` ist `now()` und
+damit die Transaktions**start**zeit — eine länger laufende Transaktion, die
+nach einer kürzeren committet, würde vor ihr publiziert. Die Verteilung ordnet
+deshalb nach `sequence`, die beim `INSERT` vergeben wird. Beide Poller —
+das Realtime-Relay in der API und der Statistik-Poller im Worker — ordnen
+nach `sequence`.
+
+Migration `0025_outbox_dead_letter` ergänzt je Konsument einen Versuchszähler,
+eine früheste Wiederholzeit und einen Dead-Letter-Stempel (`recordOutboxFailure`
+in `packages/database/src/outbox.ts`). Nach `OUTBOX_MAX_ATTEMPTS` (8)
+Fehlversuchen setzt ein Poller `publish_dead_lettered_at` bzw.
+`statistics_dead_lettered_at` statt einer weiteren Wiederholzeit; die Wartezeit
+zwischen Versuchen verdoppelt sich exponentiell ab einer Sekunde (1 s, 2 s, 4 s,
+8 s, 16 s, 32 s, 64 s) — in Summe rund 127 s, knapp über zwei Minuten, bis ein
+dauerhaft scheiterndes Ereignis ins Dead Letter wandert. `OUTBOX_BACKOFF_CAP_MS`
+deckelt die Wartezeit weiterhin bei fünf Minuten, greift bei acht Versuchen
+aber nicht — der Deckel bleibt stehen, falls die Obergrenze künftig steigt
+(`outboxRetryDelayMs`). `outboxPending(consumer, now)` liefert das
+Auswahlprädikat je Konsument: nicht verarbeitet, nicht im Dead Letter, Backoff
+abgelaufen.
 
 ```text
-published_at
-created_at
+unique (sequence)                                    -- outbox_events_sequence_unique
+(sequence) where published_at is null                -- outbox_events_pending_publication_idx
+(sequence) where statistics_processed_at is null
+           and event_type = 'MATCH_COMPLETED'        -- outbox_events_pending_statistics_idx
+(occurred_at) where publish_dead_lettered_at
+              is not null
+           or statistics_dead_lettered_at
+              is not null                             -- outbox_events_dead_lettered_idx
 ```
+
+Der Statistik-Poller im Worker lief bis dahin sekündlich als Seq Scan über die
+ganze Tabelle. Der zweite partielle Index deckt genau seinen Filter. Der ältere
+Index `outbox_events_unpublished_idx` (`published_at, occurred_at`) beschleunigt
+die Auswahl der Aufräumregel nicht mehr allein — die Regel begrenzt sich pro
+Lauf selbst auf einen Batch, siehe nächster Absatz. Der Dead-Letter-Index hält
+die Zählung im Health-Endpunkt von der wachsenden Tabelle fern; Dead-Letter-Zeilen
+sind selten, der Index bleibt entsprechend klein.
+
+Die Aufräumregel (`apps/worker/src/prune-outbox.ts`) läuft stündlich im Worker
+und entfernt Zeilen, die verteilt **und** statistisch erledigt (oder nie
+statistikrelevant) **und** älter als 30 Tage sind. Eine Zeile, die einer der
+drei Bedingungen nicht genügt, bleibt stehen — die Regel darf nie ein
+unverarbeitetes Ereignis verschlucken. Ein Lauf löscht höchstens einen
+begrenzten Batch (1000 Zeilen) statt der gesamten Treffermenge auf einmal — bei
+einem grossen Rückstand verteilt sich das Löschen so über mehrere Läufe, statt
+eine lang laufende Transaktion gegen die Tabelle zu sperren. Die fachliche Spur
+eines Vorgangs liegt nicht in der Outbox, sondern in `audit_events` und im
+jeweiligen Kommandostrom.
+
+**Dead-Letter-Zeilen werden nicht automatisch geprünt.** Das Prädikat der
+Aufräumregel verlangt einen verarbeiteten Zustand (`published_at` bzw.
+`statistics_processed_at` gesetzt); eine dead-gelettete Zeile hat diesen
+Zustand per Konstruktion nie erreicht und bleibt deshalb von der stündlichen
+Regel unberührt stehen, bis jemand sie manuell behandelt. Das ist Aufgabe des
+Betriebs, nicht des Schedulers:
+
+```sql
+-- Auffinden: Dead-Letter-Rückstand je Konsument
+select id, organization_id, event_type, aggregate_id,
+       publish_attempts, publish_last_error, publish_dead_lettered_at
+from outbox_events
+where publish_dead_lettered_at is not null
+order by publish_dead_lettered_at;
+
+select id, organization_id, event_type, aggregate_id,
+       statistics_attempts, statistics_last_error, statistics_dead_lettered_at
+from outbox_events
+where statistics_dead_lettered_at is not null
+order by statistics_dead_lettered_at;
+
+-- Requeue: Zähler und Dead-Letter-Stempel zurücksetzen, damit
+-- outboxPending() die Zeile beim nächsten Poll wieder aufgreift
+update outbox_events
+set publish_attempts = 0,
+    publish_not_before = null,
+    publish_dead_lettered_at = null,
+    publish_last_error = null
+where id = :id;
+
+-- Spiegelbildlich für den Statistik-Konsumenten
+update outbox_events
+set statistics_attempts = 0,
+    statistics_not_before = null,
+    statistics_dead_lettered_at = null,
+    statistics_last_error = null
+where id = :id;
+
+-- Manuelles Löschen, wenn ein Ereignis endgültig verworfen wird
+-- (z. B. nach Klärung mit dem Betrieb, dass die Verteilung entfällt)
+delete from outbox_events where id = :id;
+```
+
+Eine Zeile kann in genau einem der beiden Konsumenten hängen bleiben, während
+der andere sie längst erledigt hat — verteilt, aber statistisch dead-gelettet,
+oder umgekehrt. Sie bleibt in diesem halb verarbeiteten Zustand stehen, bis
+sie von Hand requeued oder gelöscht wird; keine der beiden Requeue-Anweisungen
+oben rührt an der Spalte des jeweils anderen Konsumenten.
+
+Bestandscheck vor dem Ausrollen:
+
+```sql
+select count(*) from outbox_events;
+```
+
+Sperrdauer: `ADD COLUMN … bigserial NOT NULL` schreibt jede Zeile der Tabelle
+neu und nimmt dafür ein `ACCESS EXCLUSIVE`-Lock auf `outbox_events`. Bei der
+heutigen Grösse (5589 Zeilen, gemessen am 06.09.2026) sind das
+Sekundenbruchteile. Wächst die
+Tabelle vor dem Ausrollen deutlich, ist die Aufräumregel **vor** der Migration
+einmal von Hand zu fahren.
+
+Migration `0025_outbox_dead_letter` fügt acht Spalten (`integer … DEFAULT 0
+NOT NULL` bzw. nullable `timestamp`/`text` ohne Default) und einen partiellen
+Index hinzu. `ADD COLUMN … DEFAULT` ist ab PostgreSQL 11 eine reine
+Metadaten-Änderung ohne Tabellenumschreibung; der `CREATE INDEX` nimmt für den
+kurzen Moment des Index-Aufbaus ein `SHARE`-Lock auf `outbox_events`. Kein
+Bestandscheck nötig — alle acht Spalten sind entweder nullable oder tragen
+einen Default.
+
+## Dead Letter finden und erneut einreihen
+
+Nach acht Fehlversuchen mit exponentiellem Backoff (1 s, 2 s, 4 s, 8 s, 16 s,
+32 s, 64 s — in Summe rund 127 s, knapp über zwei Minuten, `OUTBOX_BACKOFF_CAP_MS`
+von 5 min bleibt ungenutzt) setzt der betroffene Konsument `*_dead_lettered_at`
+und überspringt die Zeile fortan (Befund F-1: ein einzelnes dauerhaft
+fehlschlagendes Ereignis blockiert damit weder den Rest des Stapels noch
+künftige Durchläufe). Jeder Fehlversuch erzeugt über den jeweiligen
+`OutboxLogger` einen strukturierten Log-Eintrag — `outbox.retry_scheduled`
+(`warn`) für einen erneut versuchten, `outbox.dead_letter` (`error`) für den
+soeben ins Dead Letter gelegten Fehlversuch. Beide nennen `eventId`,
+`eventType`, `aggregateId`, `attempts` und die letzte Fehlermeldung
+(`lastError`, auf 500 Zeichen gekürzt) — bewusst ohne `payload`, damit kein
+Nutzdaten- oder Personenbezug ins Log gelangt. `*_last_error` wird auf dieselbe
+Länge gekürzt, aber nicht inhaltlich bereinigt: eine Constraint-Fehlermeldung
+aus Postgres kann Spaltenwerte der betroffenen Zeile eingebettet enthalten. In
+der API-Produktion protokolliert der Anwendungslogger (`realtime.service.ts`)
+diese Einträge als JSON, in Railway also per Suche nach
+`"event":"outbox.dead_letter"` auffindbar.
+
+Auffinden und Requeue laufen über die SQL-Beispiele weiter oben in diesem
+Abschnitt — die Requeue-Anweisung dort existiert je Konsument einmal.
+
+Solange mindestens eine Zeile dead-gelettet **und** von ihrem jeweiligen
+Konsumenten noch unverarbeitet ist (`deadLettered > 0` im Health-Endpunkt,
+siehe `infrastructure/railway.md`), bleibt der Gesundheitsstatus `degraded` —
+requeuen oder Löschen der betroffenen Zeile ist die einzige Möglichkeit, ihn
+wieder auf `healthy` zurückzubringen.
 
 ---
 

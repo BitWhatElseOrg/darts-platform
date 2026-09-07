@@ -1,27 +1,16 @@
 import type { LoggerService } from "@nestjs/common";
+import {
+  createStructuredLogEmitter,
+  type ApplicationLogLevel,
+  type LogDestination,
+  type LogFields,
+  type LogWriter,
+  type StructuredLogEmitter,
+} from "@darts-platform/config";
 
-export type ApplicationLogLevel =
-  | "fatal"
-  | "error"
-  | "warn"
-  | "log"
-  | "debug"
-  | "verbose";
+export type { ApplicationLogLevel, LogDestination, LogWriter };
 
-type LogRecord = Readonly<Record<string, unknown>>;
-export type LogDestination = "stdout" | "stderr";
-export type LogWriter = (destination: LogDestination, record: string) => void;
-
-const severity: Readonly<Record<ApplicationLogLevel, number>> = {
-  verbose: 10,
-  debug: 20,
-  log: 30,
-  warn: 40,
-  error: 50,
-  fatal: 60,
-};
-
-function serializeMessage(message: unknown): LogRecord {
+function serializeMessage(message: unknown): LogFields {
   if (message instanceof Error) {
     return {
       message: message.message,
@@ -31,7 +20,7 @@ function serializeMessage(message: unknown): LogRecord {
   }
 
   if (typeof message === "object" && message !== null) {
-    return message as LogRecord;
+    return message as LogFields;
   }
 
   return { message: String(message) };
@@ -42,15 +31,20 @@ function contextFrom(optionalParameters: readonly unknown[]): string | undefined
   return typeof candidate === "string" ? candidate : undefined;
 }
 
+/**
+ * NestJS-Adapter auf den gemeinsamen Record-Aufbau aus `packages/config`.
+ * Der Worker nutzt denselben Kern ohne NestJS.
+ */
 export class StructuredLogger implements LoggerService {
+  private readonly emitter: StructuredLogEmitter;
+
   public constructor(
-    private readonly service: string,
-    private readonly minimumLevel: ApplicationLogLevel,
-    private readonly writer: LogWriter = (destination, record) => {
-      const output = destination === "stderr" ? process.stderr : process.stdout;
-      output.write(`${record}\n`);
-    },
-  ) {}
+    service: string,
+    minimumLevel: ApplicationLogLevel,
+    writer?: LogWriter,
+  ) {
+    this.emitter = createStructuredLogEmitter(service, minimumLevel, writer);
+  }
 
   public log(message: unknown, ...optionalParameters: readonly unknown[]): void {
     this.write("log", message, optionalParameters);
@@ -81,19 +75,10 @@ export class StructuredLogger implements LoggerService {
     message: unknown,
     optionalParameters: readonly unknown[],
   ): void {
-    if (severity[level] < severity[this.minimumLevel]) {
-      return;
-    }
-
     const context = contextFrom(optionalParameters);
-    const record = JSON.stringify({
-      timestamp: new Date().toISOString(),
-      level,
-      service: this.service,
+    this.emitter.emit(level, {
       ...serializeMessage(message),
       ...(context === undefined ? {} : { context }),
     });
-
-    this.writer(level === "fatal" || level === "error" ? "stderr" : "stdout", record);
   }
 }

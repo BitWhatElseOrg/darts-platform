@@ -1,0 +1,48 @@
+import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
+import { Test } from "@nestjs/testing";
+
+import {
+  parseApplicationEnvironment,
+  type ApplicationEnvironment,
+} from "@darts-platform/config";
+
+import { AppModule } from "../app.module.js";
+import { configureApplication } from "../common/configure-application.js";
+import { resolveTrustProxyOption } from "../common/trust-proxy.js";
+import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
+
+/**
+ * Baut die echte Anwendung — dieselben Module, derselbe globale Prefix und
+ * dieselbe Produktions-Pipeline (`configureApplication`: CORS-Allowlist,
+ * Sicherheits-Header, Fehlerfilter, Logging-Interceptor) wie in `main.ts` —
+ * und gibt sie initialisiert, aber nicht lauschend zurueck. Tests befragen
+ * sie ueber `app.inject(...)`. Ueber `overrides` laesst sich die Umgebung
+ * punktuell veraendern, ohne `process.env` anzufassen.
+ *
+ * Aufrufer schliesst die Anwendung im `afterAll` mit `await app.close()`;
+ * das faehrt Datenbank- und Redis-Verbindungen mit herunter.
+ */
+export async function createApiTestApplication(
+  overrides: Partial<ApplicationEnvironment> = {},
+): Promise<NestFastifyApplication> {
+  const environment: ApplicationEnvironment = {
+    ...parseApplicationEnvironment(process.env),
+    ...overrides,
+  };
+  const moduleReference = await Test.createTestingModule({ imports: [AppModule] })
+    .overrideProvider(APPLICATION_ENVIRONMENT)
+    .useValue(environment)
+    .compile();
+  const app = moduleReference.createNestApplication<NestFastifyApplication>(
+    new FastifyAdapter({
+      trustProxy: resolveTrustProxyOption(environment.TRUST_PROXY_HOPS),
+    }),
+    { logger: false },
+  );
+
+  app.setGlobalPrefix("api/v1");
+  await configureApplication(app, environment);
+  await app.init();
+  await app.getHttpAdapter().getInstance().ready();
+  return app;
+}

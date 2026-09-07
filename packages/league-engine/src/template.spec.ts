@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { LeagueValidationError } from "./errors.js";
-import { validateEncounterTemplate, type TemplateSlot } from "./template.js";
+import { buildEncounterTemplate, vfcTemplateOptions } from "./encounter-template.js";
+import { validateEncounterTemplate, type SlotRole, type TemplateSlot } from "./template.js";
 
 const singles = (sequence: number, homePosition: number, awayPosition: number): TemplateSlot => ({
   sequence,
@@ -36,29 +37,12 @@ const doubles = (sequence: number, role: TemplateSlot["role"] = "REGULAR"): Temp
 });
 
 /**
- * Die Vorlage des Auslösers: Slot 1 bis 8 Einzel, 9 und 10 Doppel, 11 bis 18
- * Einzel, 19 Entscheidungsdoppel.
+ * Die Vorlage des Auslösers: Slot 1 bis 8 Einzel (Runde 1 und 2), 9 und 10
+ * Doppel, 11 bis 18 Einzel (Runde 3 und 4), 19 Entscheidungsdoppel. Gebaut
+ * über `buildEncounterTemplate`, damit sie die Rundenfolge nach Reglement
+ * 2.2.8 trägt, die `validateEncounterTemplate` seit diesem Task prüft.
  */
-const leagueTemplate = (): TemplateSlot[] => {
-  const pairings: [number, number][] = [];
-  for (let home = 1; home <= 4; home += 1) {
-    for (let away = 1; away <= 4; away += 1) {
-      pairings.push([home, away]);
-    }
-  }
-  const slots: TemplateSlot[] = [];
-  for (let index = 0; index < 8; index += 1) {
-    const pairing = pairings[index]!;
-    slots.push(singles(index + 1, pairing[0], pairing[1]));
-  }
-  slots.push(doubles(9), doubles(10));
-  for (let index = 8; index < 16; index += 1) {
-    const pairing = pairings[index]!;
-    slots.push(singles(index + 3, pairing[0], pairing[1]));
-  }
-  slots.push(doubles(19, "DECIDER"));
-  return slots;
-};
+const leagueTemplate = (): TemplateSlot[] => [...buildEncounterTemplate(vfcTemplateOptions)];
 
 const resequence = (slots: readonly TemplateSlot[]): TemplateSlot[] =>
   slots.map((slot, index) => ({ ...slot, sequence: index + 1 }));
@@ -186,5 +170,88 @@ describe("validateEncounterTemplate", () => {
 
   it("lehnt eine Vorlage ohne Einzelslots ab", () => {
     expectCode(() => validateEncounterTemplate([doubles(1)]), "MISSING_SINGLES_SLOTS");
+  });
+});
+
+describe("Rundenfolge nach Reglement 2.2.8", () => {
+  function singlesSlot(sequence: number, homePosition: number, awayPosition: number): TemplateSlot {
+    return {
+      sequence, role: "REGULAR", discipline: "SINGLES",
+      label: `Einzel ${sequence}`, homePosition, awayPosition,
+      startingScore: 501, inRule: "DOUBLE", outRule: "DOUBLE", maxRounds: null,
+      bestOfLegs: 3, legsToWinSet: 2, setsToWin: 1,
+    };
+  }
+  function doublesSlot(sequence: number, role: SlotRole): TemplateSlot {
+    return {
+      sequence, role, discipline: "DOUBLES",
+      label: role === "DECIDER" ? "Entscheidungsdoppel" : `Doppel ${sequence}`,
+      homePosition: null, awayPosition: null,
+      startingScore: 701, inRule: "DOUBLE", outRule: "DOUBLE", maxRounds: null,
+      bestOfLegs: 3, legsToWinSet: 2, setsToWin: 1,
+    };
+  }
+
+  it("lehnt 16 Einzel am Stueck mit beiden Doppeln am Schluss ab", () => {
+    // Genau die Vorlage, die ein fremder Client heute durchbekommt: lueckenlos,
+    // vollstaendiges Rundenturnier, DECIDER zuletzt -- aber 2.2.8 verlangt die
+    // Doppel nach Runde 2.
+    const slots: TemplateSlot[] = [];
+    let sequence = 1;
+    for (let home = 1; home <= 4; home += 1) {
+      for (let away = 1; away <= 4; away += 1) slots.push(singlesSlot(sequence++, home, away));
+    }
+    slots.push(doublesSlot(sequence++, "REGULAR"));
+    slots.push(doublesSlot(sequence++, "REGULAR"));
+    slots.push(doublesSlot(sequence, "DECIDER"));
+
+    expect(() => validateEncounterTemplate(slots)).toThrowError(
+      expect.objectContaining({ code: "INVALID_ROUND_ORDER" }),
+    );
+  });
+
+  it("lehnt eine Runde ab, in der eine Aufstellungsposition zweimal antritt", () => {
+    // 16 Einzel, vollstaendiges Rundenturnier, Doppel an der richtigen Stelle --
+    // aber Runde 1 laesst Heimposition 1 zweimal spielen. Reglement 2.2.8 haelt
+    // die Runden gerade deshalb sortenrein („Zwecks Zeiteinsparung").
+    const pairings: readonly (readonly [number, number])[] = [
+      [1, 1], [1, 2], [2, 3], [3, 4],
+      [2, 1], [2, 2], [1, 3], [4, 4],
+      [3, 1], [3, 2], [3, 3], [2, 4],
+      [4, 1], [4, 2], [4, 3], [1, 4],
+    ];
+    const slots: TemplateSlot[] = [];
+    let sequence = 1;
+    for (const [home, away] of pairings.slice(0, 8)) slots.push(singlesSlot(sequence++, home, away));
+    slots.push(doublesSlot(sequence++, "REGULAR"));
+    slots.push(doublesSlot(sequence++, "REGULAR"));
+    for (const [home, away] of pairings.slice(8)) slots.push(singlesSlot(sequence++, home, away));
+    slots.push(doublesSlot(sequence, "DECIDER"));
+
+    expect(() => validateEncounterTemplate(slots)).toThrowError(
+      expect.objectContaining({ code: "INVALID_ROUND_ORDER" }),
+    );
+  });
+
+  it("lehnt eine Vorlage ohne regulaeres Doppel ab", () => {
+    // Reglement 2.2.1 und A1.1: 16 Einzel UND 2 Doppel. Ohne reguläres Doppel
+    // kann ein 9:9 nach 2.2.2 nie entstehen und ein Nichtantritt waere 0:16
+    // statt 0:18 (2.5.1).
+    const slots: TemplateSlot[] = [];
+    let sequence = 1;
+    for (let round = 1; round <= 4; round += 1) {
+      for (let home = 1; home <= 4; home += 1) {
+        slots.push(singlesSlot(sequence++, home, ((home + round - 2) % 4) + 1));
+      }
+    }
+    slots.push(doublesSlot(sequence, "DECIDER"));
+
+    expect(() => validateEncounterTemplate(slots)).toThrowError(
+      expect.objectContaining({ code: "MISSING_DOUBLES_SLOTS" }),
+    );
+  });
+
+  it("nimmt die Vorlage der Ligagruppe an", () => {
+    expect(() => validateEncounterTemplate(buildEncounterTemplate(vfcTemplateOptions))).not.toThrow();
   });
 });

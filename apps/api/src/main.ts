@@ -10,40 +10,27 @@ import {
 import { parseApplicationEnvironment } from "@darts-platform/config";
 
 import { AppModule } from "./app.module.js";
-import { ApiExceptionFilter } from "./common/api-exception.filter.js";
-import { ApiLoggingInterceptor } from "./common/api-logging.interceptor.js";
+import { configureApplication } from "./common/configure-application.js";
 import { StructuredLogger } from "./common/structured-logger.js";
+import { resolveTrustProxyOption } from "./common/trust-proxy.js";
 import { RealtimeService } from "./realtime/realtime.service.js";
 
 async function bootstrap(): Promise<void> {
   const environment = parseApplicationEnvironment(process.env);
-  const trustedWebOrigins = [
-    environment.WEB_ORIGIN,
-    ...environment.WEB_ADDITIONAL_ORIGINS,
-  ];
   const applicationLogger =
     environment.NODE_ENV === "production"
       ? new StructuredLogger("api", environment.LOG_LEVEL)
       : new Logger("API");
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter(),
+    new FastifyAdapter({
+      trustProxy: resolveTrustProxyOption(environment.TRUST_PROXY_HOPS),
+    }),
     { logger: applicationLogger },
   );
 
   app.setGlobalPrefix("api/v1");
-  app.enableCors({
-    origin: trustedWebOrigins,
-    methods: ["GET", "POST", "PATCH", "DELETE", "HEAD", "OPTIONS"],
-    credentials: true,
-    allowedHeaders: [
-      "Content-Type",
-      "X-Correlation-Id",
-      "X-Dartbase-Invitation-Claim",
-    ],
-  });
-  app.useGlobalFilters(new ApiExceptionFilter());
-  app.useGlobalInterceptors(new ApiLoggingInterceptor(new Logger("HTTP")));
+  await configureApplication(app, environment);
   app.enableShutdownHooks();
 
   const port = environment.PORT ?? environment.API_PORT;

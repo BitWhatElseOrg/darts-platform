@@ -5,7 +5,7 @@ import {
   createRegistrationInvitation,
   type RegistrationInvitationSeed,
 } from "./registration-invitation";
-import { selectCheckoutDarts, switchInputMode, typeRoundScore } from "./scoreboard-entry";
+import { recordDartVisit, selectCheckoutDarts, switchInputMode, typeRoundScore } from "./scoreboard-entry";
 import { signUpWithOrganization } from "./sign-up";
 
 /**
@@ -192,22 +192,40 @@ async function record(page: Page, points: number, checkout?: Checkout): Promise<
 }
 
 /**
- * 501 Double In / Double Out auf einen Gewinnsatz. Die erste punktende
- * Aufnahme muss auf einem Doppel öffnen können — 100 kann das (D20 + T20),
- * 180 nicht. Die Gastseite wirft Nullen; eine Null öffnet nicht und muss es
- * nicht.
+ * Eine Aufnahme einer Seite, die im laufenden Leg noch nicht eröffnet hat.
+ * Unter Double In zeigt die Fläche dafür auch im Runden-Modus das
+ * Dart-Keypad (`round-entry.ts`, `requiresDartEntry`) — aus einer
+ * Rundensumme sind die Punkte vor dem eröffnenden Doppel nicht zählbar, die
+ * Engine lehnt sie ab (`DARTS_REQUIRED_FOR_DOUBLE_IN`).
+ */
+async function openWithDouble(page: Page): Promise<void> {
+  // D20 + T20 = 100, eröffnet auf dem Doppel; der dritte Wurf schliesst die
+  // Aufnahme ab, ohne zu zählen.
+  await recordDartVisit(page, ["D20", "T20", "MISS"]);
+}
+
+/** Drei Fehlwürfe: die Seite eröffnet nicht und bleibt beim Dart-Keypad. */
+async function missVisit(page: Page): Promise<void> {
+  await recordDartVisit(page, ["MISS", "MISS", "MISS"]);
+}
+
+/**
+ * 501 Double In / Double Out auf einen Gewinnsatz. Die Eröffnungsaufnahme
+ * läuft Wurf für Wurf, danach zählt das Ziffernfeld weiter. Die Gastseite
+ * eröffnet nie und wirft deshalb durchgehend Fehlwürfe; eine Null öffnet
+ * nicht und muss es nicht.
  */
 async function playSingles(page: Page, homeName: string): Promise<void> {
   const homeScore = page.getByLabel(`${homeName}, Restscore`);
-  await record(page, 100);
+  await openWithDouble(page);
   await expect(homeScore).toHaveText("401");
-  await record(page, 0);
+  await missVisit(page);
   await record(page, 180);
   await expect(homeScore).toHaveText("221");
-  await record(page, 0);
+  await missVisit(page);
   await record(page, 180);
   await expect(homeScore).toHaveText("41");
-  await record(page, 0);
+  await missVisit(page);
   await record(page, 41, { field: 16, darts: 2 });
   await expect(page.getByText(`${homeName} gewinnt`)).toBeVisible();
 }
@@ -219,18 +237,18 @@ async function playSingles(page: Page, homeName: string): Promise<void> {
  */
 async function playDoubles(page: Page, homeNames: string): Promise<void> {
   const homeScore = page.getByLabel(`${homeNames}, Restscore`);
-  await record(page, 100);
+  await openWithDouble(page);
   await expect(homeScore).toHaveText("601");
-  await record(page, 0);
+  await missVisit(page);
   await record(page, 180);
   await expect(homeScore).toHaveText("421");
-  await record(page, 0);
+  await missVisit(page);
   await record(page, 180);
   await expect(homeScore).toHaveText("241");
-  await record(page, 0);
+  await missVisit(page);
   await record(page, 180);
   await expect(homeScore).toHaveText("61");
-  await record(page, 0);
+  await missVisit(page);
   await record(page, 61, { field: 18, darts: 2 });
   await expect(page.getByText(`${homeNames} gewinnt`)).toBeVisible();
 }
@@ -358,8 +376,9 @@ test("a club plays a team encounter from the fixture to the result", async ({ br
   await expect(page.getByText("von 160 geworfen")).toBeVisible();
   await page.getByRole("button", { name: "WEITER" }).click();
   await expect(page.getByLabel(`${HOME_PLAYERS[0]}, Restscore`)).toHaveText("461");
-  // Zurücknehmen: das Leg selbst läuft danach wie bisher über den
-  // Runden-Modus, die Eröffnung ist damit belegt.
+  // Zurücknehmen: das Leg beginnt danach von vorn. Die Eröffnungsaufnahme
+  // läuft in jedem Fall Wurf für Wurf (`playSingles`, `openWithDouble`),
+  // erst danach zählt das Ziffernfeld des Runden-Modus weiter.
   await page.getByRole("button", { name: "Rücktaste" }).click();
   await expect(page.getByLabel(`${HOME_PLAYERS[0]}, Restscore`)).toHaveText("501");
   // Der Rundenmodus bleibt geräte-/browserlokal gespeichert (`localStorage`)

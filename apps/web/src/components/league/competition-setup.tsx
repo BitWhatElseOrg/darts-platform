@@ -8,6 +8,7 @@ import {
   type OrganizationSummary,
 } from "@darts-platform/schemas";
 import { hasOrganizationPermission } from "@darts-platform/domain";
+import { buildEncounterTemplate, type StartingScore } from "@darts-platform/league-engine";
 import { Control, Field, Rule, SelectInput, SheetLabel, TextInput, Wedge } from "@darts-platform/ui";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type ReactNode } from "react";
@@ -20,7 +21,7 @@ import {
   legDistanceHint,
   lineupPositionsHint,
 } from "@/lib/competition-form";
-import { buildEncounterTemplate, slugFromName, type StartingScore } from "@/lib/league-template";
+import { slugFromName } from "@/lib/league-template";
 import { TemplateTable } from "./template-table";
 import { NavLink, PageNav } from "@/components/page-nav";
 import { useTournamentOrganization } from "@/components/tournament/use-tournament-organization";
@@ -307,9 +308,13 @@ function SetupForm({ organization }: { readonly organization: OrganizationSummar
               ))}
             </SelectInput>
           </Field>
-          <Field htmlFor="regular-doubles" label="Reguläre Doppel">
+          <Field
+            hint="Das VFC-Reglement (2.2.1/A1.1) sieht zwei Doppel vor. Eine ungerade Anzahl ergibt eine ungerade Spielzahl — dann ist kein Unentschieden möglich und das Entscheidungsdoppel entfällt."
+            htmlFor="regular-doubles"
+            label="Reguläre Doppel"
+          >
             <SelectInput id="regular-doubles" {...register("regularDoubles")}>
-              {[0, 1, 2, 3, 4].map((count) => (
+              {[1, 2, 3, 4].map((count) => (
                 <option key={count} value={String(count)}>
                   {count}
                 </option>

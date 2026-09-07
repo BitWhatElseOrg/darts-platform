@@ -4,7 +4,7 @@ import { abortMatchResponseSchema, boardControllerLeaseSchema, matchListSchema, 
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
-import { MatchesRepository, type MutationResult } from "./matches.repository.js";
+import { MatchesRepository, type UndoMutationResult } from "./matches.repository.js";
 
 export class MatchVersionConflictException extends ConflictException {
   public constructor(currentState: MatchStateResponse | null) {
@@ -87,7 +87,7 @@ export class MatchesService {
     return boardControllerLeaseSchema.parse(lease);
   }
 
-  private async mutate(input: { readonly organizationId: string; readonly matchId: string }, mutation: () => Promise<MutationResult>): Promise<MatchStateResponse> {
+  private async mutate(input: { readonly organizationId: string; readonly matchId: string }, mutation: () => Promise<UndoMutationResult>): Promise<MatchStateResponse> {
     try {
       const result = await mutation();
       if (result === "not-found") throw new NotFoundException("Match not found.");
@@ -96,6 +96,7 @@ export class MatchesService {
       if (state === null) throw new NotFoundException("Match not found.");
       const parsed = matchStateSchema.parse(state);
       if (result === "controller-conflict") throw new ConflictException({ code: "BOARD_CONTROLLER_CONFLICT", message: "Ein anderes Gerät steuert dieses Board.", details: { currentState: parsed } });
+      if (result === "board-unavailable") throw new ConflictException({ code: "BOARD_NOT_AVAILABLE", message: "Das Board ist nicht verfügbar.", details: { currentState: parsed } });
       return parsed;
     } catch (error) {
       this.rethrowDomainError(error);
@@ -110,7 +111,9 @@ export class MatchesService {
     if (error instanceof ScoringValidationError) {
       // Ein zu frühes Ausbullen ist kein Eingabefehler, sondern ein Zustand:
       // die Rundengrenze ist schlicht noch nicht erreicht.
-      if (error.code === "ROUND_LIMIT_NOT_REACHED") {
+      // Eine belegte Scheibe ist ebenso wenig ein Eingabefehler: die Anfrage
+      // ist gueltig, der Zustand steht ihr entgegen.
+      if (error.code === "ROUND_LIMIT_NOT_REACHED" || error.code === "BOARD_NOT_AVAILABLE") {
         throw new ConflictException({ code: error.code, message: error.message });
       }
       throw new BadRequestException({ code: error.code, message: error.message });

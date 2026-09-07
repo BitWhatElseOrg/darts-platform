@@ -17,6 +17,13 @@ export interface X01Rules {
   readonly maxRounds: number | null;
   readonly legsToWinSet: number;
   readonly setsToWin: number;
+  /**
+   * Reglement 2.2.9, Ausnahme für das Entscheidungsdoppel: ist das Flag
+   * gesetzt, entscheidet ein Wurf auf Bull den Legbeginn ab Leg 1 statt erst
+   * ab Leg 3. Es ist eine Regel des Matches, kein Feld eines Kommandos —
+   * gespeicherte Kommandos werten dadurch unverändert (Replay-Sicherheit).
+   */
+  readonly bullOffFromLegOne: boolean;
 }
 
 export interface X01Side {
@@ -44,6 +51,22 @@ export interface SubmitVisitCommand {
   readonly checkoutAttempts?: number;
   readonly darts?: readonly Dart[];
   /**
+   * Das abschliessende Segment einer Aufnahme OHNE Einzelwuerfe, mit
+   * Multiplikator — die Verallgemeinerung von `checkoutDouble`, das nur
+   * D1-D20 und Bull kodieren kann (`checkoutValue`) und deshalb ein
+   * Triple-Finish unter Master Out nicht belegen konnte.
+   *
+   * Gewertet wird es wie der letzte Wurf der Aufnahme: `closesLegWithDarts`
+   * entscheidet, ob es die Ausgangsregel erfuellt; zusaetzlich muss sein Wert
+   * in der Rundensumme enthalten und der Rest mit `dartsThrown - 1` Darts
+   * erreichbar sein. Es schliesst sich mit `darts`, `checkoutMissed` und
+   * `checkoutDouble` gegenseitig aus (`validateVisit`).
+   *
+   * Fehlt das Feld, aendert sich nichts: gespeicherte Kommandos ohne
+   * `checkoutSegment` werden unveraendert gewertet (Replay-Sicherheit).
+   */
+  readonly checkoutSegment?: Dart;
+  /**
    * Ausdrueckliche Meldung, dass die Aufnahme trotz Rest null KEIN gueltiges
    * Finish war (kein Doppel unter DOUBLE, kein Doppel/Triple unter MASTER
    * getroffen). Ohne dieses Feld gilt weiterhin der bisherige Rueckfall: unter
@@ -64,8 +87,10 @@ export interface UndoVisitCommand {
 
 /**
  * Reglement 2.2.9: Leg 1 beginnt die Heimseite, Leg 2 die Gastseite, ab Leg 3
- * entscheidet ein Wurf auf Bull. Fehlt das Kommando, wechselt der Legbeginn
- * wie bisher.
+ * entscheidet ein Wurf auf Bull. Ausgenommen ist das Entscheidungsdoppel
+ * (sudden death): dort wird der Spielbeginn IMMER ausgebullt — dafür trägt das
+ * Match `X01Rules.bullOffFromLegOne`, und das Kommando ist dann schon für
+ * Leg 1 zulässig. Fehlt das Kommando, wechselt der Legbeginn wie bisher.
  */
 export interface DecideLegStartCommand {
   readonly type: "DECIDE_LEG_START";
@@ -192,6 +217,9 @@ function assertRules(rules: X01Rules): void {
   if (!Number.isInteger(rules.setsToWin) || rules.setsToWin < 1) {
     throw new ScoringValidationError("INVALID_SET_TARGET", "Set target must be a positive integer.");
   }
+  if (typeof rules.bullOffFromLegOne !== "boolean") {
+    throw new ScoringValidationError("INVALID_BULL_OFF_RULE", "The bull-off rule must be a boolean.");
+  }
 }
 
 function seatOf(index: 0 | 1): 1 | 2 {
@@ -240,6 +268,7 @@ export function createX01Match(input: {
     maxRounds: null,
     legsToWinSet: 1,
     setsToWin: 1,
+    bullOffFromLegOne: false,
   };
   assertRules(rules);
   return {
@@ -382,6 +411,25 @@ function checkoutAttemptsFromDarts(scoreBefore: number, darts: readonly Dart[], 
     if (remaining < 0) break;
   }
   return attempts;
+}
+
+/**
+ * Ableitung von `checkoutAttempts`, wenn ein Kommando ohne Einzelwuerfe das
+ * Feld nicht mitgibt: ein gemeldetes `checkoutDouble`, `checkoutSegment` oder
+ * ein ausdruecklich gemeldeter Fehlversuch (`checkoutMissed`) zaehlt als ein
+ * Versuch, sonst null. Exportiert, damit ein Aufrufer, der das gespeicherte
+ * Kommando VOR der Ausfuehrung materialisieren muss (z.B. die API, damit ein
+ * Replay denselben Wert sieht wie die Schreibzeit), dieselbe Regel verwendet
+ * statt einer zweiten Kopie (PR-Agent-Runde 3, Befund B).
+ */
+export function defaultCheckoutAttempts(command: {
+  readonly checkoutDouble?: number;
+  readonly checkoutSegment?: Dart;
+  readonly checkoutMissed?: boolean;
+}): 0 | 1 {
+  return command.checkoutDouble === undefined && command.checkoutSegment === undefined && command.checkoutMissed !== true
+    ? 0
+    : 1;
 }
 
 function closesLegWithDarts(outRule: OutRule, finishing: Dart): boolean {
@@ -554,6 +602,21 @@ function validateVisit(command: SubmitVisitCommand): void {
   if (command.checkoutMissed === true && command.darts !== undefined) {
     throw new ScoringValidationError("INVALID_CHECKOUT_MISSED", "Checkout missed cannot be combined with recorded darts.");
   }
+  if (command.checkoutSegment !== undefined) {
+    if (!isValidDart(command.checkoutSegment)) {
+      throw new ScoringValidationError("INVALID_CHECKOUT_SEGMENT", "A checkout segment must hit 0-20 or bull, with a valid multiplier.");
+    }
+    // Ein zweiter Beleg zur selben Aufnahme ist nicht entscheidbar: mit
+    // Einzelwuerfen entscheidet der letzte Wurf, `checkoutMissed` spricht
+    // ausdruecklich gegen ein Finish, `checkoutDouble` nennt bereits ein
+    // Segment.
+    if (command.darts !== undefined || command.checkoutMissed === true || command.checkoutDouble !== undefined) {
+      throw new ScoringValidationError(
+        "INVALID_CHECKOUT_SEGMENT",
+        "A checkout segment cannot be combined with recorded darts, a missed checkout or a checkout double.",
+      );
+    }
+  }
   if (command.darts !== undefined) {
     if (command.darts.length !== command.dartsThrown) {
       throw new ScoringValidationError("INVALID_DART_COUNT", "The number of darts must match the darts thrown.");
@@ -600,7 +663,7 @@ interface ActiveCommands {
   readonly legStarts: ReadonlyMap<number, 1 | 2>;
 }
 
-function activeCommands(commands: readonly X01Command[]): ActiveCommands {
+function activeCommands(commands: readonly X01Command[], rules: X01Rules): ActiveCommands {
   const reverted = new Set(
     commands
       .filter((command): command is UndoVisitCommand => command.type === "UNDO_LAST_VISIT")
@@ -609,10 +672,15 @@ function activeCommands(commands: readonly X01Command[]): ActiveCommands {
   const legStarts = new Map<number, 1 | 2>();
   for (const command of commands) {
     if (command.type !== "DECIDE_LEG_START") continue;
-    if (!Number.isInteger(command.legNumber) || command.legNumber < 3) {
+    // Reglement 2.2.9: Leg 1 und 2 sind festgelegt — ausser beim sudden death,
+    // das immer ausgebullt wird.
+    const firstDecidableLeg = rules.bullOffFromLegOne ? 1 : 3;
+    if (!Number.isInteger(command.legNumber) || command.legNumber < firstDecidableLeg) {
       throw new ScoringValidationError(
         "LEG_START_FIXED",
-        "Leg one belongs to the home side and leg two to the guest side.",
+        rules.bullOffFromLegOne
+          ? "A leg number must be a positive integer."
+          : "Leg one belongs to the home side and leg two to the guest side.",
       );
     }
     if (legStarts.has(command.legNumber)) {
@@ -655,14 +723,24 @@ function winLeg(
   const setWon = legsWonInSet >= rules.legsToWinSet;
   const setsWon = side.setsWon + (setWon ? 1 : 0);
   const matchWon = setsWon >= rules.setsToWin;
+  const winner = replaceSide(sides, index, {
+    ...side,
+    remaining: 0,
+    legsWonInSet: setWon ? 0 : legsWonInSet,
+    totalLegsWon: side.totalLegsWon + 1,
+    setsWon,
+  });
+  // Mit dem Satzgewinn beginnt die Legzaehlung des Satzes fuer BEIDE Seiten
+  // neu. Wurde nur die gewinnende Seite zurueckgesetzt, nahm die unterlegene
+  // ihre Legs aus dem verlorenen Satz in den naechsten mit und gewann ihn mit
+  // entsprechend weniger Legs (Satz 1 mit 3:2 verloren, Satz 2 danach mit
+  // einem einzigen Leg gewonnen).
+  const loserIndex = other(index);
+  const sidesAfterSet = setWon
+    ? replaceSide(winner, loserIndex, { ...winner[loserIndex], legsWonInSet: 0 })
+    : winner;
   return {
-    sides: replaceSide(sides, index, {
-      ...side,
-      remaining: 0,
-      legsWonInSet: setWon ? 0 : legsWonInSet,
-      totalLegsWon: side.totalLegsWon + 1,
-      setsWon,
-    }),
+    sides: sidesAfterSet,
     outcome: matchWon ? "MATCH_WON" : setWon ? "SET_WON" : "LEG_WON",
     setWon,
     matchWon,
@@ -703,13 +781,20 @@ function nextLegStartIndex(
 
 export function projectX01Match(match: X01Match): X01MatchState {
   assertRules(match.rules);
-  const active = activeCommands(match.commands);
+  const active = activeCommands(match.commands, match.rules);
   let sides: [X01SideState, X01SideState] = [
     initialSide(match.sides[0], match.rules),
     initialSide(match.sides[1], match.rules),
   ];
-  let activeIndex: 0 | 1 = indexOfSeat(match.startingSeat);
-  let legStartingIndex: 0 | 1 = activeIndex;
+  // Reglement 2.2.9: Leg 1 beginnt normalerweise die im Kommando festgelegte
+  // Startseite (`match.startingSeat`, die Heimseite). Ein `DECIDE_LEG_START`
+  // fuer Leg 1 ist nur moeglich, wenn `bullOffFromLegOne` gesetzt ist
+  // (`activeCommands` lehnt es sonst mit LEG_START_FIXED ab) — dann gilt das
+  // ausgebullte Ergebnis statt der Vorbelegung.
+  const decidedFirstLegStart = active.legStarts.get(1);
+  let legStartingIndex: 0 | 1 =
+    decidedFirstLegStart === undefined ? indexOfSeat(match.startingSeat) : indexOfSeat(decidedFirstLegStart);
+  let activeIndex: 0 | 1 = legStartingIndex;
   let visitsInLeg: [number, number] = [0, 0];
   let legNumber = 1;
   let setNumber = 1;
@@ -811,12 +896,24 @@ export function projectX01Match(match: X01Match): X01MatchState {
       doubleValue !== null &&
       command.points >= doubleValue &&
       attainableTotals(command.dartsThrown - 1).has(command.points - doubleValue);
+    // Das gemeldete Abschluss-Segment wird wie der letzte Wurf gewertet: es
+    // muss die Ausgangsregel erfuellen, sein Wert in der Rundensumme stecken
+    // und der Rest mit den uebrigen Darts erreichbar sein — dieselben zwei
+    // Bedingungen, die `validDoubleCheckout` an `checkoutDouble` stellt.
+    const declaredFinish = command.checkoutSegment ?? null;
+    const validSegmentCheckout =
+      declaredFinish !== null &&
+      closesLegWithDarts(match.rules.outRule, declaredFinish) &&
+      command.points >= dartValue(declaredFinish) &&
+      attainableTotals(command.dartsThrown - 1).has(command.points - dartValue(declaredFinish));
     const validCheckout =
       tentative === 0 &&
       command.checkoutMissed !== true &&
-      (finishingDart === null
-        ? closesLeg(match.rules.outRule, command, validDoubleCheckout)
-        : closesLegWithDarts(match.rules.outRule, finishingDart));
+      (finishingDart !== null
+        ? closesLegWithDarts(match.rules.outRule, finishingDart)
+        : declaredFinish !== null
+          ? validSegmentCheckout
+          : closesLeg(match.rules.outRule, command, validDoubleCheckout));
     const bust = isBust(match.rules.outRule, tentative, validCheckout);
     let outcome: VisitOutcome = bust ? "BUST" : "SCORED";
     let scoreAfter = bust ? scoreBefore : tentative;
@@ -841,6 +938,14 @@ export function projectX01Match(match: X01Match): X01MatchState {
       finishingDart !== null && validCheckout && finishingDart.multiplier === 2
         ? finishingDart.segment
         : null;
+    // Ein gemeldetes Abschluss-Segment fuellt `checkoutDouble` genau dann,
+    // wenn es ein Doppel war — die Statistik zaehlt darueber die getroffenen
+    // Doppel. Ein Triple-Finish unter Master Out traegt weiterhin null; das
+    // Feld kann kein Triple kodieren (`checkoutValue`).
+    const segmentCheckoutDouble =
+      declaredFinish !== null && validCheckout && declaredFinish.multiplier === 2
+        ? declaredFinish.segment
+        : null;
 
     visits.push({
       commandId: command.commandId,
@@ -852,10 +957,10 @@ export function projectX01Match(match: X01Match): X01MatchState {
       dartsThrown: command.dartsThrown,
       scoreBefore,
       scoreAfter,
-      checkoutDouble: darts === undefined ? (command.checkoutDouble ?? null) : derivedCheckoutDouble,
+      checkoutDouble: darts === undefined ? (command.checkoutDouble ?? segmentCheckoutDouble) : derivedCheckoutDouble,
       checkoutAttempts:
         darts === undefined
-          ? (command.checkoutAttempts ?? (command.checkoutDouble === undefined && command.checkoutMissed !== true ? 0 : 1))
+          ? (command.checkoutAttempts ?? defaultCheckoutAttempts(command))
           : checkoutAttemptsFromDarts(scoreBefore, darts, match.rules.outRule),
       outcome,
       darts: darts ?? [],
@@ -898,12 +1003,85 @@ export function projectX01Match(match: X01Match): X01MatchState {
   };
 }
 
+/**
+ * Regeln, die NUR fuer neue Kommandos gelten. Sie liegen bewusst im
+ * Schreibpfad und nicht in `projectX01Match`: gespeicherte Kommandos dieser
+ * Form tragen heute einen falschen oder geratenen Stand, doch eine Ablehnung
+ * beim Replay machte die betroffenen Matches unlesbar (Event Sourcing — jedes
+ * Lesen baut den Zustand aus dem Kommando-Strom neu auf). Die Projektion
+ * wertet gespeicherte Kommandos deshalb unveraendert weiter; die Korrektur
+ * greift ab dem naechsten Kommando.
+ *
+ * Der Eroeffnungsstand kommt aus dem Zustand vor dem Kommando
+ * (`X01SideState.openedInLeg`), damit die Eroeffnungsregel nur an einer
+ * Stelle steht — die Regel selbst wird hier nicht zweitkodiert.
+ */
+function assertWritableVisit(match: X01Match, command: SubmitVisitCommand, before: X01MatchState): void {
+  // Zustand vor Eingabe. Ist gar keine Aufnahme mehr moeglich -- Match
+  // beendet, Rundengrenze erreicht --, gehoert das gemeldet, nicht eine
+  // Eingaberegel, deren Erfuellung an der Lage nichts aendert. Die Projektion
+  // meldet diese Faelle als MATCH_ALREADY_COMPLETED bzw. ROUND_LIMIT_REACHED,
+  // sobald das Kommando angehaengt wird.
+  if (before.status === "COMPLETED") return;
+  if (before.roundLimitReached) return;
+  // Nur fuer das Kommando, das tatsaechlich an der Reihe ist. Sonst blieben
+  // die aussagekraeftigeren Fehler der Projektion (NOT_ACTIVE_SEAT,
+  // INVALID_THROWER, MATCH_ALREADY_COMPLETED) hinter diesen Regeln verborgen.
+  if (before.activeSeat !== command.seat) return;
+  if (before.activeThrowerPlayerId !== command.throwerPlayerId) return;
+  validateVisit(command);
+  const side = before.sides[indexOfSeat(command.seat)];
+  // Double In: vor der Eroeffnung zaehlt die Aufnahme erst ab dem
+  // eroeffnenden Doppel. Aus einer blossen Rundensumme laesst sich der Anteil
+  // vor dem Doppel nicht rekonstruieren — die Engine rechnete die ganze Summe
+  // an (501, S1/D20/S20 = 61 ergab Rest 440 statt 441). In diesem Zustand
+  // sind Wurfdaten deshalb Pflicht.
+  if (match.rules.inRule === "DOUBLE" && !side.openedInLeg && command.darts === undefined && command.points > 0) {
+    throw new ScoringValidationError(
+      "DARTS_REQUIRED_FOR_DOUBLE_IN",
+      "Under double in the opening visit must be recorded dart by dart.",
+    );
+  }
+  // Master Out: bringt die Aufnahme den Rest rechnerisch auf null, entscheidet
+  // ohne Wurfdaten, ohne Segmentangabe und ohne `checkoutMissed` allein die
+  // Heuristik `finishesOnMasterSegment` — und die raet permissiv (Rest 60 mit
+  // drei Darts gilt ihr als Finish, obwohl S20/S20/S20 keins ist). Neue
+  // Kommandos muessen den Abschluss deshalb belegen: `checkoutDouble` (nur
+  // Doppel), `checkoutSegment` (Doppel oder Triple), Einzelwuerfe oder die
+  // ausdrueckliche Meldung, dass keins sass.
+  //
+  // ACHTUNG Reihenfolge: `command.points` ist die ROHE Rundensumme, nicht die
+  // nach der In-Regel angerechnete. Unter Double In vor der Eroeffnung liefen
+  // die beiden auseinander — dort hat der Block oben das Kommando aber schon
+  // abgelehnt, weil Wurfdaten Pflicht sind (und mit Wurfdaten greift diese
+  // Regel nicht). Ist die Seite eroeffnet oder gilt Straight In, sind rohe
+  // und angerechnete Summe gleich. Diese Regel darf deshalb nicht vor den
+  // Double-In-Block wandern; der Test „MASTER + Double In, nicht eroeffnet"
+  // haelt das fest.
+  if (
+    match.rules.outRule === "MASTER" &&
+    command.darts === undefined &&
+    command.checkoutDouble === undefined &&
+    command.checkoutSegment === undefined &&
+    command.checkoutMissed !== true &&
+    side.remaining - command.points === 0
+  ) {
+    throw new ScoringValidationError(
+      "CHECKOUT_DETAIL_REQUIRED",
+      "Under master out a finishing visit needs the closing segment, the recorded darts or an explicit miss.",
+    );
+  }
+}
+
 export function executeX01Command(match: X01Match, command: X01Command): ExecuteX01Result {
   if (match.commands.some((existing) => existing.commandId === command.commandId)) {
     return { match, state: projectX01Match(match), duplicate: true, outcome: null };
   }
+  if (command.type === "SUBMIT_VISIT") {
+    assertWritableVisit(match, command, projectX01Match(match));
+  }
   if (command.type === "UNDO_LAST_VISIT") {
-    const active = activeCommands(match.commands);
+    const active = activeCommands(match.commands, match.rules);
     const latest = active.submissions.at(-1);
     if (latest === undefined) {
       throw new ScoringValidationError("NOTHING_TO_UNDO", "There is no active visit to undo.");

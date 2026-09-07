@@ -13,6 +13,7 @@
   "dependencies": {
     "@darts-platform/config": "workspace:*",
     "@darts-platform/domain": "workspace:*",
+    "@darts-platform/league-engine": "workspace:*",
     "@darts-platform/schemas": "workspace:*",
     "@darts-platform/scoring-engine": "workspace:*",
     "@darts-platform/ui": "workspace:*",
@@ -28,14 +29,16 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@darts-platform/database": "workspace:*",
     "@playwright/test": "^1.56.0",
     "@tailwindcss/postcss": "4.3.3",
-    "@darts-platform/database": "workspace:*",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "catalog:",
     "@types/qrcode": "^1.5.6",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "drizzle-orm": "0.45.2",
+    "happy-dom": "^20.14.0",
     "tailwindcss": "4.3.3",
     "typescript": "catalog:",
     "vitest": "catalog:"

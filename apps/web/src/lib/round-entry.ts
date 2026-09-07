@@ -1,4 +1,4 @@
-import { isAttainableScore, type OutRule } from "@darts-platform/scoring-engine";
+import { isAttainableScore, type Dart, type InRule, type OutRule } from "@darts-platform/scoring-engine";
 
 /**
  * Haengt eine Ziffer an die Rundensumme an. Eine fuehrende Null wird durch
@@ -49,9 +49,8 @@ const TRIPLE_FIELD_PREFIX = "T";
  * `selectOption("16")` kompatibel), ein Triple traegt das Praefix "T". Die
  * Engine kennt `checkoutDouble` nur als Doppel-Segment 1-20 oder Bull (25,
  * siehe x01.ts `checkoutValue`); ein Triple laesst sich darueber nicht
- * darstellen und wird beim Absenden deshalb weggelassen (siehe
- * `match-scoreboard.tsx`) — die Engine erkennt den Checkout dann ueber ihre
- * eigene Heuristik `finishesOnMasterSegment`.
+ * darstellen und geht deshalb als `checkoutSegment` raus (siehe
+ * `checkoutCommandFields`).
  */
 export function encodeCheckoutField(kind: CheckoutFieldKind, segment: number): string {
   return kind === "TRIPLE" ? `${TRIPLE_FIELD_PREFIX}${segment}` : String(segment);
@@ -115,11 +114,73 @@ export function checkoutOutRuleFor(outRule: OutRule): "DOUBLE" | "MASTER" {
 /**
  * Segment fuer `checkoutDouble`, oder `undefined`, wenn das gewaehlte Feld
  * ein Triple (oder leer) ist. Die Engine kennt `checkoutDouble` nur als
- * Doppel-Segment 1-20/25 (x01.ts `checkoutValue`); ein Triple unter Master
- * Out wird deshalb bewusst OHNE dieses Feld gesendet -- die Engine erkennt
- * den Checkout dann ueber ihre eigene Heuristik `finishesOnMasterSegment`.
+ * Doppel-Segment 1-20/25 (x01.ts `checkoutValue`); ein Triple traegt deshalb
+ * `checkoutSegment` (siehe `checkoutCommandFields`).
  */
 export function checkoutDoubleFromField(field: string): number | undefined {
   const selection = decodeCheckoutField(field);
   return selection?.kind === "DOUBLE" ? selection.segment : undefined;
+}
+
+/**
+ * Das abschliessende Segment fuer `checkoutSegment` — Segment UND
+ * Multiplikator, deshalb auch fuer ein Triple tragfaehig. `undefined`, wenn
+ * kein Feld gewaehlt ist.
+ */
+export function checkoutSegmentFromField(field: string): Dart | undefined {
+  const selection = decodeCheckoutField(field);
+  if (selection === null) return undefined;
+  return { segment: selection.segment, multiplier: selection.kind === "TRIPLE" ? 3 : 2 };
+}
+
+/**
+ * Die Belegfelder, mit denen der Checkout-Schritt die Aufnahme absendet.
+ *
+ * Unter Master Out geht IMMER `checkoutSegment` raus — Doppel wie Triple. Ein
+ * Triple laesst sich ueber `checkoutDouble` gar nicht ausdruecken (x01.ts,
+ * `checkoutValue`), und ein Master-Out-Match haette sonst zwei verschiedene
+ * Belegwege je nach getroffenem Ring.
+ *
+ * Unter Double Out bleibt es beim bestehenden `checkoutDouble`: dort kann nur
+ * ein Doppel schliessen, das Feld traegt genau das, und die gespeicherte
+ * Nutzlast des mit Abstand haeufigsten Falls (Liga: 501 Double In / Double
+ * Out) aendert sich dadurch nicht.
+ *
+ * Ohne gewaehltes Feld bleibt das Ergebnis leer; die Engine wertet die
+ * Aufnahme dann nach ihren eigenen Regeln (unter Double Out ein Bust).
+ */
+export function checkoutCommandFields(field: string, outRule: "DOUBLE" | "MASTER"): {
+  readonly checkoutDouble?: number;
+  readonly checkoutSegment?: Dart;
+} {
+  if (outRule === "MASTER") {
+    const segment = checkoutSegmentFromField(field);
+    return segment === undefined ? {} : { checkoutSegment: segment };
+  }
+  const checkoutDouble = checkoutDoubleFromField(field);
+  return checkoutDouble === undefined ? {} : { checkoutDouble };
+}
+
+/**
+ * Muss diese Aufnahme Wurf fuer Wurf erfasst werden, auch wenn der
+ * Runden-Modus eingestellt ist?
+ *
+ * Unter Double In zaehlt eine Aufnahme erst ab dem eroeffnenden Doppel. Aus
+ * einer blossen Rundensumme laesst sich der Anteil davor nicht
+ * rekonstruieren, deshalb lehnt die Engine sie im Schreibpfad ab (x01.ts,
+ * `assertWritableVisit`, `DARTS_REQUIRED_FOR_DOUBLE_IN`). Solange die Seite am
+ * Oche im laufenden Leg nicht eroeffnet hat, zeigt die Flaeche deshalb das
+ * Dart-Keypad; danach kehrt der Runden-Modus zurueck.
+ *
+ * Die Nullaufnahme waere zwar weiterhin erlaubt (die Engine verlangt Wurfdaten
+ * nur bei `points > 0`), sie laesst sich im Dart-Modus aber als drei
+ * Fehlwuerfe erfassen — ein Sonderpfad dafuer waere ein zweiter Zustand ohne
+ * zusaetzlichen Nutzen.
+ */
+export function requiresDartEntry(
+  match: { readonly inRule: InRule },
+  participant: { readonly openedInLeg: boolean } | undefined,
+): boolean {
+  if (participant === undefined) return false;
+  return match.inRule === "DOUBLE" && !participant.openedInLeg;
 }

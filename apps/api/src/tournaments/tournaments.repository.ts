@@ -37,7 +37,15 @@ import type {
 import { withdrawTournamentParticipantSchema } from "@darts-platform/schemas";
 
 import type { AuthContext } from "../auth/auth.types.js";
+import {
+  isBoardInProgressConflict,
+  isBoardOccupied,
+  loadActivePlayerIds,
+  loadOccupiedBoardIds,
+  lockPlayers,
+} from "../boards/board-occupancy.js";
 import type { AuditContext } from "../common/audit-context.js";
+import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
 import { DatabaseService } from "../database/database.service.js";
 import { abortScoringMatch } from "../matches/abort-match.js";
 import { resolveCompletedTournamentGroup } from "./resolve-completed-group.js";
@@ -61,6 +69,9 @@ interface ActorInput {
   readonly audit: AuditContext;
 }
 
+/** Der Transaktionsrumpf, wie ihn Drizzle an den Callback uebergibt. */
+type DatabaseTransaction = Parameters<Parameters<DatabaseService["database"]["transaction"]>[0]>[0];
+
 export interface TournamentDashboardData {
   readonly tournament: typeof tournaments.$inferSelect;
   readonly participants: readonly {
@@ -81,6 +92,13 @@ export interface TournamentDashboardData {
   readonly groups: readonly (typeof tournamentGroups.$inferSelect)[];
   readonly groupParticipants: readonly (typeof tournamentGroupParticipants.$inferSelect)[];
   readonly matches: readonly (typeof tournamentMatches.$inferSelect)[];
+  /**
+   * Vereinsweit belegte Scheiben und beschaeftigte Personen. Die Anzeige muss
+   * dieselbe Belegt-Menge sehen wie der Startpfad, sonst zeigt die
+   * Warteschlange „bereit“, was `assign` ablehnt.
+   */
+  readonly occupiedBoardIds: ReadonlySet<string>;
+  readonly activePlayerIds: ReadonlySet<string>;
 }
 
 function playerIdFrom(reference: KnockoutParticipantReference | null): string | null {
@@ -184,8 +202,18 @@ export class TournamentsRepository {
       .limit(1);
     if (tournament === undefined) return null;
 
-    const [participantRows, boardRows, groupRows, groupParticipantRows, matchRows] =
-      await Promise.all([
+    // Keine dieser Abfragen haengt vom Ergebnis einer anderen ab; sie gehoeren
+    // in EIN Promise.all. Die Belegtmengen liefen bis hierher als zweite
+    // Rundreise hinterher -- auf dem heissesten Leseweg der Turnieransicht.
+    const [
+      participantRows,
+      boardRows,
+      groupRows,
+      groupParticipantRows,
+      matchRows,
+      occupiedBoardIds,
+      activePlayerIds,
+    ] = await Promise.all([
         this.databaseService.database
           .select({
             id: tournamentParticipants.id,
@@ -263,6 +291,8 @@ export class TournamentsRepository {
             asc(tournamentMatches.round),
             asc(tournamentMatches.position),
           ),
+        loadOccupiedBoardIds(this.databaseService.database, organizationId),
+        loadActivePlayerIds(this.databaseService.database, organizationId),
       ]);
     return {
       tournament,
@@ -271,6 +301,8 @@ export class TournamentsRepository {
       groups: groupRows,
       groupParticipants: groupParticipantRows,
       matches: matchRows,
+      occupiedBoardIds,
+      activePlayerIds,
     };
   }
 
@@ -552,26 +584,34 @@ export class TournamentsRepository {
     });
   }
 
-  public assign(input: ActorInput & { readonly data: AssignMatchInput }): Promise<TournamentMutationResult> {
+  public async assign(input: ActorInput & { readonly data: AssignMatchInput }): Promise<TournamentMutationResult> {
+    try {
+      // Ruling 10: Sperrzyklus (40P01) hinterlaesst nichts, die Wiederholung
+      // ist gefahrlos; bleibt es beim Zyklus, ist die Antwort ein
+      // Versionskonflikt statt eines 500 (siehe retryOnDeadlock).
+      return await retryOnDeadlock(() => this.assignInTransaction(input), "version-conflict");
+    } catch (error) {
+      // Der partielle Unique-Index auf `matches` faengt die Zuweisung ab, die
+      // gleichzeitig mit einer zweiten durch die Anwendungspruefung kam. Der
+      // Verstoss ist fachlich eine belegte Scheibe, nicht ein Serverfehler.
+      if (isBoardInProgressConflict(error)) return "board-unavailable";
+      throw error;
+    }
+  }
+
+  private assignInTransaction(
+    input: ActorInput & { readonly data: AssignMatchInput },
+  ): Promise<TournamentMutationResult> {
     return this.databaseService.database.transaction(async (transaction) => {
-      const [duplicate] = await transaction
-        .select({ organizationId: tournamentCommands.organizationId, tournamentId: tournamentCommands.tournamentId })
-        .from(tournamentCommands)
-        .where(eq(tournamentCommands.commandId, input.data.commandId))
-        .limit(1);
-      if (duplicate !== undefined) {
-        if (duplicate.organizationId === input.organizationId && duplicate.tournamentId === input.tournamentId) return "ok";
-        throw new TournamentValidationError(
-          "COMMAND_ID_ALREADY_USED",
-          "The command ID has already been used for another tournament.",
-        );
-      }
+      if (await this.findDuplicateCommand(transaction, input.organizationId, input.tournamentId, input.data.commandId) !== null) return "ok";
       const [tournament] = await transaction
         .select()
         .from(tournaments)
         .where(and(eq(tournaments.organizationId, input.organizationId), eq(tournaments.id, input.tournamentId)))
         .for("update")
         .limit(1);
+      // Zweite Pruefung unter der Sperre — siehe `findDuplicateCommand`.
+      if (await this.findDuplicateCommand(transaction, input.organizationId, input.tournamentId, input.data.commandId) !== null) return "ok";
       if (tournament === undefined) return "not-found";
       if (tournament.version !== input.data.expectedVersion) return "version-conflict";
       const [scheduled] = await transaction
@@ -613,6 +653,16 @@ export class TournamentsRepository {
       if (selectedBoard === undefined || selectedBoard.board.status !== "AVAILABLE") {
         return "board-unavailable";
       }
+      // Der Status der Scheibe allein genuegt nicht: die Liga belegt dieselbe
+      // physische Scheibe ueber `encounter_slots`. Beide Quellen zaehlen.
+      if (await isBoardOccupied(transaction, input.organizationId, input.data.boardId)) {
+        return "board-unavailable";
+      }
+      // Erst sperren, dann lesen — sonst saehen zwei Zuweisungen in zwei
+      // Turnieren desselben Vereins dieselbe Person beide als frei.
+      const scheduledPlayerIds = [scheduled.participantOneId, scheduled.participantTwoId];
+      await lockPlayers(transaction, input.organizationId, scheduledPlayerIds);
+      const activePlayerIds = await loadActivePlayerIds(transaction, input.organizationId);
       const [busy] = await transaction
         .select({ id: tournamentMatches.id })
         .from(tournamentMatches)
@@ -621,13 +671,17 @@ export class TournamentsRepository {
             eq(tournamentMatches.organizationId, input.organizationId),
             eq(tournamentMatches.status, "IN_PROGRESS"),
             or(
-              inArray(tournamentMatches.participantOneId, [scheduled.participantOneId, scheduled.participantTwoId]),
-              inArray(tournamentMatches.participantTwoId, [scheduled.participantOneId, scheduled.participantTwoId]),
+              inArray(tournamentMatches.participantOneId, scheduledPlayerIds),
+              inArray(tournamentMatches.participantTwoId, scheduledPlayerIds),
             ),
           ),
         )
         .limit(1);
-      if (busy !== undefined) return "player-busy";
+      // Wer gerade einen Ligaslot oder eine freie Paarung spielt, steht in
+      // `matches` — nicht in `tournament_matches`. Beide Wege sperren.
+      if (busy !== undefined || scheduledPlayerIds.some((playerId) => activePlayerIds.has(playerId))) {
+        return "player-busy";
+      }
 
       const [scoringMatch] = await transaction
         .insert(matches)
@@ -719,6 +773,14 @@ export class TournamentsRepository {
   }
 
   public withdrawParticipant(input: ActorInput & { readonly data: WithdrawTournamentParticipantInput }): Promise<TournamentMutationResult> {
+    // Ruling 10: siehe retryOnDeadlock — der Advisory Lock faellt mit der
+    // abgebrochenen Transaktion, die Wiederholung erwirbt ihn neu.
+    return retryOnDeadlock(() => this.withdrawParticipantInTransaction(input), "version-conflict");
+  }
+
+  private withdrawParticipantInTransaction(
+    input: ActorInput & { readonly data: WithdrawTournamentParticipantInput },
+  ): Promise<TournamentMutationResult> {
     return this.databaseService.database.transaction(async (transaction) => {
       await transaction.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.data.commandId}, 0))`);
       const [duplicate] = await transaction.select({ organizationId: tournamentCommands.organizationId, tournamentId: tournamentCommands.tournamentId, type: tournamentCommands.type, payload: tournamentCommands.payload }).from(tournamentCommands).where(eq(tournamentCommands.commandId, input.data.commandId)).limit(1);
@@ -841,25 +903,24 @@ export class TournamentsRepository {
   public releaseBoard(
     input: ActorInput & { readonly data: ReleaseBoardInput },
   ): Promise<TournamentMutationResult> {
+    // Ruling 10: siehe retryOnDeadlock — der Sperrzyklus hinterlaesst nichts,
+    // die Wiederholung ist gefahrlos.
+    return retryOnDeadlock(() => this.releaseBoardInTransaction(input), "version-conflict");
+  }
+
+  private releaseBoardInTransaction(
+    input: ActorInput & { readonly data: ReleaseBoardInput },
+  ): Promise<TournamentMutationResult> {
     return this.databaseService.database.transaction(async (transaction) => {
-      const [duplicate] = await transaction
-        .select({ organizationId: tournamentCommands.organizationId, tournamentId: tournamentCommands.tournamentId })
-        .from(tournamentCommands)
-        .where(eq(tournamentCommands.commandId, input.data.commandId))
-        .limit(1);
-      if (duplicate !== undefined) {
-        if (duplicate.organizationId === input.organizationId && duplicate.tournamentId === input.tournamentId) return "ok";
-        throw new TournamentValidationError(
-          "COMMAND_ID_ALREADY_USED",
-          "The command ID has already been used for another tournament.",
-        );
-      }
+      if (await this.findDuplicateCommand(transaction, input.organizationId, input.tournamentId, input.data.commandId) !== null) return "ok";
       const [tournament] = await transaction
         .select()
         .from(tournaments)
         .where(and(eq(tournaments.organizationId, input.organizationId), eq(tournaments.id, input.tournamentId)))
         .for("update")
         .limit(1);
+      // Zweite Pruefung unter der Sperre — siehe `findDuplicateCommand`.
+      if (await this.findDuplicateCommand(transaction, input.organizationId, input.tournamentId, input.data.commandId) !== null) return "ok";
       if (tournament === undefined) return "not-found";
       if (tournament.version !== input.data.expectedVersion) return "version-conflict";
       const [selected] = await transaction
@@ -876,19 +937,13 @@ export class TournamentsRepository {
         .for("update")
         .limit(1);
       if (selected === undefined) return "board-unavailable";
-      const [active] = await transaction
-        .select({ id: tournamentMatches.id })
-        .from(tournamentMatches)
-        .where(
-          and(
-            eq(tournamentMatches.organizationId, input.organizationId),
-            eq(tournamentMatches.tournamentId, input.tournamentId),
-            eq(tournamentMatches.boardId, input.data.boardId),
-            eq(tournamentMatches.status, "IN_PROGRESS"),
-          ),
-        )
-        .limit(1);
-      if (active !== undefined) return "board-unavailable";
+      // Freigeben darf nur, wer die Scheibe wirklich frei vorfindet. Ein
+      // laufender Ligaslot steht nicht in `tournament_matches`; wer nur dort
+      // nachsieht, stellt eine belegte Scheibe auf AVAILABLE und laesst die
+      // naechste Zuweisung ein zweites Match darauf starten.
+      if (await isBoardOccupied(transaction, input.organizationId, input.data.boardId)) {
+        return "board-unavailable";
+      }
       const nextVersion = tournament.version + 1;
       await transaction
         .update(boards)
@@ -927,5 +982,38 @@ export class TournamentsRepository {
       });
       return "ok";
     });
+  }
+
+  /**
+   * Duplikatpruefung fuer den Turnierkommandostrom. Sie laeuft an jeder
+   * Aufrufstelle ZWEIMAL: einmal vor der Sperre auf der Turnierzeile und
+   * einmal darunter. Ohne die zweite verfehlen zwei gleichzeitige
+   * Zustellungen desselben Kommandos die Kommandozeile beide, und die zweite
+   * bekaeme einen Versionskonflikt fuer ihr eigenes, angekommenes Kommando
+   * (AGENTS.md 11). `withdrawParticipant` loest dasselbe ueber einen
+   * Advisory Lock auf die commandId; hier genuegt die zweite Pruefung.
+   */
+  private async findDuplicateCommand(
+    transaction: DatabaseTransaction,
+    organizationId: string,
+    tournamentId: string,
+    commandId: string,
+  ): Promise<"ok" | null> {
+    const [duplicate] = await transaction
+      .select({
+        organizationId: tournamentCommands.organizationId,
+        tournamentId: tournamentCommands.tournamentId,
+      })
+      .from(tournamentCommands)
+      .where(eq(tournamentCommands.commandId, commandId))
+      .limit(1);
+    if (duplicate === undefined) return null;
+    if (duplicate.organizationId === organizationId && duplicate.tournamentId === tournamentId) {
+      return "ok";
+    }
+    throw new TournamentValidationError(
+      "COMMAND_ID_ALREADY_USED",
+      "The command ID has already been used for another tournament.",
+    );
   }
 }

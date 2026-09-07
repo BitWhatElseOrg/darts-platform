@@ -1,7 +1,9 @@
 export {
   healthResponseSchema,
+  outboxHealthSchema,
   serviceHealthStatusSchema,
   type HealthResponse,
+  type OutboxHealth,
   type ServiceHealthStatus,
 } from "./health";
 export { apiErrorSchema, type ApiErrorResponse } from "./api-error";
@@ -23,6 +25,7 @@ export {
 } from "./match";
 export {
   acceptInvitationSchema,
+  assignableMembershipStatusSchema,
   createdInvitationSchema,
   createInvitationSchema,
   createOrganizationSchema,
@@ -30,15 +33,21 @@ export {
   invitationSchema,
   invitationClaimTokenSchema,
   invitableOrganizationRoleSchema,
+  membershipStatusSchema,
   organizationListSchema,
+  organizationMemberSchema,
   organizationRoleSchema,
   organizationSummarySchema,
+  updateMembershipSchema,
   type AcceptInvitationInput,
   type CreateInvitationInput,
   type CreateOrganizationInput,
   type CreatedInvitation,
   type Invitation,
+  type MembershipStatusValue,
+  type OrganizationMember,
   type OrganizationSummary,
+  type UpdateMembershipInput,
 } from "./organization";
 export {
   assignMatchSchema,
@@ -52,6 +61,8 @@ export {
   groupStandingSchema,
   queueEntrySchema,
   queueReadinessSchema,
+  publicBoardSlotSchema,
+  publicQueueEntrySchema,
   publicTournamentDashboardSchema,
   releaseBoardSchema,
   seedingModeSchema,
@@ -81,6 +92,8 @@ export {
   type QueueEntry,
   type QueueReadiness,
   type OutRule,
+  type PublicBoardSlot,
+  type PublicQueueEntry,
   type PublicTournamentDashboard,
   type ReleaseBoardInput,
   type SeedingMode,

@@ -12,6 +12,7 @@ import {
   type Database,
 } from "@darts-platform/database";
 
+import type { RateLimitStorage } from "./auth-rate-limit-storage.js";
 import {
   INVITATION_CLAIM_HEADER,
   invitationClaimMatches,
@@ -20,6 +21,7 @@ import {
 export function createAuth(
   database: Database,
   environment: ApplicationEnvironment,
+  rateLimitStorage?: RateLimitStorage,
 ) {
   return betterAuth({
     appName: "DartBase - Plattform",
@@ -44,6 +46,27 @@ export function createAuth(
       enabled: true,
       minPasswordLength: 10,
       maxPasswordLength: 128,
+    },
+    // Ohne Zaehler skaliert Passwort-Raten mit der Zahl der Instanzen
+    // (Audit B, I-6). `customStorage` legt den Zaehler nach Redis, ohne
+    // Sessions dorthin zu verschieben — ADR 0002 bleibt gewahrt.
+    rateLimit: {
+      enabled: true,
+      window: 60,
+      max: environment.RATE_LIMIT_MAX_PER_MINUTE,
+      customRules: {
+        "/sign-in/email": {
+          window: 60,
+          max: environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE,
+        },
+        "/sign-up/email": {
+          window: 60,
+          max: environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE,
+        },
+      },
+      ...(rateLimitStorage === undefined
+        ? {}
+        : { customStorage: rateLimitStorage }),
     },
     databaseHooks: {
       user: {

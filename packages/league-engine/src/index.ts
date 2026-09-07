@@ -17,6 +17,12 @@ export {
   type TemplateSlot,
 } from "./template.js";
 export {
+  buildEncounterTemplate,
+  vfcTemplateOptions,
+  type StartingScore,
+  type TemplateOptions,
+} from "./encounter-template.js";
+export {
   resolveSlotOccupancy,
   validateDoublesPairings,
   validateNominations,

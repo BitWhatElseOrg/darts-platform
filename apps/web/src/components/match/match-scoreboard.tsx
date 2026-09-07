@@ -7,9 +7,10 @@ import { userFacingErrorMessage } from "@/lib/api-client";
 import {
   dartEntryReducer, dartVisitCommand, emptyDartEntry, previewDartEntry, type DartEntryPreview,
 } from "@/lib/dart-entry";
+import { queuedCommandNotice } from "@/lib/offline-replay";
 import {
-  appendRoundDigit, checkoutDoubleFromField, checkoutOutRuleFor, isRoundEntrySubmittable, onlyPossibleDouble,
-  removeRoundDigit,
+  appendRoundDigit, checkoutCommandFields, checkoutOutRuleFor, isRoundEntrySubmittable, onlyPossibleDouble,
+  removeRoundDigit, requiresDartEntry,
 } from "@/lib/round-entry";
 import {
   defaultScoreboardSettings, readScoreboardSettings, subscribeScoreboardSettings, writeScoreboardSettings,
@@ -48,9 +49,19 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   readonly organizationId: string;
 }) {
   const scoring = useMatchScoring({ organizationId, match, canScore });
-  const { lock, queued, online, replaying, mayControl, error } = scoring;
+  const { lock, queued, queueReadError, queueWriteError, queueAcceptedButStuck, online, replaying, mayControl, error } = scoring;
   const settings = useSyncExternalStore(subscribeScoreboardSettings, readScoreboardSettings, () => defaultScoreboardSettings);
-  const quickScores = useQuickScores({ organizationId, playerId: match.currentPlayerId, enabled: settings.mode === "ROUND" });
+  // Im Doppel ist `currentPlayerId` die werfende Person, nicht die erste der
+  // Seite. Am Oche steht die Seite mit `isActive`.
+  const activeParticipant = match.participants.find((participant) => participant.isActive);
+  // Unter Double In laesst sich die Eroeffnungsaufnahme nicht als Rundensumme
+  // erfassen — die Punkte vor dem eroeffnenden Doppel sind daraus nicht
+  // zaehlbar, die Engine lehnt sie ab (round-entry.ts, `requiresDartEntry`).
+  // Fuer genau diese Aufnahme zeigt die Flaeche deshalb das Dart-Keypad, auch
+  // wenn der Runden-Modus eingestellt ist; danach kehrt er von selbst zurueck.
+  const dartEntryRequired = requiresDartEntry(match, activeParticipant);
+  const inputMode = dartEntryRequired ? "DART" : settings.mode;
+  const quickScores = useQuickScores({ organizationId, playerId: match.currentPlayerId, enabled: inputMode === "ROUND" });
   const [roundValue, setRoundValue] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutField, setCheckoutField] = useState("");
@@ -90,10 +101,6 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     setAbortOpen(false);
     setSettingsOpen(false);
   }
-  // Im Doppel ist `currentPlayerId` die werfende Person, nicht die erste der
-  // Seite. Am Oche steht die Seite mit `isActive`.
-  const activeParticipant = match.participants.find((participant) => participant.isActive);
-
   const handleRoundDigit = (digit: number) => setRoundValue((current) => appendRoundDigit(current, digit));
   const handleRoundQuickScore = (score: number) => setRoundValue(String(score));
   const handleRoundBackspace = () => {
@@ -136,16 +143,16 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   const handleCheckoutBust = () => {
     scoring.submitVisit({ points: Number(roundValue), dartsThrown: 3, checkoutMissed: true, checkoutAttempted: true });
   };
-  // `checkoutDoubleFromField` traegt die Weglass-Entscheidung fuer ein
-  // Triple-Finish (siehe round-entry.ts); `checkoutAttempted` haelt die
+  // `checkoutCommandFields` entscheidet ueber das Belegfeld: unter Master Out
+  // `checkoutSegment` (Doppel wie Triple), unter Double Out weiterhin
+  // `checkoutDouble` (siehe round-entry.ts). `checkoutAttempted` haelt die
   // Checkout-Quote in beiden Faellen korrekt (siehe use-match-scoring.ts).
   const handleCheckoutSubmit = () => {
-    const checkoutDouble = checkoutDoubleFromField(checkoutField);
     scoring.submitVisit({
       checkoutAttempted: true,
       dartsThrown: checkoutDartsThrown,
       points: Number(roundValue),
-      ...(checkoutDouble === undefined ? {} : { checkoutDouble }),
+      ...checkoutCommandFields(checkoutField, checkoutOutRule),
     });
   };
 
@@ -173,9 +180,13 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   // Unkommitteter Zustand, kein gespeicherter Wurf — das Modal selbst nennt
   // die Konsequenz (scoreboard-settings-dialog.tsx), deshalb kein stiller
   // Verlust im Sinne der Vorgabe.
-  const [lastInputMode, setLastInputMode] = useState(settings.mode);
-  if (lastInputMode !== settings.mode) {
-    setLastInputMode(settings.mode);
+  //
+  // Dasselbe gilt fuer den erzwungenen Wechsel unter Double In: sobald die
+  // Seite eroeffnet hat, kehrt der Runden-Modus zurueck, und eine
+  // angefangene Eingabe des anderen Keypads gehoerte zum alten Zustand.
+  const [lastInputMode, setLastInputMode] = useState(inputMode);
+  if (lastInputMode !== inputMode) {
+    setLastInputMode(inputMode);
     dispatchEntry({ type: "RESET" });
     setPendingConfirmation(null);
     setRoundValue("");
@@ -325,8 +336,8 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
       />
       <ScoreboardSides
         match={match}
-        pendingDarts={settings.mode === "DART" ? entry.darts : []}
-        showDartBand={settings.mode === "DART"}
+        pendingDarts={inputMode === "DART" ? entry.darts : []}
+        showDartBand={inputMode === "DART"}
       />
       {/* Review-Befund 3: drei feste Reihen statt eines einzigen scrollenden
           Blocks — sonst bekommt das Keypad je nach Inhalt der ersten Reihe
@@ -337,18 +348,44 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
           scrollt diese Fläche für sich, ohne dass die Seite selbst wächst. */}
       <div className="grid min-h-0 grid-rows-[auto_1fr_auto] overflow-y-auto">
         <div>
-          {hasPending ? (
+          {hasPending || queueReadError !== null || queueWriteError !== null ? (
             <div className="border-b border-amber-400/40 bg-amber-300/10 p-4">
-              {queued.map((command) => (
-                <div className="flex flex-wrap items-center justify-between gap-3 text-body text-amber-100" key={command.commandId}>
-                  <span>{command.label} · {command.status === "CONFLICT" ? command.error : online ? "Wiederholung läuft" : "Offline"}</span>
-                  {command.status === "CONFLICT" ? (
-                    <Button onClick={() => scoring.discardQueued(command.commandId)} variant="outline">Verwerfen und synchronisieren</Button>
-                  ) : (
-                    <Button disabled={!online || replaying} onClick={() => scoring.replay()} variant="outline">Jetzt übertragen</Button>
-                  )}
-                </div>
-              ))}
+              {/* Auch ein Fehler der Warteschlange selbst gehoert in dieses
+                  Band: sonst zeigt die Flaeche eine leere Liste, obwohl
+                  Aufnahmen ungesendet in IndexedDB liegen (AGENTS.md §18).
+                  Lesen und Schreiben stehen getrennt -- sie bedeuten
+                  Unterschiedliches und koennen gleichzeitig zutreffen. */}
+              {queueReadError !== null ? (
+                <p className="text-body text-amber-100" role="status">{queueReadError}</p>
+              ) : null}
+              {queueWriteError !== null ? (
+                <p className="text-body text-amber-100" role="status">{queueWriteError}</p>
+              ) : null}
+              {queued.map((command) => {
+                // Ob ein Eintrag verworfen werden darf, entscheidet
+                // `queuedCommandNotice` -- eintragsbezogen. Bis Runde 7 stand
+                // hier zusaetzlich `|| queueWriteError !== null`: der
+                // Schreibfehler gilt fuer den ganzen Scope, und ein einziger
+                // haengender Eintrag bot damit das Verwerfen fuer JEDE
+                // wartende Aufnahme an -- auch fuer eine dahinterstehende, von
+                // Hand erfasste und nie gesendete. Ein Klick loeschte sie
+                // endgueltig.
+                const notice = queuedCommandNotice(command, {
+                  online,
+                  acceptedButStuck: queueAcceptedButStuck.has(command.commandId),
+                });
+                return (
+                  <div className="flex flex-wrap items-center justify-between gap-3 text-body text-amber-100" key={command.commandId}>
+                    <span>{notice.text}</span>
+                    {notice.action === "DISCARD" ? (
+                      <Button onClick={() => scoring.discardQueued(command.commandId)} variant="outline">Verwerfen und synchronisieren</Button>
+                    ) : null}
+                    {notice.action === "RETRY" ? (
+                      <Button disabled={!online || replaying} onClick={() => scoring.replay()} variant="outline">Jetzt übertragen</Button>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           ) : null}
         </div>
@@ -358,8 +395,17 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
               <p className="text-body uppercase tracking-[0.12em] text-emerald-300">Match beendet</p>
               <p className="mt-1 font-numerals text-title font-bold text-white">{winnerName(match)} gewinnt</p>
             </div>
-          ) : canScore && settings.mode === "DART" ? (
+          ) : canScore && inputMode === "DART" ? (
             <div className="relative h-full min-h-0 border-b border-slate-800 p-3">
+              {/* Der erzwungene Wechsel wird benannt, nicht bloss vollzogen:
+                  sonst steht die zaehlende Person vor einem anderen Keypad,
+                  als sie eingestellt hat. Live-Region, weil der Hinweis ohne
+                  eigene Handlung erscheint. */}
+              {dartEntryRequired && settings.mode === "ROUND" ? (
+                <p aria-live="polite" className="mb-3 rounded-lg border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-body text-emerald-100" role="status">
+                  Double In: die Eröffnungsaufnahme wird Wurf für Wurf erfasst, danach zählt wieder das Ziffernfeld.
+                </p>
+              ) : null}
               <DartKeypad
                 disabled={!mayControl || activeParticipant === undefined || pendingConfirmation !== null || scoring.submitPending}
                 modifier={entry.modifier}
@@ -378,7 +424,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
                 />
               ) : null}
             </div>
-          ) : canScore && settings.mode === "ROUND" ? (
+          ) : canScore && inputMode === "ROUND" ? (
             // overflow-y-auto: das Keypad braucht mehr Hoehe als das
             // Dart-Keypad und ueberlief sonst sichtbar in "Letzte Aufnahmen".
             <div className="h-full min-h-0 overflow-y-auto border-b border-slate-800 p-3">

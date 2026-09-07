@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import { auditEvents, boardControllerLeases, boards, legs, matches, matchParticipantPlayers, memberships, organizations, outboxEvents, players, scoreCommands, users, visitDarts, visits } from "@darts-platform/database";
@@ -79,6 +79,12 @@ describe("persistent X01 match", () => {
     await expect(service.abort({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: state.version - 1, controllerId, reason: "Veraltete Version" }, auth, audit })).rejects.toMatchObject({ status: 409 });
     await expect(service.abort({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: state.version, controllerId: randomUUID(), reason: "Falsche Steuerung" }, auth, audit })).rejects.toMatchObject({ status: 409 });
 
+    // Referenzwert vor dem Abbruch: diese Aufnahme wird ohne Einzelwuerfe
+    // uebermittelt (nur points/dartsThrown), darum ist die Zahl hier 0 —
+    // der Abbruch darf sie trotzdem nicht veraendern.
+    const [visitBeforeAbort] = await databaseService.database.select().from(visits).where(and(eq(visits.organizationId, organizationId), eq(visits.matchId, state.id)));
+    const dartsBeforeAbort = await databaseService.database.select().from(visitDarts).where(and(eq(visitDarts.organizationId, organizationId), eq(visitDarts.visitId, visitBeforeAbort?.id ?? "")));
+
     const commandId = randomUUID();
     const input = { organizationId, matchId: state.id, data: { commandId, expectedVersion: state.version, controllerId, reason: "Board neu starten" }, auth, audit };
     await expect(Promise.all(Array.from({ length: 4 }, () => service.abort(input)))).resolves.toEqual(
@@ -86,8 +92,22 @@ describe("persistent X01 match", () => {
     );
 
     expect(await service.list({ organizationId, auth })).not.toContainEqual(expect.objectContaining({ id: state.id }));
-    expect(await databaseService.database.select().from(visits).where(and(eq(visits.organizationId, organizationId), eq(visits.matchId, state.id)))).toHaveLength(0);
-    expect(await databaseService.database.select().from(legs).where(and(eq(legs.organizationId, organizationId), eq(legs.matchId, state.id)))).toHaveLength(0);
+    // Befund I9: der Abbruch loescht die Wurfhistorie nicht mehr, er
+    // entwertet sie. Ein versehentlicher Abbruch bleibt damit nachvollziehbar
+    // und die Aufnahmen bleiben fuer eine Reklamation lesbar.
+    const abortedVisits = await databaseService.database.select().from(visits).where(and(eq(visits.organizationId, organizationId), eq(visits.matchId, state.id)));
+    expect(abortedVisits).toHaveLength(1);
+    expect(abortedVisits[0]?.revertedAt).not.toBeNull();
+    expect(abortedVisits[0]?.revertedByCommandId).toBe(commandId);
+    // Die Einzelwuerfe der Aufnahme muessen den Abbruch unveraendert
+    // ueberstehen (Vergleich mit dem vor dem Abbruch beobachteten Stand).
+    const abortedDarts = await databaseService.database.select().from(visitDarts).where(and(eq(visitDarts.organizationId, organizationId), eq(visitDarts.visitId, abortedVisits[0]?.id ?? "")));
+    expect(abortedDarts).toHaveLength(dartsBeforeAbort.length);
+    const abortedLegs = await databaseService.database.select().from(legs).where(and(eq(legs.organizationId, organizationId), eq(legs.matchId, state.id)));
+    expect(abortedLegs).toHaveLength(1);
+    // Die Aufnahme wird kein zweites Mal gestempelt, wenn dasselbe Kommando
+    // erneut eintrifft — `reverted_at` bleibt beim ersten Zeitpunkt.
+    expect(await databaseService.database.select().from(visits).where(and(eq(visits.matchId, state.id), isNull(visits.revertedAt)))).toHaveLength(0);
     expect(await databaseService.database.select().from(boardControllerLeases).where(eq(boardControllerLeases.matchId, state.id))).toHaveLength(0);
     expect((await databaseService.database.select().from(matches).where(eq(matches.id, state.id)))[0]?.status).toBe("ABORTED");
     expect((await databaseService.database.select().from(boards).where(eq(boards.id, boardId)))[0]?.status).toBe("AVAILABLE");
@@ -389,6 +409,200 @@ describe("persistent X01 match", () => {
     expect(state.visits[0]?.outcome).toBe("MATCH_WON");
   });
 
+  it("rejects a round sum before the opening double under double in without writing", async () => {
+    // Befund K2: Ohne Einzelwuerfe laesst sich unter Double In nicht sagen,
+    // wie viele Punkte vor dem eroeffnenden Doppel fielen; die Engine rechnete
+    // die ganze Summe an (501 mit S1/D20/S20 = 61 ergab Rest 440 statt 441).
+    // Neue Kommandos muessen die Wuerfe deshalb mitliefern - als sauberer 400
+    // und ohne jede Schreibwirkung.
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    await databaseService.database
+      .update(matches)
+      .set({ inRule: "DOUBLE" })
+      .where(and(eq(matches.organizationId, organizationId), eq(matches.id, matchId)));
+
+    const rejectedCommandId = randomUUID();
+    await expect(service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: { commandId: rejectedCommandId, expectedVersion: created.version, playerId: playerOneId, points: 61, dartsThrown: 3 },
+    })).rejects.toMatchObject({
+      status: 400,
+      response: { code: "DARTS_REQUIRED_FOR_DOUBLE_IN" },
+    });
+
+    expect(await databaseService.database.select().from(scoreCommands)
+      .where(and(eq(scoreCommands.organizationId, organizationId), eq(scoreCommands.commandId, rejectedCommandId)))).toHaveLength(0);
+    expect(await databaseService.database.select().from(visits)
+      .where(and(eq(visits.organizationId, organizationId), eq(visits.commandId, rejectedCommandId)))).toHaveLength(0);
+    const unchanged = await repository.getState(organizationId, matchId);
+    expect(unchanged?.version).toBe(created.version);
+    expect(unchanged?.participants.find((participant) => participant.playerId === playerOneId)?.remaining).toBe(501);
+
+    // Dieselbe Aufnahme mit Wuerfen zaehlt ab dem Doppel: 60 statt 61.
+    const applied = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: {
+        commandId: randomUUID(), expectedVersion: created.version, playerId: playerOneId,
+        points: 61, dartsThrown: 3,
+        darts: [{ segment: 1, multiplier: 1 }, { segment: 20, multiplier: 2 }, { segment: 20, multiplier: 1 }],
+      },
+    });
+    expect(applied.participants.find((participant) => participant.playerId === playerOneId)?.remaining).toBe(441);
+    expect(applied.visits[0]?.appliedPoints).toBe(60);
+  });
+
+  it("rejects a master-out finish without a checkout detail without writing", async () => {
+    // Befund D-I1: Ohne Beleg raet die Heuristik permissiv - Rest 60 mit drei
+    // Darts galt ihr als Master-Finish, obwohl S20/S20/S20 keins ist. Neue
+    // Kommandos muessen den Abschluss belegen.
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    await databaseService.database
+      .update(matches)
+      .set({ outRule: "MASTER" })
+      .where(and(eq(matches.organizationId, organizationId), eq(matches.id, matchId)));
+
+    let state = created;
+    const score = async (playerId: string, points: number) => {
+      state = await service.submitVisit({ organizationId, matchId, auth, audit, data: { commandId: randomUUID(), expectedVersion: state.version, playerId, points, dartsThrown: 3 } });
+    };
+    await score(playerOneId, 180); // 501 -> 321
+    await score(playerTwoId, 0);
+    await score(playerOneId, 180); // 321 -> 141
+    await score(playerTwoId, 0);
+    await score(playerOneId, 81); // 141 -> 60
+    await score(playerTwoId, 0);
+
+    const rejectedCommandId = randomUUID();
+    await expect(service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: { commandId: rejectedCommandId, expectedVersion: state.version, playerId: playerOneId, points: 60, dartsThrown: 3 },
+    })).rejects.toMatchObject({
+      status: 400,
+      response: { code: "CHECKOUT_DETAIL_REQUIRED" },
+    });
+
+    expect(await databaseService.database.select().from(scoreCommands)
+      .where(and(eq(scoreCommands.organizationId, organizationId), eq(scoreCommands.commandId, rejectedCommandId)))).toHaveLength(0);
+    expect(await databaseService.database.select().from(visits)
+      .where(and(eq(visits.organizationId, organizationId), eq(visits.commandId, rejectedCommandId)))).toHaveLength(0);
+    const unchanged = await repository.getState(organizationId, matchId);
+    expect(unchanged?.version).toBe(state.version);
+    expect(unchanged?.status).toBe("IN_PROGRESS");
+    expect(unchanged?.participants.find((participant) => participant.playerId === playerOneId)?.remaining).toBe(60);
+
+    // Dieselben 60 Punkte als S20/S20/S20 sind kein Master-Finish, sondern ein Bust.
+    state = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: {
+        commandId: randomUUID(), expectedVersion: state.version, playerId: playerOneId,
+        points: 60, dartsThrown: 3,
+        darts: [{ segment: 20, multiplier: 1 }, { segment: 20, multiplier: 1 }, { segment: 20, multiplier: 1 }],
+      },
+    });
+    expect(state.status).toBe("IN_PROGRESS");
+    expect(state.visits[0]?.outcome).toBe("BUST");
+    expect(state.participants.find((participant) => participant.playerId === playerOneId)?.remaining).toBe(60);
+  });
+
+  it("accepts a master-out treble finish with a checkout segment", async () => {
+    // Folge aus D-I1: `checkoutDouble` kann nur D1-D20 und Bull kodieren, ein
+    // Triple-Finish war ohne Einzelwuerfe deshalb nicht belegbar. Das
+    // verallgemeinerte `checkoutSegment` traegt Segment und Multiplikator und
+    // laeuft ueber die volle Strecke: Schema -> Kommando -> Engine ->
+    // gespeicherte Nutzlast -> Replay.
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    await databaseService.database
+      .update(matches)
+      .set({ outRule: "MASTER" })
+      .where(and(eq(matches.organizationId, organizationId), eq(matches.id, matchId)));
+
+    let state = created;
+    const score = async (playerId: string, points: number) => {
+      state = await service.submitVisit({ organizationId, matchId, auth, audit, data: { commandId: randomUUID(), expectedVersion: state.version, playerId, points, dartsThrown: 3 } });
+    };
+    await score(playerOneId, 180); // 501 -> 321
+    await score(playerTwoId, 0);
+    await score(playerOneId, 180); // 321 -> 141
+    await score(playerTwoId, 0);
+    await score(playerOneId, 81); // 141 -> 60
+    await score(playerTwoId, 0);
+
+    const finished = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: {
+        commandId: randomUUID(), expectedVersion: state.version, playerId: playerOneId,
+        points: 60, dartsThrown: 1, checkoutSegment: { segment: 20, multiplier: 3 },
+        // `checkoutAttempts` wird bewusst NICHT mitgeschickt, wie ein
+        // API-Client es tun koennte: die API muss den Versuch selbst ableiten
+        // (`defaultCheckoutAttempts`), statt ihn stillschweigend auf 0 zu
+        // normalisieren -- sonst zaehlt die Checkout-Quote diesen Checkout
+        // nicht (PR-Agent-Runde 3, Befund B).
+      },
+    });
+    expect(finished.status).toBe("COMPLETED");
+    expect(finished.winnerPlayerId).toBe(playerOneId);
+    // Ein Triple fuellt `checkoutDouble` nicht, der Versuch wird trotzdem
+    // gezaehlt. `visits` kommt neueste zuerst, die Abschlussaufnahme steht
+    // also vorn.
+    expect(finished.visits[0]?.checkoutDouble).toBeNull();
+    expect(finished.visits[0]?.checkoutAttempts).toBe(1);
+    expect(finished.visits[0]?.outcome).toBe("MATCH_WON");
+
+    // Replay aus der gespeicherten Nutzlast: derselbe Zustand, insbesondere
+    // derselbe `checkoutAttempts`-Wert -- die API hat ihn beim Schreiben
+    // materialisiert, der Replay liest also dieselbe explizite 1, nicht den
+    // `.default(0)` von `storedSubmitSchema`.
+    const reloaded = await repository.getState(organizationId, matchId);
+    expect(reloaded?.status).toBe("COMPLETED");
+    expect(reloaded?.winnerPlayerId).toBe(playerOneId);
+    expect(reloaded?.visits[0]?.checkoutAttempts).toBe(1);
+  });
+
+  it("reports the opening state of each side under double in", async () => {
+    // Die Flaeche schaltet unter Double In vor der Eroeffnung auf
+    // Wurf-fuer-Wurf um und braucht dafuer `openedInLeg` aus der Projektion;
+    // aus `remaining` ist der Stand nicht ablesbar.
+    const created = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      auth, audit,
+    });
+    const matchId = created.id;
+    await databaseService.database
+      .update(matches)
+      .set({ inRule: "DOUBLE" })
+      .where(and(eq(matches.organizationId, organizationId), eq(matches.id, matchId)));
+
+    const before = await repository.getState(organizationId, matchId);
+    expect(before?.participants.map((participant) => participant.openedInLeg)).toEqual([false, false]);
+
+    const opened = await service.submitVisit({
+      organizationId, matchId, auth, audit,
+      data: {
+        commandId: randomUUID(), expectedVersion: before?.version ?? 0, playerId: playerOneId,
+        points: 61, dartsThrown: 3,
+        darts: [{ segment: 1, multiplier: 1 }, { segment: 20, multiplier: 2 }, { segment: 20, multiplier: 1 }],
+      },
+    });
+    expect(opened.participants.find((participant) => participant.playerId === playerOneId)?.openedInLeg).toBe(true);
+    expect(opened.participants.find((participant) => participant.playerId === playerTwoId)?.openedInLeg).toBe(false);
+  });
+
   it("names no live target for a match without a competition", async () => {
     const created = await service.create({
       organizationId,
@@ -398,4 +612,107 @@ describe("persistent X01 match", () => {
     const state = await repository.getState(organizationId, created.id);
     expect(state?.liveTarget).toBeNull();
   });
+
+  /**
+   * Mit dem Ende gibt das Match seine Scheibe frei. Ein Undo eroeffnet es
+   * wieder — steht dort inzwischen ein anderes Spiel, stuenden zwei laufende
+   * Matches auf einer physischen Scheibe. Der Turnierpfad kannte diesen
+   * Schutz, Ligaslots und freie Paarungen nicht.
+   */
+  it("eroeffnet ein beendetes Match nicht auf einer neu belegten Scheibe", async () => {
+    const undoBoardId = randomUUID();
+    await databaseService.database
+      .insert(boards)
+      .values({ id: undoBoardId, organizationId, name: `Undo Board ${undoBoardId}` });
+    let state = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId: undoBoardId, bestOfLegs: 1, bestOfSets: 1 },
+      auth,
+      audit,
+    });
+    const score = async (playerId: string, points: number, checkoutDouble?: number): Promise<void> => {
+      state = await service.submitVisit({
+        organizationId,
+        matchId: state.id,
+        data: {
+          commandId: randomUUID(), expectedVersion: state.version, playerId, points, dartsThrown: 3,
+          ...(checkoutDouble === undefined ? {} : { checkoutDouble }),
+        },
+        auth,
+        audit,
+      });
+    };
+    await score(playerOneId, 180);
+    await score(playerTwoId, 60);
+    await score(playerOneId, 180);
+    await score(playerTwoId, 60);
+    await score(playerOneId, 141, 12);
+    expect(state.status).toBe("COMPLETED");
+    const completedMatchId = state.id;
+    const completedVersion = state.version;
+
+    // Die Scheibe gilt als frei; das naechste Paar startet dort.
+    const followUp = await service.create({
+      organizationId,
+      data: { playerOneId, playerTwoId, startingPlayerId: playerTwoId, boardId: undoBoardId, bestOfLegs: 1, bestOfSets: 1 },
+      auth,
+      audit,
+    });
+    expect(followUp.status).toBe("IN_PROGRESS");
+
+    await expect(
+      service.undo({
+        organizationId,
+        matchId: completedMatchId,
+        data: { commandId: randomUUID(), expectedVersion: completedVersion },
+        auth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ status: 409, response: { code: "BOARD_NOT_AVAILABLE" } });
+
+    const running = await databaseService.database
+      .select({ id: matches.id })
+      .from(matches)
+      .where(and(eq(matches.organizationId, organizationId), eq(matches.boardId, undoBoardId), eq(matches.status, "IN_PROGRESS")));
+    expect(running).toHaveLength(1);
+    const unchanged = await service.get({ organizationId, matchId: completedMatchId, auth });
+    expect(unchanged).toMatchObject({ status: "COMPLETED", version: completedVersion });
+  }, 30_000);
+
+  /**
+   * Befund I1: Original und Client-Wiederholung treffen gleichzeitig ein. Beide
+   * verfehlen die Kommandozeile in der Vorpruefung; ohne eine zweite Pruefung
+   * unter der Aggregatsperre bekaeme die zweite einen Versionskonflikt fuer
+   * eine Aufnahme, die angekommen ist. In der Offline-Wiedergabe landet das
+   * als CONFLICT in der Warteschlange, und der Scorer sieht einen scheinbar
+   * verlorenen Wurf.
+   */
+  it("beantwortet dieselbe commandId auch gleichzeitig idempotent", async () => {
+    const created = await service.create({ organizationId, data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId: null, bestOfLegs: 3, bestOfSets: 1 }, auth, audit });
+    const controllerId = randomUUID();
+    await service.acquireControllerLease({ organizationId, matchId: created.id, controllerId, force: false, auth, audit });
+
+    const visitCommandId = randomUUID();
+    const visitInput = { organizationId, matchId: created.id, data: { commandId: visitCommandId, expectedVersion: created.version, playerId: playerOneId, points: 100, dartsThrown: 3 as const, controllerId }, auth, audit };
+    const visitResults = await Promise.all(Array.from({ length: 4 }, () => service.submitVisit(visitInput)));
+    expect(visitResults.map((state) => state.version)).toEqual([1, 1, 1, 1]);
+    expect(await databaseService.database.select().from(scoreCommands).where(eq(scoreCommands.commandId, visitCommandId))).toHaveLength(1);
+
+    const undoCommandId = randomUUID();
+    const undoInput = { organizationId, matchId: created.id, data: { commandId: undoCommandId, expectedVersion: 1, controllerId }, auth, audit };
+    const undoResults = await Promise.all(Array.from({ length: 4 }, () => service.undo(undoInput)));
+    expect(undoResults.map((state) => state.version)).toEqual([2, 2, 2, 2]);
+    expect(await databaseService.database.select().from(scoreCommands).where(eq(scoreCommands.commandId, undoCommandId))).toHaveLength(1);
+
+    // legNumber muss >= 3 sein: Leg eins gehoert fix der Heim-, Leg zwei der
+    // Gastseite (`LEG_START_FIXED` in x01.ts); erst ab Leg drei laesst sich
+    // die Anwurfseite ueberhaupt per Kommando entscheiden. Fuer diesen Test
+    // zaehlt nur, dass eine gleichzeitige Wiederholung idempotent bleibt, die
+    // konkrete Legnummer ist dafuer beliebig, solange sie zulaessig ist.
+    const legStartCommandId = randomUUID();
+    const legStartInput = { organizationId, matchId: created.id, data: { commandId: legStartCommandId, expectedVersion: 2, legNumber: 3, startingSeat: 2 as const, controllerId }, auth, audit };
+    const legStartResults = await Promise.all(Array.from({ length: 4 }, () => service.decideLegStart(legStartInput)));
+    expect(legStartResults.map((state) => state.version)).toEqual([3, 3, 3, 3]);
+    expect(await databaseService.database.select().from(scoreCommands).where(eq(scoreCommands.commandId, legStartCommandId))).toHaveLength(1);
+  }, 30_000);
 });

@@ -13,14 +13,14 @@ import { OrganizationsService } from "../organizations/organizations.service.js"
 import { PlayersRepository } from "./players.repository.js";
 import { PlayersService } from "./players.service.js";
 
-const databaseService = new DatabaseService(
-  parseApplicationEnvironment(process.env),
-);
+const environment = parseApplicationEnvironment(process.env);
+const databaseService = new DatabaseService(environment);
 const organizationsRepository = new OrganizationsRepository(databaseService);
 const accessService = new OrganizationAccessService(organizationsRepository);
 const organizationsService = new OrganizationsService(
   organizationsRepository,
   accessService,
+  { ...environment, ALLOW_SELF_SERVICE_ORGANIZATIONS: true },
 );
 const playersRepository = new PlayersRepository(databaseService);
 const playersService = new PlayersService(playersRepository, accessService);

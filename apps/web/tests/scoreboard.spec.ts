@@ -5,7 +5,10 @@ import {
   createRegistrationInvitation,
   type RegistrationInvitationSeed,
 } from "./registration-invitation";
-import { switchInputMode } from "./scoreboard-entry";
+import { applyMatchRules } from "./match-rules";
+import {
+  recordDartVisit, selectCheckoutDarts, switchInputMode, throwDart, typeRoundScore,
+} from "./scoreboard-entry";
 import { signUpWithOrganization } from "./sign-up";
 
 /**
@@ -81,30 +84,6 @@ async function openScoreboard(page: Page, label: string): Promise<ScoreboardFixt
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
 
   return { organizationId, playerOneName, playerTwoName };
-}
-
-/**
- * Ein einzelner Wurf auf dem Dart-Keypad. Der Umschalter gilt für genau
- * einen Wurf (`dart-entry.ts`, `MODIFIER`), muss also vor jedem Doppel und
- * jedem Triple neu gedrückt werden.
- */
-async function throwDart(page: Page, dart: `S${number}` | `D${number}` | `T${number}` | "MISS"): Promise<void> {
-  if (dart === "MISS") {
-    await page.getByRole("button", { name: "Fehlwurf" }).click();
-    return;
-  }
-  const segment = Number(dart.slice(1));
-  if (dart.startsWith("T")) {
-    await page.getByRole("button", { name: "Umschalter TRIPLE" }).click();
-    await page.getByRole("button", { name: `Triple ${segment}`, exact: true }).click();
-    return;
-  }
-  if (dart.startsWith("D")) {
-    await page.getByRole("button", { name: "Umschalter DOUBLE" }).click();
-    await page.getByRole("button", { name: `Doppel ${segment}`, exact: true }).click();
-    return;
-  }
-  await page.getByRole("button", { name: `Single ${segment}`, exact: true }).click();
 }
 
 test("the fullscreen scoreboard records a dart-by-dart visit and switches input mode", async ({
@@ -210,4 +189,89 @@ test("the fullscreen scoreboard plays a whole leg dart by dart, busting once", a
   const settings = page.getByRole("dialog", { name: "Einstellungen" });
   await expect(settings).toBeVisible();
   await expect(settings.getByText(`${playerOneName} · 1 Darts`).first()).toBeVisible();
+});
+
+/**
+ * Befund F2: Unter Double In — der Vorgabe jedes voreingestellten
+ * Ligawettbewerbs — sind die Punkte vor dem eröffnenden Doppel aus einer
+ * blossen Rundensumme nicht zählbar; die Engine lehnt sie ab
+ * (`DARTS_REQUIRED_FOR_DOUBLE_IN`). Die Fläche zeigt für genau diese Aufnahme
+ * deshalb auch im Runden-Modus das Dart-Keypad und kehrt danach von selbst
+ * zurück.
+ */
+test("the round mode records the opening visit dart by dart under double in", async ({ page }) => {
+  const { organizationId, playerOneName } = await openScoreboard(page, "doublein");
+  await applyMatchRules(organizationId, { inRule: "DOUBLE" });
+  await expect(page.getByText("501 Double In / Double Out")).toBeVisible({ timeout: 15_000 });
+
+  await switchInputMode(page, "Runde");
+
+  // Vor der Eröffnung: Dart-Keypad samt Begründung, kein Ziffernfeld.
+  await expect(page.getByText("Double In: die Eröffnungsaufnahme wird Wurf für Wurf erfasst", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Single 20" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ziffer 1" })).toHaveCount(0);
+
+  // D20 eröffnet, T20 zählt dazu: 100 geworfen wie angerechnet.
+  await recordDartVisit(page, ["D20", "T20", "MISS"]);
+  await expect(page.getByLabel(`${playerOneName}, Restscore`)).toHaveText("401");
+
+  // Die Gegenseite hat noch nicht eröffnet und bleibt beim Dart-Keypad.
+  await expect(page.getByRole("button", { name: "Single 20" })).toBeVisible();
+  await recordDartVisit(page, ["MISS", "MISS", "MISS"]);
+
+  // Zurück am Oche und eröffnet: das Ziffernfeld zählt weiter, der Hinweis ist weg.
+  await expect(page.getByRole("button", { name: "Ziffer 1" })).toBeVisible();
+  await expect(page.getByText("Double In: die Eröffnungsaufnahme", { exact: false })).toHaveCount(0);
+  await typeRoundScore(page, 180);
+  await expect(page.getByLabel(`${playerOneName}, Restscore`)).toHaveText("221");
+});
+
+/**
+ * Befund F2: Unter Master Out schliesst auch ein Triple das Leg
+ * (Reglement 1.1, Klasse B). `checkoutDouble` kann kein Triple kodieren, das
+ * Finish ging deshalb ohne Belegfeld raus und fiel seit
+ * `CHECKOUT_DETAIL_REQUIRED` durch. Der Dialog sendet unter Master Out
+ * stattdessen `checkoutSegment`.
+ */
+test("the round mode finishes on a treble under master out", async ({ page }) => {
+  const { organizationId, playerOneName, playerTwoName } = await openScoreboard(page, "masterout");
+  await applyMatchRules(organizationId, { outRule: "MASTER" });
+  await expect(page.getByText("501 Straight In / Master Out")).toBeVisible({ timeout: 15_000 });
+
+  await switchInputMode(page, "Runde");
+  const scoreOne = page.getByLabel(`${playerOneName}, Restscore`);
+  const scoreTwo = page.getByLabel(`${playerTwoName}, Restscore`);
+
+  /**
+   * Eine Rundensumme absenden und auf die Übernahme warten: die Fläche leert
+   * das Ziffernfeld nur bei tatsächlichem Erfolg (`match-scoreboard.tsx`,
+   * `submitJustSucceeded`), „Aufnahme erfassen" ist danach gesperrt.
+   */
+  const record = async (points: number) => {
+    await typeRoundScore(page, points);
+    await expect(page.getByRole("button", { name: "Rücktaste" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Aufnahme erfassen" })).toBeDisabled();
+  };
+
+  await record(180);
+  await expect(scoreOne).toHaveText("321");
+  await record(0);
+  await expect(scoreTwo).toHaveText("501");
+  await record(180);
+  await expect(scoreOne).toHaveText("141");
+  await record(0);
+  await record(81);
+  await expect(scoreOne).toHaveText("60");
+  await record(0);
+
+  // 60 auf 0: der Checkout-Schritt bietet unter Master Out auch Triples an.
+  await typeRoundScore(page, 60);
+  const dialog = page.getByRole("dialog", { name: "Checkout erfassen" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Checkout-Feld").selectOption("T20");
+  await selectCheckoutDarts(dialog, 1);
+  await dialog.getByRole("button", { name: "Checkout speichern" }).click();
+
+  await expect(page.getByText("Match beendet")).toBeVisible();
+  await expect(page.getByText(`${playerOneName} gewinnt`)).toBeVisible();
 });

@@ -44,6 +44,8 @@ const apiErrors: Readonly<
   INVALID_LEG_DISTANCE: { code: "TEMPLATE_INVALID", status: 422 },
   INCONSISTENT_LEG_DISTANCE: { code: "TEMPLATE_INVALID", status: 422 },
   INVALID_MAX_ROUNDS: { code: "TEMPLATE_INVALID", status: 422 },
+  INVALID_ROUND_ORDER: { code: "TEMPLATE_INVALID", status: 422 },
+  MISSING_DOUBLES_SLOTS: { code: "TEMPLATE_INVALID", status: 422 },
 };
 
 export interface LeagueApiError {
