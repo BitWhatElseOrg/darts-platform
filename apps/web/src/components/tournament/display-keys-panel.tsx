@@ -9,7 +9,7 @@ import {
   type DisplayKeyList,
 } from "@darts-platform/schemas";
 import { Control, Field, SheetLabel, StateTag, TextInput, Wedge, type StateTone } from "@darts-platform/ui";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
@@ -57,6 +57,7 @@ export function DisplayKeysPanel({ canManageDisplayKeys, organizationId, tournam
   const [label, setLabel] = useState("");
   const [copied, setCopied] = useState(false);
   const [freshKey, setFreshKey] = useState<CreatedDisplayKey | null>(null);
+  const copyResetTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const keysQuery = useQuery({
     queryKey,
@@ -101,10 +102,16 @@ export function DisplayKeysPanel({ canManageDisplayKeys, organizationId, tournam
     try {
       await navigator.clipboard.writeText(secret);
       setCopied(true);
+      if (copyResetTimeout.current !== null) clearTimeout(copyResetTimeout.current);
+      copyResetTimeout.current = setTimeout(() => setCopied(false), 2_000);
     } catch {
       setCopied(false);
     }
   }
+
+  useEffect(() => () => {
+    if (copyResetTimeout.current !== null) clearTimeout(copyResetTimeout.current);
+  }, []);
 
   // Serverseitig scheitert jede dieser Anfragen ohne `tournament:share`
   // ohnehin (Task 4/5) -- das Panel taeuscht darum erst gar keine Bedienung
