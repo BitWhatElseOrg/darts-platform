@@ -1598,6 +1598,7 @@ export type TournamentGroup = typeof tournamentGroups.$inferSelect;
 export type TournamentGroupParticipant = typeof tournamentGroupParticipants.$inferSelect;
 export type TournamentMatch = typeof tournamentMatches.$inferSelect;
 export type TournamentCommand = typeof tournamentCommands.$inferSelect;
+export type TournamentDisplayKey = typeof tournamentDisplayKeys.$inferSelect;
 export type Team = typeof teams.$inferSelect;
 export type NewTeam = typeof teams.$inferInsert;
 export type TeamPlayer = typeof teamPlayers.$inferSelect;
