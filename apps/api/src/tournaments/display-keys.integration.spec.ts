@@ -163,12 +163,82 @@ describe("Anzeige-Schluessel API", () => {
     await expect(service.resolve(otherPublicId, created.secret)).resolves.toBe("invalid");
   });
 
+  it("deckelt den Ablauf ohne Angabe auf mindestens jetzt plus 48 Stunden, wenn der Turnierbeginn laengst vergangen ist", async () => {
+    const [pastTournament] = await databaseService.database
+      .insert(tournaments)
+      .values(tournamentValues(new Date("2020-01-01T00:00:00.000Z")))
+      .returning();
+    if (pastTournament === undefined) throw new Error("Turnier wurde nicht angelegt.");
+
+    const before = Date.now();
+    const created = await service.create({
+      organizationId,
+      tournamentId: pastTournament.id,
+      data: { label: "Altes Turnier" },
+      auth,
+      audit,
+    });
+    const after = Date.now();
+
+    expect(created.expiresAt.getTime()).toBeGreaterThanOrEqual(before + 48 * 60 * 60 * 1000);
+    expect(created.expiresAt.getTime()).toBeLessThanOrEqual(after + 48 * 60 * 60 * 1000);
+  });
+
   it("laesst ohne tournament:share nichts ausstellen", async () => {
     await expect(
       service.create({
         organizationId, tournamentId, data: { label: "Verboten" }, auth: viewerAuth, audit,
       }),
     ).rejects.toThrow(ForbiddenException);
+  });
+
+  it("laesst ohne tournament:share nichts auflisten", async () => {
+    await expect(
+      service.list({ organizationId, tournamentId, auth: viewerAuth }),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it("laesst ohne tournament:share nichts widerrufen", async () => {
+    const created = await service.create({
+      organizationId, tournamentId, data: { label: "Fuer Widerruf-Test" }, auth, audit,
+    });
+
+    await expect(
+      service.revoke({ organizationId, tournamentId, keyId: created.id, auth: viewerAuth, audit }),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it("stateOf meldet 'absent' fuer einen unbekannten Schluessel", async () => {
+    await expect(service.stateOf(tournamentId, "unbekannt-und-erfunden")).resolves.toBe("absent");
+  });
+
+  it("stateOf meldet 'expired' fuer einen abgelaufenen Schluessel", async () => {
+    const created = await service.create({
+      organizationId,
+      tournamentId,
+      data: { label: "Abgelaufen fuer stateOf", expiresAt: new Date(Date.now() - 60_000) },
+      auth,
+      audit,
+    });
+
+    await expect(service.stateOf(tournamentId, created.secret)).resolves.toBe("expired");
+  });
+
+  it("stateOf meldet 'revoked' fuer einen widerrufenen Schluessel", async () => {
+    const created = await service.create({
+      organizationId, tournamentId, data: { label: "Widerrufen fuer stateOf" }, auth, audit,
+    });
+    await service.revoke({ organizationId, tournamentId, keyId: created.id, auth, audit });
+
+    await expect(service.stateOf(tournamentId, created.secret)).resolves.toBe("revoked");
+  });
+
+  it("stateOf meldet 'valid' fuer einen gueltigen Schluessel", async () => {
+    const created = await service.create({
+      organizationId, tournamentId, data: { label: "Gueltig fuer stateOf" }, auth, audit,
+    });
+
+    await expect(service.stateOf(tournamentId, created.secret)).resolves.toBe("valid");
   });
 
   it("zeigt ein privates Turnier mit gueltigem Schluessel", async () => {

@@ -22,7 +22,11 @@ import { TournamentsRepository } from "./tournaments.repository.js";
 /**
  * Ein Turnier laeuft ueber den Abend hinaus oder geht am Folgetag weiter; der
  * Zugang soll nicht mitten im Betrieb sterben. Ohne Angabe gilt darum
- * Turnierbeginn plus 48 Stunden als Vorgabe fuer `expiresAt`.
+ * Turnierbeginn plus 48 Stunden als Vorgabe fuer `expiresAt`. `startsAt` kann
+ * aber in der Vergangenheit liegen (aeltere oder bereits laufende Turniere) --
+ * ohne Abfederung waere ein frisch ausgestellter Schluessel dann sofort
+ * abgelaufen, ohne dass die Oberflaeche einen Ausweg anbietet. Die Vorgabe
+ * wird darum zusaetzlich gegen "jetzt plus 48 Stunden" gedeckelt.
  */
 const DEFAULT_EXPIRY_OFFSET_MS = 48 * 60 * 60 * 1000;
 
@@ -50,7 +54,13 @@ export class DisplayKeysService {
 
     const secret = createDisplayKeySecret();
     const expiresAt =
-      input.data.expiresAt ?? new Date(tournament.startsAt.getTime() + DEFAULT_EXPIRY_OFFSET_MS);
+      input.data.expiresAt ??
+      new Date(
+        Math.max(
+          tournament.startsAt.getTime() + DEFAULT_EXPIRY_OFFSET_MS,
+          Date.now() + DEFAULT_EXPIRY_OFFSET_MS,
+        ),
+      );
     const created = await this.repository.insert({
       organizationId: input.organizationId,
       tournamentId: input.tournamentId,
@@ -115,11 +125,9 @@ export class DisplayKeysService {
    * Auskunft waere eine Auskunft ueber fremde Turniere.
    */
   public async resolve(publicId: string, secret: string): Promise<"valid" | "invalid"> {
-    const row = await this.repository.findBySecretHash(hashDisplayKeySecret(secret));
-    if (row === null) return "invalid";
-    if (decideDisplayKeyState({ ...row, now: new Date() }) !== "valid") return "invalid";
     const tournament = await this.tournaments.getAccessFactsByPublicId(publicId);
-    return tournament !== null && tournament.id === row.tournamentId ? "valid" : "invalid";
+    if (tournament === null) return "invalid";
+    return (await this.stateOf(tournament.id, secret)) === "valid" ? "valid" : "invalid";
   }
 
   /**
