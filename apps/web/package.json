@@ -8,7 +8,8 @@
     "start": "next start --port ${WEB_PORT:-3000}",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --dir src",
-    "test:e2e": "node scripts/run-e2e.mjs"
+    "test:e2e": "node scripts/run-e2e.mjs",
+    "test:e2e:prod": "playwright test --config=playwright.prod.config.ts"
   },
   "dependencies": {
     "@darts-platform/config": "workspace:*",
