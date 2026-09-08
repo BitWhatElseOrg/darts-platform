@@ -757,6 +757,18 @@ test("zeigt ein beendetes Match in der oeffentlichen Live-Ansicht ohne Neuladen"
     const summary = publicPage.getByText(/Matches gespielt$/u);
     await expect(summary).toContainText("0 von 6 Matches gespielt");
 
+    // Vor dem Ergebnis steht fest, dass die anonyme Seite ihr eigenes
+    // Abonnement tatsaechlich aufgebaut hat ("Live aktualisiert", siehe
+    // `live-tournament.tsx`) -- ohne diese Zusicherung waere die Zusicherung
+    // unten nur eine Zeitannahme: das alte Poll-Intervall war ebenfalls 5
+    // Sekunden, genau wie das knappe Zeitfenster dort, und ein zufaellig
+    // rechtzeitiger Poll koennte denselben Text liefern, ohne dass je ein
+    // Push stattgefunden haette. Ein grosszuegiges Zeitfenster hier: ein
+    // langsamer Handshake (kalter Start, CI) soll diese Wache nicht selbst
+    // zum Fehlschlag machen, nur die eigentliche Beweis-Zusicherung unten
+    // bleibt knapp.
+    await expect(publicPage.getByText("Live aktualisiert")).toBeVisible({ timeout: 15_000 });
+
     // Im angemeldeten Kontext eines der sechs Matches bis zum Ende spielen --
     // dieselbe Abfolge wie im Turnierabschnitt von "a club can complete a
     // match and start a generated tournament match" oben.
@@ -791,9 +803,11 @@ test("zeigt ein beendetes Match in der oeffentlichen Live-Ansicht ohne Neuladen"
 
     // Die bereits offene anonyme Ansicht bekommt das Ergebnis ueber ihr
     // eigenes Abonnement zugestellt -- ohne `publicPage.reload()` und ohne
-    // auf das Nachlade-Intervall zu warten. Das knappe Zeitfenster ist der
-    // eigentliche Beleg: es reicht nur fuer eine echte Zustellung, nicht fuer
-    // ein Intervall von zuvor 5 Sekunden.
+    // auf das Nachlade-Intervall zu warten. Weil "Live aktualisiert" oben
+    // schon vor dieser Aktion feststand (Polling also bereits abgeschaltet
+    // war, `refetchInterval: connection === "verbunden" ? false : 5_000`),
+    // beweist das knappe Zeitfenster hier einen echten Push und nicht nur
+    // einen zufaellig rechtzeitigen Poll.
     await expect(summary).toContainText("1 von 6 Matches gespielt", { timeout: 5_000 });
   } finally {
     await anonymous.close();
