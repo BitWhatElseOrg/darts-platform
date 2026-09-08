@@ -4,7 +4,17 @@ import { LiveTournament } from "@/components/live/live-tournament";
 
 export const metadata: Metadata = { title: "TV-Modus · DartBase" };
 
-export default async function TvPage({ params }: { readonly params: Promise<{ readonly publicId: string }> }) {
+export default async function TvPage({
+  params,
+  searchParams,
+}: {
+  readonly params: Promise<{ readonly publicId: string }>;
+  readonly searchParams: Promise<{ readonly k?: string | string[] }>;
+}) {
   const { publicId } = await params;
-  return <LiveTournament mode="tv" publicId={publicId} />;
+  // Der Anzeige-Schluessel (Task 6) kommt einmalig ueber `?k=` an; `LiveTournament`
+  // merkt ihn sich im Browser und entfernt ihn wieder aus der Adresse.
+  const { k } = await searchParams;
+  const displayKeySecret = typeof k === "string" ? k : null;
+  return <LiveTournament displayKeySecret={displayKeySecret} mode="tv" publicId={publicId} />;
 }

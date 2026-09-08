@@ -134,7 +134,13 @@ export async function apiRequest<T>(input: {
     );
   }
 
-  return input.schema.parse(JSON.parse(raw));
+  // Ein leerer Koerper ist auf dem Erfolgspfad kein Vertragsbruch: ein
+  // `HttpCode(204)` (etwa das Widerrufen eines Anzeige-Schluessels, Task 6)
+  // antwortet planmaessig ohne Koerper, und `JSON.parse("")` wirft. Nur ein
+  // NICHT-leerer, aber unlesbarer Koerper bleibt ein echter `SyntaxError` --
+  // anders als im Fehlerpfad oben schluckt hier nichts eine tatsaechlich
+  // kaputte Antwort.
+  return input.schema.parse(raw.trim() === "" ? undefined : JSON.parse(raw));
 }
 
 /**
