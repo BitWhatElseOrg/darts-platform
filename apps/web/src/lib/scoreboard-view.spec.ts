@@ -34,14 +34,14 @@ describe("liveHref", () => {
     expect(liveHref({ boardId: "b1", liveTarget: null })).toBeNull();
   });
 
-  it("führt bei einem Turnier mit Board auf die Board-Ansicht", () => {
-    expect(liveHref({ boardId: "b1", liveTarget: { kind: "TOURNAMENT", tournamentId: "t1" } }))
-      .toBe("/live/t1/board/b1");
+  it("führt bei einem Turnier mit Board auf die Board-Ansicht unter der öffentlichen ID", () => {
+    expect(liveHref({ boardId: "b1", liveTarget: { kind: "TOURNAMENT", tournamentId: "t1", publicId: "p1" } }))
+      .toBe("/live/p1/board/b1");
   });
 
-  it("führt bei einem Turnier ohne Board auf die Turnieransicht", () => {
-    expect(liveHref({ boardId: null, liveTarget: { kind: "TOURNAMENT", tournamentId: "t1" } }))
-      .toBe("/live/t1");
+  it("führt bei einem Turnier ohne Board auf die Turnieransicht unter der öffentlichen ID", () => {
+    expect(liveHref({ boardId: null, liveTarget: { kind: "TOURNAMENT", tournamentId: "t1", publicId: "p1" } }))
+      .toBe("/live/p1");
   });
 
   it("führt bei einer Begegnung auf die öffentliche Begegnung", () => {

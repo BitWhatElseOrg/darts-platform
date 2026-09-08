@@ -27,6 +27,14 @@
         ],
         "createdAt": "2026-09-05T14:29:36.704Z",
         "reason": "false positive: text-slate-200 on bg-slate-900 (InputModeSwitch/SettingSwitch labels) is near-white on near-black, the same high-contrast dark-theme pairing already used e.g. in scoreboard-status.tsx, not a low-contrast gray-on-color case"
+      },
+      {
+        "rule": "gray-on-color",
+        "value": "text-slate-400",
+        "files": [
+          "apps/web/src/components/live/live-tournament.tsx"
+        ],
+        "createdAt": "2026-09-08T04:06:27.402Z"
       }
     ]
   }

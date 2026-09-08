@@ -67,6 +67,7 @@ export {
   publicTournamentDashboardSchema,
   releaseBoardSchema,
   seedingModeSchema,
+  setTournamentVisibilitySchema,
   tournamentConflictSchema,
   tournamentDashboardSchema,
   tournamentFormatSchema,
@@ -78,6 +79,7 @@ export {
   tournamentStructurePreviewSchema,
   tournamentStructurePreviewInputSchema,
   tournamentSummarySchema,
+  tournamentVisibilitySchema,
   withdrawTournamentParticipantSchema,
   type AssignMatchInput,
   type BoardSlot,
@@ -98,6 +100,7 @@ export {
   type PublicTournamentDashboard,
   type ReleaseBoardInput,
   type SeedingMode,
+  type SetTournamentVisibilityInput,
   type SlotParticipant,
   type TournamentConflict,
   type TournamentDashboard,
@@ -109,6 +112,7 @@ export {
   type TournamentStructurePreview,
   type TournamentStructurePreviewInput,
   type TournamentSummary,
+  type TournamentVisibility,
   type WithdrawTournamentParticipantInput,
 } from "./tournament";
 export {

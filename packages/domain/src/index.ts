@@ -20,3 +20,8 @@ export {
   organizationPermissions,
   type OrganizationPermission,
 } from "./permissions";
+export {
+  isTournamentVisibility,
+  tournamentVisibilities,
+  type TournamentVisibility,
+} from "./tournament-visibility";

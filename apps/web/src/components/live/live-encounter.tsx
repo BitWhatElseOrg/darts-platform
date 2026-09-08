@@ -56,11 +56,24 @@ export function LiveEncounter({ publicId }: { readonly publicId: string }) {
           <span
             aria-hidden="true"
             className={`h-3 w-3 rounded-full ${
-              encounter.status === "RUNNING" ? "bg-emerald-400" : "bg-slate-500"
+              query.isError
+                ? "bg-rose-400"
+                : encounter.status === "RUNNING"
+                  ? "bg-emerald-400"
+                  : "bg-slate-500"
             }`}
           />
-          <span>
-            {encounterStatusLabel(encounter.status)} · aktualisiert alle 15 Sekunden
+          {/*
+           * Wie `live-tournament.tsx` (Commit f8c8812): ein Farbwechsel allein
+           * reicht nicht (AGENTS.md §19), der Punkt begleitet nur, den
+           * Zustand traegt der Text. Ein ausgefallener Nachlauf ist ein
+           * Hinweis, keine Katastrophe -- deshalb nur eine ruhige Meldung
+           * statt einer Warnfarbe fuer den Text selbst.
+           */}
+          <span className={query.isError ? "text-rose-300" : undefined}>
+            {query.isError
+              ? "Aktualisierung fehlgeschlagen · letzter Stand"
+              : `${encounterStatusLabel(encounter.status)} · aktualisiert alle 15 Sekunden`}
           </span>
         </div>
       </header>

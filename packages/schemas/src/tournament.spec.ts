@@ -91,7 +91,7 @@ describe("withdraw tournament participant contract", () => {
 describe("tournament disruption projection", () => {
   it("exposes withdrawn participants and walkover results", () => {
     const parsed = tournamentDashboardSchema.parse({
-      tournament: { id: id(1), organizationId: id(2), name: "Cup", status: "KNOCKOUT", format: "SINGLE_ELIMINATION", version: 4, stageLabel: "K.-o.-Runde", startingScore: 501, inRule: "STRAIGHT", outRule: "DOUBLE", playedMatches: 1, totalMatches: 3, startsAt: new Date() },
+      tournament: { id: id(1), publicId: id(6), visibility: "PUBLIC", organizationId: id(2), name: "Cup", status: "KNOCKOUT", format: "SINGLE_ELIMINATION", version: 4, stageLabel: "K.-o.-Runde", startingScore: 501, inRule: "STRAIGHT", outRule: "DOUBLE", playedMatches: 1, totalMatches: 3, startsAt: new Date() },
       participants: [{ playerId: id(3), displayName: "Alex", seed: 1, status: "WITHDRAWN", withdrawnAt: new Date(), withdrawalReason: "Verletzung" }],
       boards: [], queue: [], conflicts: [], groups: [],
       bracket: [{ matchId: id(4), stageLabel: "K.-o. · Runde 1", round: 1, position: 1, status: "COMPLETED", resultType: "WALKOVER", participantNames: ["Alex", "Bea"], winnerDisplayName: "Bea" }],
@@ -122,5 +122,16 @@ describe("public tournament projection", () => {
     expect(Object.keys(tournamentDashboardSchema.shape.tournament.shape)).toContain(
       "organizationId",
     );
+  });
+});
+
+describe("publicTournamentDashboardSchema", () => {
+  it("nennt die publicId und nicht die interne ID", () => {
+    const shape = publicTournamentDashboardSchema.shape.tournament.shape;
+
+    expect(Object.keys(shape)).toContain("publicId");
+    expect(Object.keys(shape)).not.toContain("id");
+    expect(Object.keys(shape)).not.toContain("organizationId");
+    expect(Object.keys(shape)).not.toContain("visibility");
   });
 });

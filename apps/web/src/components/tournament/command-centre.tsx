@@ -40,6 +40,7 @@ import { DisruptionsPanel } from "./disruptions-panel";
 import { QueuePanel } from "./queue-panel";
 import { ParticipantDisruptionPanel } from "./participant-disruption-panel";
 import { ResultsPanel } from "./results-panel";
+import { SharePanel } from "./share-panel";
 import { StandingsSheet } from "./standings-sheet";
 
 /**
@@ -98,6 +99,7 @@ interface CommandCentreProps {
   readonly organizationId: string;
   readonly tournamentId: string;
   readonly canCorrect: boolean;
+  readonly canShare: boolean;
   readonly canWithdraw: boolean;
 }
 
@@ -112,7 +114,7 @@ function conflictState(error: unknown, expected: number): VersionConflict | null
     : null;
 }
 
-export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournamentId }: CommandCentreProps) {
+export function CommandCentre({ canCorrect, canShare, canWithdraw, organizationId, tournamentId }: CommandCentreProps) {
   const queryClient = useQueryClient();
   const queryKey = useMemo(
     () => ["tournament-dashboard", organizationId, tournamentId] as const,
@@ -605,13 +607,21 @@ export function CommandCentre({ canCorrect, canWithdraw, organizationId, tournam
       <div className="mx-auto max-w-[1600px] px-5 py-6 xl:px-9">
         <PageNav>
           <NavLink href={`/turniere?organisation=${organizationId}`}>Alle Turniere</NavLink>
-          <NavLink href={`/live/${tournamentId}`}>Öffentliche Live-Ansicht</NavLink>
+          <NavLink href={`/live/${dashboard.tournament.publicId}`}>Öffentliche Live-Ansicht</NavLink>
         </PageNav>
 
         <DashboardHeader
           connection={dashboardQuery.error === null ? connection : "offline"}
           dashboard={dashboard}
           pendingCount={pending.length}
+        />
+
+        <SharePanel
+          canShare={canShare}
+          organizationId={organizationId}
+          publicId={dashboard.tournament.publicId}
+          tournamentId={tournamentId}
+          visibility={dashboard.tournament.visibility}
         />
 
         {conflict ? (

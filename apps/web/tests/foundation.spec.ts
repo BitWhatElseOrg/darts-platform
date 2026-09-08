@@ -10,6 +10,7 @@ import {
 import {
   openAbortDialog, selectCheckoutDarts, setScoreboardSwitch, switchInputMode, typeRoundScore,
 } from "./scoreboard-entry";
+import { signUpWithOrganization } from "./sign-up";
 
 const registrationSeeds: RegistrationInvitationSeed[] = [];
 
@@ -472,10 +473,97 @@ test("a club can complete a match and start a generated tournament match", async
   await expect(page.getByText("E2E Player One · Ausgefallen")).toBeVisible();
   await expect(page.getByText(/gewinnt kampflos/u).first()).toBeVisible();
 
+  // Turniere sind standardmässig privat (Task 6) — die öffentliche
+  // Live-Ansicht bleibt erst nach ausdrücklicher Freigabe erreichbar.
+  await page.getByRole("switch", { name: "Öffentliche Freigabe: NEIN" }).click();
+  await expect(page.getByRole("switch", { name: "Öffentliche Freigabe: JA" })).toBeVisible();
+
   const tournamentId = new URL(tournamentUrl).pathname.split("/").at(-1);
   if (tournamentId === undefined) throw new Error("Expected tournament ID in dashboard URL.");
+  // Die interne ID bleibt ein gültiger, umleitender Adressweg (Übergangsweg
+  // Task 6, Step 3): sie trifft auf `[publicId]` und wird auf die
+  // öffentliche Adresse umgeleitet.
   await page.goto(`/live/${tournamentId}`);
   // Die Teilnehmerliste steht in der Live-Ansicht zugeklappt am Seitenende.
   await page.locator("summary", { hasText: "Teilnehmende" }).click();
   await expect(page.getByText("E2E Player One · Ausgefallen")).toBeVisible();
+});
+
+test("gibt ein Turnier fuer die oeffentliche Live-Ansicht frei", async ({ browser, page }) => {
+  test.slow();
+
+  const suffix = randomUUID();
+  const short = suffix.slice(0, 8);
+  const email = `e2e-freigabe-${suffix}@example.test`;
+  const tournamentName = `E2E Freigabecup ${short}`;
+
+  const invitation = await createRegistrationInvitation(email);
+  registrationSeeds.push(invitation);
+
+  const { organizationId } = await signUpWithOrganization(page, {
+    claimToken: invitation.claimToken,
+    email,
+    organizationName: `E2E Freigabe Club ${short}`,
+    organizationSlug: `e2e-freigabe-club-${suffix}`,
+    ownerName: `E2E Freigabe Leitung ${short}`,
+  });
+
+  await page.goto(`/spieler?organisation=${organizationId}`);
+  await expect(page.getByRole("heading", { level: 1, name: "Spieler & Team" })).toBeVisible();
+  for (const name of ["Eins", "Zwei", "Drei", "Vier"].map((index) => `E2E Freigabe ${index} ${short}`)) {
+    await page.getByLabel("Anzeigename", { exact: true }).fill(name);
+    await page.getByRole("button", { name: "Spieler hinzufügen" }).click();
+    await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
+  }
+
+  const boardName = `E2E Freigabe Board ${short}`;
+  await page.goto(`/matches?organisation=${organizationId}`);
+  await expect(page.getByRole("heading", { level: 1, name: "Matches" })).toBeVisible();
+  await page.getByLabel("Neues Board").fill(boardName);
+  await page.getByRole("button", { name: "Hinzufügen", exact: true }).click();
+  await expect(
+    page.locator("li").filter({ hasText: boardName }).filter({ hasText: "frei" }),
+  ).toBeVisible();
+
+  await page.goto(`/turniere/neu?organisation=${organizationId}`);
+  await page.getByLabel("Format").selectOption("ROUND_ROBIN");
+  await page.getByLabel("Name").fill(tournamentName);
+  await page.getByLabel("Best of Legs").selectOption("1");
+  await Promise.all([
+    page.waitForURL(/\/turniere\/[^/?]+\?organisation=/u),
+    page.getByRole("button", { name: "Turnier starten" }).click(),
+  ]);
+  await expect(page.getByRole("heading", { level: 1, name: tournamentName })).toBeVisible();
+
+  // Ohne Freigabe: die interne ID ist keine gültige öffentliche Adresse, und
+  // ein Turnier ist standardmässig privat — die anonyme Live-Ansicht kennt es
+  // nicht.
+  const tournamentId = new URL(page.url()).pathname.split("/").at(-1);
+  if (tournamentId === undefined) throw new Error("Expected tournament ID in dashboard URL.");
+  const anonymousBeforeSharing = await browser.newContext();
+  try {
+    const anonymousPage = await anonymousBeforeSharing.newPage();
+    await anonymousPage.goto(`/live/${tournamentId}`);
+    await expect(anonymousPage.getByText("Turnier nicht gefunden.")).toBeVisible();
+  } finally {
+    await anonymousBeforeSharing.close();
+  }
+
+  // Freigeben und die öffentliche Adresse aus dem Freigabe-Bereich lesen.
+  await page.getByRole("switch", { name: "Öffentliche Freigabe: NEIN" }).click();
+  await expect(page.getByRole("switch", { name: "Öffentliche Freigabe: JA" })).toBeVisible();
+  const shareLink = page.getByRole("region", { name: "Öffentliche Freigabe" }).getByRole("link");
+  await expect(shareLink).toBeVisible();
+  const shareHref = await shareLink.getAttribute("href");
+  if (shareHref === null) throw new Error("Expected a public share link in the share panel.");
+
+  // Dasselbe Turnier öffentlich, in einem zweiten anonymen Kontext.
+  const anonymousAfterSharing = await browser.newContext();
+  try {
+    const publicPage = await anonymousAfterSharing.newPage();
+    await publicPage.goto(shareHref);
+    await expect(publicPage.getByRole("heading", { level: 1, name: tournamentName })).toBeVisible();
+  } finally {
+    await anonymousAfterSharing.close();
+  }
 });

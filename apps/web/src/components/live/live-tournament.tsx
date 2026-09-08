@@ -1,46 +1,113 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { publicTournamentDashboardSchema, type PublicBoardSlot } from "@darts-platform/schemas";
 import QRCode from "qrcode";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { apiRequest } from "@/lib/api-client";
+import { ApiClientError } from "@/lib/api-error";
 import { buildBracketRounds, knockoutLeadsLiveView, type BracketNode, type BracketRound, type BracketSlot } from "@/lib/bracket-tree";
-import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
+import { resolvePublicId } from "@/lib/live-address";
 
 interface LiveTournamentProps {
-  readonly tournamentId: string;
+  readonly publicId: string;
   readonly mode: "publikum" | "tv" | "board";
   readonly boardId?: string;
 }
 
-export function LiveTournament({ tournamentId, mode, boardId }: LiveTournamentProps) {
-  const queryClient = useQueryClient();
-  const queryKey = useMemo(() => ["public-live", tournamentId] as const, [tournamentId]);
-  const [connection, setConnection] = useState<RealtimeConnection>("verbindet");
+/**
+ * Zielseite fuer denselben Modus, aber mit der aufgeloesten `publicId` an der
+ * Stelle, an der `publicId` heute steht (Befund B, Folgereview
+ * oeffentliche-turnier-ids).
+ */
+function legacyRedirectTarget(
+  mode: LiveTournamentProps["mode"],
+  boardId: string | undefined,
+  resolvedPublicId: string,
+): string {
+  if (mode === "tv") return `/live/${resolvedPublicId}/tv`;
+  if (mode === "board") return `/live/${resolvedPublicId}/board/${boardId ?? ""}`;
+  return `/live/${resolvedPublicId}`;
+}
+
+export function LiveTournament({ publicId, mode, boardId }: LiveTournamentProps) {
+  const router = useRouter();
+  const queryKey = useMemo(() => ["public-live", publicId] as const, [publicId]);
   const query = useQuery({
     queryKey,
     queryFn: ({ signal }) => apiRequest({
-      path: `/public/tournaments/${tournamentId}/live`,
+      path: `/public/tournaments/${publicId}/live`,
       schema: publicTournamentDashboardSchema,
       signal,
     }),
-    refetchInterval: connection === "verbunden" ? false : 5_000,
+    // Befristet: der Realtime-Raum heisst bis Plan 3 nach der internen ID, die
+    // diese Ansicht nicht mehr kennt. Bis dahin laedt sie im Intervall nach —
+    // wie die Begegnungsansicht heute auch. Plan 3 nimmt beide zurueck in ihre
+    // Raeume, und dieser Kommentar verschwindet mit ihm.
+    refetchInterval: 5_000,
   });
-  useEffect(
-    () => connectTournamentRealtime({
-      tournamentId,
-      onChange: () => void queryClient.invalidateQueries({ queryKey }),
-      onConnection: setConnection,
-    }),
-    [queryClient, queryKey, tournamentId],
-  );
+
+  // Wie `live-encounter.tsx`: die oeffentliche Route antwortet mit 404 sowohl
+  // fuer ein nicht existierendes als auch fuer ein privates Turnier (Task 4,
+  // Datenschutz vor Auskunft), und `apiRequest`s generische Fehlermeldung
+  // fuer einen unbekannten Fehlercode waere hier nur verwirrend.
+  const initialLoadFailed = !query.isPending && query.data === undefined;
+
+  // PR-Review, Folgebefund: `initialLoadFailed` allein sagt nur, dass der
+  // Erstload keine Daten brachte -- ein 500er, ein Netzwerkausfall oder ein
+  // Timeout sehen darin genauso aus wie ein alter oder unbekannter Link. Nur
+  // eine tatsaechliche 404 der Live-Abfrage rechtfertigt den Uebergangsweg
+  // ueber `/address`; jeder andere Fehlschlag bekommt eine eigene, von
+  // "Turnier nicht gefunden." unterscheidbare Meldung.
+  const initialLoadIsNotFound =
+    initialLoadFailed && query.error instanceof ApiClientError && query.error.status === 404;
+
+  // Befund B (Folgereview oeffentliche-turnier-ids): `resolvePublicId` zahlt
+  // eine Rundreise gegen `/address`, die fuer eine echte `public_id` planmaessig
+  // mit 404 endet (`live-address.ts`). Sie lohnt sich nur, wenn die
+  // Live-Abfrage selbst mit der uebergebenen ID scheitert -- deshalb erst hier
+  // im Client statt vor dem Rendern in der Server-Komponente. `legacyResolution`
+  // ist an die aktuelle `publicId` gebunden: aendert sie sich, gilt eine
+  // fruehere Aufloesung nicht mehr und wird neu versucht.
+  const [legacyResolution, setLegacyResolution] = useState<{ readonly publicId: string; readonly resolved: string | null } | null>(null);
+  const resolvedForCurrent = legacyResolution?.publicId === publicId ? legacyResolution.resolved : undefined;
+
+  useEffect(() => {
+    if (!initialLoadIsNotFound || resolvedForCurrent !== undefined) return;
+    let cancelled = false;
+    void resolvePublicId(publicId).then((resolved) => {
+      if (!cancelled) setLegacyResolution({ publicId, resolved });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialLoadIsNotFound, publicId, resolvedForCurrent]);
+
+  useEffect(() => {
+    if (typeof resolvedForCurrent === "string") {
+      router.replace(legacyRedirectTarget(mode, boardId, resolvedForCurrent));
+    }
+  }, [boardId, mode, resolvedForCurrent, router]);
 
   if (query.isPending) return <LiveNotice text="Live-Turnier wird geladen …" />;
-  if (query.data === undefined) return <LiveNotice text={query.error?.message ?? "Turnier nicht gefunden."} />;
+  if (initialLoadFailed) {
+    // Kein alter Link: ein Serverfehler, ein Netzwerkausfall oder ein Timeout
+    // behaupten nicht, das Turnier existiere nicht -- und zahlen auch nicht
+    // die Rundreise gegen `/address` (siehe `initialLoadIsNotFound` oben).
+    if (!initialLoadIsNotFound) {
+      return <LiveNotice text="Diese Ansicht konnte nicht geladen werden. Versuche es später erneut." />;
+    }
+    // Solange die Aufloesung laeuft oder eine Umleitung bevorsteht
+    // (`resolvedForCurrent` ist `undefined` bzw. eine `string`), bleibt es bei
+    // der Lade-Meldung -- sonst blitzt "Turnier nicht gefunden." fuer einen
+    // alten Link kurz auf, bevor die Umleitung greift.
+    if (resolvedForCurrent === null) return <LiveNotice text="Turnier nicht gefunden." />;
+    return <LiveNotice text="Live-Turnier wird geladen …" />;
+  }
   const dashboard = query.data;
   const boards = mode === "board"
     ? dashboard.boards.filter((board) => board.boardId === boardId)
@@ -73,15 +140,26 @@ export function LiveTournament({ tournamentId, mode, boardId }: LiveTournamentPr
           <p className="mt-2 text-body text-slate-400">{dashboard.tournament.stageLabel} · {dashboard.tournament.playedMatches} von {dashboard.tournament.totalMatches} Matches gespielt</p>
         </div>
         <div className="flex items-center gap-3 text-body">
-          <span aria-label={`Live-Verbindung ${connection}`} className={`h-3 w-3 rounded-full ${connection === "verbunden" ? "bg-emerald-400" : "bg-amber-400"}`} />
-          <span>{connection === "verbunden" ? "Live verbunden" : "Verbindung wird wiederhergestellt"}</span>
-          {mode === "publikum" ? <Link className="rounded border border-slate-600 px-3 py-2" href={`/live/${tournamentId}/tv`}>TV-Modus</Link> : null}
+          <span
+            aria-hidden="true"
+            className={`h-3 w-3 rounded-full ${query.isError ? "bg-rose-400" : "bg-slate-500"}`}
+          />
+          {/*
+           * Ein Farbwechsel allein reicht nicht (AGENTS.md §19): der Punkt
+           * begleitet nur, den Zustand traegt der Text. Ein ausgefallener
+           * Nachlauf ist ein Hinweis, keine Katastrophe -- deshalb nur eine
+           * ruhige Meldung statt einer Warnfarbe fuer den Text selbst.
+           */}
+          <span className={query.isError ? "text-rose-300" : undefined}>
+            {query.isError ? "Aktualisierung fehlgeschlagen · letzter Stand" : "Aktualisiert alle 5 Sekunden"}
+          </span>
+          {mode === "publikum" ? <Link className="rounded border border-slate-600 px-3 py-2" href={`/live/${publicId}/tv`}>TV-Modus</Link> : null}
         </div>
       </header>
 
       <LiveSection title="Boards">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-          {boards.map((board) => <LiveBoard board={board} key={board.boardId} mode={mode} tournamentId={tournamentId} />)}
+          {boards.map((board) => <LiveBoard board={board} key={board.boardId} mode={mode} publicId={publicId} />)}
         </div>
       </LiveSection>
 
@@ -161,13 +239,13 @@ function BracketSlotLine({ slot }: { readonly slot: BracketSlot }) {
   );
 }
 
-function LiveBoard({ board, mode, tournamentId }: { readonly board: PublicBoardSlot; readonly mode: LiveTournamentProps["mode"]; readonly tournamentId: string }) {
+function LiveBoard({ board, mode, publicId }: { readonly board: PublicBoardSlot; readonly mode: LiveTournamentProps["mode"]; readonly publicId: string }) {
   const [qrCode, setQrCode] = useState<string | null>(null);
   useEffect(() => {
     if (mode !== "publikum") return;
-    const url = `${window.location.origin}/live/${tournamentId}/board/${board.boardId}`;
+    const url = `${window.location.origin}/live/${publicId}/board/${board.boardId}`;
     void QRCode.toDataURL(url, { margin: 1, width: 144 }).then(setQrCode);
-  }, [board.boardId, mode, tournamentId]);
+  }, [board.boardId, mode, publicId]);
   return <article className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
     <div className="flex items-start justify-between gap-4"><div><p className="text-caption font-semibold uppercase tracking-[0.12em] text-emerald-300">{board.boardName}</p><p className="mt-1 text-caption text-slate-400">{board.state === "PLAYING" ? "Match läuft" : board.state === "FREE" ? "Frei" : "Nicht verfügbar"}</p></div>{qrCode !== null ? <Image alt={`QR-Code für ${board.boardName}`} className="h-20 w-20 rounded bg-white p-1" height={80} src={qrCode} unoptimized width={80} /> : null}</div>
     {board.match === null ? <p className="mt-8 font-numerals text-title text-slate-400">Kein aktives Match</p> : <div className="mt-5 grid grid-cols-2 gap-3">{board.match.participants.map((participant) => <div className={participant.isActive ? "rounded-xl bg-emerald-400/10 p-3" : "p-3"} key={participant.playerId}><p className="truncate text-body" title={participant.displayName}>{participant.displayName}</p><p className={participant.isActive ? "mt-2 font-numerals text-display font-bold tabular" : "mt-2 font-numerals text-data font-bold tabular text-slate-400"}>{participant.remaining}</p><p className="mt-1 text-body text-slate-400">{participant.legsWon} Legs · {participant.setsWon} Sets</p></div>)}</div>}

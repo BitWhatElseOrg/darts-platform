@@ -366,6 +366,7 @@ describe("tournament scoring lock context", () => {
       const playerOneId = randomUUID();
       const playerTwoId = randomUUID();
       const tournamentId = randomUUID();
+      const tournamentPublicId = randomUUID();
       const tournamentStageId = randomUUID();
 
       await connection.database.insert(organizations).values({
@@ -394,6 +395,7 @@ describe("tournament scoring lock context", () => {
       await connection.database.insert(tournaments).values({
         id: tournamentId,
         organizationId,
+        publicId: tournamentPublicId,
         name: "Tournament Live Target Cup",
         format: "SINGLE_ELIMINATION",
         groupCount: 1,
@@ -426,15 +428,15 @@ describe("tournament scoring lock context", () => {
       });
 
       const state = await repository.getState(organizationId, scoringMatchId);
-      expect(state?.liveTarget).toEqual({ kind: "TOURNAMENT", tournamentId });
+      expect(state?.liveTarget).toEqual({ kind: "TOURNAMENT", tournamentId, publicId: tournamentPublicId });
       // Derselbe Bezug ueber den gebuendelten Weg: `getStates` laedt ihn fuer
       // alle angefragten Matches in zwei Abfragen und speist damit `list()`,
       // das Turnier-Dashboard und die Statistik.
       const batched = await repository.getStates(organizationId, [scoringMatchId]);
-      expect(batched.get(scoringMatchId)?.liveTarget).toEqual({ kind: "TOURNAMENT", tournamentId });
+      expect(batched.get(scoringMatchId)?.liveTarget).toEqual({ kind: "TOURNAMENT", tournamentId, publicId: tournamentPublicId });
       const listed = await repository.list(organizationId);
       expect(listed.find((entry) => entry.id === scoringMatchId)?.liveTarget)
-        .toEqual({ kind: "TOURNAMENT", tournamentId });
+        .toEqual({ kind: "TOURNAMENT", tournamentId, publicId: tournamentPublicId });
     } finally {
       await connection.database.delete(organizations).where(eq(organizations.id, organizationId));
       await connection.database.delete(users).where(eq(users.id, auth.user.id));
