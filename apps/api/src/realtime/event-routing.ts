@@ -5,8 +5,8 @@
  */
 
 export type RealtimeScope =
-  | { readonly kind: "tournament"; readonly id: string }
-  | { readonly kind: "encounter"; readonly id: string };
+  | { readonly kind: "tournament"; readonly publicId: string }
+  | { readonly kind: "encounter"; readonly publicId: string };
 
 export interface RoutableEvent {
   readonly id: string;
@@ -38,23 +38,23 @@ export function toBroadcast(
   const occurredAt = event.occurredAt.toISOString();
   if (scope.kind === "tournament") {
     return {
-      room: `tournament:${scope.id}`,
+      room: `tournament:${scope.publicId}`,
       event: "tournament:changed",
       payload: {
         eventId: event.id,
         eventType: event.eventType,
-        tournamentId: scope.id,
+        publicId: scope.publicId,
         occurredAt,
       },
     };
   }
   return {
-    room: `encounter:${scope.id}`,
+    room: `encounter:${scope.publicId}`,
     event: "encounter:changed",
     payload: {
       eventId: event.id,
       eventType: event.eventType,
-      encounterId: scope.id,
+      publicId: scope.publicId,
       occurredAt,
     },
   };

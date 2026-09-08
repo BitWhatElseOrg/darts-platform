@@ -19,7 +19,12 @@ import {
 } from "@darts-platform/database";
 
 import { DatabaseService } from "../database/database.service.js";
-import { publishOutboxBatch, resolveScope, type RealtimeBroadcaster } from "./publish-outbox.js";
+import {
+  publishOutboxBatch,
+  resolveScope,
+  type OutboxExecutor,
+  type RealtimeBroadcaster,
+} from "./publish-outbox.js";
 
 const databaseService = new DatabaseService(parseApplicationEnvironment(process.env));
 const database = databaseService.database;
@@ -57,6 +62,26 @@ function logRecorder(): OutboxLogger & { readonly records: LoggedRecord[] } {
 
 const silentLogger: OutboxLogger = { emit: () => undefined };
 
+/**
+ * Executor-Doppel, das jeden `select`-Aufruf zaehlt, ohne das Verhalten der
+ * echten Datenbank zu veraendern — so laesst sich pruefen, ob der
+ * `publicIdCache` einen zweiten Zugriff tatsaechlich erspart.
+ */
+function countingExecutor(onQuery: () => void): OutboxExecutor {
+  return new Proxy(database as object, {
+    get(target, property, receiver) {
+      const value: unknown = Reflect.get(target, property, receiver);
+      if (property === "select" && typeof value === "function") {
+        return (...args: unknown[]) => {
+          onQuery();
+          return (value as (...innerArgs: unknown[]) => unknown).apply(target, args);
+        };
+      }
+      return value;
+    },
+  }) as OutboxExecutor;
+}
+
 /** Broadcaster, der genau ein Ereignis nicht zustellen kann. */
 function poisonedRecorder(
   poisonEventId: string,
@@ -75,7 +100,9 @@ function poisonedRecorder(
 
 const organizationId = randomUUID();
 let tournamentId = "";
+let tournamentPublicId = "";
 let encounterId = "";
+let encounterPublicId = "";
 let encounterMatchId = "";
 let tournamentMatchId = "";
 
@@ -107,6 +134,7 @@ beforeAll(async () => {
     })
     .returning();
   tournamentId = tournament?.id ?? "";
+  tournamentPublicId = tournament?.publicId ?? "";
 
   const [stage] = await database
     .insert(tournamentStages)
@@ -174,6 +202,7 @@ beforeAll(async () => {
     })
     .returning();
   encounterId = encounter?.id ?? "";
+  encounterPublicId = encounter?.publicId ?? "";
 
   const [encounterScoringMatch] = await database
     .insert(matches)
@@ -223,10 +252,10 @@ describe("publishOutboxBatch", () => {
     await publishOutboxBatch(database, broadcaster, { logger: silentLogger });
 
     const delivered = broadcaster.sent.find((entry) => entry.payload.eventId === event?.id);
-    expect(delivered?.room).toBe(`encounter:${encounterId}`);
+    expect(delivered?.room).toBe(`encounter:${encounterPublicId}`);
     expect(delivered?.event).toBe("encounter:changed");
     expect(delivered?.payload.eventType).toBe("ENCOUNTER_STARTED");
-    expect(delivered?.payload.encounterId).toBe(encounterId);
+    expect(delivered?.payload.publicId).toBe(encounterPublicId);
     const [stored] = await database
       .select()
       .from(outboxEvents)
@@ -247,7 +276,7 @@ describe("publishOutboxBatch", () => {
     await publishOutboxBatch(database, broadcaster, { logger: silentLogger });
 
     expect(broadcaster.sent.map((entry) => entry.room)).toContain(
-      `encounter:${encounterId}`,
+      `encounter:${encounterPublicId}`,
     );
   });
 
@@ -264,7 +293,7 @@ describe("publishOutboxBatch", () => {
     await publishOutboxBatch(database, broadcaster, { logger: silentLogger });
 
     expect(broadcaster.sent.map((entry) => entry.room)).toContain(
-      `tournament:${tournamentId}`,
+      `tournament:${tournamentPublicId}`,
     );
   });
 
@@ -308,9 +337,38 @@ describe("publishOutboxBatch", () => {
     // Nur die eigenen Raeume pruefen: der Poller arbeitet global, und
     // parallel laufende Testdateien schreiben in dieselbe Outbox.
     const ownRooms = (entries: readonly Recorded[]): readonly Recorded[] =>
-      entries.filter((entry) => entry.room === `encounter:${encounterId}`);
+      entries.filter((entry) => entry.room === `encounter:${encounterPublicId}`);
     expect(ownRooms(first.sent).length).toBeGreaterThan(0);
     expect(ownRooms(second.sent)).toEqual([]);
+  });
+
+  it("fragt die oeffentliche ID nur einmal je Turnier ab", async () => {
+    // Ein frisches Turnier, damit der Cache garantiert noch keinen Eintrag
+    // dafuer hat — andere Tests dieser Datei haben `tournamentId` laengst
+    // aufgeloest.
+    const [freshTournament] = await database
+      .insert(tournaments)
+      .values({
+        organizationId,
+        name: "Cache Cup",
+        format: "SINGLE_ELIMINATION",
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 2,
+        seeding: "RANDOM",
+        startsAt: new Date("2026-09-03T18:00:00.000Z"),
+      })
+      .returning();
+    const aggregateId = freshTournament?.id ?? "";
+    let queries = 0;
+    const executor = countingExecutor(() => {
+      queries += 1;
+    });
+
+    await resolveScope(executor, { organizationId, aggregateType: "Tournament", aggregateId });
+    await resolveScope(executor, { organizationId, aggregateType: "Tournament", aggregateId });
+
+    expect(queries).toBe(1);
   });
 
   /**

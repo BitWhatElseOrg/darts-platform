@@ -1687,7 +1687,7 @@ describe("team encounter persistence", () => {
     }
 
     // Der Poller arbeitet global; geprueft wird nur der eigene Raum.
-    const ownRoom = sent.filter((entry) => entry.room === `encounter:${encounter.id}`);
+    const ownRoom = sent.filter((entry) => entry.room === `encounter:${encounter.publicId}`);
     expect(ownRoom.length).toBeGreaterThan(0);
     expect(ownRoom.every((entry) => entry.event === "encounter:changed")).toBe(true);
 

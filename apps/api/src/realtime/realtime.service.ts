@@ -11,11 +11,12 @@ import { DatabaseService } from "../database/database.service.js";
 import { parseSubscriptionId } from "./event-routing.js";
 import { createHandshakeGate } from "./handshake-guard.js";
 import { publishOutboxBatch, type RealtimeBroadcaster } from "./publish-outbox.js";
-import { joinSubscription } from "./subscription-limit.js";
+import { SubscriptionAuthorization } from "./subscription-authorization.js";
+import { joinSubscription, rejectSubscription } from "./subscription-limit.js";
 
 interface SubscribePayload {
-  readonly tournamentId?: unknown;
-  readonly encounterId?: unknown;
+  readonly publicId?: unknown;
+  readonly displayKey?: unknown;
 }
 
 @Injectable()
@@ -44,6 +45,7 @@ export class RealtimeService implements OnApplicationShutdown, RealtimeBroadcast
   public constructor(
     @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(APPLICATION_ENVIRONMENT) private readonly environment: ApplicationEnvironment,
+    @Inject(SubscriptionAuthorization) private readonly authorization: SubscriptionAuthorization,
   ) {
     this.publisher = createClient({ url: environment.REDIS_URL });
     this.subscriber = this.publisher.duplicate();
@@ -86,15 +88,58 @@ export class RealtimeService implements OnApplicationShutdown, RealtimeBroadcast
 
   private register(socket: Socket): void {
     socket.on("tournament:subscribe", (payload: SubscribePayload) => {
-      const tournamentId = parseSubscriptionId(payload?.tournamentId);
-      if (tournamentId === null) return;
-      this.subscribe(socket, `tournament:${tournamentId}`);
+      void this.subscribeTournament(socket, payload);
     });
     socket.on("encounter:subscribe", (payload: SubscribePayload) => {
-      const encounterId = parseSubscriptionId(payload?.encounterId);
-      if (encounterId === null) return;
-      this.subscribe(socket, `encounter:${encounterId}`);
+      void this.subscribeEncounter(socket, payload);
     });
+  }
+
+  private async subscribeTournament(socket: Socket, payload: SubscribePayload): Promise<void> {
+    const publicId = parseSubscriptionId(payload?.publicId);
+    if (publicId === null) {
+      rejectSubscription(socket, "tournament:?", "SUBSCRIPTION_UNKNOWN_ROOM");
+      return;
+    }
+    const decision = await this.authorization.authorizeTournament({
+      publicId,
+      headers: socket.handshake.headers,
+      displayKeySecret:
+        typeof payload?.displayKey === "string" ? payload.displayKey : undefined,
+    });
+    const room = `tournament:${publicId}`;
+    if (decision.kind === "deny") {
+      // Auf Warnstufe, mit dem Grund: in den Logs unterscheidbar, nach aussen
+      // nicht — der Client bekommt beide Gruende gleich serviert.
+      this.logger.warn({
+        event: "realtime.subscription_denied",
+        room,
+        reason: decision.reason,
+      });
+      rejectSubscription(socket, room, decision.reason);
+      return;
+    }
+    this.subscribe(socket, room);
+  }
+
+  private async subscribeEncounter(socket: Socket, payload: SubscribePayload): Promise<void> {
+    const publicId = parseSubscriptionId(payload?.publicId);
+    if (publicId === null) {
+      rejectSubscription(socket, "encounter:?", "SUBSCRIPTION_UNKNOWN_ROOM");
+      return;
+    }
+    const decision = await this.authorization.authorizeEncounter({ publicId });
+    const room = `encounter:${publicId}`;
+    if (decision.kind === "deny") {
+      this.logger.warn({
+        event: "realtime.subscription_denied",
+        room,
+        reason: decision.reason,
+      });
+      rejectSubscription(socket, room, decision.reason);
+      return;
+    }
+    this.subscribe(socket, room);
   }
 
   private subscribe(socket: Socket, room: string): void {
