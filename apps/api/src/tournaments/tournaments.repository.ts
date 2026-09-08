@@ -27,6 +27,7 @@ import {
   type KnockoutParticipantReference,
   type PlannedMatch,
 } from "@darts-platform/tournament-engine";
+import type { TournamentVisibility } from "@darts-platform/domain";
 import type {
   AssignMatchInput,
   CreateTournamentInput,
@@ -181,24 +182,116 @@ export class TournamentsRepository {
     );
   }
 
-  public async getPublicDashboardData(tournamentId: string): Promise<TournamentDashboardData | null> {
+  /**
+   * Die eine Abfrage dieses Repositories ohne `organizationId` (AGENTS.md §14).
+   * Das ist kein Versehen: die `public_id` IST der Schluessel einer oeffentlich
+   * geteilten Adresse, und der Mandant faellt aus dem Treffer heraus. Jede
+   * andere Abfrage bleibt mandantengebunden.
+   */
+  public async getPublicDashboardDataByPublicId(
+    publicId: string,
+  ): Promise<TournamentDashboardData | null> {
     const [tournament] = await this.databaseService.database
-      .select({ organizationId: tournaments.organizationId })
+      .select({
+        organizationId: tournaments.organizationId,
+        id: tournaments.id,
+        visibility: tournaments.visibility,
+      })
+      .from(tournaments)
+      .where(eq(tournaments.publicId, publicId))
+      .limit(1);
+    if (tournament === undefined) return null;
+    // Ein privates Turnier ist von aussen nicht von einem nicht existierenden
+    // zu unterscheiden — der Aufrufer wirft in beiden Faellen 404.
+    //
+    // Diese Pruefung hier entscheidet nur ueber den fruehen Ausstieg bei
+    // offensichtlich privaten Turnieren. Die autoritative Bedingung traegt
+    // `getDashboardData` selbst ueber `requirePublic`: PostgreSQL fuehrt
+    // unter READ COMMITTED jede Anweisung mit einer eigenen Momentaufnahme
+    // aus, eine Transaktion allein schliesst das Zeitfenster zwischen dieser
+    // Abfrage und der folgenden Datenabfrage also nicht. Wird die
+    // Sichtbarkeit dazwischen zurueckgenommen, liefert erst die zweite
+    // Abfrage die massgebliche Antwort.
+    if (tournament.visibility !== "PUBLIC") return null;
+    return this.getDashboardData(tournament.organizationId, tournament.id, {
+      requirePublic: true,
+    });
+  }
+
+  /**
+   * Ebenfalls ohne `organizationId` (AGENTS.md §14) — dieselbe Ausnahme wie
+   * `getPublicDashboardDataByPublicId`: die `public_id` IST der Schluessel.
+   * Anders als jene Methode gilt hier absichtlich KEIN Sichtbarkeitsfilter:
+   * ihr Zweck ist gerade, `visibility` an einen Aufrufer zu liefern, der
+   * selbst entscheidet, ob ein zusaetzlicher Zugangsweg (Anzeige-Schluessel,
+   * Kanal-Autorisierung in Plan 3) das private Turnier dennoch aufloest.
+   */
+  public async getAccessFactsByPublicId(publicId: string): Promise<{
+    readonly id: string;
+    readonly organizationId: string;
+    readonly visibility: TournamentVisibility;
+  } | null> {
+    const [tournament] = await this.databaseService.database
+      .select({
+        organizationId: tournaments.organizationId,
+        id: tournaments.id,
+        visibility: tournaments.visibility,
+      })
+      .from(tournaments)
+      .where(eq(tournaments.publicId, publicId))
+      .limit(1);
+    if (tournament === undefined) return null;
+    return { id: tournament.id, organizationId: tournament.organizationId, visibility: tournament.visibility as TournamentVisibility };
+  }
+
+  /**
+   * Schwester von `getPublicDashboardDataByPublicId` ohne den
+   * Sichtbarkeitsfilter: der Aufrufer hat die Berechtigung (Anzeige-Schluessel)
+   * bereits ausserhalb dieser Funktion geprueft — `getAccessFactsByPublicId`
+   * traegt dieselbe namenlose Aufloesung, hier folgt nur noch die Datenabfrage
+   * ohne `requirePublic`.
+   */
+  public async getPrivateDashboardDataByPublicId(
+    publicId: string,
+  ): Promise<TournamentDashboardData | null> {
+    const tournament = await this.getAccessFactsByPublicId(publicId);
+    if (tournament === null) return null;
+    return this.getDashboardData(tournament.organizationId, tournament.id);
+  }
+
+  /** Siehe `TournamentsService.publicAddress` — Uebergangsweg mit Frist. */
+  public async getPublicAddress(
+    tournamentId: string,
+  ): Promise<{ readonly publicId: string } | null> {
+    const [row] = await this.databaseService.database
+      .select({ publicId: tournaments.publicId, visibility: tournaments.visibility })
       .from(tournaments)
       .where(eq(tournaments.id, tournamentId))
       .limit(1);
-    if (tournament === undefined) return null;
-    return this.getDashboardData(tournament.organizationId, tournamentId);
+    if (row === undefined || row.visibility !== "PUBLIC") return null;
+    return { publicId: row.publicId };
   }
 
   public async getDashboardData(
     organizationId: string,
     tournamentId: string,
+    options?: { readonly requirePublic?: boolean },
   ): Promise<TournamentDashboardData | null> {
     const [tournament] = await this.databaseService.database
       .select()
       .from(tournaments)
-      .where(and(eq(tournaments.organizationId, organizationId), eq(tournaments.id, tournamentId)))
+      .where(
+        and(
+          eq(tournaments.organizationId, organizationId),
+          eq(tournaments.id, tournamentId),
+          // Traegt die Sichtbarkeitsbedingung selbst, statt sich auf eine
+          // vorher gestellte Frage des Aufrufers zu verlassen (PR-Review:
+          // Zeitfenster zwischen Sichtbarkeitspruefung und Datenabfrage).
+          // Der authentifizierte Weg ruft ohne `requirePublic` auf und
+          // bleibt unveraendert.
+          options?.requirePublic ? eq(tournaments.visibility, "PUBLIC") : undefined,
+        ),
+      )
       .limit(1);
     if (tournament === undefined) return null;
 
@@ -976,6 +1069,54 @@ export class TournamentsRepository {
         entityId: input.data.boardId,
         oldValue: selected.board,
         newValue: { status: "AVAILABLE" },
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+      return "ok";
+    });
+  }
+
+  /**
+   * Eine Freigabe nach aussen ist keine Score-/Match-Aktion mit
+   * Wiederholungsrisiko (AGENTS.md 11) und traegt deshalb keine `commandId`
+   * und keine `expectedVersion` — anders als `assign`, `releaseBoard` & Co.
+   * Die Sperre auf der Turnierzeile dient hier nur dazu, den vorherigen Wert
+   * fuer den Audit-Satz verlustfrei zu lesen.
+   */
+  public async updateVisibility(
+    input: ActorInput & { readonly visibility: TournamentVisibility },
+  ): Promise<TournamentMutationResult> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [tournament] = await transaction
+        .select()
+        .from(tournaments)
+        .where(
+          and(
+            eq(tournaments.organizationId, input.organizationId),
+            eq(tournaments.id, input.tournamentId),
+          ),
+        )
+        .for("update")
+        .limit(1);
+      if (tournament === undefined) return "not-found";
+      await transaction
+        .update(tournaments)
+        .set({ visibility: input.visibility, updatedAt: new Date() })
+        .where(
+          and(
+            eq(tournaments.organizationId, input.organizationId),
+            eq(tournaments.id, input.tournamentId),
+          ),
+        );
+      await transaction.insert(auditEvents).values({
+        organizationId: input.organizationId,
+        actorUserId: input.auth.user.id,
+        action: "TOURNAMENT_VISIBILITY_CHANGED",
+        entityType: "Tournament",
+        entityId: input.tournamentId,
+        oldValue: { visibility: tournament.visibility },
+        newValue: { visibility: input.visibility },
         ip: input.audit.ip,
         userAgent: input.audit.userAgent,
         correlationId: input.audit.correlationId,

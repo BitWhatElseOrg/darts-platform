@@ -30,6 +30,7 @@ import {
   type GroupStanding,
   type PublicTournamentDashboard,
   type ReleaseBoardInput,
+  type SetTournamentVisibilityInput,
   type TournamentDashboard,
   type TournamentStructurePreview,
   type TournamentStructurePreviewInput,
@@ -43,6 +44,7 @@ import { rethrowScoringError } from "../common/scoring-error.js";
 import { MatchesRepository } from "../matches/matches.repository.js";
 import type { TournamentCorrectionResult } from "../matches/matches.repository.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
+import { DisplayKeysService } from "./display-keys.service.js";
 import {
   TournamentsRepository,
   type TournamentDashboardData,
@@ -65,6 +67,7 @@ export class TournamentsService {
     @Inject(TournamentsRepository) private readonly repository: TournamentsRepository,
     @Inject(MatchesRepository) private readonly matchesRepository: MatchesRepository,
     @Inject(OrganizationAccessService) private readonly access: OrganizationAccessService,
+    @Inject(DisplayKeysService) private readonly displayKeys: DisplayKeysService,
   ) {}
 
   public async list(input: {
@@ -158,15 +161,36 @@ export class TournamentsService {
     return this.projectDashboard(data);
   }
 
-  public async publicDashboard(tournamentId: string): Promise<PublicTournamentDashboard> {
-    const data = await this.repository.getPublicDashboardData(tournamentId);
-    if (data === null) throw new NotFoundException("Turnier nicht gefunden.");
-    const dashboard = await this.projectDashboard(data);
+  /**
+   * Nimmt die `public_id`, nicht die interne ID. Ein privates Turnier
+   * antwortet mit 404 statt 403: ein 403 bestaetigte, dass es die Adresse gibt.
+   *
+   * Zwei Eintrittskarten: das Turnier ist oeffentlich, oder der Aufrufer
+   * bringt einen gueltigen Anzeige-Schluessel mit. Beides scheitert nach
+   * aussen gleich — 404 —, damit die Antwort nicht verraet, welche der beiden
+   * Bedingungen gefehlt hat. Die Sitzungspruefung am Socket kommt in Plan 3 —
+   * dann wandert die Entscheidung in eine reine Funktion.
+   */
+  public async publicDashboard(
+    publicId: string,
+    displayKeySecret?: string,
+  ): Promise<PublicTournamentDashboard> {
+    const data = await this.repository.getPublicDashboardDataByPublicId(publicId);
+    const allowed =
+      data !== null ||
+      (displayKeySecret !== undefined &&
+        (await this.displayKeys.resolve(publicId, displayKeySecret)) === "valid");
+    if (!allowed) throw new NotFoundException("Turnier nicht gefunden.");
+    const resolved = data ?? (await this.repository.getPrivateDashboardDataByPublicId(publicId));
+    if (resolved === null) throw new NotFoundException("Turnier nicht gefunden.");
+    const dashboard = await this.projectDashboard(resolved);
     // Die oeffentliche Sicht wird Feld fuer Feld gebaut, nicht aus der
     // internen durchgereicht: so faellt jedes neue interne Feld auf, statt
     // sich stillschweigend nach draussen zu vererben (Audit B, I-1).
-    const { organizationId, ...tournament } = dashboard.tournament;
+    const { organizationId, id, visibility, ...tournament } = dashboard.tournament;
     void organizationId;
+    void id;
+    void visibility;
     return publicTournamentDashboardSchema.parse({
       tournament,
       participants: dashboard.participants.map((participant) => ({
@@ -188,6 +212,13 @@ export class TournamentsService {
       recentResults: dashboard.recentResults,
       generatedAt: dashboard.generatedAt,
     });
+  }
+
+  /** Siehe `PublicTournamentsController.address` — Uebergangsweg mit Frist. */
+  public async publicAddress(tournamentId: string): Promise<{ readonly publicId: string }> {
+    const address = await this.repository.getPublicAddress(tournamentId);
+    if (address === null) throw new NotFoundException("Turnier nicht gefunden.");
+    return address;
   }
 
   public async assign(input: {
@@ -232,6 +263,34 @@ export class TournamentsService {
   }): Promise<TournamentDashboard> {
     await this.require(input, "tournament:update");
     return this.mutate(input, () => this.repository.withdrawParticipant(input));
+  }
+
+  /**
+   * Eine Freigabe nach aussen ist eine kritische Benutzeraktion und wird
+   * auditiert (AGENTS.md §4) — der Audit-Satz entsteht in derselben
+   * Transaktion wie die Aenderung, in `repository.updateVisibility`, genau
+   * wie bei den uebrigen Mutationen dieser Datei. Die Berechtigung ist
+   * `tournament:update`: die Sichtbarkeit ist eine Eigenschaft des Turniers.
+   * Das Verteilen von Anzeige-Schluesseln bekommt in Plan 2 eine eigene
+   * Berechtigung, weil es eine andere Handlung ist.
+   */
+  public async setVisibility(input: {
+    readonly organizationId: string;
+    readonly tournamentId: string;
+    readonly data: SetTournamentVisibilityInput;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<TournamentDashboard> {
+    await this.require(input, "tournament:update");
+    return this.mutate(input, () =>
+      this.repository.updateVisibility({
+        organizationId: input.organizationId,
+        tournamentId: input.tournamentId,
+        visibility: input.data.visibility,
+        auth: input.auth,
+        audit: input.audit,
+      }),
+    );
   }
 
   private async mutate(
@@ -518,6 +577,8 @@ export class TournamentsService {
     return tournamentDashboardSchema.parse({
       tournament: {
         id: data.tournament.id,
+        publicId: data.tournament.publicId,
+        visibility: data.tournament.visibility,
         organizationId: data.tournament.organizationId,
         name: data.tournament.name,
         status: data.tournament.status,

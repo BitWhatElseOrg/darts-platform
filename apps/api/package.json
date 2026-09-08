@@ -42,6 +42,7 @@
   "devDependencies": {
     "@nestjs/testing": "^11.1.0",
     "@types/node": "catalog:",
+    "socket.io-client": "^4.8.3",
     "tsx": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

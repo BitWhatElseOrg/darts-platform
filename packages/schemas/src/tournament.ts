@@ -169,9 +169,20 @@ const tournamentDashboardParticipantSchema = z.object({
   withdrawalReason: z.string().nullable(),
 });
 
+/**
+ * Die Werte stehen hier woertlich und nicht als Import aus
+ * `@darts-platform/domain`: `packages/schemas` haengt bewusst an nichts ausser
+ * `zod`, und zwei Zeichenketten rechtfertigen keine neue Kante im
+ * Abhaengigkeitsgraphen. Dass beide Listen uebereinstimmen, sichert ein Test
+ * in `apps/api` ab, das ohnehin beide Pakete kennt.
+ */
+export const tournamentVisibilitySchema = z.enum(["PRIVATE", "PUBLIC"]);
+
 export const tournamentDashboardSchema = z.object({
   tournament: z.object({
     id: z.uuid(),
+    publicId: z.uuid(),
+    visibility: tournamentVisibilitySchema,
     organizationId: z.uuid(),
     name: z.string(),
     status: tournamentStatusSchema,
@@ -217,10 +228,20 @@ export const publicQueueEntrySchema = queueEntrySchema.omit({ blockedReason: tru
  * nicht separat ausgeschlossen wird. Die explizite `z.object`-Form hier
  * zaehlt jedes oeffentlich sichtbare Feld einzeln auf; ein neues internes
  * Feld faellt dadurch nicht stillschweigend nach draussen durch.
+ *
+ * Die oeffentliche Sicht nennt die interne ID NICHT — sie ist der
+ * Pfadschluessel jeder authentifizierten Route (Audit B, I-1b). Stattdessen
+ * steht hier die `publicId`: die Weboberflaeche braucht sie fuer den
+ * Realtime-Raum und fuer die Umleitung von der alten Adresse. `visibility`
+ * faellt ebenfalls aus der oeffentlichen Form heraus: wer die Ansicht sieht,
+ * weiss, dass sie oeffentlich ist; ein privates Turnier antwortet gar nicht
+ * erst.
  */
 export const publicTournamentDashboardSchema = z.object({
   tournament: tournamentDashboardSchema.shape.tournament.omit({
     organizationId: true,
+    id: true,
+    visibility: true,
   }),
   participants: z.array(
     tournamentDashboardParticipantSchema.omit({
@@ -390,8 +411,33 @@ export const withdrawTournamentParticipantSchema = z.object({
   commandId: z.uuid(), expectedVersion: z.number().int().nonnegative(), playerId: z.uuid(),
   reason: z.string().trim().min(3).max(500),
 });
+export const setTournamentVisibilitySchema = z.object({
+  visibility: tournamentVisibilitySchema,
+});
+
+export const createDisplayKeySchema = z.object({
+  label: z.string().trim().min(1).max(80),
+  /** Ohne Angabe: 48 Stunden nach dem Turnierbeginn (der Service setzt sie). */
+  expiresAt: z.coerce.date().optional(),
+});
+
+export const displayKeySchema = z.object({
+  id: z.uuid(),
+  label: z.string(),
+  expiresAt: z.coerce.date(),
+  revokedAt: z.coerce.date().nullable(),
+  state: z.enum(["valid", "expired", "revoked"]),
+});
+
+/** Der Klartext steht NUR hier — in der Antwort, die den Schluessel erzeugt. */
+export const createdDisplayKeySchema = displayKeySchema.extend({
+  secret: z.string(),
+});
+
+export const displayKeyListSchema = z.object({ keys: z.array(displayKeySchema) });
 
 export type TournamentStatus = z.infer<typeof tournamentStatusSchema>;
+export type TournamentVisibility = z.infer<typeof tournamentVisibilitySchema>;
 export type TournamentFormat = z.infer<typeof tournamentFormatSchema>;
 export type SeedingMode = z.infer<typeof seedingModeSchema>;
 export type InRule = z.infer<typeof inRuleSchema>;
@@ -424,3 +470,8 @@ export type AssignMatchInput = z.infer<typeof assignMatchSchema>;
 export type ReleaseBoardInput = z.infer<typeof releaseBoardSchema>;
 export type CorrectTournamentResultInput = z.infer<typeof correctTournamentResultSchema>;
 export type WithdrawTournamentParticipantInput = z.infer<typeof withdrawTournamentParticipantSchema>;
+export type SetTournamentVisibilityInput = z.infer<typeof setTournamentVisibilitySchema>;
+export type CreateDisplayKeyInput = z.infer<typeof createDisplayKeySchema>;
+export type DisplayKey = z.infer<typeof displayKeySchema>;
+export type CreatedDisplayKey = z.infer<typeof createdDisplayKeySchema>;
+export type DisplayKeyList = z.infer<typeof displayKeyListSchema>;

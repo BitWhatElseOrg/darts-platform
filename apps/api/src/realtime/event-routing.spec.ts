@@ -12,7 +12,7 @@ describe("toBroadcast", () => {
   it("sendet Turnierereignisse in den Turnierraum", () => {
     const broadcast = toBroadcast(
       { ...event, eventType: "TOURNAMENT_MATCH_COMPLETED" },
-      { kind: "tournament", id: "22222222-2222-4222-8222-222222222222" },
+      { kind: "tournament", publicId: "22222222-2222-4222-8222-222222222222" },
     );
 
     expect(broadcast).toEqual({
@@ -21,7 +21,7 @@ describe("toBroadcast", () => {
       payload: {
         eventId: event.id,
         eventType: "TOURNAMENT_MATCH_COMPLETED",
-        tournamentId: "22222222-2222-4222-8222-222222222222",
+        publicId: "22222222-2222-4222-8222-222222222222",
         occurredAt: "2026-09-03T18:30:00.000Z",
       },
     });
@@ -30,7 +30,7 @@ describe("toBroadcast", () => {
   it("sendet Begegnungsereignisse in den Begegnungsraum", () => {
     const broadcast = toBroadcast(event, {
       kind: "encounter",
-      id: "33333333-3333-4333-8333-333333333333",
+      publicId: "33333333-3333-4333-8333-333333333333",
     });
 
     expect(broadcast).toEqual({
@@ -39,7 +39,7 @@ describe("toBroadcast", () => {
       payload: {
         eventId: event.id,
         eventType: "ENCOUNTER_SLOT_COMPLETED",
-        encounterId: "33333333-3333-4333-8333-333333333333",
+        publicId: "33333333-3333-4333-8333-333333333333",
         occurredAt: "2026-09-03T18:30:00.000Z",
       },
     });
@@ -47,6 +47,16 @@ describe("toBroadcast", () => {
 
   it("sendet nichts ohne Geltungsbereich", () => {
     expect(toBroadcast(event, null)).toBeNull();
+  });
+
+  it("benennt den Raum nach der oeffentlichen ID, nicht nach der internen", () => {
+    const broadcast = toBroadcast(
+      { id: "e1", eventType: "MATCH_FINISHED", occurredAt: new Date(0) },
+      { kind: "tournament", publicId: "6f1f1f6a-0000-4000-8000-000000000001" },
+    );
+
+    expect(broadcast?.room).toBe("tournament:6f1f1f6a-0000-4000-8000-000000000001");
+    expect(broadcast?.payload.publicId).toBe("6f1f1f6a-0000-4000-8000-000000000001");
   });
 });
 

@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigserial,
   boolean,
+  char,
   check,
   index,
   inet,
@@ -671,6 +672,18 @@ export const tournaments = pgTable(
     organizationId: uuid("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
+    /**
+     * Zweite, unerratbare Adresse des Turniers. Sie steht in oeffentlichen
+     * Links und in den Realtime-Raeumen; der Primaerschluessel bleibt intern
+     * (Audit B, I-1b). Gleiches Muster wie `encounters.publicId`.
+     */
+    publicId: uuid("public_id").defaultRandom().notNull(),
+    /**
+     * `PRIVATE` ist die Vorgabe: ein neues Turnier ist erst oeffentlich, wenn
+     * die Leitung es freigibt. Der Bestand wurde bei der Migration einmalig
+     * auf `PUBLIC` gehoben, damit sich fuer nichts Laufendes etwas aendert.
+     */
+    visibility: varchar("visibility", { length: 20 }).default("PRIVATE").notNull(),
     name: varchar("name", { length: 120 }).notNull(),
     status: varchar("status", { length: 30 }).default("READY").notNull(),
     format: varchar("format", { length: 40 }).notNull(),
@@ -722,6 +735,45 @@ export const tournaments = pgTable(
       sql`${table.knockoutSize} in (2, 4, 8, 16, 32, 64)`,
     ),
     check("tournaments_seeding_check", sql`${table.seeding} in ('SEEDED', 'RANDOM')`),
+    uniqueIndex("tournaments_public_id_unique").on(table.publicId),
+    check(
+      "tournaments_visibility_check",
+      sql`${table.visibility} in ('PRIVATE', 'PUBLIC')`,
+    ),
+  ],
+);
+
+/**
+ * Zugang fuer Anzeigegeraete am Spielort — Board-Tablets und der Beamer im
+ * Saal. Sie sind geteilte Geraete: eine Anmeldung darauf waere ein Passwort an
+ * der Wand. Der Schluessel gilt fuer ein Turnier, nicht fuer ein Board; sonst
+ * waeren an einem Abend acht Zugaenge zu verteilen und acht zurueckzuziehen.
+ *
+ * Gespeichert wird nur der Hash. Den Klartext gibt es einmal, in der Antwort,
+ * die den Schluessel erzeugt.
+ */
+export const tournamentDisplayKeys = pgTable(
+  "tournament_display_keys",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    tournamentId: uuid("tournament_id")
+      .notNull()
+      .references(() => tournaments.id, { onDelete: "cascade" }),
+    secretHash: char("secret_hash", { length: 64 }).notNull(),
+    label: varchar("label", { length: 80 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("tournament_display_keys_secret_hash_unique").on(table.secretHash),
+    index("tournament_display_keys_tournament_idx").on(table.tournamentId),
   ],
 );
 
@@ -1546,6 +1598,7 @@ export type TournamentGroup = typeof tournamentGroups.$inferSelect;
 export type TournamentGroupParticipant = typeof tournamentGroupParticipants.$inferSelect;
 export type TournamentMatch = typeof tournamentMatches.$inferSelect;
 export type TournamentCommand = typeof tournamentCommands.$inferSelect;
+export type TournamentDisplayKey = typeof tournamentDisplayKeys.$inferSelect;
 export type Team = typeof teams.$inferSelect;
 export type NewTeam = typeof teams.$inferInsert;
 export type TeamPlayer = typeof teamPlayers.$inferSelect;

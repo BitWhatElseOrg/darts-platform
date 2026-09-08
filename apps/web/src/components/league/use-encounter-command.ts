@@ -79,15 +79,19 @@ export function useEncounterCommand(input: {
   });
   const encounter = query.data;
 
-  useEffect(
-    () =>
-      connectEncounterRealtime({
-        encounterId,
-        onChange: () => void queryClient.invalidateQueries({ queryKey }),
-        onConnection: setRealtime,
-      }),
-    [encounterId, queryClient, queryKey],
-  );
+  // Der Raum haengt an der `publicId` der Begegnung, nicht an der internen
+  // `encounterId` (die bleibt fuer den authentifizierten REST-Weg oben
+  // richtig). Sie kommt erst mit der geladenen Begegnung -- vorher gibt es
+  // keinen Raum, mit dem sich verbinden liesse.
+  const encounterPublicId = encounter?.publicId;
+  useEffect(() => {
+    if (encounterPublicId === undefined) return;
+    return connectEncounterRealtime({
+      publicId: encounterPublicId,
+      onChange: () => void queryClient.invalidateQueries({ queryKey }),
+      onConnection: setRealtime,
+    });
+  }, [encounterPublicId, queryClient, queryKey]);
 
   const run = useCallback(
     async (command: {

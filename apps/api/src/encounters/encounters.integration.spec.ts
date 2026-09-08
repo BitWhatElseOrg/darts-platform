@@ -40,6 +40,8 @@ import { OrganizationAccessService } from "../organizations/organization-access.
 import { OrganizationsRepository } from "../organizations/organizations.repository.js";
 import { TeamsRepository } from "../teams/teams.repository.js";
 import { TeamsService } from "../teams/teams.service.js";
+import { DisplayKeysRepository } from "../tournaments/display-keys.repository.js";
+import { DisplayKeysService } from "../tournaments/display-keys.service.js";
 import { TournamentsRepository } from "../tournaments/tournaments.repository.js";
 import { TournamentsService } from "../tournaments/tournaments.service.js";
 import { publishOutboxBatch } from "../realtime/publish-outbox.js";
@@ -56,10 +58,17 @@ const encountersService = new EncountersService(new EncountersRepository(databas
 const teamsService = new TeamsService(new TeamsRepository(databaseService), access);
 const matchesRepository = new MatchesRepository(databaseService);
 const matchesService = new MatchesService(matchesRepository, access);
+const tournamentsRepository = new TournamentsRepository(databaseService);
+const displayKeys = new DisplayKeysService(
+  new DisplayKeysRepository(databaseService),
+  tournamentsRepository,
+  access,
+);
 const tournamentsService = new TournamentsService(
-  new TournamentsRepository(databaseService),
+  tournamentsRepository,
   matchesRepository,
   access,
+  displayKeys,
 );
 
 const organizationId = randomUUID();
@@ -1678,7 +1687,7 @@ describe("team encounter persistence", () => {
     }
 
     // Der Poller arbeitet global; geprueft wird nur der eigene Raum.
-    const ownRoom = sent.filter((entry) => entry.room === `encounter:${encounter.id}`);
+    const ownRoom = sent.filter((entry) => entry.room === `encounter:${encounter.publicId}`);
     expect(ownRoom.length).toBeGreaterThan(0);
     expect(ownRoom.every((entry) => entry.event === "encounter:changed")).toBe(true);
 

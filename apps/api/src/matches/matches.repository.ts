@@ -174,12 +174,13 @@ export class MatchesRepository {
     if (matchIds.length === 0) return targets;
     const ids = [...matchIds];
     const tournamentRows = await this.databaseService.database
-      .select({ matchId: tournamentMatches.scoringMatchId, tournamentId: tournamentMatches.tournamentId })
+      .select({ matchId: tournamentMatches.scoringMatchId, tournamentId: tournamentMatches.tournamentId, publicId: tournaments.publicId })
       .from(tournamentMatches)
+      .innerJoin(tournaments, and(eq(tournaments.id, tournamentMatches.tournamentId), eq(tournaments.organizationId, organizationId)))
       .where(and(eq(tournamentMatches.organizationId, organizationId), inArray(tournamentMatches.scoringMatchId, ids)));
     for (const row of tournamentRows) {
       if (row.matchId === null || targets.has(row.matchId)) continue;
-      targets.set(row.matchId, { kind: "TOURNAMENT", tournamentId: row.tournamentId });
+      targets.set(row.matchId, { kind: "TOURNAMENT", tournamentId: row.tournamentId, publicId: row.publicId });
     }
     const remaining = ids.filter((id) => !targets.has(id));
     if (remaining.length === 0) return targets;

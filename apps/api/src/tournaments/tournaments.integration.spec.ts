@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { NotFoundException } from "@nestjs/common";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import {
@@ -28,6 +29,8 @@ import { MatchesRepository } from "../matches/matches.repository.js";
 import { MatchesService, MatchVersionConflictException } from "../matches/matches.service.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { OrganizationsRepository } from "../organizations/organizations.repository.js";
+import { DisplayKeysRepository } from "./display-keys.repository.js";
+import { DisplayKeysService } from "./display-keys.service.js";
 import { TournamentsRepository } from "./tournaments.repository.js";
 import { TournamentsService } from "./tournaments.service.js";
 
@@ -36,11 +39,17 @@ const access = new OrganizationAccessService(new OrganizationsRepository(databas
 const matchesRepository = new MatchesRepository(databaseService);
 const matchesService = new MatchesService(matchesRepository, access);
 const repository = new TournamentsRepository(databaseService);
-const service = new TournamentsService(repository, matchesRepository, access);
+const displayKeys = new DisplayKeysService(
+  new DisplayKeysRepository(databaseService),
+  repository,
+  access,
+);
+const service = new TournamentsService(repository, matchesRepository, access, displayKeys);
 const organizationId = randomUUID();
 const foreignOrganizationId = randomUUID();
 const userId = randomUUID();
 const foreignUserId = randomUUID();
+const scorerUserId = randomUUID();
 const playerIds = Array.from({ length: 4 }, () => randomUUID());
 const boardIds = [randomUUID(), randomUUID()] as const;
 const auth: AuthContext = {
@@ -49,6 +58,14 @@ const auth: AuthContext = {
 };
 const foreignAuth: AuthContext = {
   user: { id: foreignUserId, email: `foreign-${foreignUserId}@example.test`, name: "Foreign Owner" },
+  session: { id: randomUUID(), expiresAt: new Date(Date.now() + 60_000) },
+};
+// SCORER in derselben Organisation wie `auth` (OWNER) -- Befund 4 des
+// Abschlussreviews: der Test fuer eine Freigabe ohne `tournament:update`
+// verwendete bisher `foreignAuth`, das gar nicht in dieser Organisation ist
+// und damit Mandantentrennung statt fehlender Berechtigung prueft.
+const scorerAuth: AuthContext = {
+  user: { id: scorerUserId, email: `scorer-${scorerUserId}@example.test`, name: "Tournament Scorer" },
   session: { id: randomUUID(), expiresAt: new Date(Date.now() + 60_000) },
 };
 const audit = { correlationId: randomUUID(), ip: "127.0.0.1", userAgent: "vitest" } as const;
@@ -115,6 +132,7 @@ beforeAll(async () => {
   await databaseService.database.insert(users).values([
     { id: userId, email: auth.user.email, displayName: auth.user.name },
     { id: foreignUserId, email: foreignAuth.user.email, displayName: foreignAuth.user.name },
+    { id: scorerUserId, email: scorerAuth.user.email, displayName: scorerAuth.user.name },
   ]);
   await databaseService.database.insert(organizations).values([
     { id: organizationId, name: "Tournament Club", slug: `tournament-${organizationId}`, timezone: "Europe/Zurich", locale: "de-CH" },
@@ -123,6 +141,7 @@ beforeAll(async () => {
   await databaseService.database.insert(memberships).values([
     { organizationId, userId, role: "OWNER", status: "ACTIVE" },
     { organizationId: foreignOrganizationId, userId: foreignUserId, role: "OWNER", status: "ACTIVE" },
+    { organizationId, userId: scorerUserId, role: "SCORER", status: "ACTIVE" },
   ]);
   await databaseService.database.insert(players).values(
     playerIds.map((id, index) => ({
@@ -142,6 +161,7 @@ afterAll(async () => {
   await databaseService.database.delete(organizations).where(eq(organizations.id, foreignOrganizationId));
   await databaseService.database.delete(users).where(eq(users.id, userId));
   await databaseService.database.delete(users).where(eq(users.id, foreignUserId));
+  await databaseService.database.delete(users).where(eq(users.id, scorerUserId));
   await databaseService.onApplicationShutdown();
 });
 
@@ -245,7 +265,12 @@ describe("persistent tournament MVP", () => {
     expect(abortedVisits[0]?.revertedAt).not.toBeNull();
     expect((await databaseService.database.select().from(boards).where(eq(boards.id, boardIds[0])))[0]?.status).toBe("AVAILABLE");
 
-    const publicDashboard = await service.publicDashboard(created.id);
+    const [visible] = await databaseService.database
+      .update(tournaments)
+      .set({ visibility: "PUBLIC" })
+      .where(eq(tournaments.id, created.id))
+      .returning();
+    const publicDashboard = await service.publicDashboard(visible?.publicId ?? "");
     const publicParticipant = publicDashboard.participants.find((entry) => entry.playerId === ready.participants[0].playerId);
     expect(publicParticipant).toMatchObject({ status: "WITHDRAWN" });
     expect(publicParticipant).not.toHaveProperty("withdrawnAt");
@@ -920,7 +945,16 @@ describe("persistent tournament MVP", () => {
       audit,
     });
 
-    const dashboard = await service.publicDashboard(created.id);
+    // Neue Turniere sind standardmaessig PRIVATE (Task 1); fuer die
+    // oeffentliche Sicht braucht dieser Test die publicId eines sichtbaren
+    // Turniers.
+    const [visible] = await databaseService.database
+      .update(tournaments)
+      .set({ visibility: "PUBLIC" })
+      .where(eq(tournaments.id, created.id))
+      .returning();
+
+    const dashboard = await service.publicDashboard(visible?.publicId ?? "");
     const serialized: unknown = JSON.parse(JSON.stringify(dashboard));
 
     expect(dashboard.tournament).not.toHaveProperty("organizationId");
@@ -998,5 +1032,361 @@ describe("persistent tournament MVP", () => {
       status: 400,
       response: { code: "COMMAND_ID_ALREADY_USED" },
     });
+  }, 30_000);
+
+  it("liefert ein oeffentliches Turnier ueber die publicId ohne interne ID", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Public Id Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T16:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    const [row] = await databaseService.database
+      .update(tournaments)
+      .set({ visibility: "PUBLIC" })
+      .where(eq(tournaments.id, created.id))
+      .returning();
+    const publicId = row?.publicId ?? "";
+
+    const dashboard = await service.publicDashboard(publicId);
+
+    expect(dashboard.tournament.publicId).toBe(publicId);
+    expect(Object.keys(dashboard.tournament)).not.toContain("id");
+    expect(Object.keys(dashboard.tournament)).not.toContain("organizationId");
+  }, 30_000);
+
+  it("antwortet fuer ein privates Turnier mit 404, nicht mit 403", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Private Id Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T17:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    // Turniere sind standardmaessig PRIVATE (Task 1); die Zuweisung ist hier
+    // nur explizit, damit der Test nicht stillschweigend von der Vorgabe lebt.
+    const [row] = await databaseService.database
+      .update(tournaments)
+      .set({ visibility: "PRIVATE" })
+      .where(eq(tournaments.id, created.id))
+      .returning();
+
+    await expect(service.publicDashboard(row?.publicId ?? "")).rejects.toThrow(NotFoundException);
+  }, 30_000);
+
+  it("traegt die Sichtbarkeitsbedingung in getDashboardData selbst, nicht im Aufrufer", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Requires Public Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T17:30:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    // Turniere sind standardmaessig PRIVATE (Task 1); explizit, damit der
+    // Test nicht stillschweigend von der Vorgabe lebt.
+    await databaseService.database
+      .update(tournaments)
+      .set({ visibility: "PRIVATE" })
+      .where(eq(tournaments.id, created.id));
+
+    // Direkter Aufruf der Datenabfrage mit `requirePublic`, ohne den Umweg
+    // ueber `getPublicDashboardDataByPublicId`: die Bedingung muss in der
+    // Abfrage selbst stecken, nicht in einer vorgelagerten Pruefung des
+    // Aufrufers (Befund aus dem PR-Review, Zeitfenster zwischen Sichtbar-
+    // keitspruefung und Datenabfrage).
+    const dashboard = await repository.getDashboardData(organizationId, created.id, {
+      requirePublic: true,
+    });
+
+    expect(dashboard).toBeNull();
+  }, 30_000);
+
+  it("verraet ueber die interne ID nichts mehr", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Internal Id Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T18:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    await databaseService.database
+      .update(tournaments)
+      .set({ visibility: "PUBLIC" })
+      .where(eq(tournaments.id, created.id));
+
+    await expect(service.publicDashboard(created.id)).rejects.toThrow(NotFoundException);
+  }, 30_000);
+
+  it("liefert ueber den Uebergangsweg die publicId eines oeffentlichen Turniers", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Public Address Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T19:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    const [row] = await databaseService.database
+      .update(tournaments)
+      .set({ visibility: "PUBLIC" })
+      .where(eq(tournaments.id, created.id))
+      .returning();
+
+    const address = await service.publicAddress(created.id);
+
+    expect(address.publicId).toBe(row?.publicId);
+  }, 30_000);
+
+  it("bestaetigt ueber den Uebergangsweg kein privates Turnier", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Private Address Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T20:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    // Turniere sind standardmaessig PRIVATE (Task 1); die Zuweisung ist hier
+    // nur explizit, damit der Test nicht stillschweigend von der Vorgabe lebt.
+    await databaseService.database
+      .update(tournaments)
+      .set({ visibility: "PRIVATE" })
+      .where(eq(tournaments.id, created.id));
+
+    // Der Kern dieser Zusicherung: der Uebergangsweg darf ein privates
+    // Turnier weder auflosen noch dessen Existenz bestaetigen.
+    await expect(service.publicAddress(created.id)).rejects.toThrow(NotFoundException);
+  }, 30_000);
+
+  it("meldet fuer eine unbekannte interne ID ebenfalls 404", async () => {
+    await expect(service.publicAddress(randomUUID())).rejects.toThrow(NotFoundException);
+  }, 30_000);
+
+  it("schaltet die Sichtbarkeit um und auditiert das", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Visibility Toggle Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T18:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+
+    const dashboard = await service.setVisibility({
+      organizationId,
+      tournamentId: created.id,
+      data: { visibility: "PUBLIC" },
+      auth,
+      audit,
+    });
+
+    expect(dashboard.tournament.visibility).toBe("PUBLIC");
+
+    const [row] = await databaseService.database
+      .select({ visibility: tournaments.visibility })
+      .from(tournaments)
+      .where(eq(tournaments.id, created.id))
+      .limit(1);
+    expect(row?.visibility).toBe("PUBLIC");
+
+    const [event] = await databaseService.database
+      .select()
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.entityType, "Tournament"),
+          eq(auditEvents.entityId, created.id),
+          eq(auditEvents.action, "TOURNAMENT_VISIBILITY_CHANGED"),
+        ),
+      )
+      .orderBy(desc(auditEvents.createdAt))
+      .limit(1);
+    expect(event).toMatchObject({
+      organizationId,
+      actorUserId: userId,
+      newValue: { visibility: "PUBLIC" },
+    });
+  }, 30_000);
+
+  it("laesst eine Freigabe aus einer fremden Organisation nicht zu", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Visibility Foreign Org Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T19:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+
+    // `foreignAuth` ist OWNER der *fremden* Organisation `foreignOrganizationId`
+    // und hat dort gar keine Mitgliedschaft in `organizationId` -- das prueft
+    // Mandantentrennung, nicht das Fehlen von `tournament:update` (dafuer
+    // siehe den folgenden Fall mit `scorerAuth`, Befund 2 des
+    // Abschlussreviews).
+    await expect(
+      service.setVisibility({
+        organizationId,
+        tournamentId: created.id,
+        data: { visibility: "PUBLIC" },
+        auth: foreignAuth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+  }, 30_000);
+
+  it("laesst eine Freigabe ohne tournament:update nicht zu", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Visibility Forbidden Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T19:00:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+
+    // `scorerAuth` gehoert derselben Organisation an, aber SCORER hat laut
+    // `packages/domain/src/permissions.ts` `tournament:read`, nicht
+    // `tournament:update` -- der eigentliche Fall aus Befund 2 des
+    // Abschlussreviews (der Freigabe-Schalter selbst).
+    await expect(
+      service.setVisibility({
+        organizationId,
+        tournamentId: created.id,
+        data: { visibility: "PUBLIC" },
+        auth: scorerAuth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ status: 403 });
   }, 30_000);
 });

@@ -18,6 +18,8 @@ import { OrganizationAccessService } from "../organizations/organization-access.
 import { OrganizationsRepository } from "../organizations/organizations.repository.js";
 import { PlayersRepository } from "../players/players.repository.js";
 import { PlayersService } from "../players/players.service.js";
+import { DisplayKeysRepository } from "../tournaments/display-keys.repository.js";
+import { DisplayKeysService } from "../tournaments/display-keys.service.js";
 import { TournamentsRepository } from "../tournaments/tournaments.repository.js";
 import { TournamentsService } from "../tournaments/tournaments.service.js";
 
@@ -73,10 +75,16 @@ function services(databaseService: DatabaseService) {
   const matchesRepository = new MatchesRepository(databaseService);
   const matchesService = new MatchesService(matchesRepository, access);
   const tournamentsRepository = new TournamentsRepository(databaseService);
+  const displayKeys = new DisplayKeysService(
+    new DisplayKeysRepository(databaseService),
+    tournamentsRepository,
+    access,
+  );
   const tournamentsService = new TournamentsService(
     tournamentsRepository,
     matchesRepository,
     access,
+    displayKeys,
   );
   return { playersService, boardsService, matchesService, tournamentsService };
 }
