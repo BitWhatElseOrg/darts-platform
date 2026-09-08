@@ -9,32 +9,29 @@ direkt umsetzbar war, siehe die drei Geschwister-Pläne vom selben Tag:
 - `2026-09-08-team-encounter-datenintegritaet.md`
 - `2026-09-08-csp-nonce.md`
 
-## CSP-Nonce — Nacharbeit aus dem Abschlussreview (2026-09-08)
+## CSP-Nonce — Nacharbeit aus dem Abschlussreview (2026-09-08) — erledigt
 
 Der Plan `2026-09-08-csp-nonce.md` ist umgesetzt und gemergt (siehe ADR 0014).
-Das Abschlussreview hat drei nicht-blockierende Punkte hinterlassen, die
-bewusst nicht in denselben Branch gehören:
+Das Abschlussreview hatte drei nicht-blockierende Punkte hinterlassen, die
+bewusst nicht in denselben Branch gehörten — alle drei sind jetzt über den
+Folgeplan `2026-09-08-csp-nonce-nacharbeit.md` umgesetzt (Branch
+`worktree-csp-nonce-nacharbeit`, gestapelt auf `feature/csp-nonce`/PR #33, da
+`develop` `proxy.ts` zum Zeitpunkt dieser Nacharbeit noch nicht enthielt):
 
-- **`'strict-dynamic'` ergänzen.** Aktuell erlaubt `script-src 'self'
-  'nonce-...'` weiterhin jedes Skript von `'self'` zusätzlich zur Nonce —
-  erst `'strict-dynamic'` schaltet die Host-Quelle ab und macht aus der Nonce
-  echten Schutz gegen eine Injektion, die einen eigenen Pfad mit
-  angreiferkontrolliertem Inhalt referenziert. War nie Teil des Auftrags
-  (der hiess ausdrücklich "nur `'unsafe-inline'`"), braucht eine eigene
-  Verifikation, dass Webpack-Chunk-Loading darunter weiter funktioniert.
-- **CSP zusätzlich auf die Request-Header setzen.** `apps/web/src/proxy.ts`
-  setzt die Nonce heute nur auf die Response-Header; Next.js' eigener
-  Renderer liest sie serverseitig aus den Request-Headern und bekommt sie
-  nur, weil `resolve-routes.js` Response- in Request-Header spiegelt — ein
-  Next.js-internes Verhalten ohne Vertragscharakter. Zwei zusätzliche
-  Zeilen (Request-Header explizit mitsetzen, wie im offiziellen
-  Doku-Beispiel) würden das von der internen Kopie unabhängig machen.
-- **E2E-Fall gegen den echten Produktivbuild.** Die bestehende
-  `securitypolicyviolation`-Wache läuft nur gegen `next dev` (kein
-  vorgerendertes Statisches, `'unsafe-eval'` erlaubt) — sie beweist nicht,
-  dass in Production nichts mehr statisch ist. Ein einzelner Playwright-Fall
-  gegen `next build && next start` würde diese Lücke schliessen.
-- **`jitless`-Platzierung nur empirisch, nicht garantiert robust.** Zod v4
+- ~~**`'strict-dynamic'` ergänzen.**~~ Erledigt. Verifiziert per echter
+  clientseitiger Navigation (Klick, nicht `page.goto`) plus Isolations-Check
+  (Git-Stash), dass Webpack-Chunk-Nachladen weiterhin funktioniert — kein
+  Verstoss dem `'strict-dynamic'` zurechenbar.
+- ~~**CSP zusätzlich auf die Request-Header setzen.**~~ Erledigt —
+  `apps/web/src/proxy.ts` setzt die Nonce jetzt sowohl auf Request- als auch
+  Response-Header, unabhängig vom internen Next.js-Spiegelverhalten.
+- ~~**E2E-Fall gegen den echten Produktivbuild.**~~ Erledigt — neue,
+  dauerhafte Testinfrastruktur (`playwright.prod.config.ts`,
+  `tests/production-csp.spec.ts`, Skript `test:e2e:prod`), bewusst nicht
+  Teil von `pnpm test:e2e`/CI (Kostenentscheid). Deckt jetzt auch die beiden
+  waehrend dieser Nacharbeit gefundenen, zusaetzlichen Probleme
+  (`'strict-dynamic'`, `jitless`) gegen den echten Produktivbuild ab.
+- **`jitless`-Platzierung nur empirisch, nicht garantiert robust — bleibt offen.** Zod v4
   prüft beim ersten Schema-Zugriff pro Bundle-Kopie einmalig per
   `Function("")`, ob JIT-Kompilierung möglich ist — unter der erzwungenen
   CSP schlägt das fehl und meldet einen echten `script-src`-`eval`-Verstoss.

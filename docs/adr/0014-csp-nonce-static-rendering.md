@@ -120,6 +120,19 @@ neuen Angriff oder Bug gehalten wird. Diese Lücke ist als bekannter,
 akzeptierter Zustand dokumentiert — kein offenes Follow-up ist dafür
 vorgesehen.
 
+### Nachtrag: `'strict-dynamic'` (2026-09-08, Folgeplan)
+
+`script-src` erlaubte bis hierher weiterhin jedes Skript von `'self'`
+zusätzlich zur Nonce — eine Injektion, die einen eigenen Origin-Pfad mit
+angreiferkontrolliertem Inhalt referenziert, wäre nicht blockiert worden.
+`docs/superpowers/plans/2026-09-08-csp-nonce-nacharbeit.md` (Task 1) ergänzt
+`'strict-dynamic'`, verifiziert per echter clientseitiger Navigation (nicht
+nur vollem Seitenaufruf) gegen Bruch des Webpack-Chunk-Nachladens. Derselbe
+Folgeplan setzt die Nonce zusätzlich explizit auf die Request-Header (statt
+sich auf internes Next.js-Spiegelverhalten zu verlassen) und schliesst eine
+separat entdeckte, unabhängige CSP-Meldequelle (Zods `eval`-Fähigkeitstest,
+siehe dortiges ADR-Äquivalent im Folgeplan-Dokument selbst).
+
 ## Referenzen
 
 - `docs/superpowers/plans/2026-09-08-csp-nonce.md`
