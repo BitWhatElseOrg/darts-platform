@@ -203,8 +203,19 @@ export class TournamentsRepository {
     if (tournament === undefined) return null;
     // Ein privates Turnier ist von aussen nicht von einem nicht existierenden
     // zu unterscheiden — der Aufrufer wirft in beiden Faellen 404.
+    //
+    // Diese Pruefung hier entscheidet nur ueber den fruehen Ausstieg bei
+    // offensichtlich privaten Turnieren. Die autoritative Bedingung traegt
+    // `getDashboardData` selbst ueber `requirePublic`: PostgreSQL fuehrt
+    // unter READ COMMITTED jede Anweisung mit einer eigenen Momentaufnahme
+    // aus, eine Transaktion allein schliesst das Zeitfenster zwischen dieser
+    // Abfrage und der folgenden Datenabfrage also nicht. Wird die
+    // Sichtbarkeit dazwischen zurueckgenommen, liefert erst die zweite
+    // Abfrage die massgebliche Antwort.
     if (tournament.visibility !== "PUBLIC") return null;
-    return this.getDashboardData(tournament.organizationId, tournament.id);
+    return this.getDashboardData(tournament.organizationId, tournament.id, {
+      requirePublic: true,
+    });
   }
 
   /** Siehe `TournamentsService.publicAddress` — Uebergangsweg mit Frist. */
@@ -223,11 +234,23 @@ export class TournamentsRepository {
   public async getDashboardData(
     organizationId: string,
     tournamentId: string,
+    options?: { readonly requirePublic?: boolean },
   ): Promise<TournamentDashboardData | null> {
     const [tournament] = await this.databaseService.database
       .select()
       .from(tournaments)
-      .where(and(eq(tournaments.organizationId, organizationId), eq(tournaments.id, tournamentId)))
+      .where(
+        and(
+          eq(tournaments.organizationId, organizationId),
+          eq(tournaments.id, tournamentId),
+          // Traegt die Sichtbarkeitsbedingung selbst, statt sich auf eine
+          // vorher gestellte Frage des Aufrufers zu verlassen (PR-Review:
+          // Zeitfenster zwischen Sichtbarkeitspruefung und Datenabfrage).
+          // Der authentifizierte Weg ruft ohne `requirePublic` auf und
+          // bleibt unveraendert.
+          options?.requirePublic ? eq(tournaments.visibility, "PUBLIC") : undefined,
+        ),
+      )
       .limit(1);
     if (tournament === undefined) return null;
 

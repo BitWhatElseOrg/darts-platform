@@ -1098,6 +1098,48 @@ describe("persistent tournament MVP", () => {
     await expect(service.publicDashboard(row?.publicId ?? "")).rejects.toThrow(NotFoundException);
   }, 30_000);
 
+  it("traegt die Sichtbarkeitsbedingung in getDashboardData selbst, nicht im Aufrufer", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: `Requires Public Cup ${randomUUID()}`,
+        startsAt: new Date("2026-09-13T17:30:00.000Z"),
+        format: "SINGLE_ELIMINATION",
+        startingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 4,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    // Turniere sind standardmaessig PRIVATE (Task 1); explizit, damit der
+    // Test nicht stillschweigend von der Vorgabe lebt.
+    await databaseService.database
+      .update(tournaments)
+      .set({ visibility: "PRIVATE" })
+      .where(eq(tournaments.id, created.id));
+
+    // Direkter Aufruf der Datenabfrage mit `requirePublic`, ohne den Umweg
+    // ueber `getPublicDashboardDataByPublicId`: die Bedingung muss in der
+    // Abfrage selbst stecken, nicht in einer vorgelagerten Pruefung des
+    // Aufrufers (Befund aus dem PR-Review, Zeitfenster zwischen Sichtbar-
+    // keitspruefung und Datenabfrage).
+    const dashboard = await repository.getDashboardData(organizationId, created.id, {
+      requirePublic: true,
+    });
+
+    expect(dashboard).toBeNull();
+  }, 30_000);
+
   it("verraet ueber die interne ID nichts mehr", async () => {
     const created = await service.create({
       organizationId,
