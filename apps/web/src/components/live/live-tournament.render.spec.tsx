@@ -26,6 +26,12 @@ vi.mock("@/lib/api-client", () => client);
 // gemockt.
 vi.mock("@/lib/live-address", () => ({ resolvePublicId: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }) }));
+// `connectTournamentRealtime` liest beim Import die oeffentliche
+// Client-Umgebung (`realtime.ts` -> `environment.ts`); dieser Test prueft die
+// Verbindungsanzeige aus `query.isError`, nicht die Socket-Verbindung selbst
+// -- ein Mock, der nie meldet, haelt `connection` auf dem Ausgangswert
+// "verbindet" und damit dieselbe Anzeige wie vor der Realtime-Anbindung.
+vi.mock("@/lib/realtime", () => ({ connectTournamentRealtime: () => () => undefined }));
 
 import { LiveTournament } from "./live-tournament";
 

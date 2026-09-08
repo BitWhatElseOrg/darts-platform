@@ -2,7 +2,7 @@ import { io, type Socket } from "socket.io-client";
 
 import { publicEnvironment } from "./environment";
 
-export type RealtimeConnection = "verbunden" | "verbindet" | "getrennt";
+export type RealtimeConnection = "verbunden" | "verbindet" | "getrennt" | "abgewiesen";
 
 /**
  * Turnier und Begegnung gehen denselben Weg; nur der Raum unterscheidet sie.
@@ -25,33 +25,49 @@ function connectRoom(input: {
   });
   socket.on("disconnect", () => input.onConnection("getrennt"));
   socket.on("connect_error", () => input.onConnection("getrennt"));
+  // Eine Ablehnung (fehlende Berechtigung, unbekannte Adresse, Obergrenze je
+  // Socket -- `apps/api/src/realtime/subscription-limit.ts`) ist etwas
+  // anderes als eine getrennte Verbindung: "getrennt" laedt zum Warten ein,
+  // eine Ablehnung nicht -- der naechste Versuch mit denselben Daten scheitert
+  // wieder gleich.
+  socket.on("subscription:rejected", () => input.onConnection("abgewiesen"));
   socket.on(input.changeEvent, input.onChange);
   return () => socket.disconnect();
 }
 
 export function connectTournamentRealtime(input: {
-  readonly tournamentId: string;
+  readonly publicId: string;
+  /**
+   * Anzeige-Schluessel fuer ein privates Turnier ohne Anmeldung (Plan 2,
+   * `apps/api/src/realtime/subscription-authorization.ts`). Fehlt er -- wie
+   * bei einer angemeldeten Ansicht, die sich ueber das Session-Cookie
+   * ausweist --, bleibt er weg.
+   */
+  readonly displayKey?: string | null;
   readonly onChange: () => void;
   readonly onConnection: (connection: RealtimeConnection) => void;
 }): () => void {
   return connectRoom({
     subscribeEvent: "tournament:subscribe",
-    subscribePayload: { tournamentId: input.tournamentId },
+    subscribePayload:
+      input.displayKey === null || input.displayKey === undefined
+        ? { publicId: input.publicId }
+        : { publicId: input.publicId, displayKey: input.displayKey },
     changeEvent: "tournament:changed",
     onChange: input.onChange,
     onConnection: input.onConnection,
   });
 }
 
-/** Phase-5-Schnittstelle: Raum `encounter:<id>`, Ereignis `encounter:changed`. */
+/** Raum `encounter:<publicId>`, Ereignis `encounter:changed`. */
 export function connectEncounterRealtime(input: {
-  readonly encounterId: string;
+  readonly publicId: string;
   readonly onChange: () => void;
   readonly onConnection: (connection: RealtimeConnection) => void;
 }): () => void {
   return connectRoom({
     subscribeEvent: "encounter:subscribe",
-    subscribePayload: { encounterId: input.encounterId },
+    subscribePayload: { publicId: input.publicId },
     changeEvent: "encounter:changed",
     onChange: input.onChange,
     onConnection: input.onConnection,

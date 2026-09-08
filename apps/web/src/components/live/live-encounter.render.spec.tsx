@@ -18,6 +18,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const client = vi.hoisted(() => ({ apiRequest: vi.fn() }));
 vi.mock("@/lib/api-client", () => client);
 
+// `connectEncounterRealtime` liest beim Import die oeffentliche
+// Client-Umgebung (`realtime.ts` -> `environment.ts`); dieser Test prueft die
+// Verbindungsanzeige aus `query.isError`, nicht die Socket-Verbindung selbst
+// -- ein Mock, der nie meldet, haelt `connection` auf dem Ausgangswert
+// "verbindet" und damit dieselbe Anzeige wie vor der Realtime-Anbindung.
+vi.mock("@/lib/realtime", () => ({ connectEncounterRealtime: () => () => undefined }));
+
 import { LiveEncounter } from "./live-encounter";
 
 const encounter = {

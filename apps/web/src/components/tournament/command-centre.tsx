@@ -180,14 +180,18 @@ export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canW
     };
   }, []);
 
-  useEffect(
-    () => connectTournamentRealtime({
-      tournamentId,
+  // Der Raum haengt an der `publicId`, die erst mit dem Dashboard eintrifft
+  // -- vor dem ersten erfolgreichen Laden gibt es sie nicht, und ein
+  // Verbindungsversuch mit `undefined` waere von vornherein aussichtslos.
+  const publicId = dashboard?.tournament.publicId;
+  useEffect(() => {
+    if (publicId === undefined) return;
+    return connectTournamentRealtime({
+      publicId,
       onChange: () => void queryClient.invalidateQueries({ queryKey }),
       onConnection: setRealtimeConnection,
-    }),
-    [queryClient, queryKey, tournamentId],
-  );
+    });
+  }, [publicId, queryClient, queryKey]);
 
   const queueEntries = useMemo(() => assignmentQueueEntries(queued), [queued]);
   // Uebertragbar ist nur der fuehrende Block wartender Zuweisungen: ein

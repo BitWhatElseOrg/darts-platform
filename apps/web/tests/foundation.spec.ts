@@ -689,3 +689,113 @@ test("stellt einen Anzeige-Schluessel aus und oeffnet damit die Board-Ansicht ei
   await expect(keyRow.getByText("widerrufen", { exact: true })).toBeVisible();
   await expect(keyRow.getByRole("button", { name: "Widerrufen" })).toHaveCount(0);
 });
+
+test("zeigt ein beendetes Match in der oeffentlichen Live-Ansicht ohne Neuladen", async ({ browser, page }) => {
+  test.slow();
+
+  const suffix = randomUUID();
+  const short = suffix.slice(0, 8);
+  const email = `e2e-echtzeit-${suffix}@example.test`;
+  const tournamentName = `E2E Echtzeitcup ${short}`;
+
+  const invitation = await createRegistrationInvitation(email);
+  registrationSeeds.push(invitation);
+
+  const { organizationId } = await signUpWithOrganization(page, {
+    claimToken: invitation.claimToken,
+    email,
+    organizationName: `E2E Echtzeit Club ${short}`,
+    organizationSlug: `e2e-echtzeit-club-${suffix}`,
+    ownerName: `E2E Echtzeit Leitung ${short}`,
+  });
+
+  await page.goto(`/spieler?organisation=${organizationId}`);
+  await expect(page.getByRole("heading", { level: 1, name: "Spieler & Team" })).toBeVisible();
+  for (const name of ["Eins", "Zwei", "Drei", "Vier"].map((index) => `E2E Echtzeit ${index} ${short}`)) {
+    await page.getByLabel("Anzeigename", { exact: true }).fill(name);
+    await page.getByRole("button", { name: "Spieler hinzufügen" }).click();
+    await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
+  }
+
+  const boardName = `E2E Echtzeit Board ${short}`;
+  const matchesUrl = `/matches?organisation=${organizationId}`;
+  await page.goto(matchesUrl);
+  await expect(page.getByRole("heading", { level: 1, name: "Matches" })).toBeVisible();
+  await page.getByLabel("Neues Board").fill(boardName);
+  await page.getByRole("button", { name: "Hinzufügen", exact: true }).click();
+  await expect(
+    page.locator("li").filter({ hasText: boardName }).filter({ hasText: "frei" }),
+  ).toBeVisible();
+
+  await page.goto(`/turniere/neu?organisation=${organizationId}`);
+  await page.getByLabel("Format").selectOption("ROUND_ROBIN");
+  await page.getByLabel("Name").fill(tournamentName);
+  await page.getByLabel("Best of Legs").selectOption("1");
+  await expect(page.getByText("Matches insgesamt").locator("..")).toContainText("6");
+  await Promise.all([
+    page.waitForURL(/\/turniere\/[^/?]+\?organisation=/u),
+    page.getByRole("button", { name: "Turnier starten" }).click(),
+  ]);
+  await expect(page.getByRole("heading", { level: 1, name: tournamentName })).toBeVisible();
+
+  // Freigeben, bevor irgendetwas gespielt wird -- die anonyme Ansicht muss
+  // bereits offen sein, wenn das Match beendet wird; nur so beweist die
+  // Zusicherung unten eine echte Zustellung und nicht nur einen Erstload mit
+  // bereits aktuellem Stand.
+  await page.getByRole("switch", { name: "Öffentliche Freigabe: NEIN" }).click();
+  await expect(page.getByRole("switch", { name: "Öffentliche Freigabe: JA" })).toBeVisible();
+  const shareLink = page.getByRole("region", { name: "Öffentliche Freigabe" }).getByRole("link");
+  await expect(shareLink).toBeVisible();
+  const shareHref = await shareLink.getAttribute("href");
+  if (shareHref === null) throw new Error("Expected a public share link in the share panel.");
+
+  const anonymous = await browser.newContext();
+  try {
+    const publicPage = await anonymous.newPage();
+    await publicPage.goto(shareHref);
+    await expect(publicPage.getByRole("heading", { level: 1, name: tournamentName })).toBeVisible();
+    const summary = publicPage.getByText(/Matches gespielt$/u);
+    await expect(summary).toContainText("0 von 6 Matches gespielt");
+
+    // Im angemeldeten Kontext eines der sechs Matches bis zum Ende spielen --
+    // dieselbe Abfolge wie im Turnierabschnitt von "a club can complete a
+    // match and start a generated tournament match" oben.
+    await page.getByRole("button", { name: `Auf ${boardName} starten` }).click();
+    await expect(page.getByRole("heading", { level: 3, name: boardName })).toBeVisible();
+    await expect(page.getByText("501").first()).toBeVisible();
+
+    await page.goto(matchesUrl);
+    await page.getByRole("link").filter({ hasText: "läuft" }).first().click();
+    await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
+
+    await switchInputMode(page, "Runde");
+    const scoreVisit = async (score: number, checkoutDouble?: number) => {
+      await typeRoundScore(page, score);
+      if (checkoutDouble === undefined) {
+        await expect(page.getByRole("button", { name: "Rücktaste" })).toBeEnabled();
+        await expect(page.getByRole("button", { name: "Aufnahme erfassen" })).toBeDisabled();
+      } else {
+        const dialog = page.getByRole("dialog", { name: "Checkout erfassen" });
+        await expect(dialog).toBeVisible();
+        await dialog.getByLabel("Checkout-Feld").selectOption(String(checkoutDouble));
+        await selectCheckoutDarts(dialog, 3);
+        await dialog.getByRole("button", { name: "Checkout speichern" }).click();
+        await expect(page.getByText("Match beendet")).toBeVisible();
+      }
+    };
+    await scoreVisit(180);
+    await scoreVisit(0);
+    await scoreVisit(180);
+    await scoreVisit(0);
+    await scoreVisit(141, 12);
+
+    // Die bereits offene anonyme Ansicht bekommt das Ergebnis ueber ihr
+    // eigenes Abonnement zugestellt -- ohne `publicPage.reload()` und ohne
+    // auf das Nachlade-Intervall zu warten. Das knappe Zeitfenster ist der
+    // eigentliche Beleg: es reicht nur fuer eine echte Zustellung, nicht fuer
+    // ein Intervall von zuvor 5 Sekunden.
+    await expect(summary).toContainText("1 von 6 Matches gespielt", { timeout: 5_000 });
+  } finally {
+    await anonymous.close();
+  }
+});
