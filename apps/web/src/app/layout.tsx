@@ -6,6 +6,12 @@ import { Providers } from "@/components/providers";
 
 import "./globals.css";
 
+/**
+ * CSP-Nonce braucht dynamisches Rendering; einmal hier erzwungen, damit keine
+ * künftige Seite still statisch wird und ihre Nonce verliert. Siehe ADR 0014.
+ */
+export const dynamic = "force-dynamic";
+
 /** Enamel numerals off the number ring; squared terminals, condensed width. */
 const sairaCondensed = Saira_Condensed({
   subsets: ["latin"],

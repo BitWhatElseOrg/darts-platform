@@ -3,8 +3,6 @@ import Image from "next/image";
 import { dartOstLogo } from "@/assets";
 import { ApplicationDashboard } from "@/components/application-dashboard";
 
-export const dynamic = "force-dynamic";
-
 export default function HomePage() {
   return (
     <main className="flex min-h-screen justify-center px-4 py-10 sm:px-6">

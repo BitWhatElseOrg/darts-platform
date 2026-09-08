@@ -39,17 +39,24 @@ Skripte — nicht betroffen.)
 
 ## Entscheidung
 
-Diese fünf Routen erhalten `export const dynamic = "force-dynamic";`, damit
-sie bei jeder Anfrage — auch beim einmaligen Service-Worker-Fetch von
-`/offline` — serverseitig mit einer frischen, zum jeweiligen
-CSP-Response-Header passenden Nonce gerendert werden. Alle übrigen Routen
-bleiben unverändert (grösstenteils ohnehin schon `ƒ`, dynamisch).
+Ursprünglich erhielten genau diese fünf Routen `export const dynamic =
+"force-dynamic";`, damit sie bei jeder Anfrage — auch beim einmaligen
+Service-Worker-Fetch von `/offline` — serverseitig mit einer frischen, zum
+jeweiligen CSP-Response-Header passenden Nonce gerendert werden.
+
+Diese Entscheidung wurde revidiert: Nachdem alle fünf Routen bereits auf
+`force-dynamic` standen, war im Produktivbuild ohnehin keine einzige
+HTML-Seite mehr statisch (`○`) — nur noch `/manifest.webmanifest`, ein
+JSON-Dokument ohne Skripte. Damit kostet ein einziges `export const dynamic =
+"force-dynamic";` im Root-Layout (`apps/web/src/app/layout.tsx`) nichts
+Messbares mehr (es macht nichts statisch-Gebliebenes dynamisch, das nicht
+ohnehin schon dynamisch war) und schliesst zusätzlich strukturell aus, dass
+eine künftige neue Seite ohne eigene `dynamic`-Deklaration still wieder
+statisch gerendert wird und ihre Nonce verliert. Die fünf ursprünglichen
+Pro-Datei-Deklarationen wurden entsprechend entfernt.
 
 Verworfene Alternativen:
 
-- **Global per `connection()` im Root-Layout auf dynamisch zwingen:** robuster
-  gegen künftige neue statische Routen, aber ein app-weiter
-  Performance-Eingriff für einen Fund, der nur fünf konkrete Routen betrifft.
 - **`'unsafe-inline'` als Ausnahme für genau diese Routen behalten:**
   kein Anwendungscode-Eingriff, aber untergräbt den Zweck des Plans genau auf
   der Startseite — der Route mit dem grössten Publikum.
@@ -74,6 +81,44 @@ Verworfene Alternativen:
   als deprecated markiert (identisches Verhalten, siehe
   `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md`).
   Die Implementierung verwendet die neue Konvention.
+
+### Verbleibende Lücke: Next.js-eigene Fallback-Seiten
+
+Zwei weitere HTML-Dokumente im Produktivbuild tragen dasselbe Problem, sind
+aber keine App-Routen und lassen sich deshalb nicht mit `export const
+dynamic` beheben:
+
+- `.next/server/app/_global-error.html` — Next.js' eingebaute
+  Fallback-Seite für einen fehlgeschlagenen globalen Error Boundary. Diese
+  App hat kein eigenes `apps/web/src/app/global-error.tsx`, deshalb liefert
+  Next.js seine eigene, beim Build vorgerenderte Variante mit demselben
+  nonce-losen `self.__next_f.push(...)`-Inline-Bootstrap.
+- `.next/server/pages/500.html` — der Fallback der alten Pages Router
+  „500"-Seite. Diese App nutzt ausschliesslich den App Router, aber Next.js
+  legt diese Datei trotzdem als statisches Sicherheitsnetz an.
+
+Beide werden, wie ursprünglich die fünf oben genannten Routen, beim `next
+build` erzeugt — es gibt zu diesem Zeitpunkt keine Anfrage und damit keine
+Nonce, und es wird auch nie eine geben: Es sind vorgebaute Next.js-interne
+Artefakte, keine App-Routen, auf die `export const dynamic` (weder pro Route
+noch am Root-Layout) überhaupt Einfluss hat. Ein Codefix existiert dafür
+nicht.
+
+Das greift nur, wenn das Rendern der eigenen Error-Seite der App selbst
+scheitert — geprüft und bestätigt: Ein gewöhnlicher 500er (z. B. weil eine
+API nicht erreichbar ist) rendert weiterhin dynamisch über die
+anwendungseigene Fehlerbehandlung und bekommt dabei eine korrekte Nonce.
+`_global-error.html` und `pages/500.html` sind reine Next.js-Notlösungen für
+den selteneren Fall, dass selbst das Rendern der Fehlerseite fehlschlägt.
+
+Tritt dieser Fall ein, bleibt die Seite trotzdem lesbar (Inline-Styles, keine
+Abhängigkeit von Hydration für sichtbaren Inhalt), hydriert aber nicht, und
+der Browser meldet für diesen einen Aufruf eine `script-src`-CSP-Verletzung
+an `/api/v1/csp-reports`. Das ist hier festgehalten, damit ein künftiges,
+vereinzeltes Auftauchen dieses Reports auf diesem Endpunkt nicht für einen
+neuen Angriff oder Bug gehalten wird. Diese Lücke ist als bekannter,
+akzeptierter Zustand dokumentiert — kein offenes Follow-up ist dafür
+vorgesehen.
 
 ## Referenzen
 
