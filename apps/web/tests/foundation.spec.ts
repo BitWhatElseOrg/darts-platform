@@ -676,4 +676,16 @@ test("stellt einen Anzeige-Schluessel aus und oeffnet damit die Board-Ansicht ei
   } finally {
     await anonymousWithKey.close();
   }
+
+  // Widerrufen: der Zustand wechselt von "gültig" auf "widerrufen" und der
+  // Widerrufen-Knopf verschwindet (nur gueltige Schluessel zeigen ihn,
+  // `display-keys-panel.tsx`). `DELETE .../display-keys/:keyId` antwortet mit
+  // HTTP 204 ohne Koerper -- dieser Schritt haette vor der `apiRequest`-Korrektur
+  // (leerer Erfolgs-Body) an `JSON.parse("")` scheitern lassen, statt den
+  // Zustand hier ueberhaupt zu aktualisieren.
+  const keyRow = displayKeys.locator("li").filter({ hasText: keyLabel });
+  await expect(keyRow.getByText("gültig", { exact: true })).toBeVisible();
+  await keyRow.getByRole("button", { name: "Widerrufen" }).click();
+  await expect(keyRow.getByText("widerrufen", { exact: true })).toBeVisible();
+  await expect(keyRow.getByRole("button", { name: "Widerrufen" })).toHaveCount(0);
 });
