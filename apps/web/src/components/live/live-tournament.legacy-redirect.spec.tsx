@@ -15,6 +15,8 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ApiClientError } from "@/lib/api-error";
+
 const client = vi.hoisted(() => ({ apiRequest: vi.fn() }));
 vi.mock("@/lib/api-client", () => client);
 
@@ -73,7 +75,9 @@ describe("LiveTournament – Uebergangsweg fuer alte Adressen", () => {
   });
 
   it("loest bei einem scheiternden Erstload auf und leitet um, ohne den Fehlertext aufblitzen zu lassen", async () => {
-    client.apiRequest.mockRejectedValueOnce(new Error("not found"));
+    client.apiRequest.mockRejectedValueOnce(
+      new ApiClientError("Nicht gefunden.", "NOT_FOUND", null, undefined, 404),
+    );
     let resolveAddress: ((value: string | null) => void) | undefined;
     liveAddress.resolvePublicId.mockImplementationOnce(
       () =>
@@ -96,7 +100,9 @@ describe("LiveTournament – Uebergangsweg fuer alte Adressen", () => {
   });
 
   it("leitet im Board-Modus auf die Board-Adresse um", async () => {
-    client.apiRequest.mockRejectedValueOnce(new Error("not found"));
+    client.apiRequest.mockRejectedValueOnce(
+      new ApiClientError("Nicht gefunden.", "NOT_FOUND", null, undefined, 404),
+    );
     liveAddress.resolvePublicId.mockResolvedValueOnce("neue-public-id");
 
     renderLiveTournament({ boardId: "board-1", mode: "board", publicId: "interne-id" });
@@ -107,12 +113,42 @@ describe("LiveTournament – Uebergangsweg fuer alte Adressen", () => {
   });
 
   it("zeigt den Fehlertext, wenn die Aufloesung keine oeffentliche ID liefert", async () => {
-    client.apiRequest.mockRejectedValueOnce(new Error("not found"));
+    client.apiRequest.mockRejectedValueOnce(
+      new ApiClientError("Nicht gefunden.", "NOT_FOUND", null, undefined, 404),
+    );
     liveAddress.resolvePublicId.mockResolvedValueOnce(null);
 
     renderLiveTournament({ mode: "publikum", publicId: "unbekannte-id" });
 
     await screen.findByText("Turnier nicht gefunden.");
     expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  // Befund (PR-Agent, oeffentliche-turnier-ids): jeder Fehlschlag der
+  // Live-Abfrage loeste bisher gleich behandelt die Aufloesung ueber
+  // `/address` aus und endete ohne Treffer als "Turnier nicht gefunden." --
+  // ununterscheidbar von einem privaten oder unbekannten Turnier. Ein
+  // Serverausfall ist aber kein alter Link: nur eine echte 404 der
+  // Live-Abfrage rechtfertigt den Uebergangsweg.
+  it("loest bei einem Serverfehler NICHT ueber /address auf und zeigt eine unterscheidbare Meldung", async () => {
+    client.apiRequest.mockRejectedValueOnce(
+      new ApiClientError("Die API hat mit HTTP 500 geantwortet.", "REQUEST_FAILED", null, undefined, 500),
+    );
+
+    renderLiveTournament({ mode: "publikum", publicId: "echte-public-id" });
+
+    await screen.findByText("Diese Ansicht konnte nicht geladen werden. Versuche es später erneut.");
+    expect(liveAddress.resolvePublicId).not.toHaveBeenCalled();
+    expect(router.replace).not.toHaveBeenCalled();
+    expect(screen.queryByText("Turnier nicht gefunden.")).toBeNull();
+  });
+
+  it("loest auch bei einem Netzwerkfehler (kein ApiClientError) NICHT ueber /address auf", async () => {
+    client.apiRequest.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+    renderLiveTournament({ mode: "publikum", publicId: "echte-public-id" });
+
+    await screen.findByText("Diese Ansicht konnte nicht geladen werden. Versuche es später erneut.");
+    expect(liveAddress.resolvePublicId).not.toHaveBeenCalled();
   });
 });

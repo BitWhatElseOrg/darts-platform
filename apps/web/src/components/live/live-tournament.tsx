@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { apiRequest } from "@/lib/api-client";
+import { ApiClientError } from "@/lib/api-error";
 import { buildBracketRounds, knockoutLeadsLiveView, type BracketNode, type BracketRound, type BracketSlot } from "@/lib/bracket-tree";
 import { resolvePublicId } from "@/lib/live-address";
 
@@ -56,6 +57,15 @@ export function LiveTournament({ publicId, mode, boardId }: LiveTournamentProps)
   // fuer einen unbekannten Fehlercode waere hier nur verwirrend.
   const initialLoadFailed = !query.isPending && query.data === undefined;
 
+  // PR-Review, Folgebefund: `initialLoadFailed` allein sagt nur, dass der
+  // Erstload keine Daten brachte -- ein 500er, ein Netzwerkausfall oder ein
+  // Timeout sehen darin genauso aus wie ein alter oder unbekannter Link. Nur
+  // eine tatsaechliche 404 der Live-Abfrage rechtfertigt den Uebergangsweg
+  // ueber `/address`; jeder andere Fehlschlag bekommt eine eigene, von
+  // "Turnier nicht gefunden." unterscheidbare Meldung.
+  const initialLoadIsNotFound =
+    initialLoadFailed && query.error instanceof ApiClientError && query.error.status === 404;
+
   // Befund B (Folgereview oeffentliche-turnier-ids): `resolvePublicId` zahlt
   // eine Rundreise gegen `/address`, die fuer eine echte `public_id` planmaessig
   // mit 404 endet (`live-address.ts`). Sie lohnt sich nur, wenn die
@@ -67,7 +77,7 @@ export function LiveTournament({ publicId, mode, boardId }: LiveTournamentProps)
   const resolvedForCurrent = legacyResolution?.publicId === publicId ? legacyResolution.resolved : undefined;
 
   useEffect(() => {
-    if (!initialLoadFailed || resolvedForCurrent !== undefined) return;
+    if (!initialLoadIsNotFound || resolvedForCurrent !== undefined) return;
     let cancelled = false;
     void resolvePublicId(publicId).then((resolved) => {
       if (!cancelled) setLegacyResolution({ publicId, resolved });
@@ -75,7 +85,7 @@ export function LiveTournament({ publicId, mode, boardId }: LiveTournamentProps)
     return () => {
       cancelled = true;
     };
-  }, [initialLoadFailed, publicId, resolvedForCurrent]);
+  }, [initialLoadIsNotFound, publicId, resolvedForCurrent]);
 
   useEffect(() => {
     if (typeof resolvedForCurrent === "string") {
@@ -85,6 +95,12 @@ export function LiveTournament({ publicId, mode, boardId }: LiveTournamentProps)
 
   if (query.isPending) return <LiveNotice text="Live-Turnier wird geladen …" />;
   if (initialLoadFailed) {
+    // Kein alter Link: ein Serverfehler, ein Netzwerkausfall oder ein Timeout
+    // behaupten nicht, das Turnier existiere nicht -- und zahlen auch nicht
+    // die Rundreise gegen `/address` (siehe `initialLoadIsNotFound` oben).
+    if (!initialLoadIsNotFound) {
+      return <LiveNotice text="Diese Ansicht konnte nicht geladen werden. Versuche es später erneut." />;
+    }
     // Solange die Aufloesung laeuft oder eine Umleitung bevorsteht
     // (`resolvedForCurrent` ist `undefined` bzw. eine `string`), bleibt es bei
     // der Lade-Meldung -- sonst blitzt "Turnier nicht gefunden." fuer einen
