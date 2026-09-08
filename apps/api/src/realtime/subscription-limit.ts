@@ -21,6 +21,35 @@ export interface SubscribableSocket {
 export type SubscriptionOutcome = "joined" | "already-joined" | "limit-reached";
 
 /**
+ * Die drei Gruende, aus denen ein Abonnement abgelehnt wird: die Obergrenze
+ * je Socket (hier), fehlende Berechtigung und eine unbekannte Adresse (beide
+ * `subscription-authorization.ts`). Der Client bekommt in allen Faellen
+ * dasselbe Ereignis, nach aussen nicht unterscheidbar — nur in den Logs.
+ */
+export type SubscriptionRejection =
+  | "SUBSCRIPTION_LIMIT_REACHED"
+  | "SUBSCRIPTION_FORBIDDEN"
+  | "SUBSCRIPTION_UNKNOWN_ROOM";
+
+/** Der Teil von Socket.IO, den `rejectSubscription` braucht. */
+export interface RejectableSocket {
+  emit(event: string, payload: Readonly<Record<string, string>>): void;
+}
+
+/**
+ * Sendet `subscription:rejected`. Einzige Stelle im Code, die dieses Ereignis
+ * verschickt — `joinSubscription` benutzt sie ebenso wie die Autorisierung in
+ * `realtime.service.ts`.
+ */
+export function rejectSubscription(
+  socket: RejectableSocket,
+  room: string,
+  reason: SubscriptionRejection,
+): void {
+  socket.emit("subscription:rejected", { room, reason });
+}
+
+/**
  * Tritt einem Raum bei, solange dieser Socket die Obergrenze nicht
  * erreicht hat. `socket.rooms` enthaelt immer den eigenen Kanal des Sockets;
  * er zaehlt nicht als Abonnement. Wird abgewiesen, erfaehrt der Client das
@@ -35,10 +64,7 @@ export function joinSubscription(
 
   const subscriptions = [...socket.rooms].filter((joined) => joined !== socket.id);
   if (subscriptions.length >= MAX_SUBSCRIPTIONS_PER_SOCKET) {
-    socket.emit("subscription:rejected", {
-      room,
-      reason: "SUBSCRIPTION_LIMIT_REACHED",
-    });
+    rejectSubscription(socket, room, "SUBSCRIPTION_LIMIT_REACHED");
     return "limit-reached";
   }
 

@@ -15,5 +15,6 @@ import { TournamentsService } from "./tournaments.service.js";
   imports: [DatabaseModule, MatchesModule, OrganizationsModule],
   controllers: [TournamentsController, PublicTournamentsController, DisplayKeysController],
   providers: [TournamentsRepository, TournamentsService, DisplayKeysRepository, DisplayKeysService],
+  exports: [TournamentsRepository, DisplayKeysService],
 })
 export class TournamentsModule {}
