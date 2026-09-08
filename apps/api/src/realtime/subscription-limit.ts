@@ -6,7 +6,7 @@
  * Luft und zugleich eine Grenze.
  *
  * Die Kanal-Autorisierung selbst (wer darf welchen Raum hoeren) ist damit
- * nicht beantwortet; sie steht als eigenes Vorhaben aus.
+ * nicht beantwortet; sie liegt in `subscription-authorization.ts`.
  */
 export const MAX_SUBSCRIPTIONS_PER_SOCKET = 20;
 
