@@ -1051,6 +1051,20 @@ Organisationsmitgliedschaft
 gültiger Anzeige-Schlüssel
 ```
 
+Ohne explizite Angabe läuft ein Anzeige-Schlüssel 48 Stunden nach
+Turnierbeginn ab, gedeckelt gegen „jetzt plus 48 Stunden" (nie in der
+Vergangenheit); er lässt sich auch vor Ablauf jederzeit widerrufen.
+
+Bekannte Einschränkung: Widerruf und Ablauf verhindern sofort neue
+Abonnements und neuen HTTP-Zugriff, trennen aber einen Socket, der dem
+Realtime-Raum bereits mit diesem Schlüssel beigetreten ist, nicht zwangsweise
+— er empfängt weiterhin Ereigniszeiger (`{eventId, eventType, occurredAt}`,
+keine Matchinhalte), bis er sich von selbst trennt. Ein echter Fix bräuchte
+`RealtimeService`/`RealtimeBroadcaster` erreichbar aus `DisplayKeysService`;
+da `RealtimeModule` bereits `TournamentsModule` importiert, wäre die
+umgekehrte Abhängigkeit zirkulär und verlangt ein eigenes Design (siehe ADR
+0013).
+
 ### 29.3 Realtime: Räume und Autorisierung
 
 Realtime-Räume sind über `public_id` benannt (`tournament:{publicId}`,

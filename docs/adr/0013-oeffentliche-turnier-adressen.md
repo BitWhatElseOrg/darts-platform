@@ -108,9 +108,23 @@ kein neues Ereignis hinzu, nur weitere Ablehnungsgründe
 Ein privates Turnier ist ohne Mitgliedschaft oder gültigen Anzeige-Schlüssel
 weder über REST noch über Realtime von einem nicht existierenden
 unterscheidbar. Der interne Primärschlüssel bleibt intern. Anzeige-Schlüssel
-sind ausschliesslich lesend, tragen kein Ablaufdatum aus sich selbst heraus,
-lassen sich aber jederzeit widerrufen, und ihr Klartext ist nach der Ausgabe
-an die Turnierleitung nirgends mehr rekonstruierbar.
+sind ausschliesslich lesend und laufen ohne explizite Angabe 48 Stunden nach
+Turnierbeginn ab (nie in der Vergangenheit — `DisplayKeysService` deckelt die
+Vorgabe zusätzlich gegen „jetzt plus 48 Stunden"), lassen sich aber auch vor
+Ablauf jederzeit widerrufen, und ihr Klartext ist nach der Ausgabe an die
+Turnierleitung nirgends mehr rekonstruierbar.
+
+Eine Einschränkung bleibt bestehen: Widerruf und Ablauf verhindern sofort
+neue Abonnements und neuen HTTP-Zugriff, trennen aber einen Socket, der dem
+Realtime-Raum des Turniers bereits mit diesem Schlüssel beigetreten ist,
+nicht zwangsweise. Ein solcher Socket erhält weiterhin Ereigniszeiger
+(`{eventId, eventType, occurredAt}`, keine Matchinhalte), bis er sich von
+selbst trennt (Geräteneustart, Reload). Ein echter Fix bräuchte
+`RealtimeService`/`RealtimeBroadcaster` erreichbar aus `DisplayKeysService` —
+`RealtimeModule` importiert bereits `TournamentsModule`, die umgekehrte
+Abhängigkeit wäre also zirkulär und verdient ein eigenes Design, keinen
+nachträglichen Fix in diesem Entscheid. Bis dahin ist das eine bekannte,
+akzeptierte Lücke.
 
 ## Betriebsfolgen
 

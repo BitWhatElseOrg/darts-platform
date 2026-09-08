@@ -37,16 +37,31 @@ export interface RejectableSocket {
 }
 
 /**
+ * Der Grund, den der Client zu sehen bekommt: `SUBSCRIPTION_UNKNOWN_ROOM` und
+ * `SUBSCRIPTION_FORBIDDEN` faellt hier auf einen einzigen Wert zusammen.
+ * Beide bleiben nach aussen ununterscheidbar — sonst waere die Existenz eines
+ * Turniers hinter einer erratenen `public_id` selbst schon eine Information
+ * (ADR 0013, ARCHITECTURE §29.1). Nur in den Logs (`realtime.service.ts`,
+ * Ereignis `realtime.subscription_denied`) bleibt der praezise Grund
+ * erhalten. `SUBSCRIPTION_LIMIT_REACHED` ist keine sicherheitsrelevante
+ * Unterscheidung und bleibt darum eigen benannt.
+ */
+function toClientRejection(reason: SubscriptionRejection): SubscriptionRejection {
+  return reason === "SUBSCRIPTION_UNKNOWN_ROOM" ? "SUBSCRIPTION_FORBIDDEN" : reason;
+}
+
+/**
  * Sendet `subscription:rejected`. Einzige Stelle im Code, die dieses Ereignis
  * verschickt — `joinSubscription` benutzt sie ebenso wie die Autorisierung in
- * `realtime.service.ts`.
+ * `realtime.service.ts`. Das macht sie auch zur einzigen Stelle, an der die
+ * Existenz-Oracle-Faelle zusammengefuehrt werden muessen (`toClientRejection`).
  */
 export function rejectSubscription(
   socket: RejectableSocket,
   room: string,
   reason: SubscriptionRejection,
 ): void {
-  socket.emit("subscription:rejected", { room, reason });
+  socket.emit("subscription:rejected", { room, reason: toClientRejection(reason) });
 }
 
 /**

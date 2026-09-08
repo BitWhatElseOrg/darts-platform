@@ -28,6 +28,11 @@ import { DisplayKeysRepository } from "../tournaments/display-keys.repository.js
 import { DisplayKeysService } from "../tournaments/display-keys.service.js";
 import { TournamentsRepository } from "../tournaments/tournaments.repository.js";
 import { RedisService } from "../redis/redis.service.js";
+import {
+  rejectSubscription,
+  type RejectableSocket,
+  type SubscriptionRejection,
+} from "./subscription-limit.js";
 import { SubscriptionAuthorization } from "./subscription-authorization.js";
 
 // M8: Better Auths eigener Limiter zaehlt unabhaengig vom Fastify-Limiter
@@ -269,6 +274,36 @@ describe("SubscriptionAuthorization.authorizeTournament", () => {
     });
 
     expect(decision).toEqual({ kind: "deny", reason: "SUBSCRIPTION_UNKNOWN_ROOM" });
+  });
+
+  it("liefert fuer die unbekannte und die verbotene Adresse denselben Client-Grund — sonst waere die Existenz des privaten Turniers selbst schon eine Information (Finding 1)", async () => {
+    const forbidden = await authorization.authorizeTournament({
+      publicId: privateTournamentPublicId,
+      headers: {},
+      displayKeySecret: undefined,
+    });
+    const unknown = await authorization.authorizeTournament({
+      publicId: randomUUID(),
+      headers: {},
+      displayKeySecret: undefined,
+    });
+    if (forbidden.kind !== "deny" || unknown.kind !== "deny") {
+      throw new Error("Beide Entscheidungen muessen ablehnen.");
+    }
+    // Die internen Gruende unterscheiden sich weiterhin (fuer die Logs in
+    // `realtime.service.ts`) — nur das, was ueber die Steckdose geht, muss
+    // gleich sein.
+    expect(forbidden.reason).toBe("SUBSCRIPTION_FORBIDDEN");
+    expect(unknown.reason).toBe("SUBSCRIPTION_UNKNOWN_ROOM");
+
+    function clientPayload(reason: SubscriptionRejection): unknown {
+      let payload: unknown;
+      const socket: RejectableSocket = { emit: (_event, sent) => (payload = sent) };
+      rejectSubscription(socket, "tournament:x", reason);
+      return payload;
+    }
+
+    expect(clientPayload(forbidden.reason)).toEqual(clientPayload(unknown.reason));
   });
 });
 
