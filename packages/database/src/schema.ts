@@ -1158,6 +1158,10 @@ export const competitions = pgTable(
       "competitions_min_nominations_shorthanded_check",
       sql`${table.minNominationsShorthanded} > 0 and ${table.minNominationsShorthanded} <= ${table.minNominations}`,
     ),
+    check(
+      "competitions_min_nominations_shorthanded_lineup_check",
+      sql`${table.minNominationsShorthanded} <= ${table.lineupPositions}`,
+    ),
     check("competitions_max_substitutions_check", sql`${table.maxSubstitutionsPerEncounter} >= 0`),
     check("competitions_max_doubles_check", sql`${table.maxDoublesPerPlayer} >= 0`),
     check("competitions_version_check", sql`${table.version} >= 0`),
