@@ -43,4 +43,5 @@ export {
 // scheitern lassen -- unabhaengig davon, ob eine Client-Komponente die
 // Funktion je aufruft, reicht der blosse Re-Export im selben Modulgraphen.
 // Server-seitige Aufrufer (bisher nur `display-keys.service.ts`) importieren
-// deshalb direkt aus `@darts-platform/domain/dist/display-key-secret.js`.
+// deshalb ueber den expliziten Subpath-Export `@darts-platform/domain/display-key-secret`
+// (siehe `package.json` -> `exports`), nicht ueber diesen Barrel.
