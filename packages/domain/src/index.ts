@@ -29,6 +29,11 @@ export {
   decideDisplayKeyState,
   type DisplayKeyState,
 } from "./display-key-state";
+export {
+  decideSubscription,
+  type SubscriptionDecision,
+  type SubscriptionInput,
+} from "./subscription-access";
 // `createDisplayKeySecret`/`hashDisplayKeySecret` (`./display-key-secret`)
 // stehen bewusst NICHT in diesem Barrel: `@darts-platform/domain` wird auch
 // von Client-Komponenten importiert (z. B. `hasOrganizationPermission` in
