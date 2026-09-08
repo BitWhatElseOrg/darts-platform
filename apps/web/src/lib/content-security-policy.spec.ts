@@ -5,20 +5,44 @@ import { buildContentSecurityPolicy } from "./content-security-policy";
 const options = {
   apiOrigin: "https://api.dartbase.ch",
   reportUri: "https://api.dartbase.ch/api/v1/csp-reports",
+  nonce: "test-nonce-default",
 } as const;
 
 describe("buildContentSecurityPolicy", () => {
+  it("traegt die Nonce in script-src statt 'unsafe-inline'", () => {
+    const policy = buildContentSecurityPolicy({
+      apiOrigin: "https://api.example.test",
+      reportUri: "https://api.example.test/api/v1/csp-reports",
+      allowEval: false,
+      nonce: "test-nonce-123",
+    });
+
+    expect(policy).toContain("script-src 'self' 'nonce-test-nonce-123'");
+    expect(policy).not.toContain("script-src 'self' 'unsafe-inline'");
+  });
+
+  it("erlaubt unsafe-eval weiterhin nur im Entwicklungsserver, zusaetzlich zur Nonce", () => {
+    const policy = buildContentSecurityPolicy({
+      apiOrigin: "https://api.example.test",
+      reportUri: "https://api.example.test/api/v1/csp-reports",
+      allowEval: true,
+      nonce: "test-nonce-123",
+    });
+
+    expect(policy).toContain("script-src 'self' 'nonce-test-nonce-123' 'unsafe-eval'");
+  });
+
   it("erlaubt `eval` im Produktionsbuild nicht", () => {
     const policy = buildContentSecurityPolicy({ ...options, allowEval: false });
 
-    expect(policy).toContain("script-src 'self' 'unsafe-inline';");
+    expect(policy).toContain("script-src 'self' 'nonce-test-nonce-default'");
     expect(policy).not.toContain("unsafe-eval");
   });
 
   it("erlaubt `eval` nur im Entwicklungsserver und nur fuer Skripte", () => {
     const policy = buildContentSecurityPolicy({ ...options, allowEval: true });
 
-    expect(policy).toContain("script-src 'self' 'unsafe-inline' 'unsafe-eval'");
+    expect(policy).toContain("script-src 'self' 'nonce-test-nonce-default' 'unsafe-eval'");
     expect(policy.match(/unsafe-eval/gu)).toHaveLength(1);
   });
 
