@@ -1,24 +1,33 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { ForbiddenException } from "@nestjs/common";
+import { ForbiddenException, NotFoundException } from "@nestjs/common";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import { memberships, organizations, tournaments, users } from "@darts-platform/database";
 
 import type { AuthContext } from "../auth/auth.types.js";
 import { DatabaseService } from "../database/database.service.js";
+import { MatchesRepository } from "../matches/matches.repository.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { OrganizationsRepository } from "../organizations/organizations.repository.js";
 import { DisplayKeysRepository } from "./display-keys.repository.js";
 import { DisplayKeysService } from "./display-keys.service.js";
 import { TournamentsRepository } from "./tournaments.repository.js";
+import { TournamentsService } from "./tournaments.service.js";
 
 const databaseService = new DatabaseService(parseApplicationEnvironment(process.env));
 const access = new OrganizationAccessService(new OrganizationsRepository(databaseService));
 const tournamentsRepository = new TournamentsRepository(databaseService);
+const matchesRepository = new MatchesRepository(databaseService);
 const repository = new DisplayKeysRepository(databaseService);
 const service = new DisplayKeysService(repository, tournamentsRepository, access);
+const tournamentsService = new TournamentsService(
+  tournamentsRepository,
+  matchesRepository,
+  access,
+  service,
+);
 
 const organizationId = randomUUID();
 const userId = randomUUID();
@@ -160,5 +169,25 @@ describe("Anzeige-Schluessel API", () => {
         organizationId, tournamentId, data: { label: "Verboten" }, auth: viewerAuth, audit,
       }),
     ).rejects.toThrow(ForbiddenException);
+  });
+
+  it("zeigt ein privates Turnier mit gueltigem Schluessel", async () => {
+    const created = await service.create({
+      organizationId, tournamentId, data: { label: "Board 1" }, auth, audit,
+    });
+
+    const dashboard = await tournamentsService.publicDashboard(publicId, created.secret);
+
+    expect(dashboard.tournament.publicId).toBe(publicId);
+  });
+
+  it("bleibt ohne Schluessel bei 404", async () => {
+    await expect(tournamentsService.publicDashboard(publicId)).rejects.toThrow(NotFoundException);
+  });
+
+  it("antwortet auf einen erfundenen Schluessel ebenfalls mit 404", async () => {
+    await expect(
+      tournamentsService.publicDashboard(publicId, "erfunden-und-zu-kurz"),
+    ).rejects.toThrow(NotFoundException);
   });
 });

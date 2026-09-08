@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Param, ParseUUIDPipe } from "@nestjs/common";
+import { Controller, Get, Inject, Param, ParseUUIDPipe, Query } from "@nestjs/common";
 import type { PublicTournamentDashboard } from "@darts-platform/schemas";
 
 import { Public } from "../auth/public.decorator.js";
@@ -12,8 +12,9 @@ export class PublicTournamentsController {
   @Get(":publicId/live")
   public live(
     @Param("publicId", ParseUUIDPipe) publicId: string,
+    @Query("k") displayKeySecret?: string,
   ): Promise<PublicTournamentDashboard> {
-    return this.service.publicDashboard(publicId);
+    return this.service.publicDashboard(publicId, displayKeySecret);
   }
 
   /**

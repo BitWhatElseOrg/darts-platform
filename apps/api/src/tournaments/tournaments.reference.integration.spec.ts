@@ -20,6 +20,8 @@ import { MatchesRepository } from "../matches/matches.repository.js";
 import { MatchesService } from "../matches/matches.service.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { OrganizationsRepository } from "../organizations/organizations.repository.js";
+import { DisplayKeysRepository } from "./display-keys.repository.js";
+import { DisplayKeysService } from "./display-keys.service.js";
 import { TournamentsRepository } from "./tournaments.repository.js";
 import { TournamentsService } from "./tournaments.service.js";
 
@@ -28,7 +30,17 @@ const access = new OrganizationAccessService(new OrganizationsRepository(databas
 const matchesRepository = new MatchesRepository(databaseService);
 const matchesService = new MatchesService(matchesRepository, access);
 const tournamentsRepository = new TournamentsRepository(databaseService);
-const tournamentsService = new TournamentsService(tournamentsRepository, matchesRepository, access);
+const displayKeys = new DisplayKeysService(
+  new DisplayKeysRepository(databaseService),
+  tournamentsRepository,
+  access,
+);
+const tournamentsService = new TournamentsService(
+  tournamentsRepository,
+  matchesRepository,
+  access,
+  displayKeys,
+);
 const organizationId = randomUUID();
 const userId = randomUUID();
 const playerIds = Array.from({ length: 32 }, () => randomUUID());

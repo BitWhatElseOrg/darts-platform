@@ -244,6 +244,21 @@ export class TournamentsRepository {
     return { id: tournament.id, organizationId: tournament.organizationId, visibility: tournament.visibility as TournamentVisibility };
   }
 
+  /**
+   * Schwester von `getPublicDashboardDataByPublicId` ohne den
+   * Sichtbarkeitsfilter: der Aufrufer hat die Berechtigung (Anzeige-Schluessel)
+   * bereits ausserhalb dieser Funktion geprueft — `getAccessFactsByPublicId`
+   * traegt dieselbe namenlose Aufloesung, hier folgt nur noch die Datenabfrage
+   * ohne `requirePublic`.
+   */
+  public async getPrivateDashboardDataByPublicId(
+    publicId: string,
+  ): Promise<TournamentDashboardData | null> {
+    const tournament = await this.getAccessFactsByPublicId(publicId);
+    if (tournament === null) return null;
+    return this.getDashboardData(tournament.organizationId, tournament.id);
+  }
+
   /** Siehe `TournamentsService.publicAddress` — Uebergangsweg mit Frist. */
   public async getPublicAddress(
     tournamentId: string,

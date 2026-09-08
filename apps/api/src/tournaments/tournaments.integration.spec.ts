@@ -29,6 +29,8 @@ import { MatchesRepository } from "../matches/matches.repository.js";
 import { MatchesService, MatchVersionConflictException } from "../matches/matches.service.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { OrganizationsRepository } from "../organizations/organizations.repository.js";
+import { DisplayKeysRepository } from "./display-keys.repository.js";
+import { DisplayKeysService } from "./display-keys.service.js";
 import { TournamentsRepository } from "./tournaments.repository.js";
 import { TournamentsService } from "./tournaments.service.js";
 
@@ -37,7 +39,12 @@ const access = new OrganizationAccessService(new OrganizationsRepository(databas
 const matchesRepository = new MatchesRepository(databaseService);
 const matchesService = new MatchesService(matchesRepository, access);
 const repository = new TournamentsRepository(databaseService);
-const service = new TournamentsService(repository, matchesRepository, access);
+const displayKeys = new DisplayKeysService(
+  new DisplayKeysRepository(databaseService),
+  repository,
+  access,
+);
+const service = new TournamentsService(repository, matchesRepository, access, displayKeys);
 const organizationId = randomUUID();
 const foreignOrganizationId = randomUUID();
 const userId = randomUUID();

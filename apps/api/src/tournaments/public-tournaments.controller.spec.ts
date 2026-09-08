@@ -87,7 +87,19 @@ describe("PublicTournamentsController", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json<PublicTournamentDashboard>().tournament.publicId).toBe(publicId);
-    expect(publicDashboard).toHaveBeenCalledWith(publicId);
+    expect(publicDashboard).toHaveBeenCalledWith(publicId, undefined);
+  });
+
+  it("reicht den Anzeige-Schluessel aus der Query an den Service durch", async () => {
+    const publicId = "6f1f1f6a-0000-4000-8000-000000000006";
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/public/tournaments/${publicId}/live?k=ein-schluessel`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(publicDashboard).toHaveBeenCalledWith(publicId, "ein-schluessel");
   });
 
   it("liefert zu einer internen ID unter :tournamentId/address die oeffentliche Adresse", async () => {
@@ -131,7 +143,7 @@ describe("PublicTournamentsController", () => {
 
     expect(liveResponse.statusCode).toBe(200);
     expect(addressResponse.statusCode).toBe(200);
-    expect(publicDashboard).toHaveBeenCalledWith(id);
+    expect(publicDashboard).toHaveBeenCalledWith(id, undefined);
     expect(publicAddress).toHaveBeenCalledWith(id);
     expect(addressResponse.json()).toEqual({ publicId: transitionTargetPublicId });
     expect(liveResponse.json<PublicTournamentDashboard>().tournament.publicId).toBe(id);
