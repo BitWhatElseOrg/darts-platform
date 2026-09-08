@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hasOrganizationPermission } from "./permissions";
+import { hasOrganizationPermission, organizationPermissions } from "./permissions";
 
 describe("organization permissions", () => {
   it("allows owners to manage members and archive players", () => {
@@ -71,5 +71,25 @@ describe("organization permissions", () => {
       expect(hasOrganizationPermission(role, "encounter:lineup")).toBe(false);
       expect(hasOrganizationPermission(role, "encounter:manage")).toBe(false);
     }
+  });
+});
+
+describe("tournament:share", () => {
+  it("liegt bei Leitung und Verwaltung", () => {
+    expect(hasOrganizationPermission("OWNER", "tournament:share")).toBe(true);
+    expect(hasOrganizationPermission("ADMIN", "tournament:share")).toBe(true);
+    expect(hasOrganizationPermission("TOURNAMENT_DIRECTOR", "tournament:share")).toBe(true);
+  });
+
+  it("liegt nicht bei den lesenden Rollen", () => {
+    expect(hasOrganizationPermission("VIEWER", "tournament:share")).toBe(false);
+  });
+
+  it("ist nicht dasselbe wie tournament:update", () => {
+    // Wer Spielplaene pflegt, muss nicht zwingend Zugaenge verteilen duerfen.
+    // Die Trennung ist der Zweck dieser Berechtigung; faellt sie zusammen,
+    // war die Berechtigung ueberfluessig.
+    expect(organizationPermissions).toContain("tournament:update");
+    expect(organizationPermissions).toContain("tournament:share");
   });
 });
