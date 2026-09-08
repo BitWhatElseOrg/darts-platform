@@ -48,6 +48,11 @@ export function proxy(request: NextRequest): NextResponse {
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);
+  // Next.js liest die Nonce fuer seinen eigenen Bootstrap aus den
+  // Request-Headern (app-render.js); das funktioniert heute nur, weil der
+  // Node-Server Response- in Request-Header spiegelt (resolve-routes.js) --
+  // kein garantiertes Verhalten. Explizit setzen macht das unabhaengig davon.
+  requestHeaders.set("Content-Security-Policy", contentSecurityPolicy);
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("Content-Security-Policy", contentSecurityPolicy);
