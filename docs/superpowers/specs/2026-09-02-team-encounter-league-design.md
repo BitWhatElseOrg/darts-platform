@@ -251,6 +251,7 @@ CHECK lineup_positions > 0
 CHECK min_nominations >= lineup_positions
 CHECK min_nominations_shorthanded > 0
 CHECK min_nominations_shorthanded <= min_nominations
+CHECK min_nominations_shorthanded <= lineup_positions
 CHECK max_substitutions_per_encounter >= 0
 CHECK max_doubles_per_player >= 0
 ```
@@ -436,6 +437,7 @@ CHECK result_type is null or winner_side is not null
 CHECK result_type <> 'WALKOVER' or match_id is null
 CHECK (discipline = 'SINGLES') = (home_position is not null)
 CHECK (home_position is null) = (away_position is null)
+CHECK board_id is null or status = 'IN_PROGRESS'
 ```
 
 Die Slots sind eine **Kopie** der Vorlage zum Zeitpunkt der Ansetzung. Ändert
