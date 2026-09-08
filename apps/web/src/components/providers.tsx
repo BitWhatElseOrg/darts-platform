@@ -28,6 +28,9 @@ import { PwaRegistration } from "./pwa-registration";
 // das diese Reihenfolge stillschweigend brechen. Vollstaendige Analyse und
 // robustere Alternativen (synchrones Inline-Head-Skript, Webpack-Config):
 // `docs/superpowers/plans/2026-09-08-tier3-backlog-und-rueckfragen.md`.
+// `pnpm --filter @darts-platform/web test:e2e:prod` (Route `/`) faengt eine
+// stille Regression hier auf -- die Wache meldet dann die beiden
+// `script-src`-eval-Verstoesse aus den Zod-Bundle-Kopien.
 z.config({ jitless: true });
 
 interface ProvidersProps {

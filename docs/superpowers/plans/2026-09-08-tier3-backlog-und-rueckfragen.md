@@ -55,7 +55,9 @@ bewusst nicht in denselben Branch gehören:
   Chunk) oder eine Next.js-/Webpack-Konfigurationsänderung, die diesen
   Aufruf in einen garantiert zuerst ausgeführten Chunk zwingt — beides
   ausserhalb des Rahmens einer kleinen Konfigurationsaufgabe und laut
-  AGENTS.md §6/§26 eine eigene Spec/ADR wert.
+  AGENTS.md §6/§26 eine eigene Spec/ADR wert. `pnpm --filter
+  @darts-platform/web test:e2e:prod` (Route `/`) wuerde eine solche
+  Regression auffangen, statt sie nur in dieser Notiz dokumentiert zu lassen.
 
 ## Bereits erledigt, aber noch in älteren Memory-Notizen als offen geführt
 

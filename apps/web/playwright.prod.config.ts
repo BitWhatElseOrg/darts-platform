@@ -42,10 +42,18 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `pnpm build && npx next start --port ${webPort}`,
+    command: `pnpm --filter @darts-platform/web... build && npx next start --port ${webPort}`,
     url: webOrigin,
     env: {
       NODE_ENV: "production",
+      // Ohne diese explizite Vorgabe wirft `next start` bei jedem Request
+      // `EnvironmentValidationError` (Variable fehlt), der Server wird nie
+      // gesund, und Playwright scheitert nach 180s mit einer Fehlermeldung,
+      // die nicht auf die eigentliche Ursache zeigt. Gleiches Muster wie in
+      // `playwright.config.ts`; der Wert selbst ist hier beliebig, da die
+      // geprueften Seiten keine authentifizierten Daten abrufen.
+      NEXT_PUBLIC_API_URL:
+        process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1",
     },
     reuseExistingServer: false,
     timeout: 180_000,
