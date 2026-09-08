@@ -17,7 +17,7 @@ describe("buildContentSecurityPolicy", () => {
       nonce: "test-nonce-123",
     });
 
-    expect(policy).toContain("script-src 'self' 'nonce-test-nonce-123'");
+    expect(policy).toContain("script-src 'self' 'nonce-test-nonce-123' 'strict-dynamic'");
     expect(policy).not.toContain("script-src 'self' 'unsafe-inline'");
   });
 
@@ -29,7 +29,9 @@ describe("buildContentSecurityPolicy", () => {
       nonce: "test-nonce-123",
     });
 
-    expect(policy).toContain("script-src 'self' 'nonce-test-nonce-123' 'unsafe-eval'");
+    expect(policy).toContain(
+      "script-src 'self' 'nonce-test-nonce-123' 'strict-dynamic' 'unsafe-eval'",
+    );
   });
 
   it("erlaubt `eval` im Produktionsbuild nicht", () => {
@@ -42,7 +44,9 @@ describe("buildContentSecurityPolicy", () => {
   it("erlaubt `eval` nur im Entwicklungsserver und nur fuer Skripte", () => {
     const policy = buildContentSecurityPolicy({ ...options, allowEval: true });
 
-    expect(policy).toContain("script-src 'self' 'nonce-test-nonce-default' 'unsafe-eval'");
+    expect(policy).toContain(
+      "script-src 'self' 'nonce-test-nonce-default' 'strict-dynamic' 'unsafe-eval'",
+    );
     expect(policy.match(/unsafe-eval/gu)).toHaveLength(1);
   });
 

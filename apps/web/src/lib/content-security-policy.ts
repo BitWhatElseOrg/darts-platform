@@ -22,6 +22,11 @@ export interface ContentSecurityPolicyOptions {
    * Pro Request neu erzeugt (siehe `proxy.ts`). Ersetzt `'unsafe-inline'`
    * fuer `script-src` -- Next.js' eigener Inline-Bootstrap traegt dieselbe
    * Nonce, sobald sie im CSP-Response-Header steht (siehe Task 1, Ergebnis 1).
+   * Seit der CSP-Nonce-Nacharbeit (Plan 2026-09-08-csp-nonce-nacharbeit,
+   * Task 1) traegt `script-src` zusaetzlich `'strict-dynamic'`, das
+   * Host-/Schema-Quellen wie `'self'` fuer Skripte abschaltet und nur noch
+   * per Nonce/Hash erlaubten Skripten sowie ihrer Vertrauens-Propagation
+   * (inkl. `__webpack_nonce__` beim Chunk-Nachladen) folgt.
    */
   readonly nonce: string;
 }
@@ -34,8 +39,8 @@ export function buildContentSecurityPolicy({
 }: ContentSecurityPolicyOptions): string {
   const websocketOrigin = apiOrigin.replace(/^http/u, "ws");
   const scriptSource = allowEval
-    ? `script-src 'self' 'nonce-${nonce}' 'unsafe-eval'`
-    : `script-src 'self' 'nonce-${nonce}'`;
+    ? `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`
+    : `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`;
 
   return [
     "default-src 'self'",
