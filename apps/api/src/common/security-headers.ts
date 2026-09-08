@@ -2,7 +2,7 @@ import helmet from "@fastify/helmet";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 
 /**
- * Sicherheits-Header der API (ARCHITECTURE §29). Die CORS-Allowlist aus
+ * Sicherheits-Header der API (ARCHITECTURE §30). Die CORS-Allowlist aus
  * `main.ts` bleibt unangetastet; helmet ergaenzt sie, es ersetzt sie nicht.
  *
  * `same-site` bei der Cross-Origin-Resource-Policy passt zum Betrieb:

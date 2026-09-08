@@ -44,6 +44,7 @@ import { rethrowScoringError } from "../common/scoring-error.js";
 import { MatchesRepository } from "../matches/matches.repository.js";
 import type { TournamentCorrectionResult } from "../matches/matches.repository.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
+import { DisplayKeysService } from "./display-keys.service.js";
 import {
   TournamentsRepository,
   type TournamentDashboardData,
@@ -66,6 +67,7 @@ export class TournamentsService {
     @Inject(TournamentsRepository) private readonly repository: TournamentsRepository,
     @Inject(MatchesRepository) private readonly matchesRepository: MatchesRepository,
     @Inject(OrganizationAccessService) private readonly access: OrganizationAccessService,
+    @Inject(DisplayKeysService) private readonly displayKeys: DisplayKeysService,
   ) {}
 
   public async list(input: {
@@ -163,14 +165,25 @@ export class TournamentsService {
    * Nimmt die `public_id`, nicht die interne ID. Ein privates Turnier
    * antwortet mit 404 statt 403: ein 403 bestaetigte, dass es die Adresse gibt.
    *
-   * In Plan 1 ist „oeffentlich" die einzige Eintrittskarte. Der zweite Weg
-   * (Anzeige-Schluessel) kommt in Plan 2, die Sitzungspruefung am Socket in
-   * Plan 3 — dann wandert die Entscheidung in eine reine Funktion.
+   * Zwei Eintrittskarten: das Turnier ist oeffentlich, oder der Aufrufer
+   * bringt einen gueltigen Anzeige-Schluessel mit. Beides scheitert nach
+   * aussen gleich — 404 —, damit die Antwort nicht verraet, welche der beiden
+   * Bedingungen gefehlt hat. Die Sitzungspruefung am Socket kommt in Plan 3 —
+   * dann wandert die Entscheidung in eine reine Funktion.
    */
-  public async publicDashboard(publicId: string): Promise<PublicTournamentDashboard> {
+  public async publicDashboard(
+    publicId: string,
+    displayKeySecret?: string,
+  ): Promise<PublicTournamentDashboard> {
     const data = await this.repository.getPublicDashboardDataByPublicId(publicId);
-    if (data === null) throw new NotFoundException("Turnier nicht gefunden.");
-    const dashboard = await this.projectDashboard(data);
+    const allowed =
+      data !== null ||
+      (displayKeySecret !== undefined &&
+        (await this.displayKeys.resolve(publicId, displayKeySecret)) === "valid");
+    if (!allowed) throw new NotFoundException("Turnier nicht gefunden.");
+    const resolved = data ?? (await this.repository.getPrivateDashboardDataByPublicId(publicId));
+    if (resolved === null) throw new NotFoundException("Turnier nicht gefunden.");
+    const dashboard = await this.projectDashboard(resolved);
     // Die oeffentliche Sicht wird Feld fuer Feld gebaut, nicht aus der
     // internen durchgereicht: so faellt jedes neue interne Feld auf, statt
     // sich stillschweigend nach draussen zu vererben (Audit B, I-1).

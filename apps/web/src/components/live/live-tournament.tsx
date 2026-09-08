@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { publicTournamentDashboardSchema, type PublicBoardSlot } from "@darts-platform/schemas";
 import QRCode from "qrcode";
 import Image from "next/image";
@@ -11,12 +11,25 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiRequest } from "@/lib/api-client";
 import { ApiClientError } from "@/lib/api-error";
 import { buildBracketRounds, knockoutLeadsLiveView, type BracketNode, type BracketRound, type BracketSlot } from "@/lib/bracket-tree";
+import { recallDisplayKey, rememberDisplayKey } from "@/lib/display-key-storage";
 import { resolvePublicId } from "@/lib/live-address";
+import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
 
 interface LiveTournamentProps {
   readonly publicId: string;
   readonly mode: "publikum" | "tv" | "board";
   readonly boardId?: string;
+  /**
+   * Der Anzeige-Schluessel aus der Adresse (`?k=`), von der Server-Seite
+   * gelesen (Task 6, Board- und TV-Seite). Nur beim allerersten Aufruf mit
+   * dieser Adresse gesetzt: die Komponente merkt ihn sich dann im Browser
+   * (`rememberDisplayKey`) und entfernt ihn wieder aus der Adresszeile --
+   * ein Lesezeichen oder ein weitergereichter Verlauf soll den Klartext
+   * nicht dauerhaft mitschleppen. Fehlt er (z. B. bei einem spaeteren
+   * Neuladen), fragt die Komponente stattdessen `recallDisplayKey` nach dem
+   * zuvor gemerkten Schluessel.
+   */
+  readonly displayKeySecret?: string | null;
 }
 
 /**
@@ -34,22 +47,61 @@ function legacyRedirectTarget(
   return `/live/${resolvedPublicId}`;
 }
 
-export function LiveTournament({ publicId, mode, boardId }: LiveTournamentProps) {
+export function LiveTournament({ boardId, displayKeySecret, mode, publicId }: LiveTournamentProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
+
+  // Nur beim allerersten Client-Mount ausgewertet (Lazy-Initializer): kommt
+  // ein frischer Schluessel ueber die Adresse, wird er sofort gemerkt und ist
+  // ab hier der geltende Wert fuer diese Sitzung. Sonst zaehlt, was fuer
+  // dieses Turnier zuvor schon gemerkt wurde -- so uebersteht ein Neuladen
+  // ohne `?k=` in der Adresse (Task 6, Step 4).
+  const [secret] = useState<string | null>(() => {
+    if (typeof window === "undefined") return displayKeySecret ?? null;
+    if (displayKeySecret) {
+      rememberDisplayKey(publicId, displayKeySecret);
+      return displayKeySecret;
+    }
+    return recallDisplayKey(publicId);
+  });
+
+  // Der Klartext soll nicht dauerhaft in der Adresse stehen -- ein
+  // Lesezeichen oder ein weitergereichter Link braucht ihn nicht mehr, sobald
+  // er im Browser gemerkt ist. `router.replace` statt `push`: kein zweiter
+  // Verlaufseintrag fuer denselben Aufruf.
+  useEffect(() => {
+    if (!displayKeySecret || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("k");
+    router.replace(`${url.pathname}${url.search}`);
+    // Nur beim Mount mit einem frischen Schluessel in der Adresse -- ein
+    // spaeterer Rerender (etwa nach genau dieser Umleitung) soll nicht
+    // erneut ausloesen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const [connection, setConnection] = useState<RealtimeConnection>("verbindet");
   const queryKey = useMemo(() => ["public-live", publicId] as const, [publicId]);
   const query = useQuery({
     queryKey,
     queryFn: ({ signal }) => apiRequest({
-      path: `/public/tournaments/${publicId}/live`,
+      path: `/public/tournaments/${publicId}/live${secret === null ? "" : `?k=${encodeURIComponent(secret)}`}`,
       schema: publicTournamentDashboardSchema,
       signal,
     }),
-    // Befristet: der Realtime-Raum heisst bis Plan 3 nach der internen ID, die
-    // diese Ansicht nicht mehr kennt. Bis dahin laedt sie im Intervall nach —
-    // wie die Begegnungsansicht heute auch. Plan 3 nimmt beide zurueck in ihre
-    // Raeume, und dieser Kommentar verschwindet mit ihm.
-    refetchInterval: 5_000,
+    // Polling nur, solange die Echtzeitverbindung fehlt.
+    refetchInterval: connection === "verbunden" ? false : 5_000,
   });
+
+  useEffect(
+    () => connectTournamentRealtime({
+      publicId,
+      displayKey: secret,
+      onChange: () => void queryClient.invalidateQueries({ queryKey }),
+      onConnection: setConnection,
+    }),
+    [publicId, queryClient, queryKey, secret],
+  );
 
   // Wie `live-encounter.tsx`: die oeffentliche Route antwortet mit 404 sowohl
   // fuer ein nicht existierendes als auch fuer ein privates Turnier (Task 4,
@@ -151,7 +203,11 @@ export function LiveTournament({ publicId, mode, boardId }: LiveTournamentProps)
            * ruhige Meldung statt einer Warnfarbe fuer den Text selbst.
            */}
           <span className={query.isError ? "text-rose-300" : undefined}>
-            {query.isError ? "Aktualisierung fehlgeschlagen · letzter Stand" : "Aktualisiert alle 5 Sekunden"}
+            {query.isError
+              ? "Aktualisierung fehlgeschlagen · letzter Stand"
+              : connection === "verbunden"
+                ? "Live aktualisiert"
+                : "Aktualisiert alle 5 Sekunden"}
           </span>
           {mode === "publikum" ? <Link className="rounded border border-slate-600 px-3 py-2" href={`/live/${publicId}/tv`}>TV-Modus</Link> : null}
         </div>

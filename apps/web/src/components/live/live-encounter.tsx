@@ -1,7 +1,8 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { publicEncounterSchema, type PublicEncounter } from "@darts-platform/schemas";
+import { useEffect, useMemo, useState } from "react";
 
 import { apiRequest } from "@/lib/api-client";
 import {
@@ -11,6 +12,7 @@ import {
   slotOutcomeLabel,
   slotStatusLabel,
 } from "@/lib/league-format";
+import { connectEncounterRealtime, type RealtimeConnection } from "@/lib/realtime";
 import { calendarDate, clockTime } from "@/lib/tournament-format";
 
 type PublicSlot = PublicEncounter["slots"][number];
@@ -20,17 +22,30 @@ function names(players: readonly { readonly displayName: string }[]): string {
 }
 
 /**
- * Die öffentliche Ansicht kennt nur die `publicId`. Der Socket-Raum heisst
- * nach der internen id und gehört nicht ins Publikum, deshalb aktualisiert
- * diese Fläche über ein Intervall statt über ein Abonnement.
+ * Die öffentliche Ansicht kennt nur die `publicId` -- der Socket-Raum heisst
+ * seit Plan 3 ebenfalls danach (`apps/api/src/realtime`), das Publikum
+ * abonniert ihn deshalb direkt statt im Intervall nachzuladen.
  */
 export function LiveEncounter({ publicId }: { readonly publicId: string }) {
+  const queryClient = useQueryClient();
+  const [connection, setConnection] = useState<RealtimeConnection>("verbindet");
+  const queryKey = useMemo(() => ["public-encounter", publicId], [publicId]);
   const query = useQuery({
-    queryKey: ["public-encounter", publicId],
+    queryKey,
     queryFn: ({ signal }) =>
       apiRequest({ path: `/public/encounters/${publicId}`, schema: publicEncounterSchema, signal }),
-    refetchInterval: 15_000,
+    // Polling nur, solange die Echtzeitverbindung fehlt.
+    refetchInterval: connection === "verbunden" ? false : 15_000,
   });
+
+  useEffect(
+    () => connectEncounterRealtime({
+      publicId,
+      onChange: () => void queryClient.invalidateQueries({ queryKey }),
+      onConnection: setConnection,
+    }),
+    [publicId, queryClient, queryKey],
+  );
 
   if (query.isPending) return <LiveNotice text="Begegnung wird geladen …" />;
   if (query.data === undefined) {
@@ -73,7 +88,9 @@ export function LiveEncounter({ publicId }: { readonly publicId: string }) {
           <span className={query.isError ? "text-rose-300" : undefined}>
             {query.isError
               ? "Aktualisierung fehlgeschlagen · letzter Stand"
-              : `${encounterStatusLabel(encounter.status)} · aktualisiert alle 15 Sekunden`}
+              : connection === "verbunden"
+                ? `${encounterStatusLabel(encounter.status)} · live aktualisiert`
+                : `${encounterStatusLabel(encounter.status)} · aktualisiert alle 15 Sekunden`}
           </span>
         </div>
       </header>

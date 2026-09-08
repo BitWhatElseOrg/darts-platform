@@ -26,6 +26,11 @@ vi.mock("@/lib/live-address", () => liveAddress);
 const router = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 
+// `connectTournamentRealtime` liest beim Import die oeffentliche
+// Client-Umgebung; diese Tests pruefen den Uebergangsweg, nicht die Socket-
+// Verbindung selbst.
+vi.mock("@/lib/realtime", () => ({ connectTournamentRealtime: () => () => undefined }));
+
 import { LiveTournament } from "./live-tournament";
 
 const dashboard = {

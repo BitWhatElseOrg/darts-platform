@@ -13,6 +13,6 @@ import { OrganizationsService } from "./organizations.service.js";
     OrganizationAccessService,
     OrganizationsService,
   ],
-  exports: [OrganizationAccessService],
+  exports: [OrganizationAccessService, OrganizationsRepository],
 })
 export class OrganizationsModule {}

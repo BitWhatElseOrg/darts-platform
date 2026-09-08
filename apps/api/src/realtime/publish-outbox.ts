@@ -3,10 +3,12 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import {
   OUTBOX_MAX_ATTEMPTS,
   encounterSlots,
+  encounters,
   outboxEvents,
   outboxPending,
   recordOutboxFailure,
   tournamentMatches,
+  tournaments,
   type OutboxLogger,
 } from "@darts-platform/database";
 
@@ -37,6 +39,44 @@ interface ResolvableEvent {
 }
 
 /**
+ * Die Zuordnung interne ID → oeffentliche ID aendert sich nie: beide Werte
+ * stehen bei der Anlage fest und werden nie ueberschrieben. Ein prozesslokaler
+ * Cache spart damit eine Abfrage je Ereignis, ohne veralten zu koennen.
+ *
+ * Die Groesse ist unbegrenzt, und das ist Absicht: der Cache waechst mit der
+ * Zahl der Turniere und Begegnungen, die waehrend einer Prozesslaufzeit
+ * Ereignisse erzeugen — das sind Dutzende, nicht Millionen.
+ */
+const publicIdCache = new Map<string, string>();
+
+async function publicIdOf(
+  executor: OutboxExecutor,
+  kind: "tournament" | "encounter",
+  internalId: string,
+): Promise<string | null> {
+  const cacheKey = `${kind}:${internalId}`;
+  const cached = publicIdCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const [row] =
+    kind === "tournament"
+      ? await executor
+          .select({ publicId: tournaments.publicId })
+          .from(tournaments)
+          .where(eq(tournaments.id, internalId))
+          .limit(1)
+      : await executor
+          .select({ publicId: encounters.publicId })
+          .from(encounters)
+          .where(eq(encounters.id, internalId))
+          .limit(1);
+
+  if (row === undefined) return null;
+  publicIdCache.set(cacheKey, row.publicId);
+  return row.publicId;
+}
+
+/**
  * Ein Match gehört entweder zu einem Turnier oder zu einem Begegnungsslot.
  * Beide Quellen müssen befragt werden: ein Ligaspiel steht nicht in
  * `tournament_matches`, und ohne die zweite Abfrage bliebe der Spielabend
@@ -52,10 +92,12 @@ export async function resolveScope(
   event: ResolvableEvent,
 ): Promise<RealtimeScope | null> {
   if (event.aggregateType === "Tournament") {
-    return { kind: "tournament", id: event.aggregateId };
+    const publicId = await publicIdOf(executor, "tournament", event.aggregateId);
+    return publicId === null ? null : { kind: "tournament", publicId };
   }
   if (event.aggregateType === "Encounter") {
-    return { kind: "encounter", id: event.aggregateId };
+    const publicId = await publicIdOf(executor, "encounter", event.aggregateId);
+    return publicId === null ? null : { kind: "encounter", publicId };
   }
   if (event.aggregateType !== "Match") return null;
 
@@ -70,7 +112,8 @@ export async function resolveScope(
     )
     .limit(1);
   if (scheduled !== undefined) {
-    return { kind: "tournament", id: scheduled.tournamentId };
+    const publicId = await publicIdOf(executor, "tournament", scheduled.tournamentId);
+    return publicId === null ? null : { kind: "tournament", publicId };
   }
 
   const [slot] = await executor
@@ -83,7 +126,9 @@ export async function resolveScope(
       ),
     )
     .limit(1);
-  return slot === undefined ? null : { kind: "encounter", id: slot.encounterId };
+  if (slot === undefined) return null;
+  const publicId = await publicIdOf(executor, "encounter", slot.encounterId);
+  return publicId === null ? null : { kind: "encounter", publicId };
 }
 
 export type ResolveScope = (

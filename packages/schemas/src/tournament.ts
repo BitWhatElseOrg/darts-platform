@@ -415,6 +415,27 @@ export const setTournamentVisibilitySchema = z.object({
   visibility: tournamentVisibilitySchema,
 });
 
+export const createDisplayKeySchema = z.object({
+  label: z.string().trim().min(1).max(80),
+  /** Ohne Angabe: 48 Stunden nach dem Turnierbeginn (der Service setzt sie). */
+  expiresAt: z.coerce.date().optional(),
+});
+
+export const displayKeySchema = z.object({
+  id: z.uuid(),
+  label: z.string(),
+  expiresAt: z.coerce.date(),
+  revokedAt: z.coerce.date().nullable(),
+  state: z.enum(["valid", "expired", "revoked"]),
+});
+
+/** Der Klartext steht NUR hier — in der Antwort, die den Schluessel erzeugt. */
+export const createdDisplayKeySchema = displayKeySchema.extend({
+  secret: z.string(),
+});
+
+export const displayKeyListSchema = z.object({ keys: z.array(displayKeySchema) });
+
 export type TournamentStatus = z.infer<typeof tournamentStatusSchema>;
 export type TournamentVisibility = z.infer<typeof tournamentVisibilitySchema>;
 export type TournamentFormat = z.infer<typeof tournamentFormatSchema>;
@@ -450,3 +471,7 @@ export type ReleaseBoardInput = z.infer<typeof releaseBoardSchema>;
 export type CorrectTournamentResultInput = z.infer<typeof correctTournamentResultSchema>;
 export type WithdrawTournamentParticipantInput = z.infer<typeof withdrawTournamentParticipantSchema>;
 export type SetTournamentVisibilityInput = z.infer<typeof setTournamentVisibilitySchema>;
+export type CreateDisplayKeyInput = z.infer<typeof createDisplayKeySchema>;
+export type DisplayKey = z.infer<typeof displayKeySchema>;
+export type CreatedDisplayKey = z.infer<typeof createdDisplayKeySchema>;
+export type DisplayKeyList = z.infer<typeof displayKeyListSchema>;

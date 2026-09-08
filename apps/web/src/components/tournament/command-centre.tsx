@@ -36,6 +36,7 @@ import {
 import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
 import { BoardWedge } from "./board-wedge";
 import { DashboardHeader } from "./dashboard-header";
+import { DisplayKeysPanel } from "./display-keys-panel";
 import { DisruptionsPanel } from "./disruptions-panel";
 import { QueuePanel } from "./queue-panel";
 import { ParticipantDisruptionPanel } from "./participant-disruption-panel";
@@ -100,6 +101,12 @@ interface CommandCentreProps {
   readonly tournamentId: string;
   readonly canCorrect: boolean;
   readonly canShare: boolean;
+  /**
+   * `tournament:share` -- eine eigene Berechtigung fuer die
+   * Anzeige-Schluessel-Verwaltung (Task 6), unabhaengig von `canShare`
+   * (`tournament:update`, ein Namenszufall -- siehe `display-keys-panel.tsx`).
+   */
+  readonly canManageDisplayKeys: boolean;
   readonly canWithdraw: boolean;
 }
 
@@ -114,7 +121,7 @@ function conflictState(error: unknown, expected: number): VersionConflict | null
     : null;
 }
 
-export function CommandCentre({ canCorrect, canShare, canWithdraw, organizationId, tournamentId }: CommandCentreProps) {
+export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canWithdraw, organizationId, tournamentId }: CommandCentreProps) {
   const queryClient = useQueryClient();
   const queryKey = useMemo(
     () => ["tournament-dashboard", organizationId, tournamentId] as const,
@@ -173,14 +180,18 @@ export function CommandCentre({ canCorrect, canShare, canWithdraw, organizationI
     };
   }, []);
 
-  useEffect(
-    () => connectTournamentRealtime({
-      tournamentId,
+  // Der Raum haengt an der `publicId`, die erst mit dem Dashboard eintrifft
+  // -- vor dem ersten erfolgreichen Laden gibt es sie nicht, und ein
+  // Verbindungsversuch mit `undefined` waere von vornherein aussichtslos.
+  const publicId = dashboard?.tournament.publicId;
+  useEffect(() => {
+    if (publicId === undefined) return;
+    return connectTournamentRealtime({
+      publicId,
       onChange: () => void queryClient.invalidateQueries({ queryKey }),
       onConnection: setRealtimeConnection,
-    }),
-    [queryClient, queryKey, tournamentId],
-  );
+    });
+  }, [publicId, queryClient, queryKey]);
 
   const queueEntries = useMemo(() => assignmentQueueEntries(queued), [queued]);
   // Uebertragbar ist nur der fuehrende Block wartender Zuweisungen: ein
@@ -622,6 +633,12 @@ export function CommandCentre({ canCorrect, canShare, canWithdraw, organizationI
           publicId={dashboard.tournament.publicId}
           tournamentId={tournamentId}
           visibility={dashboard.tournament.visibility}
+        />
+
+        <DisplayKeysPanel
+          canManageDisplayKeys={canManageDisplayKeys}
+          organizationId={organizationId}
+          tournamentId={tournamentId}
         />
 
         {conflict ? (

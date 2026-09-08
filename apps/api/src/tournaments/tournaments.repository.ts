@@ -218,6 +218,47 @@ export class TournamentsRepository {
     });
   }
 
+  /**
+   * Ebenfalls ohne `organizationId` (AGENTS.md §14) — dieselbe Ausnahme wie
+   * `getPublicDashboardDataByPublicId`: die `public_id` IST der Schluessel.
+   * Anders als jene Methode gilt hier absichtlich KEIN Sichtbarkeitsfilter:
+   * ihr Zweck ist gerade, `visibility` an einen Aufrufer zu liefern, der
+   * selbst entscheidet, ob ein zusaetzlicher Zugangsweg (Anzeige-Schluessel,
+   * Kanal-Autorisierung in Plan 3) das private Turnier dennoch aufloest.
+   */
+  public async getAccessFactsByPublicId(publicId: string): Promise<{
+    readonly id: string;
+    readonly organizationId: string;
+    readonly visibility: TournamentVisibility;
+  } | null> {
+    const [tournament] = await this.databaseService.database
+      .select({
+        organizationId: tournaments.organizationId,
+        id: tournaments.id,
+        visibility: tournaments.visibility,
+      })
+      .from(tournaments)
+      .where(eq(tournaments.publicId, publicId))
+      .limit(1);
+    if (tournament === undefined) return null;
+    return { id: tournament.id, organizationId: tournament.organizationId, visibility: tournament.visibility as TournamentVisibility };
+  }
+
+  /**
+   * Schwester von `getPublicDashboardDataByPublicId` ohne den
+   * Sichtbarkeitsfilter: der Aufrufer hat die Berechtigung (Anzeige-Schluessel)
+   * bereits ausserhalb dieser Funktion geprueft — `getAccessFactsByPublicId`
+   * traegt dieselbe namenlose Aufloesung, hier folgt nur noch die Datenabfrage
+   * ohne `requirePublic`.
+   */
+  public async getPrivateDashboardDataByPublicId(
+    publicId: string,
+  ): Promise<TournamentDashboardData | null> {
+    const tournament = await this.getAccessFactsByPublicId(publicId);
+    if (tournament === null) return null;
+    return this.getDashboardData(tournament.organizationId, tournament.id);
+  }
+
   /** Siehe `TournamentsService.publicAddress` — Uebergangsweg mit Frist. */
   public async getPublicAddress(
     tournamentId: string,

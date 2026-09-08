@@ -716,7 +716,9 @@ Der Handshake hängt am HTTP-Server und läuft damit nicht durch das
 Fastify-Rate-Limit; er hat seine eigene Bremse je Client-Adresse und Minute
 (`RATE_LIMIT_SOCKET_MAX_PER_MINUTE`, Adresse über dieselbe Hop-Zählung wie
 `request.ip`). Ein Socket abonniert höchstens 20 Räume; darüber antwortet der
-Server mit `subscription:rejected`. Die Autorisierung je Kanal steht aus.
+Server mit `subscription:rejected`. Räume sind über `public_id` adressiert,
+und wer welchen Raum betreten darf, entscheidet eine eigene Autorisierung
+(siehe Abschnitt „Öffentliche Adressierung und Kanal-Autorisierung").
 
 ---
 
@@ -997,7 +999,95 @@ Eigenschaften:
 
 ---
 
-## 29. Security
+## 29. Öffentliche Adressierung und Kanal-Autorisierung
+
+Drei zusammengehörende Bausteine — öffentliche Adressen, Anzeige-Schlüssel
+und Realtime-Räume — regeln, wer ein Turnier ohne Organisationsmitgliedschaft
+sehen und live verfolgen darf. Sie werden hier gebündelt beschrieben, nicht
+verteilt über die Abschnitte, zu denen sie thematisch auch gehören (Public
+Portal, TV-Modus, Realtime, Security).
+
+### 29.1 `public_id` und Sichtbarkeit
+
+Turniere (wie schon Begegnungen) tragen neben ihrem internen Primärschlüssel
+eine zweite, unerratbare `public_id` (UUID). Öffentliche Links, QR-Codes und
+Realtime-Räume verwenden ausschließlich diese Adresse; der interne
+Primärschlüssel verlässt den Server nicht.
+
+Zwei Sichtbarkeitsstufen, per Check-Constraint erzwungen:
+
+```text
+PRIVATE   — Vorgabe für jedes neue Turnier
+PUBLIC    — Turnierleitung gibt bewusst frei
+```
+
+Ein privates Turnier beantwortet jede öffentliche Anfrage — REST wie
+Realtime-Abonnement — mit demselben Ergebnis wie eine unbekannte `public_id`:
+404 „nicht gefunden", nie 403 „verboten". Ein Unterschied zwischen den beiden
+Fällen würde einem Aussenstehenden verraten, dass unter einer erratenen oder
+erratbaren Adresse überhaupt ein Turnier existiert — bereits das ist eine
+Information, die eine private Organisation nicht preisgeben will.
+
+### 29.2 Anzeige-Schlüssel
+
+Board-Tablets und TV-Geräte an einem privaten Turnier haben keine eigene
+Organisationsmitgliedschaft und sollen auch keine bekommen — sie sind Geräte,
+keine Benutzerkonten. Ein Anzeige-Schlüssel ist ein von der Turnierleitung
+ausgestelltes, zufälliges Geheimnis, das genau ein solches Gerät berechtigt,
+die schreibgeschützten öffentlichen Ansichten eines bestimmten Turniers zu
+sehen — unabhängig von dessen Sichtbarkeit.
+
+Die Datenbank speichert nur den Hash des Schlüssels
+(`tournament_display_keys.secret_hash`), nie den Klartext; ein Leck der
+Tabelle liefert damit keine verwendbaren Schlüssel. Ein Schlüssel kann
+widerrufen werden, ohne dass sich das Turnier oder seine Adresse ändert.
+
+Drei Eintrittskarten, alternativ zueinander, entscheiden Zugriff auf ein
+privates Turnier:
+
+```text
+öffentliche Sichtbarkeit (visibility = PUBLIC)
+Organisationsmitgliedschaft
+gültiger Anzeige-Schlüssel
+```
+
+Ohne explizite Angabe läuft ein Anzeige-Schlüssel 48 Stunden nach
+Turnierbeginn ab, gedeckelt gegen „jetzt plus 48 Stunden" (nie in der
+Vergangenheit); er lässt sich auch vor Ablauf jederzeit widerrufen.
+
+Bekannte Einschränkung: Widerruf und Ablauf verhindern sofort neue
+Abonnements und neuen HTTP-Zugriff, trennen aber einen Socket, der dem
+Realtime-Raum bereits mit diesem Schlüssel beigetreten ist, nicht zwangsweise
+— er empfängt weiterhin Ereigniszeiger (`{eventId, eventType, occurredAt}`,
+keine Matchinhalte), bis er sich von selbst trennt. Ein echter Fix bräuchte
+`RealtimeService`/`RealtimeBroadcaster` erreichbar aus `DisplayKeysService`;
+da `RealtimeModule` bereits `TournamentsModule` importiert, wäre die
+umgekehrte Abhängigkeit zirkulär und verlangt ein eigenes Design (siehe ADR
+0013).
+
+### 29.3 Realtime: Räume und Autorisierung
+
+Realtime-Räume sind über `public_id` benannt (`tournament:{publicId}`,
+`encounter:{publicId}`), nicht über den internen Primärschlüssel — dieselbe
+Adresse, die auch in öffentlichen Links steht.
+
+`decideSubscription` (`packages/domain/src/subscription-access.ts`) trifft
+die eigentliche Entscheidung, wer einem Raum beitreten darf, aus genau den
+drei Eintrittskarten aus 29.2 plus der Frage, ob die Adresse überhaupt zu
+einem Turnier gehört. Die Funktion ist reine Domain-Logik ohne Datenbank- oder
+Socket.IO-Abhängigkeit; `SubscriptionAuthorization`
+(`apps/api/src/realtime/subscription-authorization.ts`) beschafft die
+Eingaben (Sitzung aus dem Handshake-Cookie, Mitgliedschaft, Anzeige-Schlüssel)
+und ruft sie auf. Eine abgelehnte Anfrage — wie auch die separate Obergrenze
+von 20 Abonnements je Socket (`subscription-limit.ts`) — führt zum bereits
+bestehenden Ereignis `subscription:rejected`; es ist kein neues Ereignis
+hinzugekommen, nur ein weiterer Ablehnungsgrund
+(`SUBSCRIPTION_FORBIDDEN`/`SUBSCRIPTION_UNKNOWN_ROOM` neben
+`SUBSCRIPTION_LIMIT_REACHED`).
+
+---
+
+## 30. Security
 
 Mindestanforderungen:
 
@@ -1029,7 +1119,7 @@ Client-Adresse für beide Zähler gilt und ist in Production Pflicht.
 
 ---
 
-## 30. Audit Logging
+## 31. Audit Logging
 
 Kritische Aktionen:
 
@@ -1065,7 +1155,7 @@ correlationId
 
 ---
 
-## 31. Observability
+## 32. Observability
 
 Von Beginn an:
 
@@ -1167,7 +1257,7 @@ auftaucht, hat ein Browser tatsächlich blockiert.
 
 ---
 
-## 32. Testing
+## 33. Testing
 
 ### Unit
 
@@ -1238,7 +1328,7 @@ KO-Runde generieren
 
 ---
 
-## 33. Deployment auf Railway
+## 34. Deployment auf Railway
 
 Railway PostgreSQL bleibt die verbindliche Datenbank für Production und
 Staging. Neon wird ausschließlich für isolierte Development- und kurzlebige
@@ -1309,7 +1399,7 @@ Web-Service nicht verbraucht.
 
 ---
 
-## 34. Zielarchitektur Vollausbau
+## 35. Zielarchitektur Vollausbau
 
 ```text
                          Internet
@@ -1353,7 +1443,7 @@ Web / PWA / TV / Public Live
 
 ---
 
-## 35. Architekturregeln
+## 36. Architekturregeln
 
 1. Business-Logik niemals im React UI.
 2. Tournament Engine kennt keine Datenbank.

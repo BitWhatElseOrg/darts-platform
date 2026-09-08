@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_SUBSCRIPTIONS_PER_SOCKET,
   joinSubscription,
+  rejectSubscription,
+  type RejectableSocket,
   type SubscribableSocket,
 } from "./subscription-limit.js";
 
@@ -62,5 +64,27 @@ describe("joinSubscription", () => {
     );
 
     expect(joinSubscription(socket, "tournament:letzter")).toBe("joined");
+  });
+});
+
+describe("rejectSubscription", () => {
+  function emittedReason(reason: Parameters<typeof rejectSubscription>[2]): string {
+    const emitted: { readonly reason: string }[] = [];
+    const socket: RejectableSocket = {
+      emit: (_event, payload) => emitted.push(payload as { reason: string }),
+    };
+    rejectSubscription(socket, "tournament:x", reason);
+    const [first] = emitted;
+    if (first === undefined) throw new Error("rejectSubscription hat nichts gesendet.");
+    return first.reason;
+  }
+
+  it("liefert fuer eine unbekannte Adresse denselben Client-Grund wie fuer eine verbotene — sonst waere die Unbekanntheit selbst schon eine Information", () => {
+    expect(emittedReason("SUBSCRIPTION_UNKNOWN_ROOM")).toBe(emittedReason("SUBSCRIPTION_FORBIDDEN"));
+    expect(emittedReason("SUBSCRIPTION_UNKNOWN_ROOM")).toBe("SUBSCRIPTION_FORBIDDEN");
+  });
+
+  it("laesst die Obergrenze als eigenen Grund bestehen — sie ist keine sicherheitsrelevante Unterscheidung", () => {
+    expect(emittedReason("SUBSCRIPTION_LIMIT_REACHED")).toBe("SUBSCRIPTION_LIMIT_REACHED");
   });
 });

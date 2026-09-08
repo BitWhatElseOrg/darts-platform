@@ -15,7 +15,20 @@ export function TournamentDashboardRoute({ requestedOrganizationId, tournamentId
   if (query.error) return <Notice message={userFacingErrorMessage(query.error)} />;
   if (organization === null) return <Notice message="Keine zugängliche Organisation gefunden." />;
   const canCorrect = hasOrganizationPermission(organization.role, "tournament:update");
-  return <CommandCentre canCorrect={canCorrect} canShare={canCorrect} canWithdraw={canCorrect} organizationId={organization.id} tournamentId={tournamentId} />;
+  // `tournament:share` -- eine eigene Berechtigung fuer die
+  // Anzeige-Schluessel-Verwaltung (Task 6), zu unterscheiden von `canShare`
+  // oben (`tournament:update`, ein Namenszufall -- siehe `display-keys-panel.tsx`).
+  const canManageDisplayKeys = hasOrganizationPermission(organization.role, "tournament:share");
+  return (
+    <CommandCentre
+      canCorrect={canCorrect}
+      canManageDisplayKeys={canManageDisplayKeys}
+      canShare={canCorrect}
+      canWithdraw={canCorrect}
+      organizationId={organization.id}
+      tournamentId={tournamentId}
+    />
+  );
 }
 
 function Notice({ message }: { readonly message: string }) {
