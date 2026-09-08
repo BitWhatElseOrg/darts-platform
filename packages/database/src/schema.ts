@@ -1372,6 +1372,10 @@ export const encounterSlots = pgTable(
     check("encounter_slots_sequence_check", sql`${table.sequence} > 0`),
     check("encounter_slots_version_check", sql`${table.version} >= 0`),
     check(
+      "encounter_slots_board_status_check",
+      sql`${table.boardId} is null or ${table.status} = 'IN_PROGRESS'`,
+    ),
+    check(
       "encounter_slots_winner_side_check",
       sql`${table.winnerSide} is null or ${table.winnerSide} in ('HOME', 'AWAY')`,
     ),
