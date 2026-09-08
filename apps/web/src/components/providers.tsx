@@ -14,6 +14,20 @@ import { PwaRegistration } from "./pwa-registration";
 // von vornherein, statt ihn scheitern zu lassen. Muss vor der ersten
 // Zod-Validierung im Browser gesetzt sein; `Providers` ist die erste
 // clientseitige Komponente, die jede Seite rendert.
+//
+// Ehrlicher Vorbehalt: diese Platzierung funktioniert heute nur, weil
+// Webpack `providers.tsx` (einziger Importer: `layout.tsx`) direkt in den
+// frueh geladenen Layout-Chunk kompiliert, statt in einen eigenen, mit
+// anderen Chunks um Ladezeit konkurrierenden Shared-Chunk. Next.js liefert
+// alle Chunk-Skripte als `async`, ohne Ausfuehrungsreihenfolge zwischen
+// getrennt geladenen Chunks zu garantieren -- das ist eine beobachtete
+// Bundling-Eigenschaft dieses Builds, keine von Next.js zugesicherte
+// Garantie. Wird `environment.ts`/`auth-client.ts`/`api-client.ts` o. Ae.
+// kuenftig so geaendert, dass sie in einen eigenen, unabhaengig geladenen
+// Chunk extrahiert werden (z. B. weil mehr Module sie importieren), kann
+// das diese Reihenfolge stillschweigend brechen. Vollstaendige Analyse und
+// robustere Alternativen (synchrones Inline-Head-Skript, Webpack-Config):
+// `docs/superpowers/plans/2026-09-08-tier3-backlog-und-rueckfragen.md`.
 z.config({ jitless: true });
 
 interface ProvidersProps {

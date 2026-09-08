@@ -34,6 +34,28 @@ bewusst nicht in denselben Branch gehören:
   vorgerendertes Statisches, `'unsafe-eval'` erlaubt) — sie beweist nicht,
   dass in Production nichts mehr statisch ist. Ein einzelner Playwright-Fall
   gegen `next build && next start` würde diese Lücke schliessen.
+- **`jitless`-Platzierung nur empirisch, nicht garantiert robust.** Zod v4
+  prüft beim ersten Schema-Zugriff pro Bundle-Kopie einmalig per
+  `Function("")`, ob JIT-Kompilierung möglich ist — unter der erzwungenen
+  CSP schlägt das fehl und meldet einen echten `script-src`-`eval`-Verstoss.
+  `z.config({ jitless: true })` in `providers.tsx` (Commit `257bd22`)
+  vermeidet das zuverlässig in allen bisherigen Tests (0/5 über zwei
+  unabhängige Testläufe), aber nur, weil Webpack diesen einzeln genutzten
+  Aufruf heute in den früh geladenen Layout-Chunk inlined. Ein Versuch, den
+  Aufruf stattdessen nach `environment.ts` zu verschieben (erreichbar über
+  mehrere Importer: `auth-client.ts`, `api-client.ts`, `realtime.ts`,
+  `health.ts`, `live-address.ts`), erzeugte reproduzierbar (3/3) einen neuen
+  Verstoss aus einer dritten, separat geladenen Zod-Bundle-Kopie — weil
+  Next.js Chunk-Skripte als `async` ausliefert und zwischen getrennt
+  geladenen Chunks keine Ausführungsreihenfolge garantiert. Die aktuelle
+  Lösung ist damit ein Bundling-Zufall, kein vertraglich zugesichertes
+  Verhalten. Eine wirklich robuste Lösung bräuchte entweder ein synchrones,
+  nonce-versehenes Inline-`<script>` im `<head>` des Root-Layouts (das
+  `globalThis.__zod_globalConfig` direkt setzt, vor jedem async geladenen
+  Chunk) oder eine Next.js-/Webpack-Konfigurationsänderung, die diesen
+  Aufruf in einen garantiert zuerst ausgeführten Chunk zwingt — beides
+  ausserhalb des Rahmens einer kleinen Konfigurationsaufgabe und laut
+  AGENTS.md §6/§26 eine eigene Spec/ADR wert.
 
 ## Bereits erledigt, aber noch in älteren Memory-Notizen als offen geführt
 
