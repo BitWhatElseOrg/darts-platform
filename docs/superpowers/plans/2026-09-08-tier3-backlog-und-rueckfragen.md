@@ -9,6 +9,32 @@ direkt umsetzbar war, siehe die drei Geschwister-Pläne vom selben Tag:
 - `2026-09-08-team-encounter-datenintegritaet.md`
 - `2026-09-08-csp-nonce.md`
 
+## CSP-Nonce — Nacharbeit aus dem Abschlussreview (2026-09-08)
+
+Der Plan `2026-09-08-csp-nonce.md` ist umgesetzt und gemergt (siehe ADR 0014).
+Das Abschlussreview hat drei nicht-blockierende Punkte hinterlassen, die
+bewusst nicht in denselben Branch gehören:
+
+- **`'strict-dynamic'` ergänzen.** Aktuell erlaubt `script-src 'self'
+  'nonce-...'` weiterhin jedes Skript von `'self'` zusätzlich zur Nonce —
+  erst `'strict-dynamic'` schaltet die Host-Quelle ab und macht aus der Nonce
+  echten Schutz gegen eine Injektion, die einen eigenen Pfad mit
+  angreiferkontrolliertem Inhalt referenziert. War nie Teil des Auftrags
+  (der hiess ausdrücklich "nur `'unsafe-inline'`"), braucht eine eigene
+  Verifikation, dass Webpack-Chunk-Loading darunter weiter funktioniert.
+- **CSP zusätzlich auf die Request-Header setzen.** `apps/web/src/proxy.ts`
+  setzt die Nonce heute nur auf die Response-Header; Next.js' eigener
+  Renderer liest sie serverseitig aus den Request-Headern und bekommt sie
+  nur, weil `resolve-routes.js` Response- in Request-Header spiegelt — ein
+  Next.js-internes Verhalten ohne Vertragscharakter. Zwei zusätzliche
+  Zeilen (Request-Header explizit mitsetzen, wie im offiziellen
+  Doku-Beispiel) würden das von der internen Kopie unabhängig machen.
+- **E2E-Fall gegen den echten Produktivbuild.** Die bestehende
+  `securitypolicyviolation`-Wache läuft nur gegen `next dev` (kein
+  vorgerendertes Statisches, `'unsafe-eval'` erlaubt) — sie beweist nicht,
+  dass in Production nichts mehr statisch ist. Ein einzelner Playwright-Fall
+  gegen `next build && next start` würde diese Lücke schliessen.
+
 ## Bereits erledigt, aber noch in älteren Memory-Notizen als offen geführt
 
 Bei der Recherche für diesen Plan stellte sich heraus, dass zwei Punkte aus
