@@ -9,7 +9,7 @@ const fieldSelectClassName =
   "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
 
 const dartsButtonClassName =
-  "min-h-14 rounded-lg text-title-sm font-numerals font-bold tabular transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400";
+  "min-h-14 rounded-lg text-title-sm font-numerals font-bold tabular transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green";
 
 /**
  * Checkout-Schritt des Runden-Modus (siehe `match-scoreboard.tsx`,

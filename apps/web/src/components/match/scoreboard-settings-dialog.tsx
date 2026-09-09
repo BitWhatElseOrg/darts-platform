@@ -41,7 +41,7 @@ function InputModeSwitch({ mode, onChange }: {
           aria-checked={mode === option.value}
           aria-label={option.label}
           className={cn(
-            "min-h-14 rounded-lg text-title-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400",
+            "min-h-14 rounded-lg text-title-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green",
             mode === option.value ? "bg-ring-green text-chalk" : "bg-slate-900 text-slate-200 hover:bg-slate-800",
           )}
           key={option.value}
@@ -77,7 +77,7 @@ function SettingSwitch({ checked, disabled, label, onToggle }: {
     <button
       aria-checked={checked}
       aria-label={`${label}: ${checked ? "JA" : "NEIN"}`}
-      className="flex min-h-14 w-full items-center justify-between gap-3 rounded-lg bg-slate-900 px-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 disabled:opacity-40"
+      className="flex min-h-14 w-full items-center justify-between gap-3 rounded-lg bg-slate-900 px-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green disabled:opacity-40"
       disabled={disabled}
       onClick={onToggle}
       role="switch"

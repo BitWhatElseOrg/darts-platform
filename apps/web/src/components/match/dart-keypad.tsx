@@ -6,7 +6,7 @@ import { isSegmentAvailable } from "@/lib/dart-entry";
 import { dartKeypadLabel } from "@/lib/scoreboard-view";
 
 const keyClassName =
-  "min-h-14 rounded-lg text-title-sm font-numerals font-semibold tabular text-white transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 disabled:cursor-not-allowed disabled:opacity-40";
+  "min-h-14 rounded-lg text-title-sm font-numerals font-semibold tabular text-white transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green disabled:cursor-not-allowed disabled:opacity-40";
 
 /**
  * Rücktaste als gezeichnete Marke statt eines Unicode-Chevrons — DESIGN.md:
