@@ -1,3 +1,4 @@
+import { ForbiddenException } from "@nestjs/common";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -395,10 +396,10 @@ describe("competitions and their encounter template", () => {
     expect(playerA?.teamName.length ?? 0).toBeGreaterThan(0);
   }, 30_000);
 
-  it("returns a 404 for a competition of a foreign organisation", async () => {
+  it("rejects access to a competition of a foreign organisation with 403", async () => {
     const competitionId = await create();
     await expect(
       service.playerRanking({ organizationId: randomUUID(), competitionId, auth }),
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
