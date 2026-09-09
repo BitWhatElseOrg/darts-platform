@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef } from "react";
-import Link from "next/link";
 import type { MatchStateResponse } from "@darts-platform/schemas";
 import { Button, cn } from "@darts-platform/ui";
 import type { ScoreboardInputMode, ScoreboardSettings } from "@/lib/scoreboard-settings";
@@ -108,8 +107,6 @@ function SettingSwitch({ checked, disabled, label, onToggle }: {
  */
 export function ScoreboardSettingsDialog({
   abortDisabled,
-  backHref,
-  backLabel,
   canAbort,
   lockState,
   onAbort,
@@ -127,8 +124,6 @@ export function ScoreboardSettingsDialog({
   readonly visits: MatchStateResponse["visits"];
   readonly lockState: BoardLockState;
   readonly onTakeOver: () => void;
-  readonly backHref: string;
-  readonly backLabel: string;
   readonly canAbort: boolean;
   readonly onAbort: () => void;
   // Dieselbe Sperre, die der Abbrechen-Knopf vor Task 14 direkt trug
@@ -215,10 +210,6 @@ export function ScoreboardSettingsDialog({
             Steuerung übernehmen
           </Button>
         ) : null}
-
-        <Link className="block text-body font-semibold text-emerald-300 underline-offset-4 hover:underline" href={backHref}>
-          {backLabel}
-        </Link>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <Button aria-label="Spiel fortsetzen" onClick={onClose}>SPIEL FORTSETZEN</Button>

@@ -357,7 +357,10 @@ test("a club can complete a match and start a generated tournament match", async
   await page.context().setOffline(false);
   await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(true);
   await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("321");
-  await page.getByRole("button", { name: "Letzte Aufnahme zurücknehmen" }).click();
+  // Die Rücknahme liegt seit dem Wegfall des eigenen Knopfes auf der
+  // Rücktaste des Keypads: bei leerer Eingabe nimmt sie die letzte
+  // gesendete Aufnahme zurück (match-scoreboard.tsx, handleRoundBackspace).
+  await page.getByRole("button", { name: "Rücktaste" }).click();
   await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("501");
   await record(180, 321);
   // Seit Task 14 steht "Letzte Aufnahmen" im Einstellungs-Modal, nicht mehr

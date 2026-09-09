@@ -100,7 +100,11 @@ export function RoundKeypad({ value, quickScores, quickScoresSource, submittable
           ))}
         </div>
       </div>
-      <div className="grid grid-rows-3 gap-2">
+      {/* Trennlinie zwischen Schnellwerten und Ziffernblock: beide sind
+          Reihen zu drei gleich aussehenden Tasten, ohne Kante verschwimmen
+          sie zu einem Feld. Nur ein Rahmen plus Innenabstand, keine eigene
+          Grid-Zeile — die Zeilenaufteilung bleibt unverändert. */}
+      <div className="grid grid-rows-3 gap-2 border-t border-slate-800 pt-3">
         {digitRows.map((row, rowIndex) => (
           <div className="grid grid-cols-3 gap-2" key={rowIndex}>
             {row.map((digit) => (

@@ -483,15 +483,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
             sideNames={[sideNames(match.participants[0]), sideNames(match.participants[1])]}
           />
           <AbortMatchDialog error={scoring.abortError !== null ? mutationMessage(scoring.abortError) : null} onCancel={() => { scoring.resetAbort(); setAbortOpen(false); }} onSubmit={(reason) => scoring.abortMatch(reason)} open={abortOpen} pending={scoring.abortPending} queuedCount={queued.length} />
-          <ScoreboardSettingsDialog abortDisabled={!online || lock.state !== "EIGEN" || scoring.abortPending} backHref={backHref} backLabel={backLabel} canAbort={canAbort && match.status === "IN_PROGRESS"} lockState={lock.state} onAbort={() => { scoring.resetAbort(); setAbortOpen(true); }} onChange={(next) => writeScoreboardSettings(next)} onClose={() => setSettingsOpen(false)} onTakeOver={lock.takeOver} open={settingsOpen} settings={settings} visits={match.visits} />
-          {/* Rücknahme = schnelle Korrektur beim Zählen, kein Einstellungsvorgang. */}
-          {mayControl && match.visits.some((visit) => !visit.reverted) ? (
-            <div className="p-4">
-              <Button disabled={scoring.undoPending || !online} onClick={() => scoring.undoVisit()} variant="outline">
-                Letzte Aufnahme zurücknehmen
-              </Button>
-            </div>
-          ) : null}
+          <ScoreboardSettingsDialog abortDisabled={!online || lock.state !== "EIGEN" || scoring.abortPending} canAbort={canAbort && match.status === "IN_PROGRESS"} lockState={lock.state} onAbort={() => { scoring.resetAbort(); setAbortOpen(true); }} onChange={(next) => writeScoreboardSettings(next)} onClose={() => setSettingsOpen(false)} onTakeOver={lock.takeOver} open={settingsOpen} settings={settings} visits={match.visits} />
         </div>
       </div>
     </section>
