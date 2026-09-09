@@ -19,6 +19,14 @@ export interface PlayerRankingSlot {
   readonly status: "WAITING" | "READY" | "IN_PROGRESS" | "COMPLETED" | "WALKOVER" | "CANCELLED";
   /** Reglement A1.7: mögliche Punkte je Einzel sind `2 × legsToWinSet`. */
   readonly legsToWinSet: number;
+  /**
+   * Reglement A1.2/A1.7 ist ausschliesslich für ein Einzel definiert, das
+   * innerhalb eines einzigen Satzes entschieden wird — das ist, was A1.7
+   * „Satz" nennt, ist in dieser Engine ein `leg`, und „2 Gewinnsätze" ist
+   * `legsToWinSet`. Für `setsToWin !== 1` hat die Punktetabelle keine
+   * fachliche Bedeutung; solche Slots werden verworfen (siehe Filter unten).
+   */
+  readonly setsToWin: number;
   readonly homeTeamId: string;
   readonly awayTeamId: string;
   /** Über `resolveSlotOccupancy` aufgelöst: genau eine Person bei einem gewerteten Einzel, sonst leer. */
@@ -197,6 +205,14 @@ export function calculatePlayerRanking(input: PlayerRankingInput): readonly Play
     if (slot.encounterStatus !== "COMPLETED") continue;
     if (slot.discipline !== "SINGLES") continue;
     if (slot.status !== "COMPLETED" && slot.status !== "WALKOVER") continue;
+    // Reglement A1.2/A1.7 ist nur für ein innerhalb eines Satzes entschiedenes
+    // Einzel definiert (`setsToWin === 1`, siehe `PlayerRankingSlot.setsToWin`).
+    // Für jeden anderen Wert hat die Punktetabelle keine fachliche Bedeutung —
+    // kein Skalierungsfehler, sondern ein von der Regel nicht abgedeckter Fall.
+    // Die realen Web-UI-Vorlagen (`buildEncounterTemplate`/`vfcTemplateOptions`)
+    // setzen `setsToWin` immer auf 1, aber die API ist mandantenfähig und lässt
+    // Werte bis 11 zu (`competitionSlotInputSchema`), darum die explizite Prüfung.
+    if (slot.setsToWin !== 1) continue;
 
     const [homePlayerId] = slot.homePlayerIds;
     const [awayPlayerId] = slot.awayPlayerIds;

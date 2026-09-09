@@ -221,6 +221,7 @@ export class CompetitionsService {
           discipline: slot.discipline as PlayerRankingSlot["discipline"],
           status: slot.status as PlayerRankingSlot["status"],
           legsToWinSet: slot.legsToWinSet,
+          setsToWin: slot.setsToWin,
           homeTeamId: encounter.homeTeamId,
           awayTeamId: encounter.awayTeamId,
           homePlayerIds: occupancy.home.playerIds,

@@ -66,6 +66,7 @@ export interface PlayerRankingSource {
     readonly discipline: string;
     readonly status: string;
     readonly legsToWinSet: number;
+    readonly setsToWin: number;
     readonly homePosition: number | null;
     readonly awayPosition: number | null;
     readonly homeLegs: number;
@@ -189,6 +190,7 @@ export class CompetitionsRepository {
           discipline: encounterSlots.discipline,
           status: encounterSlots.status,
           legsToWinSet: encounterSlots.legsToWinSet,
+          setsToWin: encounterSlots.setsToWin,
           homePosition: encounterSlots.homePosition,
           awayPosition: encounterSlots.awayPosition,
           homeLegs: encounterSlots.homeLegs,

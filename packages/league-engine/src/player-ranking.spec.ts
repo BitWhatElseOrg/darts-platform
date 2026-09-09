@@ -16,6 +16,7 @@ function singles(overrides: Partial<PlayerRankingSlot> = {}): PlayerRankingSlot 
     discipline: "SINGLES",
     status: "COMPLETED",
     legsToWinSet: 2,
+    setsToWin: 1,
     homeTeamId: TEAM_A,
     awayTeamId: TEAM_B,
     homePlayerIds: [ALICE],
@@ -60,6 +61,19 @@ describe("calculatePlayerRanking", () => {
   it("zählt nur Begegnungen mit Status COMPLETED", () => {
     const rows = calculatePlayerRanking({
       slots: [singles({ encounterStatus: "RUNNING" })],
+    });
+    expect(rows).toEqual([]);
+  });
+
+  it("zählt Mehrsatz-Slots nicht (Reglement A1.2/A1.7 nur für setsToWin === 1 definiert)", () => {
+    // Die reale Web-UI erzeugt nie ein Einzel mit setsToWin !== 1, aber die
+    // API ist mandantenfähig und lässt bis 11 zu — ein solcher Slot hätte
+    // sonst (bei genug Legs) einen hitRate > 1.0 zur Folge, der beim Parsen
+    // der API-Antwort zum 500er würde. Der Slot ist hier bewusst legitim
+    // COMPLETED mit einem echten Sieg (2:0), zählt aber wegen setsToWin: 2
+    // trotzdem nicht.
+    const rows = calculatePlayerRanking({
+      slots: [singles({ setsToWin: 2, homeLegs: 2, awayLegs: 0 })],
     });
     expect(rows).toEqual([]);
   });
