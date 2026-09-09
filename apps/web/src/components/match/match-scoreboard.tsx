@@ -104,6 +104,13 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   // beim Fehlschlag verlieren, obwohl niemand sie neu tippen sollte.
   const [lastSubmitSuccess, setLastSubmitSuccess] = useState(scoring.submitSucceededAt);
   const submitJustSucceeded = lastSubmitSuccess !== scoring.submitSucceededAt;
+  // Bust im Runden-Modus blieb bisher wortlos: der Reststand ruecht nur nicht
+  // vor, ohne Wort oder Marke (UX-Test 2026-09-09). Anders als im Dart-Modus
+  // kennt die Flaeche den Ausgang hier erst NACH dem Absenden (round-entry.ts
+  // erkennt einen Bust bewusst nicht lokal) — die Meldung ist deshalb eine
+  // reine Nachbetrachtung, keine Bestaetigung vor dem Senden, und erscheint
+  // deshalb unabhaengig von der Einstellung "Score bestaetigen".
+  const [roundBustVisit, setRoundBustVisit] = useState<typeof scoring.lastSubmittedVisit>(null);
   if (submitJustSucceeded) {
     setLastSubmitSuccess(scoring.submitSucceededAt);
     setRoundValue("");
@@ -112,6 +119,14 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     setCheckoutDarts(3);
     dispatchEntry({ type: "RESET" });
     setPendingConfirmation(null);
+    // Ueberschreibt eine noch sichtbare fruehere Bust-Anzeige immer neu (auch
+    // mit `null`): ein Bust endet die Aufnahme und damit fast immer auch den
+    // Zug (`turnKey` unten wechselt im selben Render) — die Anzeige darf sich
+    // deshalb NICHT am Zugwechsel orientieren, sonst loescht sie sich selbst,
+    // bevor sie zu sehen war.
+    if (inputMode === "ROUND") {
+      setRoundBustVisit(scoring.lastSubmittedVisit?.outcome === "BUST" ? scoring.lastSubmittedVisit : null);
+    }
   }
   const [lastAbortSuccess, setLastAbortSuccess] = useState(scoring.abortSucceededAt);
   if (lastAbortSuccess !== scoring.abortSucceededAt) {
@@ -310,6 +325,15 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingConfirmation, settings.autoConfirm]);
 
+  // Die Bust-Anzeige im Runden-Modus ist eine reine Nachbetrachtung ohne
+  // eigene Handlung — sie blendet sich deshalb von selbst wieder aus, mit
+  // derselben Frist wie das automatische Bestaetigen oben.
+  useEffect(() => {
+    if (roundBustVisit === null) return;
+    const timeout = setTimeout(() => setRoundBustVisit(null), 1200);
+    return () => clearTimeout(timeout);
+  }, [roundBustVisit]);
+
   const handleDartSegment = (segment: number) => {
     if (activeParticipant === undefined) return;
     dispatchEntry({
@@ -461,9 +485,9 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
             // scrollt seit der 360x640-Messung seinen Mittelteil selbst und
             // haelt Ruecktaste und Absenden fest (round-keypad.tsx). Ein
             // Scroller hier wuerde beides wieder mitnehmen.
-            <div className="mx-auto min-h-0 w-full max-w-lg flex-1 basis-auto p-3 [@media(min-height:56rem)]:max-h-[44rem]">
+            <div className="relative mx-auto min-h-0 w-full max-w-lg flex-1 basis-auto p-3 [@media(min-height:56rem)]:max-h-[44rem]">
               <RoundKeypad
-                disabled={!mayControl || legDecision !== null || activeParticipant === undefined || scoring.submitPending || checkoutOpen}
+                disabled={!mayControl || legDecision !== null || activeParticipant === undefined || scoring.submitPending || checkoutOpen || roundBustVisit !== null}
                 onBackspace={handleRoundBackspace}
                 onDigit={handleRoundDigit}
                 onQuickScore={handleRoundQuickScore}
@@ -475,6 +499,15 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
                 undoPoints={undoPoints}
                 value={roundValue}
               />
+              {roundBustVisit !== null ? (
+                <VisitConfirmation
+                  bust
+                  onBack={() => setRoundBustVisit(null)}
+                  onConfirm={() => setRoundBustVisit(null)}
+                  points={roundBustVisit.appliedPoints}
+                  thrownPoints={roundBustVisit.points}
+                />
+              ) : null}
             </div>
           ) : null}
         </div>

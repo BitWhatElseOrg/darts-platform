@@ -303,7 +303,7 @@ function OwnerTransferDialog({ member, onCancel, onConfirm, pending }: {
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Button disabled={pending} onClick={onCancel} type="button" variant="outline">Abbrechen</Button>
-          <Button className="bg-ring-red text-chalk hover:bg-ring-red-deep" disabled={pending} onClick={onConfirm} type="button">
+          <Button disabled={pending} onClick={onConfirm} type="button" variant="danger">
             Eigentum übertragen
           </Button>
         </div>

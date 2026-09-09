@@ -49,8 +49,8 @@ export function MatchScoreboardRoute({ encounterId, matchId, requestedOrganizati
 
   if (message !== null || organization === null || matchQuery.data === undefined) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-4 py-6 text-white">
-        <p className="rounded-xl border border-slate-800 bg-slate-900/80 p-5 text-body text-slate-300" role="status">
+      <main className="sektorenring flex min-h-screen items-center justify-center bg-sisal-200 px-4 py-6 text-chalk">
+        <p className="rounded-xl border border-sisal-400 bg-sisal-100/80 p-5 text-body text-spider" role="status">
           {message}
         </p>
       </main>
@@ -62,7 +62,7 @@ export function MatchScoreboardRoute({ encounterId, matchId, requestedOrganizati
   const canAbort = hasOrganizationPermission(organization.role, "match:abort");
 
   return (
-    <main className="bg-slate-950">
+    <main className="sektorenring bg-sisal-200">
       <MatchScoreboard
         backHref={back.href}
         backLabel={back.label}

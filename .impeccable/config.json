@@ -44,6 +44,15 @@
         ],
         "createdAt": "2026-09-08T11:11:46.295Z",
         "reason": "false positive: text-slate-400 sits on a 10% emerald tint over slate-900 (bg-emerald-400/10), effectively the same dark-theme darkness as the surrounding slate-900 card; contrast is slate-400-on-slate-900, not gray-on-a-saturated-surface. Same reasoning already recorded 2026-09-08 for this file, but that entry used a plain string value which the gray-on-color rule's matcher never honors (only wildcard * with file scoping works) -- this replaces it with a working scoped ignore."
+      },
+      {
+        "rule": "gray-on-color",
+        "value": "text-slate-950",
+        "files": [
+          "packages/ui/src/components/button.tsx"
+        ],
+        "createdAt": "2026-09-09T17:04:05.687Z",
+        "reason": "false positive: slate-950 is near-black, not gray - high contrast on bg-emerald-400 (pre-existing pairing, unrelated to this change)"
       }
     ]
   }

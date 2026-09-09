@@ -231,6 +231,42 @@ test("the round mode records the opening visit dart by dart under double in", as
 });
 
 /**
+ * UX-Test 2026-09-09: ein Bust im Runden-Modus blieb bisher wortlos, der
+ * Reststand ruckte einfach nicht vor. Die Fläche kennt den Ausgang hier erst
+ * NACH dem Absenden (round-entry.ts erkennt einen Bust bewusst nicht lokal)
+ * und zeigt seither dieselbe Bust-Fläche wie der Dart-Modus, unabhängig von
+ * der Einstellung „Score bestätigen" — sie blendet sich von selbst wieder
+ * aus, ohne eigene Handlung.
+ */
+test("the round mode announces a bust and lets it fade on its own", async ({ page }) => {
+  const { playerOneName } = await openScoreboard(page, "roundbust");
+  const scoreOne = page.getByLabel(`${playerOneName}, Restscore`);
+
+  await switchInputMode(page, "Runde");
+
+  // Jede Aufnahme wechselt den Oche — die Gegenseite wirft dazwischen eine
+  // Nullrunde, damit playerOneName wieder am Zug ist (wie im Master-Out-Test
+  // oben).
+  await typeRoundScore(page, 180);
+  await expect(scoreOne).toHaveText("321");
+  await typeRoundScore(page, 0);
+  await typeRoundScore(page, 180);
+  await expect(scoreOne).toHaveText("141");
+  await typeRoundScore(page, 0);
+
+  // 141 - 180 ist negativ: ein eindeutiger Überwurf, ohne Checkout-Mehrdeutigkeit
+  // (`handleRoundSubmit` öffnet den Checkout-Dialog nur bei exaktem Reststand).
+  await typeRoundScore(page, 180);
+  await expect(page.getByText("BUST", { exact: true })).toBeVisible();
+  // Waehrend die Anzeige steht, ist das Ziffernfeld gesperrt.
+  await expect(page.getByRole("button", { name: "Ziffer 1" })).toBeDisabled();
+  await expect(page.getByText("BUST", { exact: true })).toBeHidden({ timeout: 3_000 });
+  // Der Bust laesst den Reststand stehen.
+  await expect(scoreOne).toHaveText("141");
+  await expect(page.getByRole("button", { name: "Ziffer 1" })).toBeEnabled();
+});
+
+/**
  * Befund F2: Unter Master Out schliesst auch ein Triple das Leg
  * (Reglement 1.1, Klasse B). `checkoutDouble` kann kein Triple kodieren, das
  * Finish ging deshalb ohne Belegfeld raus und fiel seit

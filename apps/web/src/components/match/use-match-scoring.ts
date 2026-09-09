@@ -66,6 +66,14 @@ export interface MatchScoring {
   readonly abortPending: boolean;
   readonly submitSucceededAt: number;
   readonly abortSucceededAt: number;
+  /**
+   * Die neueste Aufnahme aus der Serverantwort des letzten Absendens — nur
+   * bei tatsaechlicher Serverbestaetigung gesetzt (`null` bleibt es fuer ein
+   * offline in die Warteschlange gelegtes Kommando, dessen Ausgang noch
+   * aussteht). Der Runden-Modus erkennt einen Bust bewusst nicht lokal
+   * (round-entry.ts) und braucht diese Angabe, um ihn trotzdem anzuzeigen.
+   */
+  readonly lastSubmittedVisit: MatchStateResponse["visits"][number] | null;
   readonly submitVisit: (visit: {
     readonly points: number;
     readonly dartsThrown: 1 | 2 | 3;
@@ -125,6 +133,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
   const replayingRef = useRef(false);
   const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
   const [submitSucceededAt, setSubmitSucceededAt] = useState(0);
+  const [lastSubmittedVisit, setLastSubmittedVisit] = useState<MatchStateResponse["visits"][number] | null>(null);
   const [abortSucceededAt, setAbortSucceededAt] = useState(0);
   const refresh = useCallback(async () => { await Promise.all([
     queryClient.invalidateQueries({ queryKey: ["matches", organizationId] }),
@@ -312,6 +321,12 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     },
     onSuccess: async (serverState) => {
       setSubmitSucceededAt((value) => value + 1);
+      // Immer neu setzen, auch auf `null`: ein offline in die Warteschlange
+      // gelegtes Kommando hebt `submitSucceededAt` genauso an (PR-Agent-Befund
+      // "Stale Bust") -- ohne dieses `else` bliebe die Bust-Anzeige einer
+      // fruehen Aufnahme stehen und wuerde faelschlich fuer die naechste,
+      // noch unbestaetigte Aufnahme erneut ausgeloest.
+      setLastSubmittedVisit(serverState === null ? null : (serverState.visits[0] ?? null));
       if (serverState !== null) await refresh();
     },
     onError: async (error) => { if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") await refresh(); },
@@ -403,6 +418,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     abortPending: abort.isPending,
     submitSucceededAt,
     abortSucceededAt,
+    lastSubmittedVisit,
     submitVisit: (visit) => submit.mutate(visit),
     undoVisit: () => undo.mutate(),
     decideLegStart: (startingSeat) => legDecision.mutate({ kind: "LEG_START", startingSeat }),
