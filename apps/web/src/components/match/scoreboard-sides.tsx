@@ -1,7 +1,7 @@
 "use client";
 
 import type { Dart, MatchStateResponse } from "@darts-platform/schemas";
-import { cn } from "@darts-platform/ui";
+import { cn, Score } from "@darts-platform/ui";
 import { dartLabel, threeDartAverage } from "@/lib/scoreboard-view";
 
 type Participant = MatchStateResponse["participants"][number];
@@ -54,19 +54,20 @@ export function ScoreboardSides({ match, pendingDarts, showDartBand }: {
           >
             <p className="text-caption">Average {average.toFixed(1)}</p>
             <div className="flex items-baseline gap-3">
-              <p
+              <Score
                 aria-label={`${sideNames(participant)}, Restscore`}
-                className="font-numerals font-bold text-display tabular"
+                size={isActive ? "display" : "lead"}
+                tone={isActive ? "chalk" : "dim"}
               >
                 {participant.remaining}
-              </p>
+              </Score>
               {lastPoints !== null ? <p className="text-title-sm font-numerals tabular">{lastPoints}</p> : null}
             </div>
             <p className="truncate text-body font-semibold" title={sideNames(participant)}>
               {participant.players.map((person, index) => (
                 <span key={person.playerId}>
                   {index > 0 ? <span aria-hidden="true"> · </span> : null}
-                  <span className={person.isThrowing ? "rounded-full bg-emerald-500 px-2 text-slate-950" : ""}>
+                  <span className={person.isThrowing ? "rounded-full bg-ring-green px-2 text-chalk" : ""}>
                     {person.displayName}
                     {person.isThrowing ? <span className="sr-only"> (am Wurf)</span> : null}
                   </span>

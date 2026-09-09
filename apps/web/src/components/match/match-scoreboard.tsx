@@ -320,7 +320,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   };
 
   return (
-    <section aria-label="Match-Scoreboard" className="grid h-[100dvh] grid-rows-[auto_auto_auto_1fr] bg-slate-950 text-white">
+    <section aria-label="Match-Scoreboard" className="sektorenring grid h-[100dvh] grid-rows-[auto_auto_auto_1fr] bg-slate-950 text-white">
       {/* Ohne Seitentitel ist das die einzige Überschrift der Fläche und der
           einzige Name, den Screenreader ausserhalb von "Match-Scoreboard"
           zu hören bekommen. `sr-only` ist `position: absolute` und nimmt
@@ -356,17 +356,17 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
       <div className="grid min-h-0 grid-rows-[auto_1fr_auto] overflow-y-auto">
         <div>
           {hasPending || queueReadError !== null || queueWriteError !== null ? (
-            <div className="border-b border-amber-400/40 bg-amber-300/10 p-4">
+            <div className="border-b border-slate-700 bg-slate-900 p-4">
               {/* Auch ein Fehler der Warteschlange selbst gehoert in dieses
                   Band: sonst zeigt die Flaeche eine leere Liste, obwohl
                   Aufnahmen ungesendet in IndexedDB liegen (AGENTS.md §18).
                   Lesen und Schreiben stehen getrennt -- sie bedeuten
                   Unterschiedliches und koennen gleichzeitig zutreffen. */}
               {queueReadError !== null ? (
-                <p className="text-body text-amber-100" role="status">{queueReadError}</p>
+                <p className="text-body text-slate-200" role="status">{queueReadError}</p>
               ) : null}
               {queueWriteError !== null ? (
-                <p className="text-body text-amber-100" role="status">{queueWriteError}</p>
+                <p className="text-body text-slate-200" role="status">{queueWriteError}</p>
               ) : null}
               {queued.map((command) => {
                 // Ob ein Eintrag verworfen werden darf, entscheidet
@@ -382,7 +382,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
                   acceptedButStuck: queueAcceptedButStuck.has(command.commandId),
                 });
                 return (
-                  <div className="flex flex-wrap items-center justify-between gap-3 text-body text-amber-100" key={command.commandId}>
+                  <div className="flex flex-wrap items-center justify-between gap-3 text-body text-slate-200" key={command.commandId}>
                     <span>{notice.text}</span>
                     {notice.action === "DISCARD" ? (
                       <Button onClick={() => scoring.discardQueued(command.commandId)} variant="outline">Verwerfen und synchronisieren</Button>

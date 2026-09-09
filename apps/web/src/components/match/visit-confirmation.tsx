@@ -80,7 +80,7 @@ export function VisitConfirmation({ points, thrownPoints, bust, onBack, onConfir
             <BackArrowIcon />
           </button>
           <button
-            className="min-h-14 rounded-lg bg-emerald-500 text-title-sm font-bold text-slate-950 transition hover:bg-emerald-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
+            className="min-h-14 rounded-lg bg-ring-green text-title-sm font-bold text-chalk transition hover:bg-ring-green-deep focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
             onClick={onConfirm}
             ref={confirmRef}
             type="button"

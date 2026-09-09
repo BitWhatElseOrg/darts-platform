@@ -5,7 +5,7 @@ import { cn } from "@darts-platform/ui";
 import { quickScoresSourceLabel } from "@/lib/scoreboard-view";
 
 const keyClassName =
-  "min-h-14 rounded-lg text-title-sm font-numerals font-semibold tabular text-white transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 disabled:cursor-not-allowed disabled:opacity-40";
+  "min-h-14 rounded-lg text-title-sm font-numerals font-semibold tabular text-white transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green disabled:cursor-not-allowed disabled:opacity-40";
 
 /**
  * Rücktaste und Absendeknopf als gezeichnete Marken statt Unicode-Chevrons —
@@ -139,7 +139,7 @@ export function RoundKeypad({ value, quickScores, quickScoresSource, submittable
         </button>
         <button
           aria-label="Aufnahme erfassen"
-          className={cn(keyClassName, "bg-emerald-500 text-slate-950 hover:enabled:bg-emerald-400")}
+          className={cn(keyClassName, "bg-ring-green text-chalk hover:enabled:bg-ring-green-deep")}
           disabled={disabled || !submittable}
           onClick={onSubmit}
           type="button"

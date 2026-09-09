@@ -6,7 +6,7 @@ import { isSegmentAvailable } from "@/lib/dart-entry";
 import { dartKeypadLabel } from "@/lib/scoreboard-view";
 
 const keyClassName =
-  "min-h-14 rounded-lg text-title-sm font-numerals font-semibold tabular text-white transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 disabled:cursor-not-allowed disabled:opacity-40";
+  "min-h-14 rounded-lg text-title-sm font-numerals font-semibold tabular text-white transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green disabled:cursor-not-allowed disabled:opacity-40";
 
 /**
  * Rücktaste als gezeichnete Marke statt eines Unicode-Chevrons — DESIGN.md:
@@ -108,7 +108,7 @@ export function DartKeypad({ disabled, segmentsLocked, modifier, onSegment, onMo
         <button
           aria-label="Umschalter DOUBLE"
           aria-pressed={modifier === 2}
-          className={cn(keyClassName, modifier === 2 ? "bg-emerald-500 text-slate-950" : "bg-slate-800 hover:enabled:bg-slate-700")}
+          className={cn(keyClassName, modifier === 2 ? "bg-ring-green text-chalk" : "bg-slate-800 hover:enabled:bg-slate-700")}
           disabled={disabled}
           onClick={() => onModifier(2)}
           type="button"
@@ -118,7 +118,7 @@ export function DartKeypad({ disabled, segmentsLocked, modifier, onSegment, onMo
         <button
           aria-label="Umschalter TRIPLE"
           aria-pressed={modifier === 3}
-          className={cn(keyClassName, modifier === 3 ? "bg-emerald-500 text-slate-950" : "bg-slate-800 hover:enabled:bg-slate-700")}
+          className={cn(keyClassName, modifier === 3 ? "bg-ring-green text-chalk" : "bg-slate-800 hover:enabled:bg-slate-700")}
           disabled={disabled}
           onClick={() => onModifier(3)}
           type="button"

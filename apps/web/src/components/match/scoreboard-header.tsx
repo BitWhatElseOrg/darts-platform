@@ -31,6 +31,16 @@ function GearIcon() {
   );
 }
 
+/** Fragezeichen: rein dekorativ, die zugängliche Bezeichnung trägt der Link. */
+function HelpIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+      <path d="M9.5 9a2.5 2.5 0 1 1 3.4 2.33c-.77.3-1.4.98-1.4 1.92v.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="12" cy="17.5" fill="currentColor" r="0.75" stroke="none" />
+    </svg>
+  );
+}
+
 /**
  * Kopfzeile der Vollbildfläche: links der Rückweg samt Leg und laufender
  * Runde, in der Mitte Startscore und Spielart, rechts der Weg zur
@@ -69,6 +79,9 @@ export function ScoreboardHeader({ backHref, backLabel, match, onOpenSettings }:
             LIVE
           </Link>
         ) : null}
+        <Link aria-label="Bedienungsanleitung" className={iconButtonClassName} href="/bedienungsanleitung.html">
+          <HelpIcon />
+        </Link>
         <button aria-label="Einstellungen" className={iconButtonClassName} onClick={onOpenSettings} type="button">
           <GearIcon />
         </button>
