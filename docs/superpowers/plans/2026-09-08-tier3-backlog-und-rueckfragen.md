@@ -31,7 +31,11 @@ Folgeplan `2026-09-08-csp-nonce-nacharbeit.md` umgesetzt (Branch
   Teil von `pnpm test:e2e`/CI (Kostenentscheid). Deckt jetzt auch die beiden
   waehrend dieser Nacharbeit gefundenen, zusaetzlichen Probleme
   (`'strict-dynamic'`, `jitless`) gegen den echten Produktivbuild ab.
-- **`jitless`-Platzierung nur empirisch, nicht garantiert robust — bleibt offen.** Zod v4
+- ~~**`jitless`-Platzierung nur empirisch, nicht garantiert robust — bleibt offen.**~~
+  Erledigt — `docs/superpowers/plans/2026-09-09-zod-jitless-instrumentation-client.md`
+  verankert den Aufruf stattdessen in `apps/web/src/instrumentation-client.ts`,
+  Next.js' eigenem, framework-garantiert vor jeder Hydration ausgeführtem
+  Bootstrap-Hook, statt sich auf Webpack-Bundling-Zufall zu verlassen. Zod v4
   prüft beim ersten Schema-Zugriff pro Bundle-Kopie einmalig per
   `Function("")`, ob JIT-Kompilierung möglich ist — unter der erzwungenen
   CSP schlägt das fehl und meldet einen echten `script-src`-`eval`-Verstoss.

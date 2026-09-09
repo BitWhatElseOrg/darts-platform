@@ -131,7 +131,13 @@ nur vollem Seitenaufruf) gegen Bruch des Webpack-Chunk-Nachladens. Derselbe
 Folgeplan setzt die Nonce zusätzlich explizit auf die Request-Header (statt
 sich auf internes Next.js-Spiegelverhalten zu verlassen) und schliesst eine
 separat entdeckte, unabhängige CSP-Meldequelle (Zods `eval`-Fähigkeitstest,
-siehe dortiges ADR-Äquivalent im Folgeplan-Dokument selbst).
+siehe dortiges ADR-Äquivalent im Folgeplan-Dokument selbst). Die anfängliche
+`z.config({ jitless: true })`-Platzierung in `providers.tsx` verliess sich auf
+eine unzugesicherte Webpack-Bundling-Eigenschaft; seit
+`docs/superpowers/plans/2026-09-09-zod-jitless-instrumentation-client.md`
+sitzt der Aufruf stattdessen in `apps/web/src/instrumentation-client.ts`,
+Next.js' dediziertem, framework-garantiert vor jeder Hydration ausgeführtem
+Hook.
 
 ## Referenzen
 
