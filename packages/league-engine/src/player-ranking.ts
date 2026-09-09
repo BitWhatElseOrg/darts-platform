@@ -142,35 +142,13 @@ interface RankedCandidate {
 }
 
 /**
- * Prüft, ob zwei Kandidaten in allen fachlichen Rankingkriterien gleich sind,
- * ohne den technischen Tiebreak zu berücksichtigen.
- */
-function arePlayersTied(first: RankedCandidate, second: RankedCandidate): boolean {
-  const byRankingPoints = compareFractions(
-    first.achievedPoints * first.achievedPoints,
-    first.possiblePoints,
-    second.achievedPoints * second.achievedPoints,
-    second.possiblePoints,
-  );
-  if (byRankingPoints !== 0) return false;
-
-  const byGameQuotient = compareFractions(first.won, first.played, second.won, second.played);
-  if (byGameQuotient !== 0) return false;
-
-  const bySetQuotient = compareFractions(
-    first.legsFor,
-    first.legsPlayed,
-    second.legsFor,
-    second.legsPlayed,
-  );
-  return bySetQuotient === 0;
-}
-
-/**
  * Reglement A1.9: Ranglistenpunkte, dann Q-Sp., dann Q-Satz. Positiv, wenn
- * `first` vor `second` stehen soll (fachlich besser ist). Rein antisymmetrisch:
- * `compareRows(b, a) === -compareRows(a, b)` für jedes Paar, das macht den
- * finalen `playerId`-Tiebreak unten sicher.
+ * `first` vor `second` stehen soll (fachlich besser ist), 0 bei einem
+ * echten Gleichstand aller drei Kriterien. Trägt bewusst keinen technischen
+ * Tiebreak — der lebt ausschliesslich im `.sort(...)`-Aufruf unten, damit
+ * `compareRows(...) === 0` weiterhin einen echten fachlichen Gleichstand
+ * erkennt (dasselbe Idiom wie `compareKeys`/`calculateStandings` in
+ * `standings.ts`).
  */
 function compareRows(first: RankedCandidate, second: RankedCandidate): number {
   // Ranglistenpunkte = Trefferquote × erzielte Punkte = erzielte² / mögliche.
@@ -185,17 +163,7 @@ function compareRows(first: RankedCandidate, second: RankedCandidate): number {
   const byGameQuotient = compareFractions(first.won, first.played, second.won, second.played);
   if (byGameQuotient !== 0) return byGameQuotient;
 
-  const bySetQuotient = compareFractions(
-    first.legsFor,
-    first.legsPlayed,
-    second.legsFor,
-    second.legsPlayed,
-  );
-  if (bySetQuotient !== 0) return bySetQuotient;
-
-  // Rein technischer, stabiler Tiebreak ohne fachliche Bedeutung.
-  if (first.playerId === second.playerId) return 0;
-  return first.playerId < second.playerId ? 1 : -1;
+  return compareFractions(first.legsFor, first.legsPlayed, second.legsFor, second.legsPlayed);
 }
 
 export function calculatePlayerRanking(input: PlayerRankingInput): readonly PlayerRankingRow[] {
@@ -240,20 +208,26 @@ export function calculatePlayerRanking(input: PlayerRankingInput): readonly Play
           : Math.round(((tally.achievedPoints * tally.achievedPoints) / tally.possiblePoints) * 10_000) / 10_000,
       legsFor: tally.legsFor,
       legsPlayed: tally.legsPlayed,
-      rank: 0,
     };
   });
 
   // `compareRows(a, b) > 0` heisst „a ist besser als b"; für eine nach dem
   // besten Rang beginnende Liste muss der Comparator bei besserem `a`
-  // negativ werden — daher die vertauschten Argumente.
-  const ordered = [...rows].sort((a, b) => compareRows(b, a));
+  // negativ werden — daher die vertauschten Argumente. Bei einem echten
+  // Gleichstand (compareRows === 0) sorgt der `playerId`-Tiebreak für eine
+  // stabile, aber rein technische Reihenfolge ohne fachliche Bedeutung.
+  const ordered = [...rows].sort((a, b) => {
+    const business = compareRows(b, a);
+    if (business !== 0) return business;
+    if (a.playerId === b.playerId) return 0;
+    return a.playerId < b.playerId ? -1 : 1;
+  });
 
   const ranked: PlayerRankingRow[] = [];
   for (const [index, row] of ordered.entries()) {
     const previous = ordered[index - 1];
     const previousRank = ranked[index - 1]?.rank ?? 0;
-    const shared = previous !== undefined && arePlayersTied(previous, row);
+    const shared = previous !== undefined && compareRows(previous, row) === 0;
     ranked.push({
       playerId: row.playerId,
       teamId: row.teamId,
