@@ -194,10 +194,11 @@ describe("calculatePlayerRanking", () => {
     expect(ordered.indexOf(ALICE)).toBeLessThan(ordered.indexOf(CARLA));
   });
 
-  it("bricht gleiche Ranglistenpunkte über Q-Satz, wenn Q-Sp. gleich ist (Kriterium 3 nach Kriterium 1/2)", () => {
-    // Beide je 1 Sieg aus 2 Einzeln (Q-Sp. gleich, 0.5), aber Alice mit mehr
-    // gewonnenen Sätzen (Q-Satz höher) bei identischen Ranglistenpunkten
-    // (durch symmetrische erzielte/mögliche Punkte).
+  it("unterscheidet zwei Personen mit gleichem Q-Sp. schon über die Ranglistenpunkte (Kriterium 1 wertet die Siegmarge)", () => {
+    // Beide je 1 Sieg aus 2 Einzeln (Q-Sp. gleich, 0.5), aber Carla mit der
+    // überzeugenderen Siegmarge (2:0 statt 2:1) und damit höheren
+    // Ranglistenpunkten — Kriterium 1 entscheidet hier bereits, ohne dass
+    // Q-Sp. oder Q-Satz befragt werden müssen.
     const rows = calculatePlayerRanking({
       slots: [
         singles({ encounterId: "e1", homePlayerIds: [ALICE], homeLegs: 2, awayLegs: 1, awayPlayerIds: [BOB] }),
@@ -208,17 +209,41 @@ describe("calculatePlayerRanking", () => {
     });
     const alice = rows.find((row) => row.playerId === ALICE);
     const carla = rows.find((row) => row.playerId === CARLA);
-    // Alice: erzielte 3+0=3, möglich 8 -> Quote 0.375, Ranglistenpkt 1.125.
-    // Carla: erzielte 4+0=4, möglich 8 -> Quote 0.5,   Ranglistenpkt 2.0.
+    // Alice: erzielte 3+0=3, möglich 8 -> Ranglistenpkt 3²/8 = 1.125.
+    // Carla: erzielte 4+0=4, möglich 8 -> Ranglistenpkt 4²/8 = 2.0.
     expect((carla?.rank ?? 99)).toBeLessThan(alice?.rank ?? 0);
   });
 
+  it("bricht einen echten Gleichstand der Ranglistenpunkte über Q-Sp. (Kriterium 2)", () => {
+    // Beide kommen exakt auf Ranglistenpunkte 4 (erzielte² / mögliche =
+    // 16/4 bzw. 64/16), aber mit unterschiedlichem Q-Sp.: Alice gewinnt ihr
+    // einziges Einzel (Q-Sp. 1.0), Bob steht bei zwei Siegen aus vier
+    // Einzeln (Q-Sp. 0.5) — von Hand nachgerechnet, keine Zufallszahlen.
+    const rows = calculatePlayerRanking({
+      slots: [
+        singles({ encounterId: "e1", homePlayerIds: [ALICE], homeLegs: 2, awayLegs: 0, awayPlayerIds: [CARLA] }),
+        singles({ encounterId: "e2", homePlayerIds: [BOB], homeLegs: 2, awayLegs: 0, awayPlayerIds: [CARLA] }),
+        singles({ encounterId: "e3", homePlayerIds: [BOB], homeLegs: 2, awayLegs: 0, awayPlayerIds: [CARLA] }),
+        singles({ encounterId: "e4", homePlayerIds: [BOB], homeLegs: 0, awayLegs: 2, awayPlayerIds: [CARLA] }),
+        singles({ encounterId: "e5", homePlayerIds: [BOB], homeLegs: 0, awayLegs: 2, awayPlayerIds: [CARLA] }),
+      ],
+    });
+    const alice = rows.find((row) => row.playerId === ALICE);
+    const bob = rows.find((row) => row.playerId === BOB);
+    // Alice: erzielte 4, möglich 4 -> Ranglistenpkt 16/4 = 4.0, Q-Sp. 1/1 = 1.0.
+    // Bob: erzielte 4+4+0+0=8, möglich 16 -> Ranglistenpkt 64/16 = 4.0, Q-Sp. 2/4 = 0.5.
+    expect(alice?.rankingPoints).toBeCloseTo(bob?.rankingPoints ?? -1, 6);
+    expect((alice?.rank ?? 99)).toBeLessThan(bob?.rank ?? 0);
+  });
+
   it("teilt gleiche Ranglistenpunkte, Q-Sp. und Q-Satz auf einen gemeinsamen Rang und überspringt den nächsten", () => {
+    // Alice und Carla haben je exakt dasselbe Ergebnis (2:0 gegen Bob) und
+    // damit identische Ranglistenpunkte, Q-Sp. und Q-Satz — ein echter
+    // Gleichstand. Bob verliert beide Einzel und bleibt klar dahinter.
     const rows = calculatePlayerRanking({
       slots: [
         singles({ encounterId: "e1", homePlayerIds: [ALICE], homeLegs: 2, awayLegs: 0, awayPlayerIds: [BOB] }),
         singles({ encounterId: "e2", homePlayerIds: [CARLA], homeLegs: 2, awayLegs: 0, awayPlayerIds: [BOB] }),
-        singles({ encounterId: "e3", homePlayerIds: [BOB], homeLegs: 0, awayLegs: 2, awayPlayerIds: [ALICE], homeTeamId: TEAM_B, awayTeamId: TEAM_A }),
       ],
     });
     const alice = rows.find((row) => row.playerId === ALICE);
@@ -464,7 +489,7 @@ export function calculatePlayerRanking(input: PlayerRankingInput): readonly Play
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd packages/league-engine && npx vitest run src/player-ranking.spec.ts`
-Expected: PASS (alle 11 Fälle)
+Expected: PASS (alle 12 Fälle)
 
 - [ ] **Step 5: Export from the package barrel**
 
