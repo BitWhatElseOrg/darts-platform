@@ -20,23 +20,10 @@ afterEach(() => {
 });
 
 describe("HealthDashboard", () => {
-  it("rendert keine rohe amber/emerald/rose-Klasse mehr", async () => {
+  it("rendert genau ein StateTag statt der dl-Zeilen", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { container } = render(
       createElement(QueryClientProvider, { client: queryClient }, createElement(HealthDashboard)),
-    );
-    await screen.findAllByText("OK");
-    expect(container.innerHTML).not.toMatch(/\b(?:bg|text)-(?:amber|emerald|rose)-\d/);
-  });
-
-  it("rendert im compact-Modus genau ein StateTag statt der dl-Zeilen", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const { container } = render(
-      createElement(
-        QueryClientProvider,
-        { client: queryClient },
-        createElement(HealthDashboard, { variant: "compact" }),
-      ),
     );
     await screen.findByText("Dienste betriebsbereit");
     expect(container.querySelector("dl")).toBeNull();

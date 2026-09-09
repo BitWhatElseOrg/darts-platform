@@ -20,9 +20,11 @@ export function ApplicationDashboard() {
   if (session.data === null) {
     return (
       <div className="w-full">
-        <AuthPanel onAuthenticated={session.refetch} />
+        <div className="mx-auto w-full max-w-xl">
+          <AuthPanel onAuthenticated={session.refetch} />
+        </div>
         <p className="mt-4 flex justify-center">
-          <HealthDashboard variant="compact" />
+          <HealthDashboard />
         </p>
         <AuthFooter />
       </div>
