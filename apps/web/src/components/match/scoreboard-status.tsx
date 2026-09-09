@@ -54,7 +54,7 @@ export function ScoreboardStatus({ lockState, online, queuedCount, message, onTa
       ) : null}
       {!online ? <p className="text-slate-200">Offline · Aufnahmen werden lokal gespeichert.</p> : null}
       {queuedCount > 0 ? (
-        <p className="text-amber-300">
+        <p className="text-slate-200">
           {queuedCount} Aufnahme wartet dauerhaft gespeichert auf die Übertragung.
         </p>
       ) : null}

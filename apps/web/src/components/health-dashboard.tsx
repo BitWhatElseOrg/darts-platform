@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { Button, cn } from "@darts-platform/ui";
+import { Button, StateTag } from "@darts-platform/ui";
 
 import { fetchHealth } from "@/lib/health";
 
@@ -19,28 +19,18 @@ const statusLabels = {
   pending: "Wird geprüft …",
 } as const satisfies Record<DisplayStatus, string>;
 
+const statusTone = {
+  ok: "free",
+  error: "blocked",
+  pending: "waiting",
+} as const satisfies Record<DisplayStatus, "free" | "blocked" | "waiting">;
+
 function StatusRow({ label, status }: StatusRowProps) {
   return (
     <div className="flex min-h-14 items-center justify-between gap-6 border-b border-slate-800 py-3 last:border-0">
       <dt className="text-body font-medium text-slate-300">{label}</dt>
-      <dd
-        className={cn(
-          "inline-flex items-center gap-2 text-body font-semibold",
-          status === "ok" && "text-emerald-300",
-          status === "error" && "text-rose-300",
-          status === "pending" && "text-amber-200",
-        )}
-      >
-        <span
-          aria-hidden="true"
-          className={cn(
-            "size-2.5 rounded-full",
-            status === "ok" && "bg-emerald-400",
-            status === "error" && "bg-rose-400",
-            status === "pending" && "animate-pulse bg-amber-300",
-          )}
-        />
-        {statusLabels[status]}
+      <dd>
+        <StateTag label={statusLabels[status]} on="ink" tone={statusTone[status]} />
       </dd>
     </div>
   );
@@ -98,7 +88,7 @@ export function HealthDashboard() {
       </dl>
 
       {healthQuery.isError ? (
-        <p className="mt-5 rounded-lg border border-rose-400/30 bg-rose-400/10 p-3 text-body text-rose-200">
+        <p className="mt-5 rounded-lg border border-ring-red-deep/30 bg-ring-red-deep/10 p-3 text-body text-ring-red-deep">
           Der Systemstatus ist aktuell nicht erreichbar. Versuche es in Kürze erneut.
         </p>
       ) : null}
