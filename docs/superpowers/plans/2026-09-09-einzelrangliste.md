@@ -518,9 +518,7 @@ git commit -m "feat(league-engine): Einzelrangliste nach Reglement A1.7-A1.9
 
 Trefferquote, erzielte/mögliche Punkte, Ranglistenpunkte, Rangkriterien
 Q-Sp./Q-Satz. Reine Domänenrechnung, Rangfolge über ganzzahlige
-Kreuzmultiplikation statt Fliesskommavergleich.
-
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+Kreuzmultiplikation statt Fliesskommavergleich."
 ```
 
 ---
@@ -613,9 +611,7 @@ Expected: PASS
 
 ```bash
 git add packages/schemas/src/league.ts packages/schemas/src/index.ts
-git commit -m "feat(schemas): Zod-Schema für die Einzelrangliste
-
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+git commit -m "feat(schemas): Zod-Schema für die Einzelrangliste"
 ```
 
 ---
@@ -870,9 +866,7 @@ git add apps/api/src/competitions/competitions.repository.ts
 git commit -m "feat(api): Repository-Query für die Einzelrangliste
 
 Lädt abgeschlossene Begegnungen samt Einzelslots, Meldungen und
-Auswechslungen; die Besetzungsauflösung bleibt beim Service/der Engine.
-
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+Auswechslungen; die Besetzungsauflösung bleibt beim Service/der Engine."
 ```
 
 ---
@@ -1143,9 +1137,7 @@ git add apps/api/src/competitions/competitions.repository.ts apps/api/src/compet
 git commit -m "feat(api): Service für die Einzelrangliste
 
 Löst die Besetzung je Slot über resolveSlotOccupancy auf (dieselbe
-Funktion wie im Nichtantritt-Pfad) und ruft die League-Engine auf.
-
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+Funktion wie im Nichtantritt-Pfad) und ruft die League-Engine auf."
 ```
 
 ---
@@ -1210,9 +1202,7 @@ Expected: PASS
 
 ```bash
 git add apps/api/src/competitions/competitions.controller.ts apps/api/src/competitions/competitions.integration.spec.ts
-git commit -m "feat(api): Endpunkt GET .../competitions/:id/player-ranking
-
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+git commit -m "feat(api): Endpunkt GET .../competitions/:id/player-ranking"
 ```
 
 ---
@@ -1357,9 +1347,7 @@ Expected: PASS
 
 ```bash
 git add apps/web/src/components/league/player-ranking-table.tsx apps/web/src/components/league/competition-detail.tsx
-git commit -m "feat(web): Einzelrangliste in der Wettbewerbsansicht
-
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+git commit -m "feat(web): Einzelrangliste in der Wettbewerbsansicht"
 ```
 
 ---
@@ -1421,9 +1409,7 @@ Expected: PASS
 
 ```bash
 git add apps/web/tests/<gefundene-datei>
-git commit -m "test(web): E2E-Fall für die Einzelrangliste
-
-Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
+git commit -m "test(web): E2E-Fall für die Einzelrangliste"
 ```
 
 ---
