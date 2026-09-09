@@ -170,9 +170,9 @@ export function LiveTournament({ boardId, displayKeySecret, mode, publicId }: Li
     <LiveSection title="Gruppenranglisten">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {dashboard.groups.map((group) => (
-          <div className="overflow-hidden rounded-xl border border-slate-800" key={group.groupLabel}>
-            <h3 className="bg-slate-900 px-4 py-3 font-numerals text-title-sm font-bold">Gruppe {group.groupLabel}</h3>
-            <ol>{group.rows.map((row) => <li className="grid grid-cols-[2rem_1fr_3rem] border-t border-slate-800 px-4 py-2 text-body tabular" key={row.playerId}><span>{row.position}.</span><span>{row.displayName}{row.withdrawn ? " · Ausgefallen" : ""}</span><span className="text-right font-bold">{row.points}</span></li>)}</ol>
+          <div className="overflow-hidden rounded-xl border border-sisal-400" key={group.groupLabel}>
+            <h3 className="bg-sisal-100 px-4 py-3 font-numerals text-title-sm font-bold">Gruppe {group.groupLabel}</h3>
+            <ol>{group.rows.map((row) => <li className="grid grid-cols-[2rem_1fr_3rem] border-t border-sisal-300 px-4 py-2 text-body tabular" key={row.playerId}><span>{row.position}.</span><span>{row.displayName}{row.withdrawn ? " · Ausgefallen" : ""}</span><span className="text-right font-bold">{row.points}</span></li>)}</ol>
           </div>
         ))}
       </div>
@@ -185,16 +185,16 @@ export function LiveTournament({ boardId, displayKeySecret, mode, publicId }: Li
   ) : null;
 
   return (
-    <main className={`min-h-screen bg-slate-950 text-white ${mode === "tv" ? "p-8 xl:p-12" : "p-4 sm:p-7"}`}>
-      <header className="mx-auto flex max-w-[1500px] flex-wrap items-end justify-between gap-4 border-b border-emerald-400/40 pb-5">
+    <main className={`sektorenring min-h-screen bg-sisal-200 text-chalk ${mode === "tv" ? "p-8 xl:p-12" : "p-4 sm:p-7"}`}>
+      <header className="mx-auto flex max-w-[1500px] flex-wrap items-end justify-between gap-4 border-b border-ring-green/40 pb-5">
         <div>
           <h1 className="font-numerals text-headline font-bold">{dashboard.tournament.name}</h1>
-          <p className="mt-2 text-body text-slate-400">{dashboard.tournament.stageLabel} · {dashboard.tournament.playedMatches} von {dashboard.tournament.totalMatches} Matches gespielt</p>
+          <p className="mt-2 text-body text-sisal-500">{dashboard.tournament.stageLabel} · {dashboard.tournament.playedMatches} von {dashboard.tournament.totalMatches} Matches gespielt</p>
         </div>
         <div className="flex items-center gap-3 text-body">
           <span
             aria-hidden="true"
-            className={`h-3 w-3 rounded-full ${query.isError ? "bg-rose-400" : "bg-slate-500"}`}
+            className={`h-3 w-3 rounded-full ${query.isError ? "bg-ring-red" : "bg-sisal-400"}`}
           />
           {/*
            * Ein Farbwechsel allein reicht nicht (AGENTS.md §19): der Punkt
@@ -202,14 +202,14 @@ export function LiveTournament({ boardId, displayKeySecret, mode, publicId }: Li
            * Nachlauf ist ein Hinweis, keine Katastrophe -- deshalb nur eine
            * ruhige Meldung statt einer Warnfarbe fuer den Text selbst.
            */}
-          <span className={query.isError ? "text-rose-300" : undefined}>
+          <span className={query.isError ? "text-ring-red" : undefined}>
             {query.isError
               ? "Aktualisierung fehlgeschlagen · letzter Stand"
               : connection === "verbunden"
                 ? "Live aktualisiert"
                 : "Aktualisiert alle 5 Sekunden"}
           </span>
-          {mode === "publikum" ? <Link className="rounded border border-slate-600 px-3 py-2" href={`/live/${publicId}/tv`}>TV-Modus</Link> : null}
+          {mode === "publikum" ? <Link className="rounded border border-sisal-400 px-3 py-2" href={`/live/${publicId}/tv`}>TV-Modus</Link> : null}
         </div>
       </header>
 
@@ -222,13 +222,13 @@ export function LiveTournament({ boardId, displayKeySecret, mode, publicId }: Li
       {mode !== "board" ? (
         <>
           {knockoutFirst ? <>{bracketSection}{groupsSection}</> : <>{groupsSection}{bracketSection}</>}
-          <details className="mx-auto mt-7 max-w-[1500px] overflow-hidden rounded-xl border border-slate-800">
-            <summary className="cursor-pointer px-4 py-3 text-caption font-semibold uppercase tracking-[0.12em] text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400">
+          <details className="mx-auto mt-7 max-w-[1500px] overflow-hidden rounded-xl border border-sisal-400">
+            <summary className="cursor-pointer px-4 py-3 text-caption font-semibold uppercase tracking-[0.12em] text-sisal-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green">
               Teilnehmende ({dashboard.participants.length})
             </summary>
-            <ul className="grid gap-2 border-t border-slate-800 p-4 sm:grid-cols-2 xl:grid-cols-4">
+            <ul className="grid gap-2 border-t border-sisal-300 p-4 sm:grid-cols-2 xl:grid-cols-4">
               {dashboard.participants.map((participant) => (
-                <li className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-body" key={participant.playerId}>
+                <li className="rounded-lg border border-sisal-400 bg-sisal-100 px-4 py-3 text-body" key={participant.playerId}>
                   {participant.displayName}{participant.status === "WITHDRAWN" ? " · Ausgefallen" : ""}
                 </li>
               ))}
@@ -243,7 +243,7 @@ export function LiveTournament({ boardId, displayKeySecret, mode, publicId }: Li
 function LiveSection({ children, title }: { readonly children: ReactNode; readonly title: string }) {
   return (
     <section className="mx-auto mt-7 max-w-[1500px]">
-      <h2 className="mb-3 text-caption font-semibold uppercase tracking-[0.12em] text-slate-400">{title}</h2>
+      <h2 className="mb-3 text-caption font-semibold uppercase tracking-[0.12em] text-sisal-500">{title}</h2>
       {children}
     </section>
   );
@@ -260,7 +260,7 @@ function BracketTree({ rounds }: { readonly rounds: readonly BracketRound[] }) {
     <div className="flex flex-col gap-6 lg:flex-row lg:items-stretch lg:gap-4 lg:overflow-x-auto lg:pb-2">
       {rounds.map((round) => (
         <div className="flex flex-col lg:min-w-[13rem] lg:flex-1" key={round.round}>
-          <h3 className="mb-3 text-caption font-semibold uppercase tracking-[0.12em] text-emerald-300 lg:text-center">{round.label}</h3>
+          <h3 className="mb-3 text-caption font-semibold uppercase tracking-[0.12em] text-ring-green lg:text-center">{round.label}</h3>
           <ol className="flex flex-col gap-3 lg:flex-1 lg:justify-around lg:gap-4">
             {round.matches.map((match) => <li key={match.matchId}><BracketCard match={match} /></li>)}
           </ol>
@@ -272,8 +272,8 @@ function BracketTree({ rounds }: { readonly rounds: readonly BracketRound[] }) {
 
 function BracketCard({ match }: { readonly match: BracketNode }) {
   return (
-    <article className={`rounded-lg border bg-slate-900 p-3 text-body ${match.status === "IN_PROGRESS" ? "border-emerald-400" : "border-slate-800"}`}>
-      {match.note !== null ? <p className="mb-2 text-caption uppercase tracking-[0.12em] text-slate-400">{match.note}</p> : null}
+    <article className={`rounded-lg border bg-sisal-100 p-3 text-body ${match.status === "IN_PROGRESS" ? "border-ring-green" : "border-sisal-400"}`}>
+      {match.note !== null ? <p className="mb-2 text-caption uppercase tracking-[0.12em] text-sisal-500">{match.note}</p> : null}
       {match.slots.map((slot, index) => <BracketSlotLine key={index} slot={slot} />)}
     </article>
   );
@@ -281,12 +281,12 @@ function BracketCard({ match }: { readonly match: BracketNode }) {
 
 function BracketSlotLine({ slot }: { readonly slot: BracketSlot }) {
   const tone = slot.state === "WINNER"
-    ? "font-bold text-emerald-300"
+    ? "font-bold text-ring-green"
     : slot.state === "OPEN"
-      ? "italic text-slate-500"
+      ? "italic text-sisal-500"
       : slot.state === "LOSER"
-        ? "text-slate-400"
-        : "text-white";
+        ? "text-sisal-500"
+        : "text-chalk";
   return (
     <p className={`flex items-center justify-between gap-2 ${tone}`}>
       <span className="truncate" title={slot.displayName}>{slot.displayName}</span>
@@ -302,12 +302,12 @@ function LiveBoard({ board, mode, publicId }: { readonly board: PublicBoardSlot;
     const url = `${window.location.origin}/live/${publicId}/board/${board.boardId}`;
     void QRCode.toDataURL(url, { margin: 1, width: 144 }).then(setQrCode);
   }, [board.boardId, mode, publicId]);
-  return <article className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-    <div className="flex items-start justify-between gap-4"><div><p className="text-caption font-semibold uppercase tracking-[0.12em] text-emerald-300">{board.boardName}</p><p className="mt-1 text-caption text-slate-400">{board.state === "PLAYING" ? "Match läuft" : board.state === "FREE" ? "Frei" : "Nicht verfügbar"}</p></div>{qrCode !== null ? <Image alt={`QR-Code für ${board.boardName}`} className="h-20 w-20 rounded bg-white p-1" height={80} src={qrCode} unoptimized width={80} /> : null}</div>
-    {board.match === null ? <p className="mt-8 font-numerals text-title text-slate-400">Kein aktives Match</p> : <div className="mt-5 grid grid-cols-2 gap-3">{board.match.participants.map((participant) => <div className={participant.isActive ? "rounded-xl bg-emerald-400/10 p-3" : "p-3"} key={participant.playerId}><p className="truncate text-body" title={participant.displayName}>{participant.displayName}</p><p className={participant.isActive ? "mt-2 font-numerals text-display font-bold tabular" : "mt-2 font-numerals text-data font-bold tabular text-slate-400"}>{participant.remaining}</p><p className="mt-1 text-body text-slate-400">{participant.legsWon} Legs · {participant.setsWon} Sets</p></div>)}</div>}
+  return <article className="rounded-2xl border border-sisal-400 bg-sisal-100 p-5">
+    <div className="flex items-start justify-between gap-4"><div><p className="text-caption font-semibold uppercase tracking-[0.12em] text-ring-green">{board.boardName}</p><p className="mt-1 text-caption text-sisal-500">{board.state === "PLAYING" ? "Match läuft" : board.state === "FREE" ? "Frei" : "Nicht verfügbar"}</p></div>{qrCode !== null ? <Image alt={`QR-Code für ${board.boardName}`} className="h-20 w-20 rounded bg-white p-1" height={80} src={qrCode} unoptimized width={80} /> : null}</div>
+    {board.match === null ? <p className="mt-8 font-numerals text-title text-sisal-500">Kein aktives Match</p> : <div className="mt-5 grid grid-cols-2 gap-3">{board.match.participants.map((participant) => <div className={participant.isActive ? "rounded-xl bg-ring-green/10 p-3" : "p-3"} key={participant.playerId}><p className="truncate text-body" title={participant.displayName}>{participant.displayName}</p><p className={participant.isActive ? "mt-2 font-numerals text-display font-bold tabular" : "mt-2 font-numerals text-data font-bold tabular text-sisal-500"}>{participant.remaining}</p><p className="mt-1 text-body text-sisal-500">{participant.legsWon} Legs · {participant.setsWon} Sets</p></div>)}</div>}
   </article>;
 }
 
 function LiveNotice({ text }: { readonly text: string }) {
-  return <main className="min-h-screen bg-slate-950 p-8 text-slate-200">{text}</main>;
+  return <main className="sektorenring min-h-screen bg-sisal-200 p-8 text-spider">{text}</main>;
 }

@@ -75,14 +75,23 @@ export function ScoreboardSides({ match, pendingDarts, showDartBand }: {
                 </p>
               ) : null}
             </div>
+            {/* Der „am Wurf"-Punkt stand bisher als Pill-Hintergrund um den
+                Namen (`px-2`) und kostete dadurch nur auf der aktiven Seite
+                Breite -- der Name kuerzte dort frueher als auf der
+                inaktiven (UX-Test 2026-09-09). Jeder Name traegt jetzt
+                denselben Punkt-Platz, nur eingefaerbt, wenn er zutrifft: die
+                Kuerzgrenze ist damit fuer beide Seiten gleich breit, statt
+                nur seltener zu treffen. */}
             <p className="truncate text-body font-semibold" title={sideNames(participant)}>
               {participant.players.map((person, index) => (
                 <span key={person.playerId}>
                   {index > 0 ? <span aria-hidden="true"> · </span> : null}
-                  <span className={person.isThrowing ? "rounded-full bg-ring-green px-2 text-chalk" : ""}>
-                    {person.displayName}
-                    {person.isThrowing ? <span className="sr-only"> (am Wurf)</span> : null}
-                  </span>
+                  <span
+                    aria-hidden="true"
+                    className={cn("mr-1.5 inline-block h-2 w-2 rounded-full align-middle", person.isThrowing ? "bg-ring-green" : "bg-transparent")}
+                  />
+                  {person.displayName}
+                  {person.isThrowing ? <span className="sr-only"> (am Wurf)</span> : null}
                 </span>
               ))}
             </p>
