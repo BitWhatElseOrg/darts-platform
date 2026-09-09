@@ -36,7 +36,7 @@ function StatusRow({ label, status }: StatusRowProps) {
   );
 }
 
-export function HealthDashboard() {
+export function HealthDashboard({ variant = "full" }: { readonly variant?: "full" | "compact" }) {
   const healthQuery = useQuery({
     queryKey: ["system-health"],
     queryFn: ({ signal }) => fetchHealth(signal),
@@ -58,6 +58,21 @@ export function HealthDashboard() {
     : healthQuery.data?.services.redis === "ok"
       ? "ok"
       : "error";
+
+  if (variant === "compact") {
+    const statuses = [apiStatus, databaseStatus, redisStatus];
+    const worst: DisplayStatus = statuses.includes("error")
+      ? "error"
+      : statuses.includes("pending")
+        ? "pending"
+        : "ok";
+    const compactLabel = {
+      ok: "Dienste betriebsbereit",
+      error: "Dienststörung",
+      pending: "Dienste werden geprüft …",
+    } as const satisfies Record<DisplayStatus, string>;
+    return <StateTag label={compactLabel[worst]} on="ink" tone={statusTone[worst]} />;
+  }
 
   return (
     <section
