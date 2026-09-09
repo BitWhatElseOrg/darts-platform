@@ -139,7 +139,7 @@ export function RoundKeypad({ value, quickScores, quickScoresSource, submittable
         </button>
         <button
           aria-label="Aufnahme erfassen"
-          className={cn(keyClassName, "bg-emerald-500 text-slate-950 hover:enabled:bg-emerald-400")}
+          className={cn(keyClassName, "bg-ring-green text-chalk hover:enabled:bg-ring-green-deep")}
           disabled={disabled || !submittable}
           onClick={onSubmit}
           type="button"

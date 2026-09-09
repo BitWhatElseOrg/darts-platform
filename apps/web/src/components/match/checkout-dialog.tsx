@@ -105,7 +105,7 @@ export function CheckoutDialog({
                 <button
                   aria-label={`${count} ${count === 1 ? "Dart" : "Darts"}`}
                   aria-pressed={darts === count}
-                  className={cn(dartsButtonClassName, darts === count ? "bg-emerald-500 text-slate-950" : "bg-slate-800 text-white hover:bg-slate-700")}
+                  className={cn(dartsButtonClassName, darts === count ? "bg-ring-green text-chalk" : "bg-slate-800 text-white hover:bg-slate-700")}
                   key={count}
                   onClick={() => onDartsChange(count)}
                   type="button"

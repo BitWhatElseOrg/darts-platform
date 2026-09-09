@@ -108,7 +108,7 @@ export function DartKeypad({ disabled, segmentsLocked, modifier, onSegment, onMo
         <button
           aria-label="Umschalter DOUBLE"
           aria-pressed={modifier === 2}
-          className={cn(keyClassName, modifier === 2 ? "bg-emerald-500 text-slate-950" : "bg-slate-800 hover:enabled:bg-slate-700")}
+          className={cn(keyClassName, modifier === 2 ? "bg-ring-green text-chalk" : "bg-slate-800 hover:enabled:bg-slate-700")}
           disabled={disabled}
           onClick={() => onModifier(2)}
           type="button"
@@ -118,7 +118,7 @@ export function DartKeypad({ disabled, segmentsLocked, modifier, onSegment, onMo
         <button
           aria-label="Umschalter TRIPLE"
           aria-pressed={modifier === 3}
-          className={cn(keyClassName, modifier === 3 ? "bg-emerald-500 text-slate-950" : "bg-slate-800 hover:enabled:bg-slate-700")}
+          className={cn(keyClassName, modifier === 3 ? "bg-ring-green text-chalk" : "bg-slate-800 hover:enabled:bg-slate-700")}
           disabled={disabled}
           onClick={() => onModifier(3)}
           type="button"

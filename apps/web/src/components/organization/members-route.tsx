@@ -290,7 +290,7 @@ function OwnerTransferDialog({ member, onCancel, onConfirm, pending }: {
         aria-describedby="owner-transfer-description"
         aria-labelledby="owner-transfer-title"
         aria-modal="true"
-        className="w-full max-w-lg space-y-5 rounded-2xl border border-amber-400/50 bg-slate-950 p-5 text-white shadow-2xl sm:p-6"
+        className="w-full max-w-lg space-y-5 rounded-2xl border border-ring-red-deep/50 bg-slate-950 p-5 text-white shadow-2xl sm:p-6"
         role="dialog"
       >
         <div>
@@ -303,7 +303,7 @@ function OwnerTransferDialog({ member, onCancel, onConfirm, pending }: {
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Button disabled={pending} onClick={onCancel} type="button" variant="outline">Abbrechen</Button>
-          <Button className="bg-amber-500 text-slate-950 hover:bg-amber-400" disabled={pending} onClick={onConfirm} type="button">
+          <Button className="bg-ring-red text-chalk hover:bg-ring-red-deep" disabled={pending} onClick={onConfirm} type="button">
             Eigentum übertragen
           </Button>
         </div>

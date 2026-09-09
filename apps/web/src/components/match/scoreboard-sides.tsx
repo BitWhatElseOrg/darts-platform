@@ -67,7 +67,7 @@ export function ScoreboardSides({ match, pendingDarts, showDartBand }: {
               {participant.players.map((person, index) => (
                 <span key={person.playerId}>
                   {index > 0 ? <span aria-hidden="true"> · </span> : null}
-                  <span className={person.isThrowing ? "rounded-full bg-emerald-500 px-2 text-slate-950" : ""}>
+                  <span className={person.isThrowing ? "rounded-full bg-ring-green px-2 text-chalk" : ""}>
                     {person.displayName}
                     {person.isThrowing ? <span className="sr-only"> (am Wurf)</span> : null}
                   </span>

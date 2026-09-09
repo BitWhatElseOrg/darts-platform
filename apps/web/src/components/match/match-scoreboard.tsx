@@ -320,7 +320,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   };
 
   return (
-    <section aria-label="Match-Scoreboard" className="grid h-[100dvh] grid-rows-[auto_auto_auto_1fr] bg-slate-950 text-white">
+    <section aria-label="Match-Scoreboard" className="sektorenring grid h-[100dvh] grid-rows-[auto_auto_auto_1fr] bg-slate-950 text-white">
       {/* Ohne Seitentitel ist das die einzige Überschrift der Fläche und der
           einzige Name, den Screenreader ausserhalb von "Match-Scoreboard"
           zu hören bekommen. `sr-only` ist `position: absolute` und nimmt
