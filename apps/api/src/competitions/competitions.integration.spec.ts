@@ -1,9 +1,21 @@
+import { ForbiddenException } from "@nestjs/common";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
-import { competitions, memberships, organizations, players, teams, users } from "@darts-platform/database";
+import {
+  competitions,
+  encounterNominations,
+  encounterSlots,
+  encounterSubstitutions,
+  encounters,
+  memberships,
+  organizations,
+  players,
+  teams,
+  users,
+} from "@darts-platform/database";
 import { buildEncounterTemplate } from "@darts-platform/league-engine";
 import type { CompetitionSlotInput } from "@darts-platform/schemas";
 
@@ -314,4 +326,80 @@ describe("competitions and their encounter template", () => {
     expect(inserted).toHaveLength(1);
     expect(inserted[0]?.pointsDeciderBonus).toBe(0);
   }, 30_000);
+
+  it("builds the player ranking from completed singles slots, honouring a substitution", async () => {
+    const competitionId = await create();
+    const [homePlayerA, homePlayerB, awayPlayer] = playerIds;
+    if (homePlayerA === undefined || homePlayerB === undefined || awayPlayer === undefined) {
+      throw new Error("Expected at least three seeded players.");
+    }
+    const [encounterRow] = await databaseService.database
+      .insert(encounters)
+      .values({
+        organizationId,
+        competitionId,
+        matchday: 1,
+        homeTeamId,
+        awayTeamId,
+        scheduledAt: new Date("2026-10-09T19:00:00.000Z"),
+        status: "COMPLETED",
+        result: "HOME_WIN",
+        resultType: "PLAYED",
+        completedAt: new Date("2026-10-09T21:00:00.000Z"),
+      })
+      .returning();
+    const encounterId = encounterRow?.id;
+    if (encounterId === undefined) throw new Error("Expected the seeded encounter.");
+
+    await databaseService.database.insert(encounterNominations).values([
+      { organizationId, encounterId, side: "HOME", playerId: homePlayerA, position: 1, origin: "SQUAD" },
+      { organizationId, encounterId, side: "HOME", playerId: homePlayerB, position: null, origin: "SQUAD" },
+      { organizationId, encounterId, side: "AWAY", playerId: awayPlayer, position: 1, origin: "SQUAD" },
+    ]);
+    await databaseService.database.insert(encounterSubstitutions).values({
+      organizationId,
+      encounterId,
+      side: "HOME",
+      position: 1,
+      outPlayerId: homePlayerA,
+      inPlayerId: homePlayerB,
+      effectiveFromSequence: 2,
+    });
+    await databaseService.database.insert(encounterSlots).values([
+      {
+        organizationId, encounterId, sequence: 1, role: "REGULAR", discipline: "SINGLES",
+        label: "Einzel 1", homePosition: 1, awayPosition: 1, startingScore: 501,
+        inRule: "STRAIGHT", outRule: "DOUBLE", bestOfLegs: 3, legsToWinSet: 2, setsToWin: 1,
+        status: "COMPLETED", resultType: "PLAYED", winnerSide: "HOME", homeLegs: 2, awayLegs: 0,
+        completedAt: new Date("2026-10-09T19:30:00.000Z"),
+      },
+      {
+        organizationId, encounterId, sequence: 2, role: "REGULAR", discipline: "SINGLES",
+        label: "Einzel 2", homePosition: 1, awayPosition: 1, startingScore: 501,
+        inRule: "STRAIGHT", outRule: "DOUBLE", bestOfLegs: 3, legsToWinSet: 2, setsToWin: 1,
+        status: "COMPLETED", resultType: "PLAYED", winnerSide: "AWAY", homeLegs: 1, awayLegs: 2,
+        completedAt: new Date("2026-10-09T20:00:00.000Z"),
+      },
+    ]);
+
+    const ranking = await service.playerRanking({ organizationId, competitionId, auth });
+
+    expect(ranking.competitionId).toBe(competitionId);
+    // Sequenz 1 (vor der Auswechslung) gehört homePlayerA, Sequenz 2 (danach) homePlayerB.
+    const playerA = ranking.rows.find((row) => row.playerId === homePlayerA);
+    const playerB = ranking.rows.find((row) => row.playerId === homePlayerB);
+    const away = ranking.rows.find((row) => row.playerId === awayPlayer);
+    expect(playerA).toMatchObject({ played: 1, won: 1, achievedPoints: 4, teamId: homeTeamId });
+    expect(playerB).toMatchObject({ played: 1, lost: 1, achievedPoints: 1, teamId: homeTeamId });
+    expect(away).toMatchObject({ played: 2, won: 1, lost: 1 });
+    expect(playerA?.playerName.length ?? 0).toBeGreaterThan(0);
+    expect(playerA?.teamName.length ?? 0).toBeGreaterThan(0);
+  }, 30_000);
+
+  it("rejects access to a competition of a foreign organisation with 403", async () => {
+    const competitionId = await create();
+    await expect(
+      service.playerRanking({ organizationId: randomUUID(), competitionId, auth }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
 });

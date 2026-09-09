@@ -27,6 +27,7 @@ import {
 } from "@/lib/league-format";
 import { calendarDate, clockTime } from "@/lib/tournament-format";
 import { StandingsTable } from "./standings-table";
+import { PlayerRankingTable } from "./player-ranking-table";
 import { TemplateTable } from "./template-table";
 import { NavLink, PageNav } from "@/components/page-nav";
 import { useTournamentOrganization } from "@/components/tournament/use-tournament-organization";
@@ -155,6 +156,8 @@ function CompetitionBody({
       </details>
 
       <StandingsTable competitionId={competitionId} organizationId={organization.id} />
+
+      <PlayerRankingTable competitionId={competitionId} organizationId={organization.id} />
 
       {canManageEncounters ? (
         <ScheduleSection competition={competition} organization={organization} />

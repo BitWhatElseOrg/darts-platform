@@ -1,17 +1,24 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 
 import {
+  calculatePlayerRanking,
   calculateStandings,
+  resolveSlotOccupancy,
   validateEncounterTemplate,
+  type PlayerRankingSlot,
   type TemplateSlot,
 } from "@darts-platform/league-engine";
 import {
   competitionDetailSchema,
   competitionListSchema,
+  competitionPlayerRankingSchema,
   competitionStandingsSchema,
+  disciplineSchema,
   encounterResultSchema,
+  encounterSlotStatusSchema,
   encounterStatusSchema,
   type CompetitionDetail,
+  type CompetitionPlayerRanking,
   type CompetitionSlotInput,
   type CompetitionStandings,
   type CompetitionSummary,
@@ -150,6 +157,93 @@ export class CompetitionsService {
         ...row,
         teamName: names.get(row.teamId)?.name ?? "",
         teamShortName: names.get(row.teamId)?.shortName ?? null,
+      })),
+    });
+  }
+
+  /**
+   * Die Einzelrangliste rechnet die League-Engine (Reglement A1.6–A1.9); der
+   * Service löst nur die Besetzung je Slot auf (dieselbe Funktion wie beim
+   * Nichtantritt-Pfad in `encounters.repository.ts`) und hängt Namen an.
+   */
+  public async playerRanking(input: {
+    readonly organizationId: string;
+    readonly competitionId: string;
+    readonly auth: AuthContext;
+  }): Promise<CompetitionPlayerRanking> {
+    await this.require(input, "competition:read");
+    const data = await this.repository.get(input);
+    if (data === null) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Competition not found." });
+    }
+    const source = await this.repository.playerRankingSource(input);
+    const encountersById = new Map(source.encounters.map((row) => [row.id, row]));
+    const playerNames = new Map(source.players.map((row) => [row.id, row.displayName]));
+    const teamsById = new Map(source.teams.map((row) => [row.id, row]));
+
+    const slots: PlayerRankingSlot[] = source.slots
+      .map((slot) => {
+        const encounter = encountersById.get(slot.encounterId);
+        if (encounter === undefined) return null;
+
+        const nominationsFor = (side: "HOME" | "AWAY") =>
+          source.nominations
+            .filter((row) => row.encounterId === slot.encounterId && row.side === side)
+            .map((row) => ({
+              playerId: row.playerId,
+              position: row.position,
+              origin: row.origin === "GUEST" ? ("GUEST" as const) : ("SQUAD" as const),
+            }));
+        const substitutionsFor = (side: "HOME" | "AWAY") =>
+          source.substitutions
+            .filter((row) => row.encounterId === slot.encounterId && row.side === side)
+            .map((row) => ({
+              side,
+              position: row.position,
+              outPlayerId: row.outPlayerId,
+              inPlayerId: row.inPlayerId,
+              effectiveFromSequence: row.effectiveFromSequence,
+            }));
+
+        const occupancy = resolveSlotOccupancy({
+          slot: {
+            sequence: slot.sequence,
+            discipline: slot.discipline === "DOUBLES" ? "DOUBLES" : "SINGLES",
+            homePosition: slot.homePosition,
+            awayPosition: slot.awayPosition,
+          },
+          home: { nominations: nominationsFor("HOME"), substitutions: substitutionsFor("HOME") },
+          away: { nominations: nominationsFor("AWAY"), substitutions: substitutionsFor("AWAY") },
+        });
+
+        return {
+          encounterId: slot.encounterId,
+          // Der Datenbanktyp ist `varchar`; die Enums gehören an die
+          // Domänengrenze (dieselbe Regel wie bei `standings` oben).
+          encounterStatus: encounterStatusSchema.parse(encounter.status),
+          matchday: encounter.matchday,
+          discipline: disciplineSchema.parse(slot.discipline),
+          status: encounterSlotStatusSchema.parse(slot.status),
+          legsToWinSet: slot.legsToWinSet,
+          setsToWin: slot.setsToWin,
+          homeTeamId: encounter.homeTeamId,
+          awayTeamId: encounter.awayTeamId,
+          homePlayerIds: occupancy.home.playerIds,
+          awayPlayerIds: occupancy.away.playerIds,
+          homeLegs: slot.homeLegs,
+          awayLegs: slot.awayLegs,
+        } satisfies PlayerRankingSlot;
+      })
+      .filter((slot): slot is PlayerRankingSlot => slot !== null);
+
+    const rows = calculatePlayerRanking({ slots });
+    return competitionPlayerRankingSchema.parse({
+      competitionId: input.competitionId,
+      rows: rows.map((row) => ({
+        ...row,
+        playerName: playerNames.get(row.playerId) ?? "",
+        teamName: teamsById.get(row.teamId)?.name ?? "",
+        teamShortName: teamsById.get(row.teamId)?.shortName ?? null,
       })),
     });
   }

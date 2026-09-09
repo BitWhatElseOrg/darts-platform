@@ -184,6 +184,12 @@ Saisonkontingente, Spielverschiebung als Vorgang, Bussen/Sperren/Protest,
 Liga-Finale/Teamcup, Captain-Self-Service, Doppelstatistik-Auswertung,
 nachträgliche Ergebniskorrektur, Turnierserien, Teams in Turnieren.
 
+**Update 2026-09-09:** Von diesem wörtlichen Zitat sind Ligatabelle (A1.5)
+und Einzelrangliste (A1.7–A1.9) inzwischen umgesetzt — Ligatabelle schon
+vor diesem Backlog-Dokument, Einzelrangliste per PR #35 (Spec
+`2026-09-09-einzelrangliste-design.md`). Der Rest der Aufzählung (Saison/
+Divisionen, Auf-/Abstieg usw.) bleibt unverändert offen.
+
 Der dritte der drei Constraint-Nachträge (normalisierte
 Begegnung-Mannschaft-Beziehung + Spielplangenerierung, siehe
 `2026-09-08-team-encounter-datenintegritaet.md`) gehört fachlich hierher —

@@ -5,7 +5,11 @@ import {
   auditEvents,
   competitionSlots,
   competitions,
+  encounterNominations,
   encounters,
+  encounterSlots,
+  encounterSubstitutions,
+  players,
   teams,
 } from "@darts-platform/database";
 import type {
@@ -46,6 +50,46 @@ export interface StandingsSource {
     readonly name: string;
     readonly shortName: string | null;
   }[];
+}
+
+/** Was die Einzelrangliste aus der Datenbank braucht: gewertete Einzelslots samt Besetzungsdaten. */
+export interface PlayerRankingSource {
+  readonly encounters: readonly {
+    readonly id: string;
+    readonly status: string;
+    readonly matchday: number;
+    readonly homeTeamId: string;
+    readonly awayTeamId: string;
+  }[];
+  readonly slots: readonly {
+    readonly encounterId: string;
+    readonly discipline: string;
+    readonly status: string;
+    readonly legsToWinSet: number;
+    readonly setsToWin: number;
+    readonly homePosition: number | null;
+    readonly awayPosition: number | null;
+    readonly homeLegs: number;
+    readonly awayLegs: number;
+    readonly sequence: number;
+  }[];
+  readonly nominations: readonly {
+    readonly encounterId: string;
+    readonly side: string;
+    readonly playerId: string;
+    readonly position: number | null;
+    readonly origin: string;
+  }[];
+  readonly substitutions: readonly {
+    readonly encounterId: string;
+    readonly side: string;
+    readonly position: number;
+    readonly outPlayerId: string;
+    readonly inPlayerId: string;
+    readonly effectiveFromSequence: number;
+  }[];
+  readonly players: readonly { readonly id: string; readonly displayName: string }[];
+  readonly teams: readonly { readonly id: string; readonly name: string; readonly shortName: string | null }[];
 }
 
 export interface CompetitionData {
@@ -105,6 +149,118 @@ export class CompetitionsRepository {
       .where(and(eq(teams.organizationId, input.organizationId), inArray(teams.id, teamIds)));
 
     return { encounters: rows, teams: teamRows };
+  }
+
+  /**
+   * Nur abgeschlossene Begegnungen; deren Einzelslots, Meldungen und
+   * Auswechslungen lösen `resolveSlotOccupancy` im Service auf. Doppelslots
+   * werden mitgeladen (für die Vollständigkeit der Begegnung), aber von der
+   * Engine verworfen — sie zählen nicht für die Einzelrangliste.
+   */
+  public async playerRankingSource(input: {
+    readonly organizationId: string;
+    readonly competitionId: string;
+  }): Promise<PlayerRankingSource> {
+    const encounterRows = await this.databaseService.database
+      .select({
+        id: encounters.id,
+        status: encounters.status,
+        matchday: encounters.matchday,
+        homeTeamId: encounters.homeTeamId,
+        awayTeamId: encounters.awayTeamId,
+      })
+      .from(encounters)
+      .where(
+        and(
+          eq(encounters.organizationId, input.organizationId),
+          eq(encounters.competitionId, input.competitionId),
+          eq(encounters.status, "COMPLETED"),
+        ),
+      );
+
+    if (encounterRows.length === 0) {
+      return { encounters: [], slots: [], nominations: [], substitutions: [], players: [], teams: [] };
+    }
+    const encounterIds = encounterRows.map((row) => row.id);
+
+    const [slotRows, nominationRows, substitutionRows] = await Promise.all([
+      this.databaseService.database
+        .select({
+          encounterId: encounterSlots.encounterId,
+          discipline: encounterSlots.discipline,
+          status: encounterSlots.status,
+          legsToWinSet: encounterSlots.legsToWinSet,
+          setsToWin: encounterSlots.setsToWin,
+          homePosition: encounterSlots.homePosition,
+          awayPosition: encounterSlots.awayPosition,
+          homeLegs: encounterSlots.homeLegs,
+          awayLegs: encounterSlots.awayLegs,
+          sequence: encounterSlots.sequence,
+        })
+        .from(encounterSlots)
+        .where(
+          and(
+            eq(encounterSlots.organizationId, input.organizationId),
+            inArray(encounterSlots.encounterId, encounterIds),
+          ),
+        ),
+      this.databaseService.database
+        .select({
+          encounterId: encounterNominations.encounterId,
+          side: encounterNominations.side,
+          playerId: encounterNominations.playerId,
+          position: encounterNominations.position,
+          origin: encounterNominations.origin,
+        })
+        .from(encounterNominations)
+        .where(
+          and(
+            eq(encounterNominations.organizationId, input.organizationId),
+            inArray(encounterNominations.encounterId, encounterIds),
+          ),
+        ),
+      this.databaseService.database
+        .select({
+          encounterId: encounterSubstitutions.encounterId,
+          side: encounterSubstitutions.side,
+          position: encounterSubstitutions.position,
+          outPlayerId: encounterSubstitutions.outPlayerId,
+          inPlayerId: encounterSubstitutions.inPlayerId,
+          effectiveFromSequence: encounterSubstitutions.effectiveFromSequence,
+        })
+        .from(encounterSubstitutions)
+        .where(
+          and(
+            eq(encounterSubstitutions.organizationId, input.organizationId),
+            inArray(encounterSubstitutions.encounterId, encounterIds),
+          ),
+        ),
+    ]);
+
+    const playerIds = [...new Set(nominationRows.flatMap((row) => [row.playerId]))];
+    const teamIds = [...new Set(encounterRows.flatMap((row) => [row.homeTeamId, row.awayTeamId]))];
+
+    const [playerRows, teamRows] = await Promise.all([
+      playerIds.length === 0
+        ? Promise.resolve([])
+        : this.databaseService.database
+            .select({ id: players.id, displayName: players.displayName })
+            .from(players)
+            .where(and(eq(players.organizationId, input.organizationId), inArray(players.id, playerIds))),
+      this.databaseService.database
+        .select({ id: teams.id, name: teams.name, shortName: teams.shortName })
+        .from(teams)
+        .where(and(eq(teams.organizationId, input.organizationId), inArray(teams.id, teamIds))),
+    ]);
+
+    return {
+      encounters: encounterRows,
+      slots: slotRows,
+      nominations: nominationRows,
+      substitutions: substitutionRows,
+      players: playerRows,
+      teams: teamRows,
+    };
   }
 
   public async list(organizationId: string): Promise<CompetitionData[]> {
