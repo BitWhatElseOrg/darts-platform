@@ -40,25 +40,33 @@ Folgeplan `2026-09-08-csp-nonce-nacharbeit.md` umgesetzt (Branch
   `Function("")`, ob JIT-Kompilierung möglich ist — unter der erzwungenen
   CSP schlägt das fehl und meldet einen echten `script-src`-`eval`-Verstoss.
   `z.config({ jitless: true })` in `providers.tsx` (Commit `257bd22`)
-  vermeidet das zuverlässig in allen bisherigen Tests (0/5 über zwei
-  unabhängige Testläufe), aber nur, weil Webpack diesen einzeln genutzten
-  Aufruf heute in den früh geladenen Layout-Chunk inlined. Ein Versuch, den
-  Aufruf stattdessen nach `environment.ts` zu verschieben (erreichbar über
-  mehrere Importer: `auth-client.ts`, `api-client.ts`, `realtime.ts`,
-  `health.ts`, `live-address.ts`), erzeugte reproduzierbar (3/3) einen neuen
-  Verstoss aus einer dritten, separat geladenen Zod-Bundle-Kopie — weil
-  Next.js Chunk-Skripte als `async` ausliefert und zwischen getrennt
-  geladenen Chunks keine Ausführungsreihenfolge garantiert. Die aktuelle
-  Lösung ist damit ein Bundling-Zufall, kein vertraglich zugesichertes
-  Verhalten. Eine wirklich robuste Lösung bräuchte entweder ein synchrones,
-  nonce-versehenes Inline-`<script>` im `<head>` des Root-Layouts (das
-  `globalThis.__zod_globalConfig` direkt setzt, vor jedem async geladenen
-  Chunk) oder eine Next.js-/Webpack-Konfigurationsänderung, die diesen
-  Aufruf in einen garantiert zuerst ausgeführten Chunk zwingt — beides
-  ausserhalb des Rahmens einer kleinen Konfigurationsaufgabe und laut
-  AGENTS.md §6/§26 eine eigene Spec/ADR wert. `pnpm --filter
-  @darts-platform/web test:e2e:prod` (Route `/`) wuerde eine solche
-  Regression auffangen, statt sie nur in dieser Notiz dokumentiert zu lassen.
+  vermied den Verstoss damals zuverlässig in allen Tests (0/5 über zwei
+  unabhängige Testläufe) — aber nur, weil Webpack diesen einzeln genutzten
+  Aufruf zu jener Zeit in den früh geladenen Layout-Chunk inlinte. Ein
+  Versuch, den Aufruf stattdessen nach `environment.ts` zu verschieben
+  (erreichbar über mehrere Importer: `auth-client.ts`, `api-client.ts`,
+  `realtime.ts`, `health.ts`, `live-address.ts`), erzeugte reproduzierbar
+  (3/3) einen neuen Verstoss aus einer dritten, separat geladenen
+  Zod-Bundle-Kopie — weil Next.js Chunk-Skripte als `async` ausliefert und
+  zwischen getrennt geladenen Chunks keine Ausführungsreihenfolge
+  garantiert. Die damalige Lösung in `providers.tsx` war damit ein
+  Bundling-Zufall, kein vertraglich zugesichertes Verhalten — siehe oben:
+  `instrumentation-client.ts` löst genau dieses Problem tatsächlich, ohne
+  eines der beiden damals für nötig gehaltenen Auswege (Inline-`<script>`
+  im Root-Layout, Webpack-Konfigurationsänderung) zu brauchen.
+
+  **Falle beim Verifizieren von CSP-Eval-Verstössen:** `window.Function`-
+  Instrumentierung (im ursprünglichen Plan als eine Verifikationsoption
+  genannt) ist als alleiniger Detektor unzuverlässig — in einer
+  Negativkontrolle zeigte sie 0 Aufrufe, während 2 echte Eval-Verstösse per
+  CSP-Reporting auftraten. Ausserdem löst `new Function("")` aus einem
+  Playwright-`page.evaluate()`-Aufruf heraus gar keinen CSP-Verstoss aus
+  (Inspector-Skripte sind von CSP ausgenommen) — als Positivkontrolle
+  verwendet, ergibt das ein stilles falsches Negativ. Verlässlich ist der
+  `securitypolicyviolation`-DOM-Event-Listener (wie in
+  `apps/web/tests/fixtures.ts` verwendet) plus eine Sabotage-Kontrolle
+  (Fix temporär brechen, Verstoss-Wiederauftreten bestätigen) — nicht die
+  `window.Function`-Instrumentierung.
 
 ## Bereits erledigt, aber noch in älteren Memory-Notizen als offen geführt
 

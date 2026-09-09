@@ -1,4 +1,3 @@
-// apps/web/src/instrumentation-client.ts
 import { z } from "zod";
 
 // Zod prueft beim ersten Schema-Zugriff einmalig per `Function("")`, ob JIT-
@@ -9,11 +8,19 @@ import { z } from "zod";
 // Flag genau fuer "environments that disallow eval".
 //
 // `instrumentation-client.ts` ist Next.js' dedizierter Hook fuer genau
-// diesen Fall: garantiert nach dem HTML-Dokument, aber vor jeder
-// React-Hydration ausgefuehrt (Next.js-Doku, "Execution timing",
-// analog zum dort beschriebenen Polyfill-Muster). Next.js kompiliert
-// diesen Code in seinen eigenen `main-app`-Bootstrap-Chunk -- eine vom
-// Framework zugesicherte Ausfuehrungsreihenfolge, nicht ein
-// Webpack-Bundling-Zufall wie die vorherige Platzierung in
-// `providers.tsx` (siehe `docs/adr/0014-csp-nonce-static-rendering.md`).
+// diesen Fall: laut Next.js-Doku ("Execution timing") laeuft synchroner
+// Top-Level-Code hier nach dem HTML-Dokument, aber vor jeder React-
+// Hydration -- analog zum dort beschriebenen Polyfill-Muster. Die
+// eigentlich tragende, staerkere Eigenschaft geht ueber diese Doku-
+// Zusicherung hinaus: Next.js kompiliert diesen Code in seinen eigenen
+// `main-app`-Bootstrap-Chunk, den jeder App-Entry-Chunk als Abhaengigkeit
+// fuehrt und der ueber einen synchronen `require`-Pfad in `app-next.js`
+// vor `appBootstrap`/`hydrate` laeuft -- das ist strukturell nachpruefbar
+// (kompilierten Chunk-Inhalt inspizieren), kein Webpack-Bundling-Zufall
+// mehr wie die vorherige Platzierung in `providers.tsx` (siehe
+// `docs/adr/0014-csp-nonce-static-rendering.md`). `pnpm --filter
+// @darts-platform/web test:e2e:prod` (Route `/`) faengt eine stille
+// Regression hier auf (meldet `script-src`-`eval`-Verstoesse aus den
+// Zod-Bundle-Kopien), falls diese Datei je entfernt oder ihr
+// Konfigurationsaufruf gebrochen wird.
 z.config({ jitless: true });
