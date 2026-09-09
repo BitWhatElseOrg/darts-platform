@@ -70,6 +70,7 @@ export interface PlayerRankingSource {
     readonly awayPosition: number | null;
     readonly homeLegs: number;
     readonly awayLegs: number;
+    readonly sequence: number;
   }[];
   readonly nominations: readonly {
     readonly encounterId: string;
@@ -192,6 +193,7 @@ export class CompetitionsRepository {
           awayPosition: encounterSlots.awayPosition,
           homeLegs: encounterSlots.homeLegs,
           awayLegs: encounterSlots.awayLegs,
+          sequence: encounterSlots.sequence,
         })
         .from(encounterSlots)
         .where(
