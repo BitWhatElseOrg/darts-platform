@@ -441,7 +441,13 @@ test("a club plays a team encounter from the fixture to the result", async ({ br
   // (2 von 2 möglichen Ranglistenpunkten) und Nichtantritt-Niederlage (0 von
   // 2) gleichen sich für beide exakt aus: 2 Spiele, 1 Sieg, 1 Niederlage,
   // Trefferquote 50,0 %, 1.00 Ranglistenpunkte (erzielte² / mögliche = 2² / 4
-  // laut `bookSide`/`calculatePlayerRanking`).
+  // laut `bookSide`/`calculatePlayerRanking`). Aus demselben Grund kommen
+  // Gast 1 und Gast 2 rechnerisch auf dasselbe Ergebnis — alle vier
+  // Einzelspieler dieser Fixture liegen damit gleichauf auf Rang 1: der
+  // Rangwert selbst (1) ist vollständig deterministisch und wird unten
+  // geprüft. NICHT deterministisch ist dagegen die Zeilenreihenfolge unter
+  // den Gleichgestellten — die bricht `compareRows`/`.sort(...)` über die
+  // `playerId`, eine interne UUID, die der Test nicht im Voraus kennt.
   await page.goto(competitionUrl);
   const rankingSection = page.getByRole("region", { name: "Einzelrangliste" });
   await expect(rankingSection.getByRole("heading", { name: "Einzelrangliste" })).toBeVisible();
@@ -452,12 +458,22 @@ test("a club plays a team encounter from the fixture to the result", async ({ br
     const row = rankingTable.locator("tbody tr").filter({ hasText: homeName });
     await expect(row).toBeVisible();
     const cells = row.locator("td");
+    await expect(cells.nth(0)).toHaveText("1"); // Rang: alle vier gleichauf (siehe Kommentar oben)
     await expect(cells.nth(2)).toHaveText("2"); // Sp: gespieltes Einzel + Nichtantritt
     await expect(cells.nth(3)).toHaveText("1"); // S
     await expect(cells.nth(4)).toHaveText("1"); // N
     await expect(cells.nth(5)).toHaveText("50.0%"); // Quote
     await expect(cells.nth(6)).toHaveText("1.00"); // Rangl.-Pkt.
   }
+
+  // Heim 3 (`HOME_PLAYERS[2]`) bestreitet in dieser Fixture ausschliesslich
+  // das Doppel (siehe `reportDoublesPairing`/`playDoubles` oben) — nie ein
+  // Einzel. Die günstigste End-zu-End-Bestätigung dafür, dass „nur Einzel
+  // zählen" wirklich durch den gesamten Stack (Repository → Service →
+  // Engine → API → UI) trägt: keine Zeile für Heim 3 in der Tabelle.
+  await expect(
+    rankingTable.locator("tbody tr").filter({ hasText: HOME_PLAYERS[2] }),
+  ).toHaveCount(0);
   await page.goto(encounterUrl);
 
   // Dieselbe Begegnung öffentlich, ohne Anmeldung.
