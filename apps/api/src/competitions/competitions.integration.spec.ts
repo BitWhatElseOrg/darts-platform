@@ -394,4 +394,11 @@ describe("competitions and their encounter template", () => {
     expect(playerA?.playerName.length ?? 0).toBeGreaterThan(0);
     expect(playerA?.teamName.length ?? 0).toBeGreaterThan(0);
   }, 30_000);
+
+  it("returns a 404 for a competition of a foreign organisation", async () => {
+    const competitionId = await create();
+    await expect(
+      service.playerRanking({ organizationId: randomUUID(), competitionId, auth }),
+    ).rejects.toThrow();
+  });
 });

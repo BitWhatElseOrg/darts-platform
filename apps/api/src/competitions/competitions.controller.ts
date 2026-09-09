@@ -5,6 +5,7 @@ import {
   createCompetitionSchema,
   updateCompetitionSchema,
   type CompetitionDetail,
+  type CompetitionPlayerRanking,
   type CompetitionStandings,
   type CompetitionSummary,
   type CreateCompetitionInput,
@@ -45,6 +46,15 @@ export class CompetitionsController {
     @CurrentAuth() auth: AuthContext,
   ): Promise<CompetitionStandings> {
     return this.service.standings({ organizationId, competitionId, auth });
+  }
+
+  @Get(":competitionId/player-ranking")
+  public playerRanking(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("competitionId", ParseUUIDPipe) competitionId: string,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<CompetitionPlayerRanking> {
+    return this.service.playerRanking({ organizationId, competitionId, auth });
   }
 
   @Post()
