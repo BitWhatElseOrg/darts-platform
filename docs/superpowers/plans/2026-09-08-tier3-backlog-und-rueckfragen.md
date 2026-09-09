@@ -9,6 +9,67 @@ direkt umsetzbar war, siehe die drei Geschwister-Pläne vom selben Tag:
 - `2026-09-08-team-encounter-datenintegritaet.md`
 - `2026-09-08-csp-nonce.md`
 
+## CSP-Nonce — Nacharbeit aus dem Abschlussreview (2026-09-08) — erledigt
+
+Der Plan `2026-09-08-csp-nonce.md` ist umgesetzt und gemergt (siehe ADR 0014).
+Das Abschlussreview hatte drei nicht-blockierende Punkte hinterlassen, die
+bewusst nicht in denselben Branch gehörten — alle drei sind jetzt über den
+Folgeplan `2026-09-08-csp-nonce-nacharbeit.md` umgesetzt (Branch
+`worktree-csp-nonce-nacharbeit`, gestapelt auf `feature/csp-nonce`/PR #33, da
+`develop` `proxy.ts` zum Zeitpunkt dieser Nacharbeit noch nicht enthielt):
+
+- ~~**`'strict-dynamic'` ergänzen.**~~ Erledigt. Verifiziert per echter
+  clientseitiger Navigation (Klick, nicht `page.goto`) plus Isolations-Check
+  (Git-Stash), dass Webpack-Chunk-Nachladen weiterhin funktioniert — kein
+  Verstoss dem `'strict-dynamic'` zurechenbar.
+- ~~**CSP zusätzlich auf die Request-Header setzen.**~~ Erledigt —
+  `apps/web/src/proxy.ts` setzt die Nonce jetzt sowohl auf Request- als auch
+  Response-Header, unabhängig vom internen Next.js-Spiegelverhalten.
+- ~~**E2E-Fall gegen den echten Produktivbuild.**~~ Erledigt — neue,
+  dauerhafte Testinfrastruktur (`playwright.prod.config.ts`,
+  `tests/production-csp.spec.ts`, Skript `test:e2e:prod`), bewusst nicht
+  Teil von `pnpm test:e2e`/CI (Kostenentscheid). Deckt jetzt auch die beiden
+  waehrend dieser Nacharbeit gefundenen, zusaetzlichen Probleme
+  (`'strict-dynamic'`, `jitless`) gegen den echten Produktivbuild ab.
+- ~~**`jitless`-Platzierung nur empirisch, nicht garantiert robust — bleibt offen.**~~
+  Erledigt — `docs/superpowers/plans/2026-09-09-zod-jitless-instrumentation-client.md`
+  verankert den Aufruf stattdessen in `apps/web/src/instrumentation-client.ts`,
+  Next.js' eigenem Bootstrap-Hook, der laut Doku vor jeder Hydration läuft und
+  dessen tatsächliche Ausführungsreihenfolge zusätzlich strukturell verifiziert
+  wurde (kompilierter Code liegt im `main-app`-Chunk, von dem jeder App-Entry-
+  Chunk abhängt) — statt sich auf Webpack-Bundling-Zufall zu verlassen. Zod v4
+  prüft beim ersten Schema-Zugriff pro Bundle-Kopie einmalig per
+  `Function("")`, ob JIT-Kompilierung möglich ist — unter der erzwungenen
+  CSP schlägt das fehl und meldet einen echten `script-src`-`eval`-Verstoss.
+  `z.config({ jitless: true })` in `providers.tsx` (Commit `257bd22`)
+  vermied den Verstoss damals zuverlässig in allen Tests (0/5 über zwei
+  unabhängige Testläufe) — aber nur, weil Webpack diesen einzeln genutzten
+  Aufruf zu jener Zeit in den früh geladenen Layout-Chunk inlinte. Ein
+  Versuch, den Aufruf stattdessen nach `environment.ts` zu verschieben
+  (erreichbar über mehrere Importer: `auth-client.ts`, `api-client.ts`,
+  `realtime.ts`, `health.ts`, `live-address.ts`), erzeugte reproduzierbar
+  (3/3) einen neuen Verstoss aus einer dritten, separat geladenen
+  Zod-Bundle-Kopie — weil Next.js Chunk-Skripte als `async` ausliefert und
+  zwischen getrennt geladenen Chunks keine Ausführungsreihenfolge
+  garantiert. Die damalige Lösung in `providers.tsx` war damit ein
+  Bundling-Zufall, kein vertraglich zugesichertes Verhalten — siehe oben:
+  `instrumentation-client.ts` löst genau dieses Problem tatsächlich, ohne
+  eines der beiden damals für nötig gehaltenen Auswege (Inline-`<script>`
+  im Root-Layout, Webpack-Konfigurationsänderung) zu brauchen.
+
+  **Falle beim Verifizieren von CSP-Eval-Verstössen:** `window.Function`-
+  Instrumentierung (im ursprünglichen Plan als eine Verifikationsoption
+  genannt) ist als alleiniger Detektor unzuverlässig — in einer
+  Negativkontrolle zeigte sie 0 Aufrufe, während 2 echte Eval-Verstösse per
+  CSP-Reporting auftraten. Ausserdem löst `new Function("")` aus einem
+  Playwright-`page.evaluate()`-Aufruf heraus gar keinen CSP-Verstoss aus
+  (Inspector-Skripte sind von CSP ausgenommen) — als Positivkontrolle
+  verwendet, ergibt das ein stilles falsches Negativ. Verlässlich ist der
+  `securitypolicyviolation`-DOM-Event-Listener (wie in
+  `apps/web/tests/fixtures.ts` verwendet) plus eine Sabotage-Kontrolle
+  (Fix temporär brechen, Verstoss-Wiederauftreten bestätigen) — nicht die
+  `window.Function`-Instrumentierung.
+
 ## Bereits erledigt, aber noch in älteren Memory-Notizen als offen geführt
 
 Bei der Recherche für diesen Plan stellte sich heraus, dass zwei Punkte aus
