@@ -627,20 +627,6 @@ export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canW
           pendingCount={pending.length}
         />
 
-        <SharePanel
-          canShare={canShare}
-          organizationId={organizationId}
-          publicId={dashboard.tournament.publicId}
-          tournamentId={tournamentId}
-          visibility={dashboard.tournament.visibility}
-        />
-
-        <DisplayKeysPanel
-          canManageDisplayKeys={canManageDisplayKeys}
-          organizationId={organizationId}
-          tournamentId={tournamentId}
-        />
-
         {conflict ? (
           <Wedge className="mt-5 flex flex-wrap items-start gap-4 p-4" tone="alarm">
             <MarkCross className="mt-0.5 shrink-0 text-ring-red" size={16} />
@@ -688,6 +674,20 @@ export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canW
             <p className="mt-1.5 font-plate text-body text-wedge-900">{queueWriteError}</p>
           </Wedge>
         ) : null}
+
+        <SharePanel
+          canShare={canShare}
+          organizationId={organizationId}
+          publicId={dashboard.tournament.publicId}
+          tournamentId={tournamentId}
+          visibility={dashboard.tournament.visibility}
+        />
+
+        <DisplayKeysPanel
+          canManageDisplayKeys={canManageDisplayKeys}
+          organizationId={organizationId}
+          tournamentId={tournamentId}
+        />
 
         {queueEntries.length > 0 ? (
           <Wedge className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3 p-4" tone="plate">
