@@ -312,6 +312,7 @@ test("a club plays a team encounter from the fixture to the result", async ({ br
     page.getByRole("button", { name: "Wettbewerb anlegen" }).click(),
   ]);
 
+  const competitionUrl = page.url();
   await expect(page.getByRole("heading", { level: 1, name: competitionName })).toBeVisible();
   // Der Kurzname wird aus dem Namen vorgeschlagen, solange das Feld unberührt bleibt.
   await expect(page.getByText(`e2e-liga-${short} · 6 Spiele je Begegnung`)).toBeVisible();
@@ -427,6 +428,37 @@ test("a club plays a team encounter from the fixture to the result", async ({ br
   await expect(page.getByText("5 von 5 Spielen entschieden")).toBeVisible();
   await expect(slotRow(page, SLOT_DECIDER)).toContainText("entfällt");
   await expect(page.getByText("Das Entscheidungsdoppel wird nicht gebraucht.")).toBeVisible();
+
+  // Einzelrangliste auf der Wettbewerbsübersicht (reine Domänenlogik in
+  // `player-ranking.ts`, Reglement A1.6–A1.9). Sie zählt nur Einzel, nie
+  // Doppel — aber sowohl gespielte als auch kampflos gewertete Slots
+  // (`calculatePlayerRanking`: übersprungen wird nur, was weder COMPLETED
+  // noch WALKOVER ist). Unter zwei Aufstellungspositionen bestreitet jede
+  // Position im Rundenturnier (`buildEncounterTemplate`) genau ein
+  // gespieltes Einzel und ein Nichtantritt-Einzel: Heim 1 (`HOME_PLAYERS[0]`)
+  // spielt SLOT_SINGLES_ONE und steht kampflos in SLOT_SINGLES_THREE, Heim 2
+  // (`HOME_PLAYERS[1]`) spiegelbildlich bei SLOT_SINGLES_TWO/-FOUR. Sieg
+  // (2 von 2 möglichen Ranglistenpunkten) und Nichtantritt-Niederlage (0 von
+  // 2) gleichen sich für beide exakt aus: 2 Spiele, 1 Sieg, 1 Niederlage,
+  // Trefferquote 50,0 %, 1.00 Ranglistenpunkte (erzielte² / mögliche = 2² / 4
+  // laut `bookSide`/`calculatePlayerRanking`).
+  await page.goto(competitionUrl);
+  const rankingSection = page.getByRole("region", { name: "Einzelrangliste" });
+  await expect(rankingSection.getByRole("heading", { name: "Einzelrangliste" })).toBeVisible();
+  const rankingTable = rankingSection.getByRole("table");
+  await expect(rankingTable).toBeVisible();
+
+  for (const homeName of [HOME_PLAYERS[0], HOME_PLAYERS[1]]) {
+    const row = rankingTable.locator("tbody tr").filter({ hasText: homeName });
+    await expect(row).toBeVisible();
+    const cells = row.locator("td");
+    await expect(cells.nth(2)).toHaveText("2"); // Sp: gespieltes Einzel + Nichtantritt
+    await expect(cells.nth(3)).toHaveText("1"); // S
+    await expect(cells.nth(4)).toHaveText("1"); // N
+    await expect(cells.nth(5)).toHaveText("50.0%"); // Quote
+    await expect(cells.nth(6)).toHaveText("1.00"); // Rangl.-Pkt.
+  }
+  await page.goto(encounterUrl);
 
   // Dieselbe Begegnung öffentlich, ohne Anmeldung.
   const publicHref = await page
