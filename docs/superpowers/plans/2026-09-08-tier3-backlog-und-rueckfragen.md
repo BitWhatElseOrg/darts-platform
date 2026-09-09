@@ -34,8 +34,10 @@ Folgeplan `2026-09-08-csp-nonce-nacharbeit.md` umgesetzt (Branch
 - ~~**`jitless`-Platzierung nur empirisch, nicht garantiert robust — bleibt offen.**~~
   Erledigt — `docs/superpowers/plans/2026-09-09-zod-jitless-instrumentation-client.md`
   verankert den Aufruf stattdessen in `apps/web/src/instrumentation-client.ts`,
-  Next.js' eigenem, framework-garantiert vor jeder Hydration ausgeführtem
-  Bootstrap-Hook, statt sich auf Webpack-Bundling-Zufall zu verlassen. Zod v4
+  Next.js' eigenem Bootstrap-Hook, der laut Doku vor jeder Hydration läuft und
+  dessen tatsächliche Ausführungsreihenfolge zusätzlich strukturell verifiziert
+  wurde (kompilierter Code liegt im `main-app`-Chunk, von dem jeder App-Entry-
+  Chunk abhängt) — statt sich auf Webpack-Bundling-Zufall zu verlassen. Zod v4
   prüft beim ersten Schema-Zugriff pro Bundle-Kopie einmalig per
   `Function("")`, ob JIT-Kompilierung möglich ist — unter der erzwungenen
   CSP schlägt das fehl und meldet einen echten `script-src`-`eval`-Verstoss.
