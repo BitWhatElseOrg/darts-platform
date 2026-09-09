@@ -619,6 +619,7 @@ export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canW
         <PageNav>
           <NavLink href={`/turniere?organisation=${organizationId}`}>Alle Turniere</NavLink>
           <NavLink href={`/live/${dashboard.tournament.publicId}`}>Öffentliche Live-Ansicht</NavLink>
+          <NavLink href="/bedienungsanleitung.html">Bedienungsanleitung</NavLink>
         </PageNav>
 
         <DashboardHeader
