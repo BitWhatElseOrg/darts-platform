@@ -81,7 +81,12 @@ export function PlayerRankingTable({
                     {row.teamShortName ?? row.teamName}
                     {row.otherTeamsCount > 0 ? (
                       <span className="ml-2 font-plate text-caption text-sisal-500">
-                        +{row.otherTeamsCount}
+                        <span aria-hidden="true">+{row.otherTeamsCount}</span>
+                        <span className="sr-only">
+                          {" "}
+                          und {row.otherTeamsCount}{" "}
+                          {row.otherTeamsCount === 1 ? "weitere Mannschaft" : "weitere Mannschaften"}
+                        </span>
                       </span>
                     ) : null}
                   </td>
