@@ -1,10 +1,10 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 
 import { decideDisplayKeyState, type DisplayKeyState } from "@darts-platform/domain";
-// Direkt aus dem `dist`-Modul statt aus dem Haupt-Barrel: `@darts-platform/domain`
+// Ueber den expliziten Subpath-Export statt aus dem Haupt-Barrel: `@darts-platform/domain`
 // wird auch von Client-Komponenten importiert, und dieses Modul haengt an
 // `node:crypto` (siehe Kommentar in `packages/domain/src/index.ts`).
-import { createDisplayKeySecret, hashDisplayKeySecret } from "@darts-platform/domain/dist/display-key-secret.js";
+import { createDisplayKeySecret, hashDisplayKeySecret } from "@darts-platform/domain/display-key-secret";
 import {
   createdDisplayKeySchema,
   displayKeyListSchema,

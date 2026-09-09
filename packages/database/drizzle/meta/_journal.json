@@ -197,6 +197,20 @@
       "when": 1788857197038,
       "tag": "0027_tournament_display_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1788884307549,
+      "tag": "0028_encounter_slots_board_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1788884547563,
+      "tag": "0029_competitions_min_nominations_shorthanded_lineup",
+      "breakpoints": true
     }
   ]
 }

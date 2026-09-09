@@ -80,4 +80,10 @@ describe("apiRequest", () => {
     expect(error).toBeInstanceOf(ApiClientError);
     expect(error).toMatchObject({ code: "REQUEST_FAILED", status: 503 });
   });
+
+  it("akzeptiert einen leeren Koerper auf dem Erfolgspfad (z. B. HTTP 204)", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await expect(apiRequest({ path: "/probe", schema: z.void() })).resolves.toBeUndefined();
+  });
 });

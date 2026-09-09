@@ -7,6 +7,11 @@ const apiOrigin = `http://localhost:${apiPort}`;
 
 export default defineConfig({
   testDir: "./tests",
+  // Prueft speziell den Produktivbuild (kein 'unsafe-eval') und laeuft
+  // eigenstaendig ueber `playwright.prod.config.ts` / `test:e2e:prod`; gegen
+  // `next dev` waeren 4 von 5 Faellen falsch rot, weil der Entwicklungsmodus
+  // 'unsafe-eval' legitim erlaubt.
+  testIgnore: /production-csp\.spec\.ts/u,
   fullyParallel: true,
   // Beide Server laufen im Entwicklungsmodus; `next dev` übersetzt jede Route
   // beim ersten Aufruf und ist dabei ein einzelner Prozess. Sobald zwei lange

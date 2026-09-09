@@ -1,0 +1,1 @@
+ALTER TABLE "competitions" ADD CONSTRAINT "competitions_min_nominations_shorthanded_lineup_check" CHECK ("competitions"."min_nominations_shorthanded" <= "competitions"."lineup_positions");

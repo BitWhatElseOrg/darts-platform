@@ -49,6 +49,15 @@ interface ResolvableEvent {
  */
 const publicIdCache = new Map<string, string>();
 
+/**
+ * Bewusste Abweichung von AGENTS.md §14 (explizite `organizationId` an jeder
+ * tenant-bezogenen Repository-Funktion): `internalId` ist eine global
+ * eindeutige UUID aus `tournaments.id`/`encounters.id`, die Abfrage kann also
+ * nicht versehentlich eine Zeile einer fremden Organisation treffen, selbst
+ * ohne den Filter. Der Aufrufer (`resolveScope` im Outbox-Relay) verarbeitet
+ * Ereignisse mehrerer Organisationen im selben Tick und müsste die
+ * `organizationId` sonst nur durchreichen, um sie hier ungenutzt zu prüfen.
+ */
 async function publicIdOf(
   executor: OutboxExecutor,
   kind: "tournament" | "encounter",

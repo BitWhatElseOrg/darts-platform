@@ -1,0 +1,1 @@
+ALTER TABLE "encounter_slots" ADD CONSTRAINT "encounter_slots_board_status_check" CHECK ("encounter_slots"."board_id" is null or "encounter_slots"."status" = 'IN_PROGRESS');

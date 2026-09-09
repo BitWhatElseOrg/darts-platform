@@ -1158,6 +1158,10 @@ export const competitions = pgTable(
       "competitions_min_nominations_shorthanded_check",
       sql`${table.minNominationsShorthanded} > 0 and ${table.minNominationsShorthanded} <= ${table.minNominations}`,
     ),
+    check(
+      "competitions_min_nominations_shorthanded_lineup_check",
+      sql`${table.minNominationsShorthanded} <= ${table.lineupPositions}`,
+    ),
     check("competitions_max_substitutions_check", sql`${table.maxSubstitutionsPerEncounter} >= 0`),
     check("competitions_max_doubles_check", sql`${table.maxDoublesPerPlayer} >= 0`),
     check("competitions_version_check", sql`${table.version} >= 0`),
@@ -1371,6 +1375,10 @@ export const encounterSlots = pgTable(
     check("encounter_slots_discipline_check", sql`${table.discipline} in ('SINGLES', 'DOUBLES')`),
     check("encounter_slots_sequence_check", sql`${table.sequence} > 0`),
     check("encounter_slots_version_check", sql`${table.version} >= 0`),
+    check(
+      "encounter_slots_board_status_check",
+      sql`${table.boardId} is null or ${table.status} = 'IN_PROGRESS'`,
+    ),
     check(
       "encounter_slots_winner_side_check",
       sql`${table.winnerSide} is null or ${table.winnerSide} in ('HOME', 'AWAY')`,
