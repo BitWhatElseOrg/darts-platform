@@ -238,8 +238,19 @@ export function calculatePlayerRanking(input: PlayerRankingInput): readonly Play
     const previous = ordered[index - 1];
     const previousRank = ranked[index - 1]?.rank ?? 0;
     const shared = previous !== undefined && arePlayersTied(previous, row);
-    const { legsFor: _legsFor, legsPlayed: _legsPlayed, ...rest } = row;
-    ranked.push({ ...rest, rank: shared ? previousRank : index + 1 });
+    ranked.push({
+      playerId: row.playerId,
+      teamId: row.teamId,
+      otherTeamsCount: row.otherTeamsCount,
+      played: row.played,
+      won: row.won,
+      lost: row.lost,
+      achievedPoints: row.achievedPoints,
+      possiblePoints: row.possiblePoints,
+      hitRate: row.hitRate,
+      rankingPoints: row.rankingPoints,
+      rank: shared ? previousRank : index + 1,
+    });
   }
   return ranked;
 }
