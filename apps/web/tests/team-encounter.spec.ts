@@ -156,15 +156,19 @@ async function openScoreboard(page: Page, label: string): Promise<void> {
   await slotRow(page, label).getByRole("link", { name: "Scoreboard" }).click();
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
   const takeOver = page.getByRole("button", { name: "Steuerung übernehmen" });
-  // "Rücktaste" steht unabhaengig vom Eingabemodus (Dart- wie Rundenkeypad)
-  // zur Verfuegung und ist wie jede andere Taste gesperrt, solange dieses
-  // Geraet die Boardsteuerung nicht haelt — ein modusunabhaengiger Ersatz
-  // fuer die frühere Prüfung ueber das Textfeld "Aufnahmescore".
+  // Geprueft wird eine gewoehnliche Taste des jeweils gezeigten Keypads
+  // ("Fehlwurf" im Dart-, "Ziffer 0" im Rundenmodus): sie ist wie jede andere
+  // gesperrt, solange dieses Geraet die Boardsteuerung nicht haelt. Die
+  // frühere Pruefung ueber "Rücktaste" traegt das nicht mehr — die Taste
+  // heisst bei leerer Eingabe nach der Aufnahme, die sie zuruecknehmen wuerde,
+  // und ist ohne eine solche Aufnahme gesperrt, obwohl das Keypad lebt
+  // (`backspace-key.tsx`).
+  const anyPlainKey = page.getByRole("button", { name: /^(Fehlwurf|Ziffer 0)$/u });
   await expect
     .poll(
       async () => {
         if (await takeOver.isVisible()) await takeOver.click();
-        return page.getByRole("button", { name: "Rücktaste" }).isEnabled();
+        return anyPlainKey.first().isEnabled();
       },
       { timeout: 30_000 },
     )
@@ -177,11 +181,11 @@ async function record(page: Page, points: number, checkout?: Checkout): Promise<
     // Nach erfolgreicher Übernahme setzt die Fläche das Ziffernfeld zurück;
     // `roundValue` wird ausschliesslich bei tatsächlichem Erfolg geleert
     // (match-scoreboard.tsx, `submitJustSucceeded`) — ein Versionskonflikt
-    // liesse den Wert bewusst stehen. "Rücktaste" aktiviert erst, wenn das
-    // Absenden vorbei ist (nicht mehr `submitPending`); erst danach zeigt
+    // liesse den Wert bewusst stehen. Eine Zifferntaste aktiviert erst, wenn
+    // das Absenden vorbei ist (nicht mehr `submitPending`); erst danach zeigt
     // "Aufnahme erfassen" gesperrt den geleerten, also erfolgreich
     // übernommenen Wert.
-    await expect(page.getByRole("button", { name: "Rücktaste" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Ziffer 0" })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Aufnahme erfassen" })).toBeDisabled();
     return;
   }
@@ -382,7 +386,7 @@ test("a club plays a team encounter from the fixture to the result", async ({ br
   // Zurücknehmen: das Leg beginnt danach von vorn. Die Eröffnungsaufnahme
   // läuft in jedem Fall Wurf für Wurf (`playSingles`, `openWithDouble`),
   // erst danach zählt das Ziffernfeld des Runden-Modus weiter.
-  await page.getByRole("button", { name: "Rücktaste" }).click();
+  await page.getByRole("button", { name: "Letzte Aufnahme zurücknehmen: 40 Punkte" }).click();
   await expect(page.getByLabel(`${HOME_PLAYERS[0]}, Restscore`)).toHaveText("501");
   // Der Rundenmodus bleibt geräte-/browserlokal gespeichert (`localStorage`)
   // und damit über jede weitere Navigation und jedes weitere Board dieses

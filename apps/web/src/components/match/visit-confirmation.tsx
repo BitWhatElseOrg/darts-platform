@@ -48,7 +48,7 @@ export function VisitConfirmation({ points, thrownPoints, bust, onBack, onConfir
   }, []);
 
   return (
-    <div className="absolute inset-0 bg-slate-950/95">
+    <div className="absolute inset-0 bg-sisal-200/95">
       {/* Faengt Klicks auf der gesamten Flaeche auf; aus Tastatur- und
           Screenreader-Sicht unsichtbar (kein zweiter „WEITER"-Stopp). */}
       <button
@@ -60,20 +60,20 @@ export function VisitConfirmation({ points, thrownPoints, bust, onBack, onConfir
       />
       <div className="pointer-events-none relative flex h-full flex-col items-center justify-center gap-6 p-4 text-center">
         <div aria-live="polite" className="flex flex-col items-center gap-2">
-          <span className={cn("font-numerals font-bold text-display tabular", bust ? "text-rose-400" : "text-white")}>
+          <span className={cn("font-numerals font-bold text-display tabular", bust ? "text-ring-red" : "text-chalk")}>
             {points}
           </span>
-          <span className={cn("text-label", bust ? "text-rose-300" : "text-emerald-300")}>
+          <span className={cn("text-label", bust ? "text-ring-red-deep" : "text-ring-green")}>
             {bust ? "BUST" : partiallyCounted ? "ANGERECHNET" : "GEWORFEN"}
           </span>
           {partiallyCounted ? (
-            <span className="text-body text-slate-300">von {thrownPoints} geworfen</span>
+            <span className="text-body text-spider">von {thrownPoints} geworfen</span>
           ) : null}
         </div>
         <div className="pointer-events-auto grid w-full max-w-md grid-cols-[auto_1fr] gap-3">
           <button
             aria-label="Eingabe korrigieren"
-            className="min-h-14 rounded-lg bg-slate-800 px-6 text-title-sm font-semibold text-white transition hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
+            className="min-h-14 rounded-lg bg-wedge-900 px-6 text-title-sm font-semibold text-chalk transition hover:bg-wedge-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
             onClick={onBack}
             type="button"
           >

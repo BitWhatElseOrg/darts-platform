@@ -2,7 +2,7 @@
 
 import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { type MatchStateResponse } from "@darts-platform/schemas";
-import { Button } from "@darts-platform/ui";
+import { cn, Control } from "@darts-platform/ui";
 import { userFacingErrorMessage } from "@/lib/api-client";
 import {
   dartEntryReducer, dartVisitCommand, emptyDartEntry, previewDartEntry, type DartEntryPreview,
@@ -68,6 +68,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   // Dialog; alle anderen sehen die gesperrte Flaeche.
   const legDecision = mayControl ? pendingLegDecision(match) : null;
   const inputMode = dartEntryRequired ? "DART" : settings.mode;
+  const keypadVisible = match.status !== "COMPLETED" && canScore;
   const quickScores = useQuickScores({ organizationId, playerId: match.currentPlayerId, enabled: inputMode === "ROUND" });
   const [roundValue, setRoundValue] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -80,6 +81,16 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   const [pendingConfirmation, setPendingConfirmation] = useState<DartEntryPreview | null>(null);
   const autoConfirmTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasPending = queued.length > 0;
+  // Die Ruecknahme haengt seit dem Wegfall des eigenen Knopfes an der
+  // Ruecktaste des Keypads. Die Sperren, die dieser Knopf trug, gehoeren
+  // deshalb hierher: offline geht `undoVisit` bewusst NICHT in die
+  // Warteschlange (use-match-scoring.ts) und koennte nur fehlschlagen, ohne
+  // ruecknehmbare Aufnahme antwortet der Server `NOTHING_TO_UNDO`, und eine
+  // laufende Ruecknahme darf nicht doppelt ausgeloest werden. `visits` steht
+  // neueste zuerst (scoreboard-sides.ts, `lastVisitPoints`).
+  const revertableVisit = match.visits.find((visit) => !visit.reverted);
+  const undoAvailable = mayControl && online && !scoring.undoPending && revertableVisit !== undefined;
+  const undoPoints = revertableVisit === undefined ? null : revertableVisit.appliedPoints;
   // Der Eingabezustand der Fläche gehört der Komponente, das Wissen um Erfolg
   // oder Misserfolg der Mutation dem Hook. Ohne Callback bleibt der
   // Erfolgszähler die einzige Möglichkeit, „gerade erfolgreich übertragen"
@@ -112,7 +123,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   const handleRoundQuickScore = (score: number) => setRoundValue(String(score));
   const handleRoundBackspace = () => {
     if (roundValue === "") {
-      scoring.undoVisit();
+      if (undoAvailable) scoring.undoVisit();
       return;
     }
     setRoundValue((current) => removeRoundDigit(current));
@@ -313,14 +324,14 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
 
   const handleDartBackspace = () => {
     if (entry.darts.length === 0) {
-      scoring.undoVisit();
+      if (undoAvailable) scoring.undoVisit();
       return;
     }
     dispatchEntry({ type: "BACKSPACE" });
   };
 
   return (
-    <section aria-label="Match-Scoreboard" className="sektorenring grid h-[100dvh] grid-rows-[auto_auto_auto_1fr] bg-slate-950 text-white">
+    <section aria-label="Match-Scoreboard" className="sektorenring grid h-[100dvh] grid-rows-[auto_auto_auto_1fr] bg-sisal-200 text-chalk">
       {/* Ohne Seitentitel ist das die einzige Überschrift der Fläche und der
           einzige Name, den Screenreader ausserhalb von "Match-Scoreboard"
           zu hören bekommen. `sr-only` ist `position: absolute` und nimmt
@@ -335,6 +346,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
         onOpenSettings={() => setSettingsOpen(true)}
       />
       <ScoreboardStatus
+        busy={scoring.undoPending ? "Rücknahme läuft …" : null}
         lockState={lock.state}
         message={error !== null && !checkoutOpen ? mutationMessage(error) : null}
         online={online}
@@ -356,17 +368,17 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
       <div className="grid min-h-0 grid-rows-[auto_1fr_auto] overflow-y-auto">
         <div>
           {hasPending || queueReadError !== null || queueWriteError !== null ? (
-            <div className="border-b border-slate-700 bg-slate-900 p-4">
+            <div className="border-b border-sisal-300 bg-sisal-100 p-4">
               {/* Auch ein Fehler der Warteschlange selbst gehoert in dieses
                   Band: sonst zeigt die Flaeche eine leere Liste, obwohl
                   Aufnahmen ungesendet in IndexedDB liegen (AGENTS.md §18).
                   Lesen und Schreiben stehen getrennt -- sie bedeuten
                   Unterschiedliches und koennen gleichzeitig zutreffen. */}
               {queueReadError !== null ? (
-                <p className="text-body text-slate-200" role="status">{queueReadError}</p>
+                <p className="text-body text-spider" role="status">{queueReadError}</p>
               ) : null}
               {queueWriteError !== null ? (
-                <p className="text-body text-slate-200" role="status">{queueWriteError}</p>
+                <p className="text-body text-spider" role="status">{queueWriteError}</p>
               ) : null}
               {queued.map((command) => {
                 // Ob ein Eintrag verworfen werden darf, entscheidet
@@ -382,13 +394,13 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
                   acceptedButStuck: queueAcceptedButStuck.has(command.commandId),
                 });
                 return (
-                  <div className="flex flex-wrap items-center justify-between gap-3 text-body text-slate-200" key={command.commandId}>
+                  <div className="flex flex-wrap items-center justify-between gap-3 text-body text-spider" key={command.commandId}>
                     <span>{notice.text}</span>
                     {notice.action === "DISCARD" ? (
-                      <Button onClick={() => scoring.discardQueued(command.commandId)} variant="outline">Verwerfen und synchronisieren</Button>
+                      <Control density="tight" onClick={() => scoring.discardQueued(command.commandId)} variant="wireInk">Verwerfen und synchronisieren</Control>
                     ) : null}
                     {notice.action === "RETRY" ? (
-                      <Button disabled={!online || replaying} onClick={() => scoring.replay()} variant="outline">Jetzt übertragen</Button>
+                      <Control density="tight" disabled={!online || replaying} onClick={() => scoring.replay()} variant="wireInk">Jetzt übertragen</Control>
                     ) : null}
                   </div>
                 );
@@ -396,27 +408,40 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
             </div>
           ) : null}
         </div>
-        <div className="min-h-0">
+        {/* Nur fuer das Keypad wird dieser Container eine Flex-Spalte mit
+            `justify-end`: das Keypad soll auf hohen Geraeten unten stehen, wo
+            der Daumen ist. Das Matchende-Band und die gesperrte Flaeche
+            bleiben oben, wo man sie liest. */}
+        <div className={cn("min-h-0", keypadVisible && "flex flex-col justify-end")}>
           {match.status === "COMPLETED" ? (
-            <div className="border-b border-emerald-400/30 bg-emerald-400/10 p-5 text-center">
-              <p className="text-body uppercase tracking-[0.12em] text-emerald-300">Match beendet</p>
-              <p className="mt-1 font-numerals text-title font-bold text-white">{winnerName(match)} gewinnt</p>
+            <div className="border-b border-ring-green/30 bg-ring-green/10 p-5 text-center">
+              <p className="text-body uppercase tracking-[0.12em] text-ring-green">Match beendet</p>
+              <p className="mt-1 font-numerals text-title font-bold text-chalk">{winnerName(match)} gewinnt</p>
             </div>
           ) : canScore && inputMode === "DART" ? (
-            <div className="relative h-full min-h-0 border-b border-slate-800 p-3">
+            // Begrenzt und an die Unterkante gezogen: auf 820 x 1180 streckte
+            // die 1fr-Spur die Tasten auf knapp 200 px Hoehe bei 18 px
+            // Ziffern, und ein Keypad an der Oberkante eines Tablets liegt
+            // ausserhalb der Daumenzone. `self-end` haelt es unten, `max-w-lg`
+            // und `max-h` halten die Tastengroesse in einem Verhaeltnis, das
+            // eine Hand bedienen kann.
+            <div className="relative mx-auto min-h-0 w-full max-w-lg flex-1 basis-auto p-3 [@media(min-height:56rem)]:max-h-[44rem]">
               {/* Der erzwungene Wechsel wird benannt, nicht bloss vollzogen:
                   sonst steht die zaehlende Person vor einem anderen Keypad,
                   als sie eingestellt hat. Live-Region, weil der Hinweis ohne
                   eigene Handlung erscheint. */}
               {dartEntryRequired && settings.mode === "ROUND" ? (
-                <p aria-live="polite" className="mb-3 rounded-lg border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-body text-emerald-100" role="status">
+                <p aria-live="polite" className="mb-3 rounded-lg border border-ring-green/40 bg-ring-green/10 px-3 py-2 text-body text-ring-green-deep" role="status">
                   Double In: die Eröffnungsaufnahme wird Wurf für Wurf erfasst, danach zählt wieder das Ziffernfeld.
                 </p>
               ) : null}
               <DartKeypad
                 disabled={!mayControl || legDecision !== null || activeParticipant === undefined || pendingConfirmation !== null || scoring.submitPending}
                 modifier={entry.modifier}
+                entryEmpty={entry.darts.length === 0}
                 onBackspace={handleDartBackspace}
+                undoAvailable={undoAvailable}
+                undoPoints={undoPoints}
                 onModifier={(multiplier) => dispatchEntry({ type: "MODIFIER", multiplier })}
                 onSegment={handleDartSegment}
                 segmentsLocked={completedEntryPreview !== null}
@@ -432,9 +457,11 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
               ) : null}
             </div>
           ) : canScore && inputMode === "ROUND" ? (
-            // overflow-y-auto: das Keypad braucht mehr Hoehe als das
-            // Dart-Keypad und ueberlief sonst sichtbar in "Letzte Aufnahmen".
-            <div className="h-full min-h-0 overflow-y-auto border-b border-slate-800 p-3">
+            // Kein `overflow-y-auto` mehr an dieser Stelle: das Keypad
+            // scrollt seit der 360x640-Messung seinen Mittelteil selbst und
+            // haelt Ruecktaste und Absenden fest (round-keypad.tsx). Ein
+            // Scroller hier wuerde beides wieder mitnehmen.
+            <div className="mx-auto min-h-0 w-full max-w-lg flex-1 basis-auto p-3 [@media(min-height:56rem)]:max-h-[44rem]">
               <RoundKeypad
                 disabled={!mayControl || legDecision !== null || activeParticipant === undefined || scoring.submitPending || checkoutOpen}
                 onBackspace={handleRoundBackspace}
@@ -444,6 +471,8 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
                 quickScores={quickScores.scores}
                 quickScoresSource={quickScores.source}
                 submittable={isRoundEntrySubmittable(roundValue)}
+                undoAvailable={undoAvailable}
+                undoPoints={undoPoints}
                 value={roundValue}
               />
             </div>

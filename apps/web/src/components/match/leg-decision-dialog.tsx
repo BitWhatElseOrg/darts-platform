@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { Button } from "@darts-platform/ui";
+import { Control } from "@darts-platform/ui";
 import type { PendingLegDecision } from "@/lib/scoreboard-view";
 import { useDialogFocusReturn } from "./use-dialog-focus-return";
 
@@ -38,7 +38,7 @@ export function LegDecisionDialog({ decision, error, onDecide, pending, sideName
     <dialog
       aria-describedby="leg-decision-description"
       aria-labelledby="leg-decision-title"
-      className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-emerald-500/50 bg-slate-950 p-0 text-white shadow-2xl backdrop:bg-slate-950/80"
+      className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-ring-green/50 bg-sisal-200 p-0 text-chalk shadow-2xl backdrop:bg-sisal-200/80"
       // Kein Schliessen per Escape: ohne Entscheid geht es nicht weiter.
       onCancel={(event) => event.preventDefault()}
       ref={dialogRef}
@@ -46,25 +46,24 @@ export function LegDecisionDialog({ decision, error, onDecide, pending, sideName
       <div className="space-y-5 p-5 sm:p-6">
         <div>
           <h4 className="font-numerals text-title font-bold" id="leg-decision-title">{title}</h4>
-          <p className="mt-2 text-body text-slate-300" id="leg-decision-description">{description}</p>
+          <p className="mt-2 text-body text-spider" id="leg-decision-description">{description}</p>
         </div>
-        <p className="text-body font-semibold text-slate-200">{question}</p>
+        <p className="text-body font-semibold text-spider">{question}</p>
         <div className="grid gap-3">
           {([1, 2] as const).map((seat) => (
-            <Button
+            <Control
               autoFocus={seat === 1}
               className="min-h-14 justify-start text-left"
               disabled={pending}
               key={seat}
               onClick={() => onDecide(seat)}
-              type="button"
-              variant="outline"
+              variant="wireInk"
             >
               {sideNames[seat - 1]}
-            </Button>
+            </Control>
           ))}
         </div>
-        {error ? <p className="text-body text-rose-300" role="alert">{error}</p> : null}
+        {error ? <p className="text-body text-ring-red-deep" role="alert">{error}</p> : null}
       </div>
     </dialog>
   );
