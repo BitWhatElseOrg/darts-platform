@@ -138,6 +138,34 @@ export const competitionStandingsSchema = z.object({
 export type StandingsRowResponse = z.infer<typeof standingsRowSchema>;
 export type CompetitionStandings = z.infer<typeof competitionStandingsSchema>;
 
+export const playerRankingRowSchema = z.object({
+  playerId: z.uuid(),
+  playerName: z.string(),
+  teamId: z.uuid(),
+  teamName: z.string(),
+  teamShortName: z.string().nullable(),
+  /** Anzahl weiterer Mannschaften, für die die Person mindestens ein gewertetes Einzel hat. */
+  otherTeamsCount: z.number().int().nonnegative(),
+  rank: z.number().int().positive(),
+  played: z.number().int().nonnegative(),
+  won: z.number().int().nonnegative(),
+  lost: z.number().int().nonnegative(),
+  achievedPoints: z.number().int().nonnegative(),
+  possiblePoints: z.number().int().nonnegative(),
+  /** Reglement A1.8. Zwischen 0 und 1, gerundet auf 4 Nachkommastellen. */
+  hitRate: z.number().min(0).max(1),
+  /** Reglement A1.8: Trefferquote × erzielte Punkte. */
+  rankingPoints: z.number().nonnegative(),
+});
+
+export const competitionPlayerRankingSchema = z.object({
+  competitionId: z.uuid(),
+  rows: z.array(playerRankingRowSchema),
+});
+
+export type PlayerRankingRowResponse = z.infer<typeof playerRankingRowSchema>;
+export type CompetitionPlayerRanking = z.infer<typeof competitionPlayerRankingSchema>;
+
 export const encounterSummarySchema = z.object({
   id: z.uuid(),
   publicId: z.uuid(),
