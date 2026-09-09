@@ -13,7 +13,9 @@ import {
   competitionListSchema,
   competitionPlayerRankingSchema,
   competitionStandingsSchema,
+  disciplineSchema,
   encounterResultSchema,
+  encounterSlotStatusSchema,
   encounterStatusSchema,
   type CompetitionDetail,
   type CompetitionPlayerRanking,
@@ -216,10 +218,12 @@ export class CompetitionsService {
 
         return {
           encounterId: slot.encounterId,
-          encounterStatus: encounter.status as PlayerRankingSlot["encounterStatus"],
+          // Der Datenbanktyp ist `varchar`; die Enums gehören an die
+          // Domänengrenze (dieselbe Regel wie bei `standings` oben).
+          encounterStatus: encounterStatusSchema.parse(encounter.status),
           matchday: encounter.matchday,
-          discipline: slot.discipline as PlayerRankingSlot["discipline"],
-          status: slot.status as PlayerRankingSlot["status"],
+          discipline: disciplineSchema.parse(slot.discipline),
+          status: encounterSlotStatusSchema.parse(slot.status),
           legsToWinSet: slot.legsToWinSet,
           setsToWin: slot.setsToWin,
           homeTeamId: encounter.homeTeamId,
