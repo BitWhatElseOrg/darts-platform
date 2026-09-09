@@ -234,7 +234,7 @@ describe("lastSubmittedVisit", () => {
     expect(view.result.current.lastSubmittedVisit).toMatchObject({ id: bustVisit.id, outcome: "BUST" });
   });
 
-  it("bleibt unveraendert, wenn eine Aufnahme offline in die Warteschlange geht", async () => {
+  it("bleibt null, wenn eine Aufnahme offline in die Warteschlange geht", async () => {
     setOnline(false);
     const view = await mounted();
 
@@ -247,6 +247,50 @@ describe("lastSubmittedVisit", () => {
     });
     // Der Ausgang steht erst nach der tatsaechlichen Serverbestaetigung fest
     // -- eine fruehe Anzeige waere hier schlicht geraten.
+    expect(view.result.current.lastSubmittedVisit).toBeNull();
+  });
+
+  // PR-Agent-Befund ("Stale Bust", PR #38): `submitSucceededAt` steigt bei
+  // JEDER abgeschlossenen Mutation, auch einer offline gelegten -- ohne ein
+  // explizites Zuruecksetzen auf `null` haette die naechste, noch gar nicht
+  // bestaetigte Aufnahme die Bust-Anzeige der VORHERIGEN Aufnahme geerbt.
+  it("verwirft eine fruehere Bust-Aufnahme, sobald die naechste Aufnahme nur offline gelegt wird", async () => {
+    const bustVisit = {
+      id: "77777777-7777-4777-8777-777777777777",
+      commandId: "88888888-8888-4888-8888-888888888888",
+      playerId,
+      playerDisplayName: "Alex Muster",
+      legNumber: 1,
+      points: 45,
+      appliedPoints: 0,
+      dartsThrown: 3,
+      scoreBefore: 501,
+      scoreAfter: 501,
+      checkoutDouble: null,
+      outcome: "BUST",
+      reverted: false,
+      checkoutAttempts: 0,
+      darts: [],
+      createdAt: new Date().toISOString(),
+    };
+    client.apiRequest.mockResolvedValue({ ...match, version: 8, visits: [bustVisit] });
+    const view = await mounted();
+
+    await act(async () => {
+      view.result.current.submitVisit({ points: 45, dartsThrown: 3 });
+    });
+    await waitFor(() => {
+      expect(view.result.current.lastSubmittedVisit).not.toBeNull();
+    });
+
+    setOnline(false);
+    await act(async () => {
+      view.result.current.submitVisit({ points: 60, dartsThrown: 3 });
+    });
+
+    await waitFor(() => {
+      expect(queue.saveOfflineCommand).toHaveBeenCalled();
+    });
     expect(view.result.current.lastSubmittedVisit).toBeNull();
   });
 });

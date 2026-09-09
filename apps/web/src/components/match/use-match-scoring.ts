@@ -321,10 +321,13 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     },
     onSuccess: async (serverState) => {
       setSubmitSucceededAt((value) => value + 1);
-      if (serverState !== null) {
-        setLastSubmittedVisit(serverState.visits[0] ?? null);
-        await refresh();
-      }
+      // Immer neu setzen, auch auf `null`: ein offline in die Warteschlange
+      // gelegtes Kommando hebt `submitSucceededAt` genauso an (PR-Agent-Befund
+      // "Stale Bust") -- ohne dieses `else` bliebe die Bust-Anzeige einer
+      // fruehen Aufnahme stehen und wuerde faelschlich fuer die naechste,
+      // noch unbestaetigte Aufnahme erneut ausgeloest.
+      setLastSubmittedVisit(serverState === null ? null : (serverState.visits[0] ?? null));
+      if (serverState !== null) await refresh();
     },
     onError: async (error) => { if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") await refresh(); },
   });
