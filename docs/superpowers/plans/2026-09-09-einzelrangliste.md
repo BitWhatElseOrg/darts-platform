@@ -1009,7 +1009,7 @@ organizations, players, teams, users`.)
 
 - [ ] **Step 3: Run the test to verify it fails**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run src/competitions/competitions.integration.spec.ts -t "player ranking"`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run src/competitions/competitions.integration.spec.ts -t "player ranking"`
 Expected: FAIL mit „service.playerRanking is not a function"
 
 (Für den genauen Testlauf-Befehl siehe [[api-single-test-file]] — `pnpm
@@ -1128,12 +1128,12 @@ public async playerRanking(input: {
 
 - [ ] **Step 5: Run the test to verify it passes**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run src/competitions/competitions.integration.spec.ts -t "player ranking"`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run src/competitions/competitions.integration.spec.ts -t "player ranking"`
 Expected: PASS
 
 - [ ] **Step 6: Run the full API test suite and typecheck**
 
-Run: `cd apps/api && npx tsc --noEmit && npx dotenv -e .env.test -- npx vitest run src/competitions`
+Run: `cd apps/api && npx tsc --noEmit && npx dotenv -e ../../.env -- npx vitest run src/competitions`
 Expected: PASS
 
 - [ ] **Step 7: Commit**
@@ -1176,7 +1176,7 @@ it("returns a 404 for a competition of a foreign organisation", async () => {
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `cd apps/api && npx dotenv -e .env.test -- npx vitest run src/competitions/competitions.integration.spec.ts -t "foreign organisation"`
+Run: `cd apps/api && npx dotenv -e ../../.env -- npx vitest run src/competitions/competitions.integration.spec.ts -t "foreign organisation"`
 Expected: Test existiert erst nach Step 1 — nach dessen Ausführung PASS
 (die 404-Logik existiert bereits aus Task 4 über `this.repository.get`);
 falls PASS bereits hier eintritt, ist das erwartet — der Test dient als
@@ -1203,7 +1203,7 @@ ergänzen (im bestehenden `@darts-platform/schemas`-Importblock).
 
 - [ ] **Step 4: Run the full API test suite and typecheck**
 
-Run: `cd apps/api && npx tsc --noEmit && npx dotenv -e .env.test -- npx vitest run src/competitions`
+Run: `cd apps/api && npx tsc --noEmit && npx dotenv -e ../../.env -- npx vitest run src/competitions`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
