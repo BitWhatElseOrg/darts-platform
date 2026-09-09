@@ -32,7 +32,7 @@ export function MatchList({
 
   if (pool.length === 0) {
     return (
-      <p className="rounded-xl border border-dashed border-slate-700 p-5 text-body text-slate-400">
+      <p className="sektorenring rounded-xl border border-dashed border-sisal-400 bg-sisal-200 p-5 text-body text-sisal-500">
         {variant === "compact"
           ? "Gerade läuft kein Match."
           : "Noch kein Match gespielt. Starte oben das erste."}
@@ -41,7 +41,7 @@ export function MatchList({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="sektorenring space-y-2">
       <ul className={cn("grid gap-2", variant === "full" && "sm:grid-cols-2 xl:grid-cols-3")}>
         {visible.map((match) => {
           const isLive = match.status === "IN_PROGRESS";
@@ -52,8 +52,8 @@ export function MatchList({
                 className={cn(
                   "flex min-h-12 items-center justify-between gap-3 rounded-lg border px-3 py-2 text-body transition",
                   isLive
-                    ? "border-emerald-400/60 bg-emerald-400/5 text-white hover:border-emerald-400"
-                    : "border-slate-800 text-slate-400 hover:border-slate-600",
+                    ? "border-ring-green/60 bg-ring-green/5 text-chalk hover:border-ring-green"
+                    : "border-sisal-400 text-sisal-500 hover:border-sisal-500",
                 )}
                 href={`/matches/${match.id}?organisation=${organizationId}`}
               >
@@ -62,10 +62,10 @@ export function MatchList({
                     className="block truncate"
                     title={`${sideNames(match.participants[0])} – ${sideNames(match.participants[1])}`}
                   >
-                    {sideNames(match.participants[0])} <span className="text-slate-500">–</span>{" "}
+                    {sideNames(match.participants[0])} <span className="text-sisal-500">–</span>{" "}
                     {sideNames(match.participants[1])}
                   </span>
-                  <span className="block truncate text-caption text-slate-500" title={match.boardName ?? "Kein Board"}>
+                  <span className="block truncate text-caption text-sisal-500" title={match.boardName ?? "Kein Board"}>
                     {match.boardName ?? "Kein Board"}
                     {score === "0:0" ? "" : <span className="tabular"> · {score}</span>}
                   </span>
@@ -73,7 +73,7 @@ export function MatchList({
                 <span
                   className={cn(
                     "shrink-0 text-caption font-semibold tracking-[0.12em] uppercase",
-                    isLive ? "text-emerald-300" : "text-slate-500",
+                    isLive ? "text-ring-green" : "text-sisal-500",
                   )}
                 >
                   {isLive ? "läuft" : "beendet"}
@@ -84,7 +84,7 @@ export function MatchList({
         })}
       </ul>
       {hidden > 0 ? (
-        <p className="text-caption text-slate-500">und {hidden} weitere</p>
+        <p className="text-caption text-sisal-500">und {hidden} weitere</p>
       ) : null}
     </div>
   );

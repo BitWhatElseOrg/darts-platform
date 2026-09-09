@@ -1,15 +1,15 @@
 "use client";
 
 import { useRef } from "react";
-import { Button, cn } from "@darts-platform/ui";
+import { cn, Control } from "@darts-platform/ui";
 import { checkoutFieldOptions, checkoutMissLabel } from "@/lib/round-entry";
 import { useDialogFocusReturn } from "./use-dialog-focus-return";
 
 const fieldSelectClassName =
-  "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
+  "min-h-11 w-full rounded-lg border border-sisal-300 bg-sisal-200 px-3 text-body text-chalk outline-none transition focus:border-ring-green focus:ring-2 focus:ring-ring-green/30";
 
 const dartsButtonClassName =
-  "min-h-14 rounded-lg text-title-sm font-numerals font-bold tabular transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400";
+  "min-h-14 rounded-lg text-title-sm font-numerals font-bold tabular transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green";
 
 /**
  * Checkout-Schritt des Runden-Modus (siehe `match-scoreboard.tsx`,
@@ -67,19 +67,19 @@ export function CheckoutDialog({
   return (
     <dialog
       aria-labelledby="checkout-dialog-title"
-      className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-emerald-400/40 bg-slate-950 p-0 text-white shadow-2xl backdrop:bg-slate-950/80"
+      className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-ring-green/40 bg-sisal-200 p-0 text-chalk shadow-2xl backdrop:bg-sisal-200/80"
       onCancel={(event) => { event.preventDefault(); onCancel(); }}
       ref={dialogRef}
     >
       <form className="space-y-5 p-5 sm:p-6" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
         <div>
           <h4 className="font-numerals text-title font-bold" id="checkout-dialog-title">Checkout erfassen</h4>
-          <p className="mt-2 text-body text-slate-300">
+          <p className="mt-2 text-body text-spider">
             {points} Punkte auf 0. Wähle das letzte {triples.length === 0 ? "Doppel" : "Doppel oder Triple"}
             {confirmDarts ? " und die benötigten Darts" : ""} — oder melde, dass keins sass.
           </p>
         </div>
-        <label className="block space-y-2 text-body font-semibold text-slate-200">
+        <label className="block space-y-2 text-body font-semibold text-spider">
           <span>Checkout-Feld</span>
           <select autoFocus className={fieldSelectClassName} required value={field} onChange={(event) => onFieldChange(event.target.value)}>
             <option value="">{triples.length === 0 ? "Doppel wählen" : "Doppel oder Triple wählen"}</option>
@@ -98,14 +98,14 @@ export function CheckoutDialog({
           </select>
         </label>
         {confirmDarts ? (
-          <div className="space-y-2 text-body font-semibold text-slate-200">
+          <div className="space-y-2 text-body font-semibold text-spider">
             <span>Benötigte Darts</span>
             <div className="grid grid-cols-3 gap-3">
               {([1, 2, 3] as const).map((count) => (
                 <button
                   aria-label={`${count} ${count === 1 ? "Dart" : "Darts"}`}
                   aria-pressed={darts === count}
-                  className={cn(dartsButtonClassName, darts === count ? "bg-emerald-500 text-slate-950" : "bg-slate-800 text-white hover:bg-slate-700")}
+                  className={cn(dartsButtonClassName, darts === count ? "bg-ring-green text-chalk" : "bg-wedge-900 text-chalk hover:bg-wedge-800")}
                   key={count}
                   onClick={() => onDartsChange(count)}
                   type="button"
@@ -116,12 +116,12 @@ export function CheckoutDialog({
             </div>
           </div>
         ) : null}
-        {error ? <p className="text-body text-rose-300" role="alert">{error}</p> : null}
+        {error ? <p className="text-body text-ring-red-deep" role="alert">{error}</p> : null}
         <div className="grid gap-3 sm:grid-cols-2">
-          <Button disabled={pending} onClick={onCancel} type="button" variant="outline">Abbrechen</Button>
-          <Button className="border-rose-500/60 text-rose-300 hover:bg-rose-500/10" disabled={pending} onClick={onBust} type="button" variant="outline">{checkoutMissLabel(outRule)}</Button>
+          <Control disabled={pending} onClick={onCancel} variant="wireInk">Abbrechen</Control>
+          <Control className="border-ring-red/60 text-ring-red-deep hover:bg-ring-red/10" disabled={pending} onClick={onBust} variant="wireInk">{checkoutMissLabel(outRule)}</Control>
         </div>
-        <Button disabled={pending || field === ""} type="submit">Checkout speichern</Button>
+        <Control disabled={pending || field === ""} type="submit" variant="go">Checkout speichern</Control>
       </form>
     </dialog>
   );

@@ -357,7 +357,11 @@ test("a club can complete a match and start a generated tournament match", async
   await page.context().setOffline(false);
   await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(true);
   await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("321");
-  await page.getByRole("button", { name: "Letzte Aufnahme zurücknehmen" }).click();
+  // Die Rücknahme liegt seit dem Wegfall des eigenen Knopfes auf der
+  // Rücktaste des Keypads: bei leerer Eingabe trägt sie die Rücknahme der
+  // letzten gesendeten Aufnahme und benennt sie samt Punktzahl
+  // (`backspace-key.tsx`, `handleRoundBackspace`).
+  await page.getByRole("button", { name: "Letzte Aufnahme zurücknehmen: 180 Punkte" }).click();
   await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("501");
   await record(180, 321);
   // Seit Task 14 steht "Letzte Aufnahmen" im Einstellungs-Modal, nicht mehr
@@ -430,11 +434,15 @@ test("a club can complete a match and start a generated tournament match", async
       // Nach erfolgreicher Übernahme setzt die Fläche das Ziffernfeld
       // zurück; `roundValue` wird ausschliesslich bei tatsächlichem Erfolg
       // geleert (match-scoreboard.tsx, `submitJustSucceeded`) — ein
-      // Versionskonflikt liesse den Wert bewusst stehen. "Rücktaste"
+      // Versionskonflikt liesse den Wert bewusst stehen. Eine Zifferntaste
       // aktiviert erst, wenn das Absenden vorbei ist; erst danach zeigt
       // "Aufnahme erfassen" gesperrt den geleerten, also erfolgreich
       // übernommenen Wert.
-      await expect(page.getByRole("button", { name: "Rücktaste" })).toBeEnabled();
+      // "Ziffer 0" statt "Rücktaste": die Rücktaste trägt bei leerer Eingabe
+      // die Rücknahme und heisst dann nach der Punktzahl, die sie treffen
+      // würde (`backspace-key.tsx`). Eine gewöhnliche Zifferntaste ist genau
+      // so lange gesperrt, wie das Absenden läuft, und bleibt im Namen stabil.
+      await expect(page.getByRole("button", { name: "Ziffer 0" })).toBeEnabled();
       await expect(page.getByRole("button", { name: "Aufnahme erfassen" })).toBeDisabled();
     } else {
       const dialog = page.getByRole("dialog", { name: "Checkout erfassen" });
@@ -784,7 +792,11 @@ test("zeigt ein beendetes Match in der oeffentlichen Live-Ansicht ohne Neuladen"
     const scoreVisit = async (score: number, checkoutDouble?: number) => {
       await typeRoundScore(page, score);
       if (checkoutDouble === undefined) {
-        await expect(page.getByRole("button", { name: "Rücktaste" })).toBeEnabled();
+        // "Ziffer 0" statt "Rücktaste": die Rücktaste trägt bei leerer Eingabe
+        // die Rücknahme und heisst dann nach der Punktzahl, die sie treffen
+        // würde (`backspace-key.tsx`). Eine gewöhnliche Zifferntaste ist genau
+        // so lange gesperrt, wie das Absenden läuft, und bleibt im Namen stabil.
+        await expect(page.getByRole("button", { name: "Ziffer 0" })).toBeEnabled();
         await expect(page.getByRole("button", { name: "Aufnahme erfassen" })).toBeDisabled();
       } else {
         const dialog = page.getByRole("dialog", { name: "Checkout erfassen" });

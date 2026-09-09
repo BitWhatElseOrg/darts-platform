@@ -112,9 +112,11 @@ test("the fullscreen scoreboard records a dart-by-dart visit and switches input 
   // 501 - (60 + 60 + 20) = 361.
   await expect(page.getByLabel(`${playerOneName}, Restscore`)).toHaveText("361");
 
-  // Rücktaste ohne erfassten Wurf nimmt die letzte Aufnahme serverseitig
-  // zurück (match-scoreboard.tsx, `handleDartBackspace`).
-  await page.getByRole("button", { name: "Rücktaste" }).click();
+  // Ohne erfassten Wurf trägt die Rücktaste die Rücknahme der letzten
+  // gesendeten Aufnahme — und benennt sie samt Punktzahl, statt als
+  // unbeschrifteter Chevron dieselbe Taste zu bleiben
+  // (`backspace-key.tsx`, `handleDartBackspace`).
+  await page.getByRole("button", { name: "Letzte Aufnahme zurücknehmen: 140 Punkte" }).click();
   await expect(page.getByLabel(`${playerOneName}, Restscore`)).toHaveText("501");
 
   // Zahnrad öffnen, auf Runde umschalten, SPIEL FORTSETZEN, Ziffernfeld
@@ -229,6 +231,42 @@ test("the round mode records the opening visit dart by dart under double in", as
 });
 
 /**
+ * UX-Test 2026-09-09: ein Bust im Runden-Modus blieb bisher wortlos, der
+ * Reststand ruckte einfach nicht vor. Die Fläche kennt den Ausgang hier erst
+ * NACH dem Absenden (round-entry.ts erkennt einen Bust bewusst nicht lokal)
+ * und zeigt seither dieselbe Bust-Fläche wie der Dart-Modus, unabhängig von
+ * der Einstellung „Score bestätigen" — sie blendet sich von selbst wieder
+ * aus, ohne eigene Handlung.
+ */
+test("the round mode announces a bust and lets it fade on its own", async ({ page }) => {
+  const { playerOneName } = await openScoreboard(page, "roundbust");
+  const scoreOne = page.getByLabel(`${playerOneName}, Restscore`);
+
+  await switchInputMode(page, "Runde");
+
+  // Jede Aufnahme wechselt den Oche — die Gegenseite wirft dazwischen eine
+  // Nullrunde, damit playerOneName wieder am Zug ist (wie im Master-Out-Test
+  // oben).
+  await typeRoundScore(page, 180);
+  await expect(scoreOne).toHaveText("321");
+  await typeRoundScore(page, 0);
+  await typeRoundScore(page, 180);
+  await expect(scoreOne).toHaveText("141");
+  await typeRoundScore(page, 0);
+
+  // 141 - 180 ist negativ: ein eindeutiger Überwurf, ohne Checkout-Mehrdeutigkeit
+  // (`handleRoundSubmit` öffnet den Checkout-Dialog nur bei exaktem Reststand).
+  await typeRoundScore(page, 180);
+  await expect(page.getByText("BUST", { exact: true })).toBeVisible();
+  // Waehrend die Anzeige steht, ist das Ziffernfeld gesperrt.
+  await expect(page.getByRole("button", { name: "Ziffer 1" })).toBeDisabled();
+  await expect(page.getByText("BUST", { exact: true })).toBeHidden({ timeout: 3_000 });
+  // Der Bust laesst den Reststand stehen.
+  await expect(scoreOne).toHaveText("141");
+  await expect(page.getByRole("button", { name: "Ziffer 1" })).toBeEnabled();
+});
+
+/**
  * Befund F2: Unter Master Out schliesst auch ein Triple das Leg
  * (Reglement 1.1, Klasse B). `checkoutDouble` kann kein Triple kodieren, das
  * Finish ging deshalb ohne Belegfeld raus und fiel seit
@@ -251,7 +289,9 @@ test("the round mode finishes on a treble under master out", async ({ page }) =>
    */
   const record = async (points: number) => {
     await typeRoundScore(page, points);
-    await expect(page.getByRole("button", { name: "Rücktaste" })).toBeEnabled();
+    // "Ziffer 0" statt "Rücktaste": die trägt bei leerer Eingabe die
+    // Rücknahme und heisst dann nach deren Punktzahl (`backspace-key.tsx`).
+    await expect(page.getByRole("button", { name: "Ziffer 0" })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Aufnahme erfassen" })).toBeDisabled();
   };
 
@@ -300,4 +340,81 @@ test("the scoreboard demands the bull-off before the first leg of a decider", as
   // Die ausgebullte Seite ist am Wurf, nicht die vorbelegte Heimseite.
   await expect(page.getByText(`${playerTwoName} (am Wurf)`)).toBeAttached();
   await expect(page.getByRole("button", { name: "Single 20" })).toBeEnabled();
+});
+
+/**
+ * Die Rücknahme hatte bis zum Wegfall ihres eigenen Knopfes dessen Sperren
+ * (`disabled={undoPending || !online}`) und dessen Bedingung (nur bei
+ * rücknehmbarer Aufnahme sichtbar). Beides hängt jetzt an der Rücktaste des
+ * Keypads, die dafür eine zweite sichtbare Identität samt Punktzahl trägt
+ * (`backspace-key.tsx`). Dieser Fall hält beide Identitäten samt Sperren
+ * fest — sonst wäre die einzige destruktive Alltagsfunktion der Fläche
+ * wieder unbeschriftet und offline wirkungslos.
+ */
+test("the backspace key carries the undo and stays locked offline", async ({ page }) => {
+  const { playerOneName } = await openScoreboard(page, "undo");
+  await switchInputMode(page, "Runde");
+
+  // Ohne Aufnahme gibt es nichts zurückzunehmen: gesperrt, und der Name sagt
+  // warum — vorher antwortete der Server auf denselben Druck NOTHING_TO_UNDO.
+  await expect(page.getByRole("button", { name: "Keine Aufnahme zum Zurücknehmen" })).toBeDisabled();
+
+  await typeRoundScore(page, 81);
+  const score = page.getByLabel(`${playerOneName}, Restscore`);
+  await expect(score).toHaveText("420");
+
+  // Zweite Identität: die Taste benennt die Handlung und die Punktzahl.
+  const undoKey = page.getByRole("button", { name: "Letzte Aufnahme zurücknehmen: 81 Punkte" });
+  await expect(undoKey).toBeEnabled();
+
+  // Bei angefangener Eingabe ist es wieder die gewöhnliche Rücktaste, und sie
+  // nimmt nur die Ziffer zurück.
+  await page.getByRole("button", { name: "Ziffer 6" }).click();
+  const backspace = page.getByRole("button", { name: "Rücktaste" });
+  await expect(backspace).toBeEnabled();
+  await backspace.click();
+  await expect(score).toHaveText("420");
+  await expect(undoKey).toBeVisible();
+
+  // Offline geht `undoVisit` bewusst nicht in die Warteschlange
+  // (use-match-scoring.ts) und könnte nur fehlschlagen: gesperrt.
+  await page.context().setOffline(true);
+  await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(false);
+  await expect(undoKey).toBeDisabled();
+  await page.context().setOffline(false);
+  await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(true);
+  await expect(undoKey).toBeEnabled();
+
+  await undoKey.click();
+  await expect(score).toHaveText("501");
+  await expect(page.getByRole("button", { name: "Keine Aufnahme zum Zurücknehmen" })).toBeDisabled();
+});
+
+/**
+ * Die Aktionszeile beider Keypads stand im scrollenden Bereich: auf einem
+ * 360 x 640 grossen Boardgerät lagen Absendeknopf und Rücktaste 25 px unter
+ * der Kante, im Dart-Modus DOUBLE und TRIPLE mit 9 von 56 px sichtbar — ohne
+ * Doppel ist unter Double Out kein Leg zu beenden. Gemessen statt geschätzt:
+ * der Fall prüft die Lage im Viewport, nicht das Aussehen.
+ */
+test("the keypad action row stays in view on a 360x640 board device", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await openScoreboard(page, "kleinesgeraet");
+
+  const inView = async (name: string) => {
+    const box = await page.getByRole("button", { name }).boundingBox();
+    if (box === null) throw new Error(`Kein Kasten für "${name}".`);
+    const viewport = page.viewportSize();
+    if (viewport === null) throw new Error("Kein Viewport.");
+    return box.y >= 0 && box.y + box.height <= viewport.height;
+  };
+
+  // Dart-Modus ist die Standardeingabe.
+  expect(await inView("Umschalter DOUBLE")).toBe(true);
+  expect(await inView("Umschalter TRIPLE")).toBe(true);
+
+  await switchInputMode(page, "Runde");
+  expect(await inView("Aufnahme erfassen")).toBe(true);
+  expect(await inView("Ziffer 0")).toBe(true);
+  expect(await inView("Ziffer 7")).toBe(true);
 });

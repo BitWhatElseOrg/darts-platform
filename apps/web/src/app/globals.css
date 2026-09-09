@@ -188,6 +188,10 @@ a {
   background-color: #065f46;
 }
 
+.sektorenring .hover\:enabled\:bg-ring-green-deep:hover:enabled {
+  background-color: #065f46;
+}
+
 .sektorenring .hover\:bg-ring-red-deep:hover {
   background-color: #9f1239;
 }

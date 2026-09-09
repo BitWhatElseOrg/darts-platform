@@ -33,19 +33,29 @@ export function PlayerProfile({ playerId, requestedOrganizationId }: { readonly 
       </header>
       <Rule className="mt-6" />
 
-      <section aria-label="Karrierestatistik" className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Statistic label="Average" value={stats.threeDartAverage.toFixed(2)} />
-        <Statistic label="First 9" value={stats.firstNineAverage.toFixed(2)} />
-        <Statistic
-          label="Checkout-Quote"
-          value={stats.checkoutPercentage === null ? "–" : `${stats.checkoutPercentage.toFixed(1)} %`}
-          note={stats.checkouts === null || stats.checkoutAttempts === null ? "Unter Straight Out nicht anwendbar" : `${stats.checkouts} von ${stats.checkoutAttempts}`}
-        />
-        <Statistic label="180er" value={String(stats.oneEighties)} />
-        <Statistic label="High Finish" value={String(stats.highFinish)} />
-        <Statistic label="Best Leg" value={stats.bestLeg === null ? "–" : `${stats.bestLeg} Darts`} />
-        <Statistic label="Darts pro Leg" value={stats.dartsPerLeg.toFixed(2)} />
-        <Statistic label="Siegquote" value={stats.matchesPlayed === 0 ? "0 %" : `${(stats.wins / stats.matchesPlayed * 100).toFixed(1)} %`} />
+      <section aria-label="Karrierestatistik" className="mt-5 flex flex-col gap-6">
+        <div>
+          <SheetLabel as="h2">Scoring</SheetLabel>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Statistic label="Average" value={stats.threeDartAverage.toFixed(2)} />
+            <Statistic label="First 9" value={stats.firstNineAverage.toFixed(2)} />
+            <Statistic label="180er" value={String(stats.oneEighties)} />
+            <Statistic label="High Finish" value={String(stats.highFinish)} />
+          </div>
+        </div>
+        <div>
+          <SheetLabel as="h2">Finish &amp; Form</SheetLabel>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Statistic
+              label="Checkout-Quote"
+              value={stats.checkoutPercentage === null ? "–" : `${stats.checkoutPercentage.toFixed(1)} %`}
+              note={stats.checkouts === null || stats.checkoutAttempts === null ? "Unter Straight Out nicht anwendbar" : `${stats.checkouts} von ${stats.checkoutAttempts}`}
+            />
+            <Statistic label="Best Leg" value={stats.bestLeg === null ? "–" : `${stats.bestLeg} Darts`} />
+            <Statistic label="Darts pro Leg" value={stats.dartsPerLeg.toFixed(2)} />
+            <Statistic label="Siegquote" value={stats.matchesPlayed === 0 ? "0 %" : `${(stats.wins / stats.matchesPlayed * 100).toFixed(1)} %`} />
+          </div>
+        </div>
       </section>
 
       <div className="mt-9 grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">

@@ -1,9 +1,8 @@
 "use client";
 
 import { useRef } from "react";
-import Link from "next/link";
 import type { MatchStateResponse } from "@darts-platform/schemas";
-import { Button, cn } from "@darts-platform/ui";
+import { cn, Control, MarkCheck, Rule } from "@darts-platform/ui";
 import type { ScoreboardInputMode, ScoreboardSettings } from "@/lib/scoreboard-settings";
 import type { BoardLockState } from "@/lib/use-board-controller-lock";
 import { useDialogFocusReturn } from "./use-dialog-focus-return";
@@ -41,8 +40,8 @@ function InputModeSwitch({ mode, onChange }: {
           aria-checked={mode === option.value}
           aria-label={option.label}
           className={cn(
-            "min-h-14 rounded-lg text-title-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400",
-            mode === option.value ? "bg-emerald-500 text-slate-950" : "bg-slate-900 text-slate-200 hover:bg-slate-800",
+            "min-h-14 rounded-lg text-title-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green",
+            mode === option.value ? "bg-ring-green text-chalk" : "bg-sisal-100 text-spider hover:bg-wedge-900",
           )}
           key={option.value}
           onClick={() => onChange(option.value)}
@@ -77,16 +76,28 @@ function SettingSwitch({ checked, disabled, label, onToggle }: {
     <button
       aria-checked={checked}
       aria-label={`${label}: ${checked ? "JA" : "NEIN"}`}
-      className="flex min-h-14 w-full items-center justify-between gap-3 rounded-lg bg-slate-900 px-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 disabled:opacity-40"
+      className="flex min-h-14 w-full items-center justify-between gap-3 rounded-lg bg-sisal-100 px-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green disabled:opacity-40"
       disabled={disabled}
       onClick={onToggle}
       role="switch"
       type="button"
     >
-      <span className="text-body font-semibold text-slate-200">{label}</span>
-      <span aria-hidden="true" className="flex overflow-hidden rounded-full border border-slate-700 text-label font-bold">
-        <span className={cn("px-3 py-1.5", !checked && "bg-slate-100 text-slate-900")}>NEIN</span>
-        <span className={cn("px-3 py-1.5", checked && "bg-emerald-500 text-slate-950")}>JA</span>
+      <span className="text-body font-semibold text-spider">{label}</span>
+      {/* grid-cols-2 statt flex: als Flex-Elemente wurden die beiden Marken
+          so breit wie ihr eigener Text, "NEIN" also deutlich breiter als
+          "JA". Zwei 1fr-Spalten sind beide so breit wie die breitere Marke.
+          Die gewählte Hälfte trägt zusätzlich ein gezeichnetes Häkchen: die
+          Never-Only-Colour Rule verlangt Marke UND Wort, und der Zustand
+          hing hier allein daran, welche Hälfte gefüllt ist. */}
+      <span aria-hidden="true" className="grid grid-cols-2 overflow-hidden rounded-full border border-sisal-300 text-label font-bold">
+        <span className={cn("inline-flex items-center justify-center gap-1 px-3 py-1.5", !checked && "bg-chalk text-sisal-200")}>
+          {!checked ? <MarkCheck className="h-3 w-3" /> : null}
+          NEIN
+        </span>
+        <span className={cn("inline-flex items-center justify-center gap-1 px-3 py-1.5", checked && "bg-ring-green text-chalk")}>
+          {checked ? <MarkCheck className="h-3 w-3" /> : null}
+          JA
+        </span>
       </span>
     </button>
   );
@@ -102,14 +113,13 @@ function SettingSwitch({ checked, disabled, label, onToggle }: {
  * `scoreboard-status.tsx`).
  *
  * Trägt bewusst keine Undo-Funktion: „Letzte Aufnahmen" ist hier nur die
- * gelesene Liste, die Rücknahme-Taste bleibt in `match-scoreboard.tsx`
- * sichtbar neben dem Keypad — eine schnelle Korrektur während des Zählens,
- * kein Einstellungsvorgang.
+ * gelesene Liste. Die Rücknahme liegt auf der Rücktaste des Keypads, die bei
+ * leerer Eingabe die letzte gesendete Aufnahme trifft und dafür eine eigene
+ * sichtbare Identität bekommt (`backspace-key.tsx`) — eine schnelle
+ * Korrektur während des Zählens, kein Einstellungsvorgang.
  */
 export function ScoreboardSettingsDialog({
   abortDisabled,
-  backHref,
-  backLabel,
   canAbort,
   lockState,
   onAbort,
@@ -127,8 +137,6 @@ export function ScoreboardSettingsDialog({
   readonly visits: MatchStateResponse["visits"];
   readonly lockState: BoardLockState;
   readonly onTakeOver: () => void;
-  readonly backHref: string;
-  readonly backLabel: string;
   readonly canAbort: boolean;
   readonly onAbort: () => void;
   // Dieselbe Sperre, die der Abbrechen-Knopf vor Task 14 direkt trug
@@ -143,7 +151,7 @@ export function ScoreboardSettingsDialog({
   return (
     <dialog
       aria-labelledby="scoreboard-settings-title"
-      className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-slate-800 bg-slate-950 p-0 text-white shadow-2xl backdrop:bg-slate-950/80"
+      className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-sisal-300 bg-sisal-200 p-0 text-chalk shadow-2xl backdrop:bg-sisal-200/80"
       onCancel={(event) => { event.preventDefault(); onClose(); }}
       ref={dialogRef}
     >
@@ -151,11 +159,11 @@ export function ScoreboardSettingsDialog({
         <h4 className="font-numerals text-title font-bold" id="scoreboard-settings-title">Einstellungen</h4>
 
         <section aria-labelledby="scoreboard-settings-mode-title" className="space-y-3">
-          <h5 className="text-label font-bold uppercase tracking-[0.12em] text-slate-400" id="scoreboard-settings-mode-title">
+          <h5 className="text-label font-bold uppercase tracking-[0.12em] text-spider-dim" id="scoreboard-settings-mode-title">
             Eingabe
           </h5>
           <InputModeSwitch mode={settings.mode} onChange={(mode) => onChange({ ...settings, mode })} />
-          <p className="text-caption text-slate-400">Ein Moduswechsel verwirft eine angefangene, noch nicht gesendete Aufnahme.</p>
+          <p className="text-caption text-spider-dim">Ein Moduswechsel verwirft eine angefangene, noch nicht gesendete Aufnahme.</p>
           {settings.mode === "DART" ? (
             <div className="space-y-2">
               <SettingSwitch
@@ -177,7 +185,7 @@ export function ScoreboardSettingsDialog({
                 label="Checkout-Darts bestätigen"
                 onToggle={() => onChange({ ...settings, confirmCheckoutDarts: !settings.confirmCheckoutDarts })}
               />
-              <p className="text-caption text-slate-400">
+              <p className="text-caption text-spider-dim">
                 Aus: der Checkout-Schritt fragt nur nach dem getroffenen Feld und wertet drei Darts.
               </p>
             </div>
@@ -185,23 +193,23 @@ export function ScoreboardSettingsDialog({
         </section>
 
         <section aria-labelledby="scoreboard-settings-visits-title" className="space-y-2">
-          <h5 className="text-label font-bold uppercase tracking-[0.12em] text-slate-400" id="scoreboard-settings-visits-title">
+          <h5 className="text-label font-bold uppercase tracking-[0.12em] text-spider-dim" id="scoreboard-settings-visits-title">
             Letzte Aufnahmen
           </h5>
           {visits.length === 0 ? (
-            <p className="text-body text-slate-400">Noch keine Aufnahme.</p>
+            <p className="text-body text-spider-dim">Noch keine Aufnahme.</p>
           ) : (
             <div className="space-y-2">
               {visits.slice(0, 8).map((visit) => (
                 <div
                   className={cn(
-                    "flex min-h-11 items-center justify-between rounded-lg bg-slate-900 px-3 text-body",
+                    "flex min-h-11 items-center justify-between rounded-lg bg-sisal-100 px-3 text-body",
                     visit.reverted && "opacity-40 line-through",
                   )}
                   key={visit.id}
                 >
-                  <span className="text-slate-300">{visit.playerDisplayName} · {visit.dartsThrown} Darts</span>
-                  <span className="font-bold text-white">
+                  <span className="text-spider">{visit.playerDisplayName} · {visit.dartsThrown} Darts</span>
+                  <span className="font-bold text-chalk">
                     {visit.outcome === "BUST" ? `BUST (${visit.points})` : `${visit.appliedPoints} → ${visit.scoreAfter}`}
                   </span>
                 </div>
@@ -211,27 +219,36 @@ export function ScoreboardSettingsDialog({
         </section>
 
         {lockState === "FREMD" ? (
-          <Button aria-label="Steuerung übernehmen" onClick={onTakeOver} variant="outline">
+          <Control aria-label="Steuerung übernehmen" onClick={onTakeOver} variant="wireInk">
             Steuerung übernehmen
-          </Button>
+          </Control>
         ) : null}
 
-        <Link className="block text-body font-semibold text-emerald-300 underline-offset-4 hover:underline" href={backHref}>
-          {backLabel}
-        </Link>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Button aria-label="Spiel fortsetzen" onClick={onClose}>SPIEL FORTSETZEN</Button>
+        {/* Reihenfolge und Gewicht sind hier Fehlervermeidung, nicht Geschmack:
+            das Modal wird geöffnet, um die Eingabeart zu wechseln, und der
+            unterste Knopf ist am Telefon der mit dem geringsten
+            Daumenwiderstand. Der Abbruch stand dort, seit der „Zurück"-Link
+            aus dieser Zeile verschwunden ist. Er steht jetzt oberhalb, in der
+            leiseren `tight`-Dichte (Zielhöhe bleibt 2,75 rem), und die
+            fortsetzende Handlung schliesst die Reihe ab — sie ist die
+            erwartete. Beide Renditionen kommen aus `Control`; das frühere
+            `bg-ring-red` war rohe Palette auf einer `.sektorenring`-Fläche. */}
+        <div className="grid gap-3">
           {canAbort ? (
-            <Button
-              aria-label="Spiel beenden"
-              className="border border-rose-500/60 bg-rose-600 text-white hover:bg-rose-500"
-              disabled={abortDisabled}
-              onClick={onAbort}
-            >
-              SPIEL BEENDEN
-            </Button>
+            <>
+              <Rule tone="faint" />
+              <Control
+                aria-label="Spiel beenden"
+                density="tight"
+                disabled={abortDisabled}
+                onClick={onAbort}
+                variant="danger"
+              >
+                SPIEL BEENDEN
+              </Control>
+            </>
           ) : null}
+          <Control aria-label="Spiel fortsetzen" onClick={onClose} variant="go">SPIEL FORTSETZEN</Control>
         </div>
       </div>
     </dialog>

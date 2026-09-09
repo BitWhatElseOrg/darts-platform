@@ -1,7 +1,7 @@
 "use client";
 
 import type { Dart, MatchStateResponse } from "@darts-platform/schemas";
-import { cn } from "@darts-platform/ui";
+import { cn, Score } from "@darts-platform/ui";
 import { dartLabel, threeDartAverage } from "@/lib/scoreboard-view";
 
 type Participant = MatchStateResponse["participants"][number];
@@ -35,7 +35,7 @@ export function ScoreboardSides({ match, pendingDarts, showDartBand }: {
   readonly showDartBand: boolean;
 }) {
   return (
-    <div className="grid grid-cols-2 divide-x divide-slate-800">
+    <div className="grid grid-cols-2 divide-x divide-sisal-300">
       {match.participants.map((participant) => {
         const isActive = participant.isActive && match.status === "IN_PROGRESS";
         const average = threeDartAverage({
@@ -47,29 +47,51 @@ export function ScoreboardSides({ match, pendingDarts, showDartBand }: {
         return (
           <div
             className={cn(
-              "flex flex-col gap-2 p-4 sm:p-6",
-              isActive ? "bg-emerald-500/15 text-white" : "bg-slate-900 text-slate-400",
+              // Auf einem 640 px hohen Boardgeraet nahmen die beiden Panels
+              // 215 px (34 %) und liessen dem Keypad zu wenig; die knappe
+              // Hoehe drueckt deshalb Innenabstand und Zeilenabstand
+              // zusammen, ohne eine Angabe zu entfernen (No-Collapse Rule).
+              "flex flex-col gap-2 p-4 sm:p-6 [@media(max-height:44rem)]:gap-1 [@media(max-height:44rem)]:p-3",
+              isActive ? "bg-ring-green/15 text-chalk" : "bg-sisal-100 text-spider-dim",
             )}
             key={participant.playerId}
           >
             <p className="text-caption">Average {average.toFixed(1)}</p>
             <div className="flex items-baseline gap-3">
-              <p
+              <Score
                 aria-label={`${sideNames(participant)}, Restscore`}
-                className="font-numerals font-bold text-display tabular"
+                size={isActive ? "display" : "lead"}
+                tone={isActive ? "chalk" : "dim"}
               >
                 {participant.remaining}
-              </p>
-              {lastPoints !== null ? <p className="text-title-sm font-numerals tabular">{lastPoints}</p> : null}
+              </Score>
+              {/* Ohne Bezeichnung stand hier eine nackte Zahl neben dem
+                  Reststand -- sie ist die letzte gewertete Aufnahme dieser
+                  Seite und damit genau das, was eine Ruecknahme treffen
+                  wuerde. */}
+              {lastPoints !== null ? (
+                <p aria-label={`Letzte Aufnahme: ${lastPoints} Punkte`} className="font-numerals text-title-sm tabular" title="Letzte Aufnahme">
+                  {lastPoints}
+                </p>
+              ) : null}
             </div>
+            {/* Der „am Wurf"-Punkt stand bisher als Pill-Hintergrund um den
+                Namen (`px-2`) und kostete dadurch nur auf der aktiven Seite
+                Breite -- der Name kuerzte dort frueher als auf der
+                inaktiven (UX-Test 2026-09-09). Jeder Name traegt jetzt
+                denselben Punkt-Platz, nur eingefaerbt, wenn er zutrifft: die
+                Kuerzgrenze ist damit fuer beide Seiten gleich breit, statt
+                nur seltener zu treffen. */}
             <p className="truncate text-body font-semibold" title={sideNames(participant)}>
               {participant.players.map((person, index) => (
                 <span key={person.playerId}>
                   {index > 0 ? <span aria-hidden="true"> · </span> : null}
-                  <span className={person.isThrowing ? "rounded-full bg-emerald-500 px-2 text-slate-950" : ""}>
-                    {person.displayName}
-                    {person.isThrowing ? <span className="sr-only"> (am Wurf)</span> : null}
-                  </span>
+                  <span
+                    aria-hidden="true"
+                    className={cn("mr-1.5 inline-block h-2 w-2 rounded-full align-middle", person.isThrowing ? "bg-ring-green" : "bg-transparent")}
+                  />
+                  {person.displayName}
+                  {person.isThrowing ? <span className="sr-only"> (am Wurf)</span> : null}
                 </span>
               ))}
             </p>
@@ -87,8 +109,8 @@ export function ScoreboardSides({ match, pendingDarts, showDartBand }: {
                   return (
                     <div
                       className={cn(
-                        "flex h-11 flex-1 items-center justify-center rounded-lg text-title-sm font-semibold tabular",
-                        dart === undefined ? "bg-slate-800 text-slate-600" : "bg-slate-700 text-white",
+                        "flex h-11 flex-1 items-center justify-center rounded-lg text-title-sm font-semibold tabular [@media(max-height:44rem)]:h-9",
+                        dart === undefined ? "bg-wedge-900 text-spider-dim" : "bg-wedge-800 text-chalk",
                       )}
                       key={index}
                     >

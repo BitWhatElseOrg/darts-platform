@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { tournamentDashboardSchema, type TournamentVisibility } from "@darts-platform/schemas";
-import { cn, Control, SheetLabel, StateTag, Wedge } from "@darts-platform/ui";
+import { cn, Control, MarkCheck, SheetLabel, StateTag, Wedge } from "@darts-platform/ui";
 import { useState } from "react";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
@@ -120,7 +120,18 @@ export function SharePanel({ canShare, organizationId, publicId, tournamentId, v
         <button
           aria-checked={visibility === "PUBLIC"}
           aria-label={`Öffentliche Freigabe: ${visibility === "PUBLIC" ? "JA" : "NEIN"}`}
-          className="flex min-h-11 items-center overflow-hidden rounded-full border border-sisal-400 font-plate text-label font-bold uppercase tracking-[0.08em] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green disabled:opacity-40"
+          // grid-cols-2 statt flex: die beiden Marken sind unterschiedlich
+          // breit ("NEIN" gegen "JA") und ergaben als Flex-Elemente zwei
+          // ungleiche Hälften. Zwei 1fr-Spalten sind beide so breit wie die
+          // breitere Marke; das Füllen der Höhe übernimmt die Streckung des
+          // Grids, deshalb tragen die Marken kein eigenes py mehr.
+          //
+          // Der Aus-Zustand lag auf `bg-wedge-900` und damit 1,22:1 über der
+          // ungewählten Hälfte -- gemessen, und im Screenshot als "noch nicht
+          // geladen" lesbar. Er trägt jetzt dieselbe Chalk-Rendition wie die
+          // Pille im Einstellungs-Modal, dazu ein gezeichnetes Häkchen
+          // (Never-Only-Colour Rule).
+          className="grid min-h-11 grid-cols-2 overflow-hidden rounded-full border border-sisal-400 font-plate text-label font-bold uppercase tracking-[0.12em] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green disabled:opacity-40"
           disabled={!canShare || mutation.isPending}
           onClick={() => {
             setCopied(false);
@@ -129,8 +140,14 @@ export function SharePanel({ canShare, organizationId, publicId, tournamentId, v
           role="switch"
           type="button"
         >
-          <span className={cn("px-3 py-2.5", visibility !== "PUBLIC" && "bg-wedge-900 text-chalk")}>NEIN</span>
-          <span className={cn("px-3 py-2.5", visibility === "PUBLIC" && "bg-ring-green text-chalk")}>JA</span>
+          <span className={cn("flex items-center justify-center gap-1 px-3", visibility !== "PUBLIC" && "bg-chalk text-sisal-200")}>
+            {visibility !== "PUBLIC" ? <MarkCheck className="h-3 w-3" /> : null}
+            NEIN
+          </span>
+          <span className={cn("flex items-center justify-center gap-1 px-3", visibility === "PUBLIC" && "bg-ring-green text-chalk")}>
+            {visibility === "PUBLIC" ? <MarkCheck className="h-3 w-3" /> : null}
+            JA
+          </span>
         </button>
       </div>
     </Wedge>

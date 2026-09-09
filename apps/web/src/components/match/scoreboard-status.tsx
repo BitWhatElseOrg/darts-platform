@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, cn } from "@darts-platform/ui";
+import { cn, Control } from "@darts-platform/ui";
 import type { BoardLockState } from "@/lib/use-board-controller-lock";
 
 /**
@@ -28,37 +28,45 @@ import type { BoardLockState } from "@/lib/use-board-controller-lock";
  * Container weder Rahmen noch Innenabstand und bleibt damit ohne eigene
  * Höhe — nur sein Inhalt ist bedingt, nicht der Knoten.
  */
-export function ScoreboardStatus({ lockState, online, queuedCount, message, onTakeOver }: {
+export function ScoreboardStatus({ busy, lockState, online, queuedCount, message, onTakeOver }: {
   readonly lockState: BoardLockState;
   readonly online: boolean;
   readonly queuedCount: number;
   readonly message: string | null;
+  /**
+   * Eine laufende Mutation, die keine eigene Fläche hat. Die Rücknahme ist
+   * seit dem Wegfall ihres Knopfes nur noch eine Taste im Keypad; ohne diese
+   * Zeile bliebe sie zwischen Tastendruck und Serverantwort ohne jede
+   * Rückmeldung (`undoPending` hatte danach keinen Konsumenten mehr).
+   */
+  readonly busy: string | null;
   readonly onTakeOver: () => void;
 }) {
-  const hasIncident = lockState !== "EIGEN" || !online || queuedCount > 0 || message !== null;
+  const hasIncident = lockState !== "EIGEN" || !online || queuedCount > 0 || message !== null || busy !== null;
   return (
     <div
       className={cn(
         "flex flex-col gap-2 text-body",
-        hasIncident && "border-b border-slate-800 bg-slate-900 px-4 py-2",
+        hasIncident && "border-b border-sisal-300 bg-sisal-100 px-4 py-2",
       )}
       role="status"
     >
       {lockState === "FREMD" ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 text-slate-200">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-spider">
           <span>Ein anderes Gerät steuert dieses Board.</span>
-          <Button onClick={onTakeOver} variant="outline">Steuerung übernehmen</Button>
+          <Control density="tight" onClick={onTakeOver} variant="wireInk">Steuerung übernehmen</Control>
         </div>
       ) : lockState === "WIRD_ÜBERNOMMEN" ? (
-        <p className="text-slate-200">Board-Steuerung wird übernommen …</p>
+        <p className="text-spider">Board-Steuerung wird übernommen …</p>
       ) : null}
-      {!online ? <p className="text-slate-200">Offline · Aufnahmen werden lokal gespeichert.</p> : null}
+      {!online ? <p className="text-spider">Offline · Aufnahmen werden lokal gespeichert.</p> : null}
       {queuedCount > 0 ? (
-        <p className="text-amber-300">
+        <p className="text-spider">
           {queuedCount} Aufnahme wartet dauerhaft gespeichert auf die Übertragung.
         </p>
       ) : null}
-      {message !== null ? <p className="text-rose-300" role="alert">{message}</p> : null}
+      {busy !== null ? <p className="text-spider">{busy}</p> : null}
+      {message !== null ? <p className="text-ring-red-deep" role="alert">{message}</p> : null}
     </div>
   );
 }

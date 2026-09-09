@@ -1,25 +1,11 @@
 "use client";
 
 import { Fragment } from "react";
-import { cn } from "@darts-platform/ui";
+import { cn, MarkCheck } from "@darts-platform/ui";
 import { isSegmentAvailable } from "@/lib/dart-entry";
 import { dartKeypadLabel } from "@/lib/scoreboard-view";
-
-const keyClassName =
-  "min-h-14 rounded-lg text-title-sm font-numerals font-semibold tabular text-white transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 disabled:cursor-not-allowed disabled:opacity-40";
-
-/**
- * Rücktaste als gezeichnete Marke statt eines Unicode-Chevrons — DESIGN.md:
- * „Marks are drawn SVG … there are no … unicode glyphs standing in for a
- * mark." Rein dekorativ, die zugängliche Bezeichnung trägt der Knopf.
- */
-function BackspaceIcon() {
-  return (
-    <svg aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-      <path d="M15 18 9 12l6-6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
+import { BackspaceKey } from "./backspace-key";
+import { keypadKeyClassName } from "./keypad-key";
 
 /** Vier Segmenttasten je Zeile, 1–20 der Reihe nach. */
 const numberRows: readonly (readonly number[])[] = [
@@ -31,10 +17,16 @@ const numberRows: readonly (readonly number[])[] = [
 ];
 
 /**
- * Rechte Spalte neben den vier Zahlen: Rücktaste, Fehlwurf, Bull, Bullseye —
- * je eine pro Zeile; die fünfte Zeile bleibt dort ohne Taste.
+ * Rechte Spalte neben den vier Zahlen: Fehlwurf, Bull, Bullseye, Rücktaste —
+ * je eine pro Zeile; eine Zeile bleibt dort ohne Taste.
+ *
+ * Die Rücktaste stand bis zum UX-Test in der ersten Zeile, also oben rechts:
+ * die schlechteste Daumenposition eines einhändig gehaltenen Telefons, und
+ * seit dem Wegfall des Undo-Knopfes trägt sie die einzige destruktive
+ * Alltagsfunktion der Fläche. Sie steht jetzt unten rechts, wo auch das
+ * Runden-Keypad seine Aktionszeile hat.
  */
-const sideKeys: readonly (number | "backspace" | null)[] = ["backspace", 0, 25, 50, null];
+const sideKeys: readonly (number | "backspace" | null)[] = [0, 25, 50, null, "backspace"];
 
 /**
  * Wurf-für-Wurf-Keypad: 1–20, Fehlwurf, Bull, Bullseye, Rücktaste, dazu die
@@ -51,14 +43,23 @@ const sideKeys: readonly (number | "backspace" | null)[] = ["backspace", 0, 25, 
  * gesperrt statt wirkungslos aktiv. Die Rücktaste bleibt dabei bedienbar,
  * denn sie ist der einzige Weg, die Aufnahme zu korrigieren (Review-Befund 2).
  */
-export function DartKeypad({ disabled, segmentsLocked, modifier, onSegment, onModifier, onBackspace }: {
+export function DartKeypad({ disabled, entryEmpty, segmentsLocked, modifier, undoAvailable, undoPoints, onSegment, onModifier, onBackspace }: {
   readonly disabled: boolean;
+  /** Leere Aufnahme: die Rücktaste trifft die letzte gesendete Aufnahme. */
+  readonly entryEmpty: boolean;
   readonly segmentsLocked: boolean;
   readonly modifier: 1 | 2 | 3;
+  readonly undoAvailable: boolean;
+  readonly undoPoints: number | null;
   readonly onSegment: (segment: number) => void;
   readonly onModifier: (multiplier: 2 | 3) => void;
   readonly onBackspace: () => void;
 }) {
+  // Fehlwurf (0), Bull (25) und Bullseye (50) stehen in derselben Spalte wie
+  // die Ruecktaste und waren von den Segmenten 1-20 typografisch nicht zu
+  // unterscheiden. Sie tragen deshalb den helleren Feld-Grund.
+  const specialSegments = new Set([0, 25, 50]);
+
   const segmentButton = (segment: number) => {
     const available = isSegmentAvailable(segment, modifier);
     const isDisabled = disabled || segmentsLocked || !available;
@@ -66,7 +67,7 @@ export function DartKeypad({ disabled, segmentsLocked, modifier, onSegment, onMo
       <button
         aria-disabled={isDisabled}
         aria-label={dartKeypadLabel(segment, modifier)}
-        className={cn(keyClassName, "bg-slate-800 hover:enabled:bg-slate-700")}
+        className={cn(keypadKeyClassName, "[@media(min-height:56rem)]:text-title", specialSegments.has(segment) && "bg-wedge-800")}
         disabled={isDisabled}
         key={segment}
         onClick={() => onSegment(segment)}
@@ -78,23 +79,24 @@ export function DartKeypad({ disabled, segmentsLocked, modifier, onSegment, onMo
   };
 
   return (
-    <div className="grid h-full grid-rows-[1fr_auto] gap-2">
-      <div className="grid grid-cols-5 gap-2">
+    <div className="grid h-full min-h-0 grid-rows-[1fr_auto] gap-2">
+      {/* Die Umschalterzeile steht ausserhalb des scrollenden Bereichs: bei
+          360 × 640 lagen DOUBLE und TRIPLE mit 9 von 56 px unter der Kante,
+          und ohne Doppel ist unter Double Out kein Leg zu beenden. */}
+      <div className="grid min-h-0 grid-cols-5 gap-2 overflow-y-auto">
         {numberRows.map((row, rowIndex) => {
           const sideKey = sideKeys[rowIndex];
           return (
             <Fragment key={row.join("-")}>
               {row.map((segment) => segmentButton(segment))}
               {sideKey === "backspace" ? (
-                <button
-                  aria-label="Rücktaste"
-                  className={cn(keyClassName, "bg-slate-700 hover:enabled:bg-slate-600")}
+                <BackspaceKey
                   disabled={disabled}
-                  onClick={onBackspace}
-                  type="button"
-                >
-                  <BackspaceIcon />
-                </button>
+                  entryEmpty={entryEmpty}
+                  onPress={onBackspace}
+                  undoAvailable={undoAvailable}
+                  undoPoints={undoPoints}
+                />
               ) : sideKey === null || sideKey === undefined ? (
                 <div aria-hidden="true" />
               ) : (
@@ -108,21 +110,23 @@ export function DartKeypad({ disabled, segmentsLocked, modifier, onSegment, onMo
         <button
           aria-label="Umschalter DOUBLE"
           aria-pressed={modifier === 2}
-          className={cn(keyClassName, modifier === 2 ? "bg-emerald-500 text-slate-950" : "bg-slate-800 hover:enabled:bg-slate-700")}
+          className={cn(keypadKeyClassName, modifier === 2 && "border-ring-green bg-ring-green text-chalk")}
           disabled={disabled}
           onClick={() => onModifier(2)}
           type="button"
         >
+          {modifier === 2 ? <MarkCheck className="h-4 w-4" /> : null}
           DOUBLE
         </button>
         <button
           aria-label="Umschalter TRIPLE"
           aria-pressed={modifier === 3}
-          className={cn(keyClassName, modifier === 3 ? "bg-emerald-500 text-slate-950" : "bg-slate-800 hover:enabled:bg-slate-700")}
+          className={cn(keypadKeyClassName, modifier === 3 && "border-ring-green bg-ring-green text-chalk")}
           disabled={disabled}
           onClick={() => onModifier(3)}
           type="button"
         >
+          {modifier === 3 ? <MarkCheck className="h-4 w-4" /> : null}
           TRIPLE
         </button>
       </div>

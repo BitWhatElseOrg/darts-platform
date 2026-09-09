@@ -2,49 +2,17 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { Button, cn } from "@darts-platform/ui";
+import { StateTag } from "@darts-platform/ui";
 
 import { fetchHealth } from "@/lib/health";
 
 type DisplayStatus = "ok" | "error" | "pending";
 
-interface StatusRowProps {
-  readonly label: string;
-  readonly status: DisplayStatus;
-}
-
-const statusLabels = {
-  ok: "OK",
-  error: "Nicht verfügbar",
-  pending: "Wird geprüft …",
-} as const satisfies Record<DisplayStatus, string>;
-
-function StatusRow({ label, status }: StatusRowProps) {
-  return (
-    <div className="flex min-h-14 items-center justify-between gap-6 border-b border-slate-800 py-3 last:border-0">
-      <dt className="text-body font-medium text-slate-300">{label}</dt>
-      <dd
-        className={cn(
-          "inline-flex items-center gap-2 text-body font-semibold",
-          status === "ok" && "text-emerald-300",
-          status === "error" && "text-rose-300",
-          status === "pending" && "text-amber-200",
-        )}
-      >
-        <span
-          aria-hidden="true"
-          className={cn(
-            "size-2.5 rounded-full",
-            status === "ok" && "bg-emerald-400",
-            status === "error" && "bg-rose-400",
-            status === "pending" && "animate-pulse bg-amber-300",
-          )}
-        />
-        {statusLabels[status]}
-      </dd>
-    </div>
-  );
-}
+const statusTone = {
+  ok: "free",
+  error: "blocked",
+  pending: "waiting",
+} as const satisfies Record<DisplayStatus, "free" | "blocked" | "waiting">;
 
 export function HealthDashboard() {
   const healthQuery = useQuery({
@@ -69,39 +37,16 @@ export function HealthDashboard() {
       ? "ok"
       : "error";
 
-  return (
-    <section
-      aria-labelledby="services-title"
-      className="w-full max-w-xl rounded-2xl border border-slate-800 bg-slate-900/80 p-5 shadow-2xl shadow-black/20 backdrop-blur sm:p-8"
-    >
-      <div className="mb-5 flex flex-col gap-4 border-b border-slate-800 pb-5 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 id="services-title" className="font-numerals text-title font-bold text-white">
-            DartBase-Dienste
-          </h2>
-        </div>
-        <Button
-          aria-label="Dienststatus aktualisieren"
-          disabled={healthQuery.isFetching}
-          onClick={() => void healthQuery.refetch()}
-          variant="outline"
-        >
-          {healthQuery.isFetching ? "Wird aktualisiert …" : "Aktualisieren"}
-        </Button>
-      </div>
-
-      <dl aria-live="polite">
-        <StatusRow label="Web" status="ok" />
-        <StatusRow label="API" status={apiStatus} />
-        <StatusRow label="Datenbank" status={databaseStatus} />
-        <StatusRow label="Redis" status={redisStatus} />
-      </dl>
-
-      {healthQuery.isError ? (
-        <p className="mt-5 rounded-lg border border-rose-400/30 bg-rose-400/10 p-3 text-body text-rose-200">
-          Der Systemstatus ist aktuell nicht erreichbar. Versuche es in Kürze erneut.
-        </p>
-      ) : null}
-    </section>
-  );
+  const statuses = [apiStatus, databaseStatus, redisStatus];
+  const worst: DisplayStatus = statuses.includes("error")
+    ? "error"
+    : statuses.includes("pending")
+      ? "pending"
+      : "ok";
+  const compactLabel = {
+    ok: "Dienste betriebsbereit",
+    error: "Dienststörung",
+    pending: "Dienste werden geprüft …",
+  } as const satisfies Record<DisplayStatus, string>;
+  return <StateTag label={compactLabel[worst]} on="ink" tone={statusTone[worst]} />;
 }

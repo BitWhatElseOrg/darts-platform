@@ -619,26 +619,13 @@ export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canW
         <PageNav>
           <NavLink href={`/turniere?organisation=${organizationId}`}>Alle Turniere</NavLink>
           <NavLink href={`/live/${dashboard.tournament.publicId}`}>Öffentliche Live-Ansicht</NavLink>
+          <NavLink href="/bedienungsanleitung.html">Bedienungsanleitung</NavLink>
         </PageNav>
 
         <DashboardHeader
           connection={dashboardQuery.error === null ? connection : "offline"}
           dashboard={dashboard}
           pendingCount={pending.length}
-        />
-
-        <SharePanel
-          canShare={canShare}
-          organizationId={organizationId}
-          publicId={dashboard.tournament.publicId}
-          tournamentId={tournamentId}
-          visibility={dashboard.tournament.visibility}
-        />
-
-        <DisplayKeysPanel
-          canManageDisplayKeys={canManageDisplayKeys}
-          organizationId={organizationId}
-          tournamentId={tournamentId}
         />
 
         {conflict ? (
@@ -688,6 +675,20 @@ export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canW
             <p className="mt-1.5 font-plate text-body text-wedge-900">{queueWriteError}</p>
           </Wedge>
         ) : null}
+
+        <SharePanel
+          canShare={canShare}
+          organizationId={organizationId}
+          publicId={dashboard.tournament.publicId}
+          tournamentId={tournamentId}
+          visibility={dashboard.tournament.visibility}
+        />
+
+        <DisplayKeysPanel
+          canManageDisplayKeys={canManageDisplayKeys}
+          organizationId={organizationId}
+          tournamentId={tournamentId}
+        />
 
         {queueEntries.length > 0 ? (
           <Wedge className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3 p-4" tone="plate">

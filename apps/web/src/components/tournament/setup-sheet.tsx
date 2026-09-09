@@ -227,99 +227,109 @@ export function SetupSheet({ organizationId, players, boards }: {
                 1 · Turnier
               </SheetLabel>
               <Rule className="mt-2" />
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <Field
-                  className="sm:col-span-2"
-                  error={contractErrors.name ?? null}
-                  htmlFor="name"
-                  label="Name"
-                >
-                  <TextInput
-                    aria-describedby={contractErrors.name ? "name-error" : undefined}
-                    id="name"
-                    placeholder="Vereinsmeisterschaft 2026"
-                    {...register("name")}
-                  />
-                </Field>
-                <Field
-                  error={contractErrors.startsAt ?? null}
-                  htmlFor="startsAt"
-                  label="Startdatum"
-                >
-                  <TextInput
-                    aria-describedby={contractErrors.startsAt ? "startsAt-error" : undefined}
-                    id="startsAt"
-                    type="date"
-                    {...register("startsAt")}
-                  />
-                </Field>
-                <Field htmlFor="format" label="Format">
-                  <SelectInput id="format" {...register("format")}>
-                    <option value="GROUPS_THEN_KNOCKOUT">Gruppen, dann K.-o.</option>
-                    <option value="ROUND_ROBIN">Jeder gegen jeden</option>
-                    <option value="SINGLE_ELIMINATION">Einfach-K.-o.</option>
-                  </SelectInput>
-                </Field>
-                <Field htmlFor="startingScore" label="Startscore">
-                  <SelectInput id="startingScore" {...register("startingScore")}>
-                    <option value="301">301</option>
-                    <option value="501">501</option>
-                    <option value="701">701</option>
-                  </SelectInput>
-                </Field>
-                <Field
-                  error={contractErrors.bestOfLegs ?? null}
-                  htmlFor="bestOfLegs"
-                  label="Best of Legs"
-                >
-                  <SelectInput
-                    aria-describedby={contractErrors.bestOfLegs ? "bestOfLegs-error" : undefined}
-                    id="bestOfLegs"
-                    {...register("bestOfLegs")}
-                  >
-                    <option value="1">Best of 1</option>
-                    <option value="3">Best of 3</option>
-                    <option value="5">Best of 5</option>
-                    <option value="7">Best of 7</option>
-                  </SelectInput>
-                </Field>
-                <Field
-                  error={contractErrors.bestOfSets ?? null}
-                  htmlFor="bestOfSets"
-                  label="Best of Sets"
-                >
-                  <SelectInput
-                    aria-describedby={contractErrors.bestOfSets ? "bestOfSets-error" : undefined}
-                    id="bestOfSets"
-                    {...register("bestOfSets")}
-                  >
-                    <option value="1">Best of 1</option>
-                    <option value="3">Best of 3</option>
-                    <option value="5">Best of 5</option>
-                    <option value="7">Best of 7</option>
-                  </SelectInput>
-                </Field>
-                <Field error={contractErrors.inRule ?? null} htmlFor="inRule" label="In-Regel">
-                  <SelectInput
-                    aria-describedby={contractErrors.inRule ? "inRule-error" : undefined}
-                    id="inRule"
-                    {...register("inRule")}
-                  >
-                    <option value="STRAIGHT">Straight In</option>
-                    <option value="DOUBLE">Double In</option>
-                  </SelectInput>
-                </Field>
-                <Field error={contractErrors.outRule ?? null} htmlFor="outRule" label="Out-Regel">
-                  <SelectInput
-                    aria-describedby={contractErrors.outRule ? "outRule-error" : undefined}
-                    id="outRule"
-                    {...register("outRule")}
-                  >
-                    <option value="SINGLE">Single Out</option>
-                    <option value="DOUBLE">Double Out</option>
-                    <option value="MASTER">Master Out</option>
-                  </SelectInput>
-                </Field>
+              <div className="mt-4 flex flex-col gap-6">
+                <div>
+                  <SheetLabel as="p" className="text-caption normal-case">Grunddaten</SheetLabel>
+                  <div className="mt-2 grid gap-4 sm:grid-cols-2">
+                    <Field
+                      className="sm:col-span-2"
+                      error={contractErrors.name ?? null}
+                      htmlFor="name"
+                      label="Name"
+                    >
+                      <TextInput
+                        aria-describedby={contractErrors.name ? "name-error" : undefined}
+                        id="name"
+                        placeholder="Vereinsmeisterschaft 2026"
+                        {...register("name")}
+                      />
+                    </Field>
+                    <Field
+                      error={contractErrors.startsAt ?? null}
+                      htmlFor="startsAt"
+                      label="Startdatum"
+                    >
+                      <TextInput
+                        aria-describedby={contractErrors.startsAt ? "startsAt-error" : undefined}
+                        id="startsAt"
+                        type="date"
+                        {...register("startsAt")}
+                      />
+                    </Field>
+                    <Field htmlFor="format" label="Format">
+                      <SelectInput id="format" {...register("format")}>
+                        <option value="GROUPS_THEN_KNOCKOUT">Gruppen, dann K.-o.</option>
+                        <option value="ROUND_ROBIN">Jeder gegen jeden</option>
+                        <option value="SINGLE_ELIMINATION">Einfach-K.-o.</option>
+                      </SelectInput>
+                    </Field>
+                    <Field htmlFor="startingScore" label="Startscore">
+                      <SelectInput id="startingScore" {...register("startingScore")}>
+                        <option value="301">301</option>
+                        <option value="501">501</option>
+                        <option value="701">701</option>
+                      </SelectInput>
+                    </Field>
+                  </div>
+                </div>
+                <div>
+                  <SheetLabel as="p" className="text-caption normal-case">Spielregeln</SheetLabel>
+                  <div className="mt-2 grid gap-4 sm:grid-cols-2">
+                    <Field
+                      error={contractErrors.bestOfLegs ?? null}
+                      htmlFor="bestOfLegs"
+                      label="Best of Legs"
+                    >
+                      <SelectInput
+                        aria-describedby={contractErrors.bestOfLegs ? "bestOfLegs-error" : undefined}
+                        id="bestOfLegs"
+                        {...register("bestOfLegs")}
+                      >
+                        <option value="1">Best of 1</option>
+                        <option value="3">Best of 3</option>
+                        <option value="5">Best of 5</option>
+                        <option value="7">Best of 7</option>
+                      </SelectInput>
+                    </Field>
+                    <Field
+                      error={contractErrors.bestOfSets ?? null}
+                      htmlFor="bestOfSets"
+                      label="Best of Sets"
+                    >
+                      <SelectInput
+                        aria-describedby={contractErrors.bestOfSets ? "bestOfSets-error" : undefined}
+                        id="bestOfSets"
+                        {...register("bestOfSets")}
+                      >
+                        <option value="1">Best of 1</option>
+                        <option value="3">Best of 3</option>
+                        <option value="5">Best of 5</option>
+                        <option value="7">Best of 7</option>
+                      </SelectInput>
+                    </Field>
+                    <Field error={contractErrors.inRule ?? null} htmlFor="inRule" label="In-Regel">
+                      <SelectInput
+                        aria-describedby={contractErrors.inRule ? "inRule-error" : undefined}
+                        id="inRule"
+                        {...register("inRule")}
+                      >
+                        <option value="STRAIGHT">Straight In</option>
+                        <option value="DOUBLE">Double In</option>
+                      </SelectInput>
+                    </Field>
+                    <Field error={contractErrors.outRule ?? null} htmlFor="outRule" label="Out-Regel">
+                      <SelectInput
+                        aria-describedby={contractErrors.outRule ? "outRule-error" : undefined}
+                        id="outRule"
+                        {...register("outRule")}
+                      >
+                        <option value="SINGLE">Single Out</option>
+                        <option value="DOUBLE">Double Out</option>
+                        <option value="MASTER">Master Out</option>
+                      </SelectInput>
+                    </Field>
+                  </div>
+                </div>
               </div>
             </section>
 
