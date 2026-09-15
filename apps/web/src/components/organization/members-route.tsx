@@ -1,13 +1,14 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { hasOrganizationPermission, type OrganizationRole } from "@darts-platform/domain";
 import {
   invitationListSchema,
   organizationMemberListSchema,
   organizationMemberSchema,
+  playerListSchema,
   type Invitation,
   type OrganizationMember,
   type OrganizationSummary,
@@ -22,8 +23,16 @@ import {
   assignableRoles,
   membershipRowActions,
 } from "@/lib/membership-actions";
+import {
+  defaultMemberFilter,
+  filterMembers,
+  type MemberFilter,
+} from "@/lib/list-filter";
 import { roleLabel } from "@/lib/roles";
+import { ListFilterBar } from "@/components/list-filter-bar";
 import { WorkspaceShell } from "@/components/workspace-shell";
+
+import { MemberPlayerLink } from "./member-player-link";
 
 const cancelledSchema = z.object({ cancelled: z.literal(true) });
 const selectClassName =
@@ -80,6 +89,14 @@ function Members({ currentUserId, organization }: {
     queryFn: ({ signal }) =>
       apiRequest({ path: `/organizations/${organization.id}/members`, schema: organizationMemberListSchema, signal }),
   });
+  // Dieselbe Abfrage wie die Spielerseite; die Auswahl der Zuordnung braucht
+  // Anzeigename und Kontomarkierung.
+  const playersQuery = useQuery({
+    queryKey: ["players", organization.id],
+    enabled: mayManageMembers,
+    queryFn: ({ signal }) =>
+      apiRequest({ path: `/organizations/${organization.id}/players`, schema: playerListSchema, signal }),
+  });
   const invitationsQuery = useQuery({
     queryKey: ["organization-invitations", organization.id],
     enabled: mayManageMembers,
@@ -120,6 +137,12 @@ function Members({ currentUserId, organization }: {
   // erledigt: Sie nimmt der handelnden Person die höchste Rolle und lässt
   // sich nur von der neuen Inhaberschaft rückgängig machen.
   const [ownerTransfer, setOwnerTransfer] = useState<OrganizationMember | null>(null);
+  const [filter, setFilter] = useState<MemberFilter>(defaultMemberFilter);
+  // Vor dem Frühausstieg, damit die Hook-Reihenfolge stabil bleibt.
+  const visibleMembers = useMemo(
+    () => filterMembers(membersQuery.data ?? [], filter),
+    [membersQuery.data, filter],
+  );
 
   if (!mayManageMembers) {
     return (
@@ -130,7 +153,15 @@ function Members({ currentUserId, organization }: {
   }
 
   const members = membersQuery.data ?? [];
+  // Der Schutz des letzten aktiven OWNER zaehlt ueber ALLE Mitglieder, nicht
+  // ueber die gefilterte Sicht: sonst liesse ein gesetzter Filter die
+  // Bedienelemente aufgehen, die er sperren soll.
   const owners = activeOwnerCount(members);
+  const isFiltered =
+    filter.search.length > 0 ||
+    filter.role !== "ALL" ||
+    filter.status !== "ALL" ||
+    filter.link !== "ALL";
 
   return (
     <div className="space-y-8">
@@ -146,8 +177,65 @@ function Members({ currentUserId, organization }: {
         ) : members.length === 0 ? (
           <p className="text-body text-slate-400">Diese Organisation hat noch keine Mitglieder.</p>
         ) : (
+          <>
+            <ListFilterBar
+              isFiltered={isFiltered}
+              onReset={() => setFilter(defaultMemberFilter)}
+              onSearchChange={(search) => setFilter((current) => ({ ...current, search }))}
+              resultLabel={`${visibleMembers.length} von ${members.length} Mitgliedern`}
+              search={filter.search}
+              searchId="member-search"
+              searchLabel="Mitglied suchen"
+              searchPlaceholder="Name oder E-Mail"
+              selects={[
+                {
+                  id: "member-role-filter",
+                  label: "Rolle",
+                  value: filter.role,
+                  onChange: (value) =>
+                    setFilter((current) => ({ ...current, role: value as MemberFilter["role"] })),
+                  options: [
+                    { value: "ALL", label: "Alle" },
+                    ...assignableRoles(organization.role).map((role) => ({
+                      value: role,
+                      label: roleLabel(role),
+                    })),
+                  ],
+                },
+                {
+                  id: "member-status-filter",
+                  label: "Status",
+                  value: filter.status,
+                  onChange: (value) =>
+                    setFilter((current) => ({ ...current, status: value as MemberFilter["status"] })),
+                  options: [
+                    { value: "ALL", label: "Alle" },
+                    { value: "ACTIVE", label: "aktiv" },
+                    { value: "SUSPENDED", label: "deaktiviert" },
+                    { value: "INVITED", label: "eingeladen" },
+                  ],
+                },
+                {
+                  id: "member-link-filter",
+                  label: "Spielerprofil",
+                  value: filter.link,
+                  onChange: (value) =>
+                    setFilter((current) => ({ ...current, link: value as MemberFilter["link"] })),
+                  options: [
+                    { value: "ALL", label: "Alle" },
+                    { value: "LINKED", label: "zugeordnet" },
+                    { value: "UNLINKED", label: "offen" },
+                  ],
+                },
+              ]}
+            />
+            {visibleMembers.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-slate-700 p-5 text-body text-slate-400">
+                Kein Mitglied passt zu diesen Filtern.
+              </p>
+            ) : null}
           <ul className="space-y-3">
-            {members.map((member) => {
+            {visibleMembers.map((member) => {
               const actions = membershipRowActions({
                 actorUserId: currentUserId,
                 actorRole: organization.role,
@@ -169,6 +257,11 @@ function Members({ currentUserId, organization }: {
                     {actions.blockedReason !== null ? (
                       <p className="mt-1 text-caption text-slate-500">{actions.blockedReason}</p>
                     ) : null}
+                    <p className="mt-1 text-caption text-slate-400">
+                      {member.player === null
+                        ? "Kein Spielerprofil zugeordnet"
+                        : `Spielerprofil: ${member.player.displayName}`}
+                    </p>
                   </div>
                   {actions.canChangeRole || actions.canChangeStatus ? (
                     <div className="grid gap-2 sm:w-64">
@@ -208,12 +301,26 @@ function Members({ currentUserId, organization }: {
                       >
                         {member.status === "SUSPENDED" ? "Zugang reaktivieren" : "Zugang deaktivieren"}
                       </Button>
+                      <MemberPlayerLink
+                        member={member}
+                        organizationId={organization.id}
+                        players={playersQuery.data ?? []}
+                      />
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="grid gap-2 sm:w-64">
+                      <MemberPlayerLink
+                        member={member}
+                        organizationId={organization.id}
+                        players={playersQuery.data ?? []}
+                      />
+                    </div>
+                  )}
                 </li>
               );
             })}
           </ul>
+          </>
         )}
       </section>
 

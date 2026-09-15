@@ -87,7 +87,7 @@ export function userFacingErrorMessage(error: unknown, fallback = "Die Anfrage i
 export async function apiRequest<T>(input: {
   readonly path: string;
   readonly schema: z.ZodType<T>;
-  readonly method?: "GET" | "POST" | "PATCH" | "DELETE";
+  readonly method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   readonly body?: unknown;
   readonly signal?: AbortSignal;
 }): Promise<T> {

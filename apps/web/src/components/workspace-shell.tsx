@@ -41,6 +41,17 @@ export function WorkspaceShell({
       <div className="mx-auto min-w-0 max-w-5xl px-4 py-10 sm:px-6">
         <PageNav>
           <NavLink href="/">Übersicht</NavLink>
+          {/*
+            Erscheint nur, wenn das Konto in dieser Organisation mit einem
+            Spielerprofil verknuepft ist (ADR 0015). Dahinter liegt die
+            bestehende Profilseite — MEMBER hat `player:read` und
+            `statistics:read`, es fehlte allein die eigene Kennung.
+          */}
+          {organization?.playerId != null ? (
+            <NavLink href={`/spieler/${organization.playerId}?organisation=${organization.id}`}>
+              Mein Profil
+            </NavLink>
+          ) : null}
         </PageNav>
 
         <header className="mt-4 flex flex-wrap items-end justify-between gap-4">
