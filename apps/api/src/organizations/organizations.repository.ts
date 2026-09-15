@@ -6,6 +6,7 @@ import {
   memberships,
   organizationInvitations,
   organizations,
+  players,
   users,
 } from "@darts-platform/database";
 import {
@@ -61,11 +62,22 @@ export class OrganizationsRepository {
         timezone: organizations.timezone,
         locale: organizations.locale,
         role: memberships.role,
+        // Das eigene Spielerprofil dieser Organisation, sofern verknuepft.
+        // Der Join steht ueber beiden Spalten: ein Konto kann in mehreren
+        // Organisationen je ein eigenes Profil haben (ADR 0015).
+        playerId: players.id,
       })
       .from(memberships)
       .innerJoin(
         organizations,
         eq(memberships.organizationId, organizations.id),
+      )
+      .leftJoin(
+        players,
+        and(
+          eq(players.organizationId, organizations.id),
+          eq(players.userId, memberships.userId),
+        ),
       )
       .where(
         and(eq(memberships.userId, userId), eq(memberships.status, "ACTIVE")),
@@ -197,18 +209,39 @@ export class OrganizationsRepository {
    * Organisationsfilter steht im `WHERE`, nicht im Aufrufer (AGENTS.md §14).
    */
   public async listMembers(input: { readonly organizationId: string }) {
-    return this.databaseService.database
+    const rows = await this.databaseService.database
       .select({
         userId: memberships.userId,
         email: users.email,
         displayName: users.displayName,
         role: memberships.role,
         status: memberships.status,
+        playerId: players.id,
+        playerDisplayName: players.displayName,
       })
       .from(memberships)
       .innerJoin(users, eq(memberships.userId, users.id))
+      .leftJoin(
+        players,
+        and(
+          eq(players.organizationId, memberships.organizationId),
+          eq(players.userId, memberships.userId),
+        ),
+      )
       .where(eq(memberships.organizationId, input.organizationId))
       .orderBy(users.displayName);
+
+    return rows.map((row) => ({
+      userId: row.userId,
+      email: row.email,
+      displayName: row.displayName,
+      role: row.role,
+      status: row.status,
+      player:
+        row.playerId === null || row.playerDisplayName === null
+          ? null
+          : { id: row.playerId, displayName: row.playerDisplayName },
+    }));
   }
 
   /**
