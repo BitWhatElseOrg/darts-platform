@@ -31,6 +31,13 @@ export const playerSchema = z.object({
   email: z.string().nullable(),
   externalReference: z.string().nullable(),
   status: playerStatusSchema,
+  /**
+   * Ob dem Spieler ein Konto zugeordnet ist. Bewusst ein Wahrheitswert und
+   * nicht die `userId` oder die Kontoadresse: `player:read` haben auch
+   * MEMBER und VIEWER, und ueber die Spielerliste sollen keine Angaben
+   * abfliessen, die hinter `organization:manage_members` liegen (ADR 0015).
+   */
+  hasAccount: z.boolean(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
 });
