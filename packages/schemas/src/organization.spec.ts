@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import {
   createInvitationSchema,
   invitationSchema,
+  linkMemberPlayerSchema,
   organizationMemberSchema,
   updateMembershipSchema,
 } from "./organization.js";
@@ -55,7 +56,54 @@ it("gibt eine Mitgliedschaft mit Rolle und Status zurueck", () => {
     displayName: "Mitglied",
     role: "SCORER",
     status: "SUSPENDED",
+    player: null,
   });
 
   expect(member.status).toBe("SUSPENDED");
+});
+
+it("traegt das zugeordnete Spielerprofil, wenn es eines gibt", () => {
+  const playerId = crypto.randomUUID();
+  const member = organizationMemberSchema.parse({
+    userId: crypto.randomUUID(),
+    email: "spielerin@example.ch",
+    displayName: "Spielerin",
+    role: "MEMBER",
+    status: "ACTIVE",
+    player: { id: playerId, displayName: "A. Muster" },
+  });
+
+  expect(member.player).toEqual({ id: playerId, displayName: "A. Muster" });
+});
+
+it("nimmt einen optionalen Spielerbezug in die Einladung auf", () => {
+  const withPlayer = createInvitationSchema.safeParse({
+    email: "neu@example.ch",
+    role: "MEMBER",
+    playerId: crypto.randomUUID(),
+  });
+  const withoutPlayer = createInvitationSchema.safeParse({
+    email: "neu@example.ch",
+    role: "MEMBER",
+  });
+
+  expect(withPlayer.success).toBe(true);
+  expect(withoutPlayer.success).toBe(true);
+});
+
+it("weist einen Spielerbezug zurueck, der keine UUID ist", () => {
+  const result = createInvitationSchema.safeParse({
+    email: "neu@example.ch",
+    role: "MEMBER",
+    playerId: "spieler-7",
+  });
+
+  expect(result.success).toBe(false);
+});
+
+it("verlangt fuer die manuelle Zuordnung genau eine Spieler-UUID", () => {
+  expect(linkMemberPlayerSchema.safeParse({}).success).toBe(false);
+  expect(
+    linkMemberPlayerSchema.safeParse({ playerId: crypto.randomUUID() }).success,
+  ).toBe(true);
 });

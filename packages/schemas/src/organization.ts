@@ -45,6 +45,12 @@ export const organizationSummarySchema = z.object({
   timezone: z.string(),
   locale: z.string(),
   role: organizationRoleSchema,
+  /**
+   * Das eigene Spielerprofil in dieser Organisation, sofern verknuepft.
+   * Beantwortet „welcher Spieler bin ich“, ohne dass es dafuer einen
+   * eigenen Endpunkt braucht.
+   */
+  playerId: z.uuid().nullable(),
 });
 
 export const organizationListSchema = z.array(organizationSummarySchema);
@@ -52,6 +58,12 @@ export const organizationListSchema = z.array(organizationSummarySchema);
 export const createInvitationSchema = z.object({
   email: z.email().trim().toLowerCase(),
   role: invitableOrganizationRoleSchema,
+  /**
+   * Optionaler Spielerbezug. Wird er gesetzt, verknuepft die Annahme der
+   * Einladung Konto und Spielerprofil in derselben Transaktion (ADR 0015).
+   * Einladen ohne Spielerbezug bleibt der Normalfall.
+   */
+  playerId: z.uuid().optional(),
 });
 
 export const invitationClaimTokenSchema = z
@@ -79,12 +91,24 @@ export const acceptInvitationSchema = z.object({
   claimToken: invitationClaimTokenSchema,
 });
 
+export const linkedPlayerSchema = z.object({
+  id: z.uuid(),
+  displayName: z.string(),
+});
+
 export const organizationMemberSchema = z.object({
   userId: z.uuid(),
   email: z.email(),
   displayName: z.string(),
   role: organizationRoleSchema,
   status: membershipStatusSchema,
+  /** Das zugeordnete Spielerprofil, sofern vorhanden (ADR 0015). */
+  player: linkedPlayerSchema.nullable(),
+});
+
+/** Schreibgrenze der manuellen Zuordnung Konto -> Spieler. */
+export const linkMemberPlayerSchema = z.object({
+  playerId: z.uuid(),
 });
 
 export const organizationMemberListSchema = z.array(organizationMemberSchema);
@@ -114,3 +138,5 @@ export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;
 export type MembershipStatusValue = z.infer<typeof membershipStatusSchema>;
 export type OrganizationMember = z.infer<typeof organizationMemberSchema>;
 export type UpdateMembershipInput = z.infer<typeof updateMembershipSchema>;
+export type LinkedPlayer = z.infer<typeof linkedPlayerSchema>;
+export type LinkMemberPlayerInput = z.infer<typeof linkMemberPlayerSchema>;

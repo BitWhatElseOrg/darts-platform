@@ -182,10 +182,22 @@ export const players = pgTable(
     email: varchar("email", { length: 320 }),
     externalReference: varchar("external_reference", { length: 255 }),
     status: varchar("status", { length: 30 }).notNull(),
+    // Optionale Verknuepfung mit einem Konto (ADR 0015). `set null`, weil ein
+    // geloeschtes Konto kein Spielerprofil mitreissen darf — daran haengen
+    // Matches, Legs und Statistiken.
+    userId: uuid("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     ...timestamps,
   },
   (table) => [
     uniqueIndex("players_public_id_unique").on(table.publicId),
+    // Ein Konto ist je Organisation hoechstens ein Spieler; beliebig viele
+    // Spieler bleiben kontolos. Deshalb partiell statt Unique-Constraint.
+    uniqueIndex("players_organization_user_unique")
+      .on(table.organizationId, table.userId)
+      .where(sql`${table.userId} is not null`),
+    index("players_user_id_idx").on(table.userId),
     uniqueIndex("players_organization_external_reference_unique").on(
       table.organizationId,
       table.externalReference,
@@ -216,6 +228,12 @@ export const organizationInvitations = pgTable(
     email: varchar("email", { length: 320 }).notNull(),
     role: varchar("role", { length: 50 }).notNull(),
     status: varchar("status", { length: 30 }).default("PENDING").notNull(),
+    // Optionaler Spielerbezug: wird beim Annehmen zur Verknuepfung
+    // Konto <-> Spieler (ADR 0015). Einladen ohne Spielerbezug bleibt der
+    // Normalfall, deshalb nullable.
+    playerId: uuid("player_id").references(() => players.id, {
+      onDelete: "set null",
+    }),
     claimTokenHash: varchar("claim_token_hash", { length: 64 }),
     invitedByUserId: uuid("invited_by_user_id")
       .notNull()
