@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from "@nestjs/common";
 
 import type { ApplicationEnvironment } from "@darts-platform/config";
@@ -17,6 +18,7 @@ import {
   type AcceptInvitationInput,
   type CreateInvitationInput,
   type CreateOrganizationInput,
+  type LinkMemberPlayerInput,
   type CreatedInvitation,
   type Invitation,
   type OrganizationMember,
@@ -101,14 +103,22 @@ export class OrganizationsService {
       permission: "organization:manage_members",
     });
 
-    const invitation = await this.organizationsRepository.createInvitation({
+    const result = await this.organizationsRepository.createInvitation({
       ...input.data,
       organizationId: input.organizationId,
       userId: input.auth.user.id,
       audit: input.audit,
     });
 
-    return createdInvitationSchema.parse(invitation);
+    if (result.outcome === "player-not-assignable") {
+      throw new UnprocessableEntityException({
+        code: "PLAYER_NOT_ASSIGNABLE",
+        message:
+          "The player does not belong to this organization, is archived, or is already linked to an account.",
+      });
+    }
+
+    return createdInvitationSchema.parse(result.invitation);
   }
 
   /**
@@ -218,6 +228,21 @@ export class OrganizationsService {
           message:
             "This membership is deactivated. An owner has to reactivate it before the invitation can be accepted.",
         });
+      case "player-already-linked":
+        // Zwischen Einladen und Annehmen liegen Tage. Wer hier stillschweigend
+        // ohne Verknuepfung durchliefe, merkte nie, dass die Identitaet fehlt
+        // oder einer anderen Person gehoert. Die Einladung bleibt offen.
+        throw new ConflictException({
+          code: "PLAYER_ALREADY_LINKED",
+          message:
+            "The player profile of this invitation is already linked to another account.",
+        });
+      case "player-not-assignable":
+        throw new ConflictException({
+          code: "PLAYER_NOT_ASSIGNABLE",
+          message:
+            "The player profile of this invitation is no longer available for linking.",
+        });
       case "accepted":
         return { accepted: true };
     }
@@ -298,6 +323,76 @@ export class OrganizationsService {
         });
       case "updated":
         return result.member;
+    }
+  }
+
+  /**
+   * Ordnet einem Mitglied ein Spielerprofil zu. Verlangt
+   * `organization:manage_members` — dieselbe Berechtigung wie Einladen und
+   * Mitgliederliste. Die Zuordnung gewaehrt keine Rechte, sie beantwortet eine
+   * Identitaet (ADR 0015).
+   */
+  public async linkMemberPlayer(input: {
+    readonly organizationId: string;
+    readonly targetUserId: string;
+    readonly data: LinkMemberPlayerInput;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<OrganizationMember> {
+    await this.organizationAccessService.requirePermission({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      permission: "organization:manage_members",
+    });
+
+    const result = await this.organizationsRepository.linkMemberPlayer({
+      organizationId: input.organizationId,
+      targetUserId: input.targetUserId,
+      playerId: input.data.playerId,
+      actorUserId: input.auth.user.id,
+      audit: input.audit,
+    });
+
+    switch (result.outcome) {
+      case "membership-not-found":
+        throw new NotFoundException("This organization has no such member.");
+      case "player-not-assignable":
+        throw new UnprocessableEntityException({
+          code: "PLAYER_NOT_ASSIGNABLE",
+          message:
+            "The player does not belong to this organization or is archived.",
+        });
+      case "player-already-linked":
+        throw new ConflictException({
+          code: "PLAYER_ALREADY_LINKED",
+          message: "This player is already linked to another account.",
+        });
+      case "linked":
+        return result.member;
+    }
+  }
+
+  public async unlinkMemberPlayer(input: {
+    readonly organizationId: string;
+    readonly targetUserId: string;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<void> {
+    await this.organizationAccessService.requirePermission({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      permission: "organization:manage_members",
+    });
+
+    const result = await this.organizationsRepository.unlinkMemberPlayer({
+      organizationId: input.organizationId,
+      targetUserId: input.targetUserId,
+      actorUserId: input.auth.user.id,
+      audit: input.audit,
+    });
+
+    if (result.outcome === "membership-not-found") {
+      throw new NotFoundException("This organization has no such member.");
     }
   }
 }

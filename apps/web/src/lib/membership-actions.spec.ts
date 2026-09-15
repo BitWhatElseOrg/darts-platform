@@ -9,6 +9,7 @@ const member = (overrides: Partial<OrganizationMember> = {}): OrganizationMember
   displayName: "Mitglied",
   role: "MEMBER",
   status: "ACTIVE",
+  player: null,
   ...overrides,
 });
 

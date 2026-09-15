@@ -10,6 +10,33 @@ import type {
 import type { AuditContext } from "../common/audit-context.js";
 import { DatabaseService } from "../database/database.service.js";
 
+type PlayerRow = typeof players.$inferSelect;
+
+/**
+ * Das Lesemodell eines Spielers. `user_id` verlaesst das Repository bewusst
+ * nicht: `player:read` haben auch MEMBER und VIEWER, und ueber die
+ * Spielerliste sollen keine Kontoangaben abfliessen, die hinter
+ * `organization:manage_members` liegen (ADR 0015). Die Felder stehen einzeln
+ * da, damit eine kuenftige Spalte nicht stillschweigend mitreist.
+ */
+function toPlayerResponse(row: PlayerRow) {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    publicId: row.publicId,
+    firstName: row.firstName,
+    lastName: row.lastName,
+    displayName: row.displayName,
+    nickname: row.nickname,
+    email: row.email,
+    externalReference: row.externalReference,
+    status: row.status,
+    hasAccount: row.userId !== null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 interface TenantActorInput {
   readonly organizationId: string;
   readonly userId: string;
@@ -23,11 +50,13 @@ export class PlayersRepository {
   ) {}
 
   public async list(organizationId: string) {
-    return this.databaseService.database
+    const rows = await this.databaseService.database
       .select()
       .from(players)
       .where(eq(players.organizationId, organizationId))
       .orderBy(players.displayName);
+
+    return rows.map(toPlayerResponse);
   }
 
   public async get(input: {
@@ -45,7 +74,7 @@ export class PlayersRepository {
       )
       .limit(1);
 
-    return player ?? null;
+    return player === undefined ? null : toPlayerResponse(player);
   }
 
   public async create(
@@ -90,7 +119,7 @@ export class PlayersRepository {
         correlationId: input.audit.correlationId,
       });
 
-      return player;
+      return toPlayerResponse(player);
     });
   }
 
@@ -165,7 +194,7 @@ export class PlayersRepository {
         correlationId: input.audit.correlationId,
       });
 
-      return player;
+      return toPlayerResponse(player);
     });
   }
 
@@ -216,7 +245,7 @@ export class PlayersRepository {
         correlationId: input.audit.correlationId,
       });
 
-      return player;
+      return toPlayerResponse(player);
     });
   }
 }

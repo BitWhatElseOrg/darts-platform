@@ -51,11 +51,16 @@ test("the members page lists the own membership and withdraws an open invitation
   await page.goto(`/mitglieder?organisation=${organizationId}`);
   await expect(page.getByRole("heading", { level: 1, name: "Mitglieder" })).toBeVisible();
 
-  // Die eigene Zeile traegt die Rolle, aber kein Bedienelement.
+  // Die eigene Zeile traegt die Rolle, aber kein Bedienelement, das Rechte
+  // veraendert. Die Zuordnung eines Spielerprofils ist davon ausgenommen: sie
+  // gewaehrt keine Berechtigung (ADR 0015), und wer die Organisation
+  // einrichtet, verknuepft zuerst das eigene Profil.
   const ownRow = page.getByRole("listitem").filter({ hasText: email });
   await expect(ownRow).toContainText("Inhaber");
   await expect(ownRow).toContainText("Die eigene Mitgliedschaft ändert eine andere Person.");
-  await expect(ownRow.getByRole("combobox")).toHaveCount(0);
+  await expect(ownRow.getByRole("combobox", { name: "Rolle" })).toHaveCount(0);
+  await expect(ownRow.getByRole("combobox", { name: "Spielerprofil" })).toHaveCount(1);
+  await expect(ownRow).toContainText("Kein Spielerprofil zugeordnet");
 
   const invitationRow = page.getByRole("listitem").filter({ hasText: invitedEmail });
   await expect(invitationRow).toBeVisible();
