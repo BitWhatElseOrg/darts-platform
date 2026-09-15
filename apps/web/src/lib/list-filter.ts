@@ -1,6 +1,6 @@
+import type { OrganizationRole } from "@darts-platform/domain";
 import type {
   MembershipStatusValue,
-  OrganizationRole,
   PlayerResponse,
 } from "@darts-platform/schemas";
 
