@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from "@nestjs/common";
 
 import type { ApplicationEnvironment } from "@darts-platform/config";
@@ -101,14 +102,22 @@ export class OrganizationsService {
       permission: "organization:manage_members",
     });
 
-    const invitation = await this.organizationsRepository.createInvitation({
+    const result = await this.organizationsRepository.createInvitation({
       ...input.data,
       organizationId: input.organizationId,
       userId: input.auth.user.id,
       audit: input.audit,
     });
 
-    return createdInvitationSchema.parse(invitation);
+    if (result.outcome === "player-not-assignable") {
+      throw new UnprocessableEntityException({
+        code: "PLAYER_NOT_ASSIGNABLE",
+        message:
+          "The player does not belong to this organization, is archived, or is already linked to an account.",
+      });
+    }
+
+    return createdInvitationSchema.parse(result.invitation);
   }
 
   /**
@@ -217,6 +226,21 @@ export class OrganizationsService {
           code: "MEMBERSHIP_SUSPENDED",
           message:
             "This membership is deactivated. An owner has to reactivate it before the invitation can be accepted.",
+        });
+      case "player-already-linked":
+        // Zwischen Einladen und Annehmen liegen Tage. Wer hier stillschweigend
+        // ohne Verknuepfung durchliefe, merkte nie, dass die Identitaet fehlt
+        // oder einer anderen Person gehoert. Die Einladung bleibt offen.
+        throw new ConflictException({
+          code: "PLAYER_ALREADY_LINKED",
+          message:
+            "The player profile of this invitation is already linked to another account.",
+        });
+      case "player-not-assignable":
+        throw new ConflictException({
+          code: "PLAYER_NOT_ASSIGNABLE",
+          message:
+            "The player profile of this invitation is no longer available for linking.",
         });
       case "accepted":
         return { accepted: true };

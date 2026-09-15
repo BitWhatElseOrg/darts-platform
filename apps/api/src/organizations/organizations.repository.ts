@@ -40,7 +40,17 @@ export type UpdateMembershipResult =
 export type AcceptInvitationResult =
   | { readonly outcome: "accepted" }
   | { readonly outcome: "not-found" }
-  | { readonly outcome: "membership-suspended" };
+  | { readonly outcome: "membership-suspended" }
+  | { readonly outcome: "player-already-linked" }
+  | { readonly outcome: "player-not-assignable" };
+
+type InvitationRow = typeof organizationInvitations.$inferSelect & {
+  readonly claimToken: string;
+};
+
+export type CreateInvitationResult =
+  | { readonly outcome: "created"; readonly invitation: InvitationRow }
+  | { readonly outcome: "player-not-assignable" };
 
 interface ActorInput {
   readonly userId: string;
@@ -144,18 +154,45 @@ export class OrganizationsRepository {
         correlationId: input.audit.correlationId,
       });
 
-      return { ...organization, role: "OWNER" as const };
+      // Eine frisch angelegte Organisation hat noch kein Spielerprofil, an das
+      // die anlegende Person gebunden waere.
+      return { ...organization, role: "OWNER" as const, playerId: null };
     });
   }
 
   public async createInvitation(
     input: CreateInvitationInput &
       ActorInput & { readonly organizationId: string },
-  ) {
+  ): Promise<CreateInvitationResult> {
     const claimToken = generateInvitationClaimToken();
     const claimTokenHash = hashInvitationClaimToken(claimToken);
 
     return this.databaseService.database.transaction(async (transaction) => {
+      // Der optionale Spielerbezug wird schon hier geprueft: eine Einladung,
+      // die auf einen fremden, archivierten oder bereits vergebenen Spieler
+      // zeigt, soll gar nicht erst entstehen. Die Organisation steht im
+      // `WHERE`, nicht im Aufrufer (AGENTS.md §14).
+      if (input.playerId !== undefined) {
+        const [player] = await transaction
+          .select({ status: players.status, userId: players.userId })
+          .from(players)
+          .where(
+            and(
+              eq(players.id, input.playerId),
+              eq(players.organizationId, input.organizationId),
+            ),
+          )
+          .limit(1);
+
+        if (
+          player === undefined ||
+          player.status !== "ACTIVE" ||
+          player.userId !== null
+        ) {
+          return { outcome: "player-not-assignable" } as const;
+        }
+      }
+
       await transaction
         .update(organizationInvitations)
         .set({
@@ -180,6 +217,7 @@ export class OrganizationsRepository {
           claimTokenHash,
           invitedByUserId: input.userId,
           expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 48),
+          ...(input.playerId !== undefined ? { playerId: input.playerId } : {}),
         })
         .returning();
 
@@ -193,13 +231,20 @@ export class OrganizationsRepository {
         action: "MEMBER_INVITED",
         entityType: "OrganizationInvitation",
         entityId: invitation.id,
-        newValue: { email: invitation.email, role: invitation.role },
+        newValue: {
+          email: invitation.email,
+          role: invitation.role,
+          playerId: invitation.playerId,
+        },
         ip: input.audit.ip,
         userAgent: input.audit.userAgent,
         correlationId: input.audit.correlationId,
       });
 
-      return { ...invitation, claimToken };
+      return {
+        outcome: "created",
+        invitation: { ...invitation, claimToken },
+      } as const;
     });
   }
 
@@ -410,6 +455,60 @@ export class OrganizationsRepository {
         return { outcome: "membership-suspended" };
       }
 
+      // Dritte und letzte Sperrstufe: Einladung -> Mitgliedschaft -> Spieler.
+      // Geprueft wird VOR dem Entwerten der Einladung, damit ein Konflikt sie
+      // offen laesst — derselbe Umgang wie mit einer gesperrten
+      // Mitgliedschaft. Die Zeilensperre haelt bis zum `UPDATE` weiter unten.
+      let playerToLink: { readonly id: string; readonly alreadyMine: boolean } | null =
+        null;
+      if (invitation.playerId !== null) {
+        const [player] = await transaction
+          .select({
+            id: players.id,
+            status: players.status,
+            userId: players.userId,
+          })
+          .from(players)
+          .where(
+            and(
+              eq(players.id, invitation.playerId),
+              eq(players.organizationId, invitation.organizationId),
+            ),
+          )
+          .limit(1)
+          .for("update");
+
+        if (player !== undefined) {
+          if (player.userId !== null && player.userId !== input.userId) {
+            return { outcome: "player-already-linked" };
+          }
+          if (player.userId === null && player.status !== "ACTIVE") {
+            return { outcome: "player-not-assignable" };
+          }
+
+          // Dasselbe Konto haengt hier schon an einem anderen Profil: der
+          // partielle Unique-Index wuerde es ohnehin abweisen, aber als
+          // sauberer Konflikt statt als 23505.
+          const [otherProfile] = await transaction
+            .select({ id: players.id })
+            .from(players)
+            .where(
+              and(
+                eq(players.organizationId, invitation.organizationId),
+                eq(players.userId, input.userId),
+                ne(players.id, player.id),
+              ),
+            )
+            .limit(1);
+
+          if (otherProfile !== undefined) {
+            return { outcome: "player-already-linked" };
+          }
+
+          playerToLink = { id: player.id, alreadyMine: player.userId !== null };
+        }
+      }
+
       const [claimedInvitation] = await transaction
         .update(organizationInvitations)
         .set({
@@ -477,13 +576,37 @@ export class OrganizationsRepository {
             ? "activated"
             : "unchanged";
 
+      if (playerToLink !== null && !playerToLink.alreadyMine) {
+        await transaction
+          .update(players)
+          .set({ userId: input.userId, updatedAt: new Date() })
+          .where(eq(players.id, playerToLink.id));
+
+        await transaction.insert(auditEvents).values({
+          organizationId: invitation.organizationId,
+          actorUserId: input.userId,
+          action: "PLAYER_LINKED",
+          entityType: "Player",
+          entityId: playerToLink.id,
+          oldValue: { userId: null },
+          newValue: { userId: input.userId, via: "INVITATION" },
+          ip: input.audit.ip,
+          userAgent: input.audit.userAgent,
+          correlationId: input.audit.correlationId,
+        });
+      }
+
       await transaction.insert(auditEvents).values({
         organizationId: invitation.organizationId,
         actorUserId: input.userId,
         action: "MEMBER_INVITATION_ACCEPTED",
         entityType: "OrganizationInvitation",
         entityId: invitation.id,
-        newValue: { role: invitation.role, membership: membershipEffect },
+        newValue: {
+          role: invitation.role,
+          membership: membershipEffect,
+          playerId: playerToLink?.id ?? null,
+        },
         ip: input.audit.ip,
         userAgent: input.audit.userAgent,
         correlationId: input.audit.correlationId,
@@ -564,9 +687,18 @@ export class OrganizationsRepository {
           status: memberships.status,
           email: users.email,
           displayName: users.displayName,
+          playerId: players.id,
+          playerDisplayName: players.displayName,
         })
         .from(memberships)
         .innerJoin(users, eq(memberships.userId, users.id))
+        .leftJoin(
+          players,
+          and(
+            eq(players.organizationId, memberships.organizationId),
+            eq(players.userId, memberships.userId),
+          ),
+        )
         .where(
           and(
             eq(memberships.organizationId, input.organizationId),
@@ -672,6 +804,10 @@ export class OrganizationsRepository {
         displayName: current.displayName,
         role: nextRole,
         status: nextStatus,
+        player:
+          current.playerId === null || current.playerDisplayName === null
+            ? null
+            : { id: current.playerId, displayName: current.playerDisplayName },
       });
 
       return { outcome: "updated", member };

@@ -4,7 +4,9 @@ import { randomUUID } from "node:crypto";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import {
+  auditEvents,
   memberships,
+  organizationInvitations,
   organizations,
   players,
   users,
@@ -205,5 +207,245 @@ describe("Lesemodelle der Verknuepfung", () => {
           eq(memberships.userId, memberUserId),
         ),
       );
+  }, 30_000);
+});
+
+describe("Einladung mit Spielerbezug", () => {
+  /** Legt Konto und Spieler an, die nur dieser eine Test benutzt. */
+  async function freshCandidate(label: string) {
+    const userId = randomUUID();
+    const auth = authFor(userId, label);
+    await databaseService.database
+      .insert(users)
+      .values({ id: userId, email: auth.user.email, displayName: label });
+    const [player] = await databaseService.database
+      .insert(players)
+      .values({ organizationId, displayName: `Profil ${label}`, status: "ACTIVE" })
+      .returning({ id: players.id });
+    return { userId, auth, playerId: player?.id ?? "" };
+  }
+
+  async function invitationStatus(invitationId: string) {
+    const [row] = await databaseService.database
+      .select({ status: organizationInvitations.status })
+      .from(organizationInvitations)
+      .where(eq(organizationInvitations.id, invitationId));
+    return row?.status;
+  }
+
+  it("verknuepft Konto und Profil beim Annehmen", async () => {
+    const candidate = await freshCandidate("annahme");
+    const invitation = await organizationsService.invite({
+      organizationId,
+      data: {
+        email: candidate.auth.user.email,
+        role: "MEMBER",
+        playerId: candidate.playerId,
+      },
+      auth: ownerAuth,
+      audit,
+    });
+
+    await organizationsService.acceptInvitation({
+      invitationId: invitation.id,
+      data: { claimToken: invitation.claimToken },
+      auth: candidate.auth,
+      audit,
+    });
+
+    const [player] = await databaseService.database
+      .select({ userId: players.userId })
+      .from(players)
+      .where(eq(players.id, candidate.playerId));
+    expect(player?.userId).toBe(candidate.userId);
+
+    const [summary] = await organizationsService.list(candidate.auth);
+    expect(summary?.playerId).toBe(candidate.playerId);
+
+    const linkEvents = await databaseService.database
+      .select({ action: auditEvents.action })
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.organizationId, organizationId),
+          eq(auditEvents.entityId, candidate.playerId),
+          eq(auditEvents.action, "PLAYER_LINKED"),
+        ),
+      );
+    expect(linkEvents).toHaveLength(1);
+  }, 30_000);
+
+  it("weist eine Einladung auf ein organisationsfremdes Profil ab", async () => {
+    const [foreignPlayer] = await databaseService.database
+      .insert(players)
+      .values({
+        organizationId: foreignOrganizationId,
+        displayName: "Fremdes Profil",
+        status: "ACTIVE",
+      })
+      .returning({ id: players.id });
+
+    await expect(
+      organizationsService.invite({
+        organizationId,
+        data: {
+          email: `fremd-${randomUUID()}@example.test`,
+          role: "MEMBER",
+          playerId: foreignPlayer?.id ?? "",
+        },
+        auth: ownerAuth,
+        audit,
+      }),
+    ).rejects.toMatchObject({
+      response: { code: "PLAYER_NOT_ASSIGNABLE" },
+    });
+  }, 30_000);
+
+  it("weist eine Einladung auf ein bereits vergebenes Profil ab", async () => {
+    await expect(
+      organizationsService.invite({
+        organizationId,
+        data: {
+          email: `vergeben-${randomUUID()}@example.test`,
+          role: "MEMBER",
+          playerId: linkedPlayerId,
+        },
+        auth: ownerAuth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ response: { code: "PLAYER_NOT_ASSIGNABLE" } });
+  }, 30_000);
+
+  it("laesst die Einladung offen, wenn das Profil inzwischen fremd vergeben ist", async () => {
+    const candidate = await freshCandidate("konflikt");
+    const invitation = await organizationsService.invite({
+      organizationId,
+      data: {
+        email: candidate.auth.user.email,
+        role: "MEMBER",
+        playerId: candidate.playerId,
+      },
+      auth: ownerAuth,
+      audit,
+    });
+
+    // Zwischen Einladen und Annehmen: jemand anderes bekommt das Profil.
+    const otherUserId = randomUUID();
+    await databaseService.database.insert(users).values({
+      id: otherUserId,
+      email: `andere-${otherUserId}@example.test`,
+      displayName: "Andere Person",
+    });
+    await databaseService.database
+      .update(players)
+      .set({ userId: otherUserId })
+      .where(eq(players.id, candidate.playerId));
+
+    await expect(
+      organizationsService.acceptInvitation({
+        invitationId: invitation.id,
+        data: { claimToken: invitation.claimToken },
+        auth: candidate.auth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ response: { code: "PLAYER_ALREADY_LINKED" } });
+
+    // Die Einladung gilt weiter, damit sie nach dem Aufraeumen noch wirkt.
+    expect(await invitationStatus(invitation.id)).toBe("PENDING");
+    const [membership] = await databaseService.database
+      .select({ userId: memberships.userId })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.organizationId, organizationId),
+          eq(memberships.userId, candidate.userId),
+        ),
+      );
+    expect(membership).toBeUndefined();
+
+    await databaseService.database
+      .update(players)
+      .set({ userId: null })
+      .where(eq(players.id, candidate.playerId));
+    await databaseService.database.delete(users).where(eq(users.id, otherUserId));
+  }, 30_000);
+
+  it("laesst die Einladung offen, wenn das Profil inzwischen archiviert ist", async () => {
+    const candidate = await freshCandidate("archiviert");
+    const invitation = await organizationsService.invite({
+      organizationId,
+      data: {
+        email: candidate.auth.user.email,
+        role: "MEMBER",
+        playerId: candidate.playerId,
+      },
+      auth: ownerAuth,
+      audit,
+    });
+
+    await databaseService.database
+      .update(players)
+      .set({ status: "INACTIVE" })
+      .where(eq(players.id, candidate.playerId));
+
+    await expect(
+      organizationsService.acceptInvitation({
+        invitationId: invitation.id,
+        data: { claimToken: invitation.claimToken },
+        auth: candidate.auth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ response: { code: "PLAYER_NOT_ASSIGNABLE" } });
+    expect(await invitationStatus(invitation.id)).toBe("PENDING");
+  }, 30_000);
+
+  it("nimmt eine Einladung ohne Spielerbezug unveraendert an", async () => {
+    const candidate = await freshCandidate("ohne-bezug");
+    const invitation = await organizationsService.invite({
+      organizationId,
+      data: { email: candidate.auth.user.email, role: "MEMBER" },
+      auth: ownerAuth,
+      audit,
+    });
+
+    await organizationsService.acceptInvitation({
+      invitationId: invitation.id,
+      data: { claimToken: invitation.claimToken },
+      auth: candidate.auth,
+      audit,
+    });
+
+    const [summary] = await organizationsService.list(candidate.auth);
+    expect(summary?.playerId).toBeNull();
+  }, 30_000);
+
+  it("nimmt eine Einladung an, deren Profil inzwischen geloescht wurde", async () => {
+    const candidate = await freshCandidate("geloescht");
+    const invitation = await organizationsService.invite({
+      organizationId,
+      data: {
+        email: candidate.auth.user.email,
+        role: "MEMBER",
+        playerId: candidate.playerId,
+      },
+      auth: ownerAuth,
+      audit,
+    });
+
+    // `on delete set null` traegt die Einladung, statt sie mitzureissen.
+    await databaseService.database
+      .delete(players)
+      .where(eq(players.id, candidate.playerId));
+
+    await organizationsService.acceptInvitation({
+      invitationId: invitation.id,
+      data: { claimToken: invitation.claimToken },
+      auth: candidate.auth,
+      audit,
+    });
+
+    expect(await invitationStatus(invitation.id)).toBe("ACCEPTED");
+    const [summary] = await organizationsService.list(candidate.auth);
+    expect(summary?.playerId).toBeNull();
   }, 30_000);
 });
