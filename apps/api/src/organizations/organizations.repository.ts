@@ -48,6 +48,16 @@ type InvitationRow = typeof organizationInvitations.$inferSelect & {
   readonly claimToken: string;
 };
 
+export type LinkMemberPlayerResult =
+  | { readonly outcome: "linked"; readonly member: OrganizationMember }
+  | { readonly outcome: "membership-not-found" }
+  | { readonly outcome: "player-not-assignable" }
+  | { readonly outcome: "player-already-linked" };
+
+export type UnlinkMemberPlayerResult =
+  | { readonly outcome: "unlinked" }
+  | { readonly outcome: "membership-not-found" };
+
 export type CreateInvitationResult =
   | { readonly outcome: "created"; readonly invitation: InvitationRow }
   | { readonly outcome: "player-not-assignable" };
@@ -811,6 +821,208 @@ export class OrganizationsRepository {
       });
 
       return { outcome: "updated", member };
+    });
+  }
+
+  /**
+   * Ordnet einem Mitglied ein Spielerprofil zu. Sperrreihenfolge Organisation
+   * -> Mitgliedschaft -> Spieler, dieselbe wie in `updateMembership` und
+   * `acceptInvitation`, damit kein Zyklus entsteht (ADR 0015).
+   *
+   * Eine bestehende Zuordnung desselben Kontos auf ein anderes Profil wird in
+   * derselben Transaktion geloest und neu gesetzt: ein Umhaengen soll nicht
+   * am eigenen Altbestand scheitern.
+   */
+  public async linkMemberPlayer(input: {
+    readonly organizationId: string;
+    readonly targetUserId: string;
+    readonly playerId: string;
+    readonly actorUserId: string;
+    readonly audit: AuditContext;
+  }): Promise<LinkMemberPlayerResult> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      await transaction
+        .select({ id: organizations.id })
+        .from(organizations)
+        .where(eq(organizations.id, input.organizationId))
+        .limit(1)
+        .for("update");
+
+      const [member] = await transaction
+        .select({
+          userId: memberships.userId,
+          role: memberships.role,
+          status: memberships.status,
+          email: users.email,
+          displayName: users.displayName,
+        })
+        .from(memberships)
+        .innerJoin(users, eq(memberships.userId, users.id))
+        .where(
+          and(
+            eq(memberships.organizationId, input.organizationId),
+            eq(memberships.userId, input.targetUserId),
+          ),
+        )
+        .limit(1)
+        .for("update", { of: memberships });
+
+      if (member === undefined) {
+        return { outcome: "membership-not-found" };
+      }
+
+      const [player] = await transaction
+        .select({
+          id: players.id,
+          displayName: players.displayName,
+          status: players.status,
+          userId: players.userId,
+        })
+        .from(players)
+        .where(
+          and(
+            eq(players.id, input.playerId),
+            eq(players.organizationId, input.organizationId),
+          ),
+        )
+        .limit(1)
+        .for("update");
+
+      if (player === undefined || player.status !== "ACTIVE") {
+        return { outcome: "player-not-assignable" };
+      }
+      if (player.userId !== null && player.userId !== input.targetUserId) {
+        return { outcome: "player-already-linked" };
+      }
+
+      const [previous] = await transaction
+        .select({ id: players.id, displayName: players.displayName })
+        .from(players)
+        .where(
+          and(
+            eq(players.organizationId, input.organizationId),
+            eq(players.userId, input.targetUserId),
+            ne(players.id, player.id),
+          ),
+        )
+        .limit(1)
+        .for("update");
+
+      if (previous !== undefined) {
+        await transaction
+          .update(players)
+          .set({ userId: null, updatedAt: new Date() })
+          .where(eq(players.id, previous.id));
+
+        await transaction.insert(auditEvents).values({
+          organizationId: input.organizationId,
+          actorUserId: input.actorUserId,
+          action: "PLAYER_UNLINKED",
+          entityType: "Player",
+          entityId: previous.id,
+          oldValue: { userId: input.targetUserId },
+          newValue: { userId: null, reason: "RELINKED" },
+          ip: input.audit.ip,
+          userAgent: input.audit.userAgent,
+          correlationId: input.audit.correlationId,
+        });
+      }
+
+      if (player.userId === null) {
+        await transaction
+          .update(players)
+          .set({ userId: input.targetUserId, updatedAt: new Date() })
+          .where(eq(players.id, player.id));
+
+        await transaction.insert(auditEvents).values({
+          organizationId: input.organizationId,
+          actorUserId: input.actorUserId,
+          action: "PLAYER_LINKED",
+          entityType: "Player",
+          entityId: player.id,
+          oldValue: { userId: null },
+          newValue: { userId: input.targetUserId, via: "MANUAL" },
+          ip: input.audit.ip,
+          userAgent: input.audit.userAgent,
+          correlationId: input.audit.correlationId,
+        });
+      }
+
+      return {
+        outcome: "linked",
+        member: organizationMemberSchema.parse({
+          userId: member.userId,
+          email: member.email,
+          displayName: member.displayName,
+          role: member.role,
+          status: member.status,
+          player: { id: player.id, displayName: player.displayName },
+        }),
+      };
+    });
+  }
+
+  /**
+   * Loest die Zuordnung. Idempotent: ohne bestehende Zuordnung passiert
+   * nichts, und es entsteht auch kein Audit-Eintrag ueber ein Nichtereignis.
+   */
+  public async unlinkMemberPlayer(input: {
+    readonly organizationId: string;
+    readonly targetUserId: string;
+    readonly actorUserId: string;
+    readonly audit: AuditContext;
+  }): Promise<UnlinkMemberPlayerResult> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      await transaction
+        .select({ id: organizations.id })
+        .from(organizations)
+        .where(eq(organizations.id, input.organizationId))
+        .limit(1)
+        .for("update");
+
+      const [member] = await transaction
+        .select({ userId: memberships.userId })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.organizationId, input.organizationId),
+            eq(memberships.userId, input.targetUserId),
+          ),
+        )
+        .limit(1)
+        .for("update");
+
+      if (member === undefined) {
+        return { outcome: "membership-not-found" };
+      }
+
+      const [linked] = await transaction
+        .update(players)
+        .set({ userId: null, updatedAt: new Date() })
+        .where(
+          and(
+            eq(players.organizationId, input.organizationId),
+            eq(players.userId, input.targetUserId),
+          ),
+        )
+        .returning({ id: players.id });
+
+      if (linked !== undefined) {
+        await transaction.insert(auditEvents).values({
+          organizationId: input.organizationId,
+          actorUserId: input.actorUserId,
+          action: "PLAYER_UNLINKED",
+          entityType: "Player",
+          entityId: linked.id,
+          oldValue: { userId: input.targetUserId },
+          newValue: { userId: null, reason: "MANUAL" },
+          ip: input.audit.ip,
+          userAgent: input.audit.userAgent,
+          correlationId: input.audit.correlationId,
+        });
+      }
+
+      return { outcome: "unlinked" };
     });
   }
 }

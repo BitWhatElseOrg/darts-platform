@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ForbiddenException, NotFoundException } from "@nestjs/common";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
@@ -447,5 +448,218 @@ describe("Einladung mit Spielerbezug", () => {
     expect(await invitationStatus(invitation.id)).toBe("ACCEPTED");
     const [summary] = await organizationsService.list(candidate.auth);
     expect(summary?.playerId).toBeNull();
+  }, 30_000);
+});
+
+describe("Manuelle Zuordnung", () => {
+  const scorerUserId = randomUUID();
+  const scorerAuth = authFor(scorerUserId, "scorer");
+  const targetUserId = randomUUID();
+  const targetAuth = authFor(targetUserId, "ziel");
+  let firstProfileId = "";
+  let secondProfileId = "";
+
+  beforeAll(async () => {
+    await databaseService.database.insert(users).values([
+      { id: scorerUserId, email: scorerAuth.user.email, displayName: "Scorer" },
+      { id: targetUserId, email: targetAuth.user.email, displayName: "Ziel" },
+    ]);
+    await databaseService.database.insert(memberships).values([
+      { organizationId, userId: scorerUserId, role: "SCORER", status: "ACTIVE" },
+      { organizationId, userId: targetUserId, role: "MEMBER", status: "ACTIVE" },
+    ]);
+    const created = await databaseService.database
+      .insert(players)
+      .values([
+        { organizationId, displayName: "Erstes Profil", status: "ACTIVE" },
+        { organizationId, displayName: "Zweites Profil", status: "ACTIVE" },
+      ])
+      .returning({ id: players.id, displayName: players.displayName });
+    firstProfileId =
+      created.find((row) => row.displayName === "Erstes Profil")?.id ?? "";
+    secondProfileId =
+      created.find((row) => row.displayName === "Zweites Profil")?.id ?? "";
+  });
+
+  async function linkedProfileOf(userId: string) {
+    const [row] = await databaseService.database
+      .select({ id: players.id })
+      .from(players)
+      .where(
+        and(
+          eq(players.organizationId, organizationId),
+          eq(players.userId, userId),
+        ),
+      );
+    return row?.id ?? null;
+  }
+
+  it("verweigert die Zuordnung ohne organization:manage_members", async () => {
+    await expect(
+      organizationsService.linkMemberPlayer({
+        organizationId,
+        targetUserId,
+        data: { playerId: firstProfileId },
+        auth: scorerAuth,
+        audit,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  }, 30_000);
+
+  it("ordnet zu und auditiert die Zuordnung", async () => {
+    const member = await organizationsService.linkMemberPlayer({
+      organizationId,
+      targetUserId,
+      data: { playerId: firstProfileId },
+      auth: ownerAuth,
+      audit,
+    });
+
+    expect(member.player).toMatchObject({ id: firstProfileId });
+    expect(await linkedProfileOf(targetUserId)).toBe(firstProfileId);
+
+    const events = await databaseService.database
+      .select({ action: auditEvents.action, newValue: auditEvents.newValue })
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.organizationId, organizationId),
+          eq(auditEvents.entityId, firstProfileId),
+          eq(auditEvents.action, "PLAYER_LINKED"),
+        ),
+      );
+    expect(events).toHaveLength(1);
+    expect(events[0]?.newValue).toMatchObject({ via: "MANUAL" });
+  }, 30_000);
+
+  it("bleibt bei derselben Zuordnung ohne zweiten Audit-Eintrag", async () => {
+    await organizationsService.linkMemberPlayer({
+      organizationId,
+      targetUserId,
+      data: { playerId: firstProfileId },
+      auth: ownerAuth,
+      audit,
+    });
+
+    const events = await databaseService.database
+      .select({ action: auditEvents.action })
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.organizationId, organizationId),
+          eq(auditEvents.entityId, firstProfileId),
+          eq(auditEvents.action, "PLAYER_LINKED"),
+        ),
+      );
+    expect(events).toHaveLength(1);
+  }, 30_000);
+
+  it("haengt auf ein anderes Profil um und loest das alte", async () => {
+    await organizationsService.linkMemberPlayer({
+      organizationId,
+      targetUserId,
+      data: { playerId: secondProfileId },
+      auth: ownerAuth,
+      audit,
+    });
+
+    expect(await linkedProfileOf(targetUserId)).toBe(secondProfileId);
+    const [previous] = await databaseService.database
+      .select({ userId: players.userId })
+      .from(players)
+      .where(eq(players.id, firstProfileId));
+    expect(previous?.userId).toBeNull();
+  }, 30_000);
+
+  it("weist ein bereits fremd vergebenes Profil mit 409 ab", async () => {
+    await expect(
+      organizationsService.linkMemberPlayer({
+        organizationId,
+        targetUserId,
+        data: { playerId: linkedPlayerId },
+        auth: ownerAuth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ response: { code: "PLAYER_ALREADY_LINKED" } });
+  }, 30_000);
+
+  it("weist ein archiviertes Profil mit 422 ab", async () => {
+    const [archived] = await databaseService.database
+      .insert(players)
+      .values({ organizationId, displayName: "Archiviert", status: "INACTIVE" })
+      .returning({ id: players.id });
+
+    await expect(
+      organizationsService.linkMemberPlayer({
+        organizationId,
+        targetUserId,
+        data: { playerId: archived?.id ?? "" },
+        auth: ownerAuth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ response: { code: "PLAYER_NOT_ASSIGNABLE" } });
+  }, 30_000);
+
+  it("weist ein organisationsfremdes Profil ab, ohne seine Existenz zu verraten", async () => {
+    const [foreignPlayer] = await databaseService.database
+      .insert(players)
+      .values({
+        organizationId: foreignOrganizationId,
+        displayName: "Fremd fuer Zuordnung",
+        status: "ACTIVE",
+      })
+      .returning({ id: players.id });
+
+    await expect(
+      organizationsService.linkMemberPlayer({
+        organizationId,
+        targetUserId,
+        data: { playerId: foreignPlayer?.id ?? "" },
+        auth: ownerAuth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ response: { code: "PLAYER_NOT_ASSIGNABLE" } });
+  }, 30_000);
+
+  it("meldet ein unbekanntes Mitglied als 404", async () => {
+    await expect(
+      organizationsService.linkMemberPlayer({
+        organizationId,
+        targetUserId: randomUUID(),
+        data: { playerId: firstProfileId },
+        auth: ownerAuth,
+        audit,
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  }, 30_000);
+
+  it("loest die Zuordnung und ist dabei idempotent", async () => {
+    await organizationsService.unlinkMemberPlayer({
+      organizationId,
+      targetUserId,
+      auth: ownerAuth,
+      audit,
+    });
+    expect(await linkedProfileOf(targetUserId)).toBeNull();
+
+    // Zweiter Aufruf ohne bestehende Zuordnung: kein Fehler, kein Eintrag.
+    await organizationsService.unlinkMemberPlayer({
+      organizationId,
+      targetUserId,
+      auth: ownerAuth,
+      audit,
+    });
+
+    const events = await databaseService.database
+      .select({ action: auditEvents.action })
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.organizationId, organizationId),
+          eq(auditEvents.entityId, secondProfileId),
+          eq(auditEvents.action, "PLAYER_UNLINKED"),
+        ),
+      );
+    expect(events).toHaveLength(1);
   }, 30_000);
 });

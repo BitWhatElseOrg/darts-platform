@@ -3,11 +3,13 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Inject,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Req,
 } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
@@ -15,10 +17,12 @@ import type { FastifyRequest } from "fastify";
 import {
   createInvitationSchema,
   createOrganizationSchema,
+  linkMemberPlayerSchema,
   updateMembershipSchema,
   type CreateInvitationInput,
   type CreateOrganizationInput,
   type CreatedInvitation,
+  type LinkMemberPlayerInput,
   type Invitation,
   type OrganizationMember,
   type OrganizationSummary,
@@ -125,6 +129,46 @@ export class OrganizationsController {
       organizationId,
       targetUserId: userId,
       data,
+      auth,
+      audit: getAuditContext(request),
+    });
+  }
+
+  /**
+   * Manuelle Zuordnung Konto -> Spielerprofil. Eigene, schmale Ressource
+   * statt eines weiteren Feldes in `PATCH members/:userId`, dessen
+   * Transaktion bereits Eigentumsregeln und den Schutz des letzten aktiven
+   * OWNER traegt (ADR 0015).
+   */
+  @Put(":organizationId/members/:userId/player")
+  public async linkMemberPlayer(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("userId", ParseUUIDPipe) userId: string,
+    @Body() body: unknown,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<OrganizationMember> {
+    const data: LinkMemberPlayerInput = parseBody(linkMemberPlayerSchema, body);
+    return this.organizationsService.linkMemberPlayer({
+      organizationId,
+      targetUserId: userId,
+      data,
+      auth,
+      audit: getAuditContext(request),
+    });
+  }
+
+  @Delete(":organizationId/members/:userId/player")
+  @HttpCode(204)
+  public async unlinkMemberPlayer(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("userId", ParseUUIDPipe) userId: string,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<void> {
+    await this.organizationsService.unlinkMemberPlayer({
+      organizationId,
+      targetUserId: userId,
       auth,
       audit: getAuditContext(request),
     });
