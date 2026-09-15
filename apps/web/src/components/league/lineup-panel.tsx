@@ -11,6 +11,7 @@ import { Control, Field, Rule, SelectInput, SheetLabel, StateTag, Wedge } from "
 import { useState } from "react";
 
 import { apiRequest } from "@/lib/api-client";
+import { squadAt } from "@/lib/encounter-squad";
 import { originLabel, sideLabel } from "@/lib/league-format";
 
 export interface NominationInput {
@@ -62,11 +63,14 @@ export function LineupPanel({
     enabled: editable,
   });
 
-  const squad = (teamsQuery.data ?? [])
-    .find((team) => team.id === lineup.teamId)
-    ?.members.filter((member) => member.validTo === null)
-    .map((member) => ({ playerId: member.playerId, displayName: member.displayName }))
-    .sort((first, second) => first.displayName.localeCompare(second.displayName, "de-CH")) ?? [];
+  // Zum TERMIN der Begegnung, nicht zum Jetzt: die Spielberechtigung gilt am
+  // Spieltag, und der Server prueft die Meldung gegen genau diesen Stand
+  // (`encounters.repository.ts#loadSquad`). Wer erst danach in die Mannschaft
+  // kam, gehoert hier unter „Aushilfe" und nicht unter „Kader".
+  const squad = squadAt(
+    (teamsQuery.data ?? []).find((team) => team.id === lineup.teamId)?.members ?? [],
+    encounter.scheduledAt,
+  );
   const squadIds = new Set(squad.map((member) => member.playerId));
   const guests = (playersQuery.data ?? [])
     .filter((player) => !squadIds.has(player.id))

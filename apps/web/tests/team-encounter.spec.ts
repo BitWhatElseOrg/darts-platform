@@ -66,6 +66,26 @@ function slotRow(page: Page, label: string): Locator {
     .filter({ hasText: label });
 }
 
+/**
+ * Der Spielabend liegt bewusst in der nahen Zukunft und ist nicht fest
+ * verdrahtet.
+ *
+ * Der Server loest den Kader einer Begegnung zu ihrem TERMIN auf
+ * (`encounters.repository.ts#loadSquad`, Spielberechtigung am Spieltag). Die
+ * Personen dieses Falls werden waehrend des Laufs in die Mannschaft
+ * aufgenommen, ihre Zugehoerigkeit beginnt also jetzt. Hier stand bis
+ * 2026-09-15 fest `2026-09-10T20:00`: sobald dieses Datum in der
+ * Vergangenheit lag, war der Kader am Spieltag leer und die Meldung wurde mit
+ * PLAYER_NOT_IN_SQUAD abgelehnt — ein Fall, der an einem Stichtag von selbst
+ * rot wird.
+ */
+function upcomingFixtureSlot(): string {
+  const slot = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  slot.setHours(20, 0, 0, 0);
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return `${slot.getFullYear()}-${pad(slot.getMonth() + 1)}-${pad(slot.getDate())}T${pad(slot.getHours())}:${pad(slot.getMinutes())}`;
+}
+
 async function addPlayer(page: Page, displayName: string): Promise<void> {
   await page.getByLabel("Anzeigename", { exact: true }).fill(displayName);
   await page.getByRole("button", { name: "Spieler hinzufügen" }).click();
@@ -326,7 +346,7 @@ test("a club plays a team encounter from the fixture to the result", async ({ br
   await page.getByLabel("Spieltag").fill("1");
   await page.getByLabel("Heim", { exact: true }).selectOption({ label: homeTeam });
   await page.getByLabel("Gast", { exact: true }).selectOption({ label: awayTeam });
-  await page.getByLabel("Spielabend").fill("2026-09-10T20:00");
+  await page.getByLabel("Spielabend").fill(upcomingFixtureSlot());
   await page.getByLabel("Ort").fill("Clublokal");
   await Promise.all([
     page.waitForURL(/\/liga\/begegnungen\/[0-9a-f-]{36}\?organisation=/u),
