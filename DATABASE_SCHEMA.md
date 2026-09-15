@@ -117,6 +117,7 @@ email varchar NOT NULL
 role varchar NOT NULL
 status varchar NOT NULL DEFAULT 'PENDING'
 claim_token_hash varchar(64) NULL
+player_id uuid FK players NULL ON DELETE SET NULL
 invited_by_user_id uuid FK users NOT NULL
 expires_at timestamptz NOT NULL
 created_at timestamptz NOT NULL
@@ -153,6 +154,11 @@ Ein Index auf `(email, status)` unterstützt diese Prüfung.
 Migration 0013 markiert vorhandene tokenlose `PENDING`-Einladungen als
 `EXPIRED`; neue Einladungen müssen einen gültigen Claim-Hash besitzen.
 
+`player_id` ist optional und traegt den Spielerbezug einer Einladung: ist er
+gesetzt, verknuepft die Annahme Konto und Spielerprofil in derselben
+Transaktion. Ein zwischenzeitlich fremd vergebenes oder archiviertes Profil
+endet in 409, die Einladung bleibt offen (ADR 0015).
+
 ---
 
 # 3. Players
@@ -171,6 +177,7 @@ nickname varchar
 email varchar
 external_reference varchar
 status varchar NOT NULL
+user_id uuid FK users NULL ON DELETE SET NULL
 
 created_at timestamptz NOT NULL
 updated_at timestamptz NOT NULL
@@ -181,7 +188,15 @@ Indizes:
 ```text
 organization_id
 (organization_id, display_name)
+user_id
+UNIQUE (organization_id, user_id) WHERE user_id IS NOT NULL
 ```
+
+`user_id` verknuepft das Spielerprofil optional mit einem Konto (ADR 0015).
+Ein Konto ist je Organisation hoechstens ein Spieler; beliebig viele Spieler
+bleiben kontolos, deshalb der partielle Unique-Index. `ON DELETE SET NULL`,
+weil ein geloeschtes Konto kein Spielerprofil mitreissen darf — daran haengen
+Matches, Legs und Statistiken.
 
 ---
 

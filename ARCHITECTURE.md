@@ -342,6 +342,25 @@ bleibt unverändert. Rollenwechsel und Reaktivierung laufen ausschliesslich übe
 `PATCH /organizations/:id/members/:userId` — dort liegen die Eigentumsregeln,
 der Schutz des letzten aktiven OWNER und der Audit-Eintrag.
 
+### Konto und Spielerprofil
+
+Mitgliedschaft und Spieler bleiben getrennte Entitaeten: die Mitgliedschaft
+regelt den Zugang, der Spieler ist das sportliche Stammdatum. Wer beides ist,
+wird ueber die optionale `players.user_id` verknuepft — hoechstens ein Profil
+je Konto und Organisation, erzwungen durch einen partiellen Unique-Index.
+
+Die Verknuepfung entsteht auf zwei Wegen: die Einladung kann optional ein
+Profil mitgeben (`organization_invitations.player_id`), und die Leitung kann
+ueber `PUT`/`DELETE /organizations/:organizationId/members/:userId/player`
+zuordnen und loesen. Beide verlangen `organization:manage_members` und sind
+auditiert (`PLAYER_LINKED`, `PLAYER_UNLINKED`).
+
+Sie gewaehrt keine Berechtigung, sondern beantwortet eine Identitaet: erst
+dadurch kann der Server „meine Matches" und „meine Statistik" aufloesen.
+Autorisiert wird weiterhin ausschliesslich ueber Rolle und Permission.
+Begruendung und verworfene Alternativen stehen in
+[ADR 0015](./docs/adr/0015-spieler-konto-verknuepfung.md).
+
 Die Verwaltung dazu liegt unter `/mitglieder` und liest
 `GET /organizations/:id/members` (alle Mitgliedschaften, aktive wie gesperrte)
 und `GET /organizations/:id/invitations` (die offenen Einladungen dieser
