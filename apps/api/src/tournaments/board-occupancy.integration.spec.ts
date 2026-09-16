@@ -434,7 +434,6 @@ describe("Boardbelegung zwischen Turnier und Liga", () => {
           data: {
             playerOneId: freePlayerIds[0],
             playerTwoId: freePlayerIds[1],
-            startingPlayerId: freePlayerIds[0],
             boardId: leagueBoardId,
             bestOfLegs: 1,
             bestOfSets: 1,

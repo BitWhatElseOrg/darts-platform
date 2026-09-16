@@ -8,7 +8,7 @@ import {
   type RegistrationInvitationSeed,
 } from "./registration-invitation";
 import {
-  openAbortDialog, selectCheckoutDarts, setScoreboardSwitch, switchInputMode, typeRoundScore,
+  decideLegStart, openAbortDialog, selectCheckoutDarts, setScoreboardSwitch, switchInputMode, typeRoundScore,
 } from "./scoreboard-entry";
 import { signUpWithOrganization } from "./sign-up";
 
@@ -271,11 +271,11 @@ test("a club can complete a match and start a generated tournament match", async
   await expect(page.locator("li").filter({ hasText: "E2E Board" }).filter({ hasText: "frei" })).toBeVisible();
   await page.getByLabel("Spieler 1").selectOption({ label: "E2E Player One" });
   await page.getByLabel("Spieler 2").selectOption({ label: "E2E Player Two" });
-  await page.getByLabel("Wer beginnt?").selectOption({ label: "E2E Player One" });
   await page.getByLabel("Legs (Best of)").selectOption("1");
   await page.getByLabel("Board (optional)").selectOption({ label: "E2E Board" });
   await page.getByRole("button", { name: "Match starten" }).click();
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
+  await decideLegStart(page, "E2E Player One");
   // Task 11: die Statuszeile bleibt als Live-Region immer im DOM (Befund 5
   // der Review-Runde), zeigt aber ohne Vorkommnis (fremde Steuerung, offline,
   // wartende Aufnahmen, Fehler) weder Text noch Höhe — die frühere
@@ -332,6 +332,7 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByLabel("Board (optional)").selectOption({ label: "E2E Board" });
   await page.getByRole("button", { name: "Match starten" }).click();
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
+  await decideLegStart(page, "E2E Player One");
   await expect(page.getByLabel("E2E Player One, Restscore")).toHaveText("501");
 
   const record = async (
@@ -428,6 +429,7 @@ test("a club can complete a match and start a generated tournament match", async
   await page.goto(matchesUrl);
   await page.getByRole("link").filter({ hasText: "läuft" }).first().click();
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
+  await decideLegStart(page);
   const scoreTournamentVisit = async (score: number, checkoutDouble?: number) => {
     await typeRoundScore(page, score);
     if (checkoutDouble === undefined) {
@@ -787,6 +789,7 @@ test("zeigt ein beendetes Match in der oeffentlichen Live-Ansicht ohne Neuladen"
     await page.goto(matchesUrl);
     await page.getByRole("link").filter({ hasText: "läuft" }).first().click();
     await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
+    await decideLegStart(page);
 
     await switchInputMode(page, "Runde");
     const scoreVisit = async (score: number, checkoutDouble?: number) => {

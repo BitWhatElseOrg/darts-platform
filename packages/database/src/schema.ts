@@ -332,13 +332,14 @@ export const matches = pgTable(
     inRule: varchar("in_rule", { length: 10 }).default("STRAIGHT").notNull(),
     outRule: varchar("out_rule", { length: 10 }).default("DOUBLE").notNull(),
     /**
-     * Reglement 2.2.9: normalerweise beginnt Leg 1 die Heimseite und Leg 2 die
-     * Gastseite; erst ab Leg 3 entscheidet ein Wurf auf Bull. Das
-     * Entscheidungsdoppel (sudden death) ist davon ausgenommen — dort wird der
-     * Spielbeginn IMMER ausgebullt. Das Flag ist eine Match-Regel wie `in_rule`
-     * und kein Teil der Kommandos; gespeicherte Kommandos werten unveraendert.
+     * Welche Legs ihren Anwurf ausbullen. `LEAGUE` folgt Reglement 2.2.9
+     * (Leg 1 Heimseite, Leg 2 Gastseite, ab Leg 3 Bull), `BULL_EVERY_LEG`
+     * gilt fuer das Entscheidungsdoppel (sudden death) und `BULL_FIRST_LEG`
+     * fuer freie Matches und Turniermatches, die keine Heimseite kennen.
+     * Eine Match-Regel wie `in_rule` und kein Teil der Kommandos;
+     * gespeicherte Kommandos werten unveraendert.
      */
-    bullOffFromLegOne: boolean("bull_off_from_leg_one").default(false).notNull(),
+    legStartRule: varchar("leg_start_rule", { length: 20 }).default("BULL_FIRST_LEG").notNull(),
     maxRounds: integer("max_rounds"),
     bestOfLegs: integer("best_of_legs").notNull(),
     legsToWinSet: integer("legs_to_win_set").default(2).notNull(),
@@ -369,6 +370,7 @@ export const matches = pgTable(
     check("matches_version_check", sql`${table.version} >= 0`),
     check("matches_in_rule_check", sql`${table.inRule} in ('STRAIGHT', 'DOUBLE')`),
     check("matches_out_rule_check", sql`${table.outRule} in ('SINGLE', 'DOUBLE', 'MASTER')`),
+    check("matches_leg_start_rule_check", sql`${table.legStartRule} in ('LEAGUE', 'BULL_EVERY_LEG', 'BULL_FIRST_LEG')`),
     check("matches_max_rounds_check", sql`${table.maxRounds} is null or ${table.maxRounds} > 0`),
     check("matches_starting_seat_check", sql`${table.startingSeat} in (1, 2)`),
     check("matches_current_seat_check", sql`${table.currentSeat} is null or ${table.currentSeat} in (1, 2)`),

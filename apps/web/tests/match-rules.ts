@@ -22,8 +22,8 @@ export async function applyMatchRules(
   rules: {
     readonly inRule?: "STRAIGHT" | "DOUBLE";
     readonly outRule?: "SINGLE" | "DOUBLE" | "MASTER";
-    /** Reglement 2.2.9: das Entscheidungsdoppel bullt schon Leg eins aus. */
-    readonly bullOffFromLegOne?: boolean;
+    /** Welche Legs ihren Anwurf ausbullen (Reglement 2.2.9 und Ausnahmen). */
+    readonly legStartRule?: "LEAGUE" | "BULL_EVERY_LEG" | "BULL_FIRST_LEG";
   },
 ): Promise<void> {
   const environment = parseApplicationEnvironment(process.env);

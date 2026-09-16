@@ -18,12 +18,48 @@ export interface X01Rules {
   readonly legsToWinSet: number;
   readonly setsToWin: number;
   /**
-   * Reglement 2.2.9, Ausnahme für das Entscheidungsdoppel: ist das Flag
-   * gesetzt, entscheidet ein Wurf auf Bull den Legbeginn ab Leg 1 statt erst
-   * ab Leg 3. Es ist eine Regel des Matches, kein Feld eines Kommandos —
-   * gespeicherte Kommandos werten dadurch unverändert (Replay-Sicherheit).
+   * Welche Legs ihren Anwurf durch einen Wurf auf Bull erhalten. Es ist eine
+   * Regel des Matches, kein Feld eines Kommandos — gespeicherte Kommandos
+   * werten dadurch unverändert (Replay-Sicherheit).
    */
-  readonly bullOffFromLegOne: boolean;
+  readonly legStartRule: LegStartRule;
+}
+
+/**
+ * Wer ein Leg anwirft.
+ *
+ * - `LEAGUE` — Reglement 2.2.9: Leg 1 gehört der Heimseite, Leg 2 der
+ *   Gastseite, ab Leg 3 entscheidet ein Wurf auf Bull.
+ * - `BULL_EVERY_LEG` — Reglement 2.2.9, Ausnahme Entscheidungsdoppel: der
+ *   Spielbeginn wird beim sudden death immer ausgebullt.
+ * - `BULL_FIRST_LEG` — freie Matches und Turniermatches kennen keine
+ *   Heimseite: Leg 1 wird ausgebullt, danach wechselt der Anwurf.
+ */
+export type LegStartRule = "LEAGUE" | "BULL_EVERY_LEG" | "BULL_FIRST_LEG";
+
+/** Warum dieses Leg keinen ausgebullten Anwurf annimmt. */
+function legStartFixedMessage(rule: LegStartRule): string {
+  switch (rule) {
+    case "LEAGUE":
+      return "Leg one belongs to the home side and leg two to the guest side.";
+    case "BULL_EVERY_LEG":
+      return "A leg number must be a positive integer.";
+    case "BULL_FIRST_LEG":
+      return "Only the first leg is decided by bull; every later leg alternates.";
+  }
+}
+
+/** Nimmt dieses Leg einen ausgebullten Anwurf entgegen? */
+function isDecidableLeg(rule: LegStartRule, legNumber: number): boolean {
+  if (!Number.isInteger(legNumber) || legNumber < 1) return false;
+  switch (rule) {
+    case "LEAGUE":
+      return legNumber >= 3;
+    case "BULL_EVERY_LEG":
+      return true;
+    case "BULL_FIRST_LEG":
+      return legNumber === 1;
+  }
 }
 
 export interface X01Side {
@@ -86,11 +122,10 @@ export interface UndoVisitCommand {
 }
 
 /**
- * Reglement 2.2.9: Leg 1 beginnt die Heimseite, Leg 2 die Gastseite, ab Leg 3
- * entscheidet ein Wurf auf Bull. Ausgenommen ist das Entscheidungsdoppel
- * (sudden death): dort wird der Spielbeginn IMMER ausgebullt — dafür trägt das
- * Match `X01Rules.bullOffFromLegOne`, und das Kommando ist dann schon für
- * Leg 1 zulässig. Fehlt das Kommando, wechselt der Legbeginn wie bisher.
+ * Welche Legs das Kommando annehmen, entscheidet `X01Rules.legStartRule`:
+ * unter der Ligaregel erst Leg 3 (Reglement 2.2.9), beim Entscheidungsdoppel
+ * jedes Leg, bei freien Matches und Turniermatches genau Leg 1. Fehlt das
+ * Kommando, wechselt der Legbeginn wie bisher.
  */
 export interface DecideLegStartCommand {
   readonly type: "DECIDE_LEG_START";
@@ -176,7 +211,7 @@ export interface X01MatchState {
   /**
    * Reglement 2.2.9: fuer das laufende Leg steht der Anwurf noch aus. Wahr
    * genau dann, wenn der Schreibpfad ein `DECIDE_LEG_START` dafuer noch
-   * annaehme — entscheidbare Legnummer (`bullOffFromLegOne ? 1 : 3`), kein
+   * annaehme — nach `legStartRule` entscheidbare Legnummer, kein
    * Entscheid vorhanden, noch keine Aufnahme im Leg und das Match laeuft.
    * Die Flaeche verlangt daran den Anwurf, bevor sie die Eingabe freigibt.
    */
@@ -205,6 +240,7 @@ export class ScoringValidationError extends Error {
 
 const inRules: readonly InRule[] = ["STRAIGHT", "DOUBLE"];
 const outRules: readonly OutRule[] = ["SINGLE", "DOUBLE", "MASTER"];
+const legStartRules: readonly LegStartRule[] = ["LEAGUE", "BULL_EVERY_LEG", "BULL_FIRST_LEG"];
 
 function assertRules(rules: X01Rules): void {
   if (!Number.isInteger(rules.startingScore) || rules.startingScore < 2) {
@@ -225,8 +261,11 @@ function assertRules(rules: X01Rules): void {
   if (!Number.isInteger(rules.setsToWin) || rules.setsToWin < 1) {
     throw new ScoringValidationError("INVALID_SET_TARGET", "Set target must be a positive integer.");
   }
-  if (typeof rules.bullOffFromLegOne !== "boolean") {
-    throw new ScoringValidationError("INVALID_BULL_OFF_RULE", "The bull-off rule must be a boolean.");
+  if (!legStartRules.includes(rules.legStartRule)) {
+    throw new ScoringValidationError(
+      "INVALID_LEG_START_RULE",
+      "The leg start rule must be LEAGUE, BULL_EVERY_LEG or BULL_FIRST_LEG.",
+    );
   }
 }
 
@@ -276,7 +315,7 @@ export function createX01Match(input: {
     maxRounds: null,
     legsToWinSet: 1,
     setsToWin: 1,
-    bullOffFromLegOne: false,
+    legStartRule: "LEAGUE",
   };
   assertRules(rules);
   return {
@@ -680,16 +719,10 @@ function activeCommands(commands: readonly X01Command[], rules: X01Rules): Activ
   const legStarts = new Map<number, 1 | 2>();
   for (const command of commands) {
     if (command.type !== "DECIDE_LEG_START") continue;
-    // Reglement 2.2.9: Leg 1 und 2 sind festgelegt — ausser beim sudden death,
-    // das immer ausgebullt wird.
-    const firstDecidableLeg = rules.bullOffFromLegOne ? 1 : 3;
-    if (!Number.isInteger(command.legNumber) || command.legNumber < firstDecidableLeg) {
-      throw new ScoringValidationError(
-        "LEG_START_FIXED",
-        rules.bullOffFromLegOne
-          ? "A leg number must be a positive integer."
-          : "Leg one belongs to the home side and leg two to the guest side.",
-      );
+    // Welche Legs ausgebullt werden, sagt die Matchregel; alle anderen tragen
+    // einen festgelegten Anwurf und nehmen kein Kommando an.
+    if (!isDecidableLeg(rules.legStartRule, command.legNumber)) {
+      throw new ScoringValidationError("LEG_START_FIXED", legStartFixedMessage(rules.legStartRule));
     }
     if (legStarts.has(command.legNumber)) {
       throw new ScoringValidationError(
@@ -794,11 +827,11 @@ export function projectX01Match(match: X01Match): X01MatchState {
     initialSide(match.sides[0], match.rules),
     initialSide(match.sides[1], match.rules),
   ];
-  // Reglement 2.2.9: Leg 1 beginnt normalerweise die im Kommando festgelegte
-  // Startseite (`match.startingSeat`, die Heimseite). Ein `DECIDE_LEG_START`
-  // fuer Leg 1 ist nur moeglich, wenn `bullOffFromLegOne` gesetzt ist
-  // (`activeCommands` lehnt es sonst mit LEG_START_FIXED ab) — dann gilt das
-  // ausgebullte Ergebnis statt der Vorbelegung.
+  // Leg 1 beginnt normalerweise die vorbelegte Startseite
+  // (`match.startingSeat`, unter der Ligaregel die Heimseite). Ein
+  // `DECIDE_LEG_START` fuer Leg 1 ist nur moeglich, wenn `legStartRule` es
+  // zulaesst (`activeCommands` lehnt es sonst mit LEG_START_FIXED ab) — dann
+  // gilt das ausgebullte Ergebnis statt der Vorbelegung.
   const decidedFirstLegStart = active.legStarts.get(1);
   let legStartingIndex: 0 | 1 =
     decidedFirstLegStart === undefined ? indexOfSeat(match.startingSeat) : indexOfSeat(decidedFirstLegStart);
@@ -1007,7 +1040,7 @@ export function projectX01Match(match: X01Match): X01MatchState {
     roundLimitReached: isRoundLimitReached(match.rules.maxRounds, visitsInLeg),
     legStartPending:
       winnerSeat === null &&
-      legNumber >= (match.rules.bullOffFromLegOne ? 1 : 3) &&
+      isDecidableLeg(match.rules.legStartRule, legNumber) &&
       !active.legStarts.has(legNumber) &&
       visitsInLeg[0] + visitsInLeg[1] === 0,
     visits,

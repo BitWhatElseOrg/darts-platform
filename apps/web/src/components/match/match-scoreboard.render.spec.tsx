@@ -46,7 +46,7 @@ const match = {
   startingScore: 501,
   inRule: "STRAIGHT",
   outRule: "DOUBLE",
-  bullOffFromLegOne: false,
+  legStartRule: "BULL_FIRST_LEG" as const,
   legStartPending: false,
   roundLimitReached: false,
   bestOfLegs: 5,

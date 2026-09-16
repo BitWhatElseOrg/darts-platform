@@ -61,7 +61,7 @@ describe("persistent X01 match", () => {
     const state = await service.create({
       organizationId,
       // Ohne Board, damit dieser Test das gemeinsame Board nicht belegt.
-      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId: null, bestOfLegs: 1, bestOfSets: 1 },
+      data: { playerOneId, playerTwoId, boardId: null, bestOfLegs: 1, bestOfSets: 1 },
       auth,
       audit,
     });
@@ -70,7 +70,7 @@ describe("persistent X01 match", () => {
   }, 30_000);
 
   it("aborts an active scoring session transactionally and idempotently", async () => {
-    let state = await service.create({ organizationId, data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId, bestOfLegs: 1, bestOfSets: 1 }, auth, audit });
+    let state = await service.create({ organizationId, data: { playerOneId, playerTwoId, boardId, bestOfLegs: 1, bestOfSets: 1 }, auth, audit });
     const controllerId = randomUUID();
     await service.acquireControllerLease({ organizationId, matchId: state.id, controllerId, force: false, auth, audit });
     state = await service.submitVisit({ organizationId, matchId: state.id, data: { commandId: randomUUID(), expectedVersion: state.version, playerId: playerOneId, points: 100, dartsThrown: 3, controllerId }, auth, audit });
@@ -119,7 +119,7 @@ describe("persistent X01 match", () => {
   });
 
   it("is idempotent, rejects stale versions, supports undo and completes 501", async () => {
-    let state = await service.create({ organizationId, data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId, bestOfLegs: 1, bestOfSets: 1 }, auth, audit });
+    let state = await service.create({ organizationId, data: { playerOneId, playerTwoId, boardId, bestOfLegs: 1, bestOfSets: 1 }, auth, audit });
     const firstControllerId = randomUUID();
     const controllerId = randomUUID();
     expect((await service.acquireControllerLease({ organizationId, matchId: state.id, controllerId: firstControllerId, force: false, auth, audit })).owned).toBe(true);
@@ -169,7 +169,6 @@ describe("persistent X01 match", () => {
       data: {
         playerOneId,
         playerTwoId,
-        startingPlayerId: playerOneId,
         boardId: null,
         bestOfLegs: 1,
         bestOfSets: 1,
@@ -200,7 +199,7 @@ describe("persistent X01 match", () => {
   it("persists the single darts of a visit and returns them", async () => {
     const created = await service.create({
       organizationId,
-      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      data: { playerOneId, playerTwoId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
       auth, audit,
     });
     const matchId = created.id;
@@ -231,7 +230,7 @@ describe("persistent X01 match", () => {
   it("does not duplicate darts when the same command arrives twice", async () => {
     const created = await service.create({
       organizationId,
-      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      data: { playerOneId, playerTwoId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
       auth, audit,
     });
     const matchId = created.id;
@@ -258,7 +257,7 @@ describe("persistent X01 match", () => {
     // ein stiller Fehler im projizierten Reststand.
     const created = await service.create({
       organizationId,
-      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      data: { playerOneId, playerTwoId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
       auth, audit,
     });
     const matchId = created.id;
@@ -308,7 +307,7 @@ describe("persistent X01 match", () => {
     // faelschlich beendet statt weiterzulaufen.
     const created = await service.create({
       organizationId,
-      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      data: { playerOneId, playerTwoId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
       auth, audit,
     });
     const matchId = created.id;
@@ -353,7 +352,7 @@ describe("persistent X01 match", () => {
     // Schreibpfad muss das ablehnen, ohne einen falschen Zustand zu schreiben.
     const created = await service.create({
       organizationId,
-      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      data: { playerOneId, playerTwoId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
       auth, audit,
     });
     const matchId = created.id;
@@ -417,7 +416,7 @@ describe("persistent X01 match", () => {
     // und ohne jede Schreibwirkung.
     const created = await service.create({
       organizationId,
-      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      data: { playerOneId, playerTwoId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
       auth, audit,
     });
     const matchId = created.id;
@@ -462,7 +461,7 @@ describe("persistent X01 match", () => {
     // Kommandos muessen den Abschluss belegen.
     const created = await service.create({
       organizationId,
-      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      data: { playerOneId, playerTwoId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
       auth, audit,
     });
     const matchId = created.id;
@@ -522,7 +521,7 @@ describe("persistent X01 match", () => {
     // gespeicherte Nutzlast -> Replay.
     const created = await service.create({
       organizationId,
-      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      data: { playerOneId, playerTwoId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
       auth, audit,
     });
     const matchId = created.id;
@@ -579,7 +578,7 @@ describe("persistent X01 match", () => {
     // aus `remaining` ist der Stand nicht ablesbar.
     const created = await service.create({
       organizationId,
-      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      data: { playerOneId, playerTwoId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
       auth, audit,
     });
     const matchId = created.id;
@@ -606,7 +605,7 @@ describe("persistent X01 match", () => {
   it("names no live target for a match without a competition", async () => {
     const created = await service.create({
       organizationId,
-      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
+      data: { playerOneId, playerTwoId, bestOfLegs: 1, bestOfSets: 1, boardId: null },
       auth, audit,
     });
     const state = await repository.getState(organizationId, created.id);
@@ -626,7 +625,7 @@ describe("persistent X01 match", () => {
       .values({ id: undoBoardId, organizationId, name: `Undo Board ${undoBoardId}` });
     let state = await service.create({
       organizationId,
-      data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId: undoBoardId, bestOfLegs: 1, bestOfSets: 1 },
+      data: { playerOneId, playerTwoId, boardId: undoBoardId, bestOfLegs: 1, bestOfSets: 1 },
       auth,
       audit,
     });
@@ -654,7 +653,7 @@ describe("persistent X01 match", () => {
     // Die Scheibe gilt als frei; das naechste Paar startet dort.
     const followUp = await service.create({
       organizationId,
-      data: { playerOneId, playerTwoId, startingPlayerId: playerTwoId, boardId: undoBoardId, bestOfLegs: 1, bestOfSets: 1 },
+      data: { playerOneId, playerTwoId, boardId: undoBoardId, bestOfLegs: 1, bestOfSets: 1 },
       auth,
       audit,
     });
@@ -682,14 +681,15 @@ describe("persistent X01 match", () => {
   /**
    * Reglement 2.2.9: das Scoreboard muss den Anwurf verlangen koennen, ohne
    * ihn aus Legnummer und Regelwerk selbst herzuleiten. Der Zustand nennt ihn
-   * deshalb als `legStartPending`, und er faellt mit dem Entscheid.
+   * deshalb als `legStartPending`, und er faellt mit dem Entscheid. Ein freies
+   * Match kennt keine Heimseite: es traegt `BULL_FIRST_LEG` und verlangt den
+   * Anwurf schon fuer Leg eins, danach wechselt er.
    */
-  it("nennt den ausstehenden Anwurf im Zustand und loescht ihn mit dem Entscheid", async () => {
-    const created = await service.create({ organizationId, data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId: null, bestOfLegs: 5, bestOfSets: 1 }, auth, audit });
+  it("verlangt den ausgebullten Anwurf eines freien Matches fuer Leg eins", async () => {
+    const created = await service.create({ organizationId, data: { playerOneId, playerTwoId, boardId: null, bestOfLegs: 5, bestOfSets: 1 }, auth, audit });
     const controllerId = randomUUID();
     await service.acquireControllerLease({ organizationId, matchId: created.id, controllerId, force: false, auth, audit });
-    expect(created.legStartPending).toBe(false);
-    expect(created.roundLimitReached).toBe(false);
+    expect(created).toMatchObject({ legStartRule: "BULL_FIRST_LEG", legStartPending: true, roundLimitReached: false });
 
     const throwVisit = async (
       playerId: string,
@@ -724,19 +724,16 @@ describe("persistent X01 match", () => {
       return throwVisit(winner, 141, state.version, { segment: 12, multiplier: 2 });
     };
 
-    // Leg eins und zwei ausspielen: erst ab Leg drei entscheidet ein Wurf auf
-    // Bull, wer beginnt.
-    const afterLegOne = await playLeg(playerOneId, playerTwoId, created.version);
-    expect(afterLegOne.currentLegNumber).toBe(2);
-    expect(afterLegOne.legStartPending).toBe(false);
-
-    const afterLegTwo = await playLeg(playerTwoId, playerOneId, afterLegOne.version);
-    expect(afterLegTwo.currentLegNumber).toBe(3);
-    expect(afterLegTwo.legStartPending).toBe(true);
-
-    const decided = await service.decideLegStart({ organizationId, matchId: created.id, data: { commandId: randomUUID(), expectedVersion: afterLegTwo.version, legNumber: 3, startingSeat: 2 as const, controllerId }, auth, audit });
+    const decided = await service.decideLegStart({ organizationId, matchId: created.id, data: { commandId: randomUUID(), expectedVersion: created.version, legNumber: 1, startingSeat: 2 as const, controllerId }, auth, audit });
     expect(decided.legStartPending).toBe(false);
     expect(decided.participants.find((side) => side.seat === 2)?.isActive).toBe(true);
+
+    // Nach dem Ausbullen wechselt der Anwurf leguber: Leg zwei gehoert der
+    // Gegenseite und verlangt keinen zweiten Entscheid.
+    const afterLegOne = await playLeg(playerTwoId, playerOneId, decided.version);
+    expect(afterLegOne.currentLegNumber).toBe(2);
+    expect(afterLegOne.legStartPending).toBe(false);
+    expect(afterLegOne.participants.find((side) => side.seat === 1)?.isActive).toBe(true);
   }, 30_000);
 
   /**
@@ -748,7 +745,7 @@ describe("persistent X01 match", () => {
    * verlorenen Wurf.
    */
   it("beantwortet dieselbe commandId auch gleichzeitig idempotent", async () => {
-    const created = await service.create({ organizationId, data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId: null, bestOfLegs: 3, bestOfSets: 1 }, auth, audit });
+    const created = await service.create({ organizationId, data: { playerOneId, playerTwoId, boardId: null, bestOfLegs: 3, bestOfSets: 1 }, auth, audit });
     const controllerId = randomUUID();
     await service.acquireControllerLease({ organizationId, matchId: created.id, controllerId, force: false, auth, audit });
 
@@ -764,13 +761,12 @@ describe("persistent X01 match", () => {
     expect(undoResults.map((state) => state.version)).toEqual([2, 2, 2, 2]);
     expect(await databaseService.database.select().from(scoreCommands).where(eq(scoreCommands.commandId, undoCommandId))).toHaveLength(1);
 
-    // legNumber muss >= 3 sein: Leg eins gehoert fix der Heim-, Leg zwei der
-    // Gastseite (`LEG_START_FIXED` in x01.ts); erst ab Leg drei laesst sich
-    // die Anwurfseite ueberhaupt per Kommando entscheiden. Fuer diesen Test
-    // zaehlt nur, dass eine gleichzeitige Wiederholung idempotent bleibt, die
-    // konkrete Legnummer ist dafuer beliebig, solange sie zulaessig ist.
+    // Ein freies Match bullt Leg eins aus (`BULL_FIRST_LEG`); die Aufnahme
+    // davor ist durch das Undo zurueckgenommen, das Leg gilt also wieder als
+    // nicht begonnen. Fuer diesen Test zaehlt nur, dass eine gleichzeitige
+    // Wiederholung idempotent bleibt.
     const legStartCommandId = randomUUID();
-    const legStartInput = { organizationId, matchId: created.id, data: { commandId: legStartCommandId, expectedVersion: 2, legNumber: 3, startingSeat: 2 as const, controllerId }, auth, audit };
+    const legStartInput = { organizationId, matchId: created.id, data: { commandId: legStartCommandId, expectedVersion: 2, legNumber: 1, startingSeat: 2 as const, controllerId }, auth, audit };
     const legStartResults = await Promise.all(Array.from({ length: 4 }, () => service.decideLegStart(legStartInput)));
     expect(legStartResults.map((state) => state.version)).toEqual([3, 3, 3, 3]);
     expect(await databaseService.database.select().from(scoreCommands).where(eq(scoreCommands.commandId, legStartCommandId))).toHaveLength(1);

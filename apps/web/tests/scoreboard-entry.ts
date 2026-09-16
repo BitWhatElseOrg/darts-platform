@@ -1,6 +1,26 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
 /**
+ * Freie Matches und Turniermatches kennen keine Heimseite: der Anwurf von Leg
+ * eins wird ausgebullt (`BULL_FIRST_LEG`), und bis der Entscheid erfasst ist,
+ * gibt die Flaeche die Eingabe nicht frei. Ohne Namen gewinnt Sitz eins — das
+ * entspricht der frueheren Vorbelegung des Anlageformulars.
+ *
+ * Gewartet wird bis zum geschlossenen Dialog: er verschwindet erst mit dem
+ * aufgefrischten Matchzustand, und ohne dieses Warten liefe ein folgender
+ * Schritt (etwa der Wechsel in den Offline-Modus) gegen eine noch laufende
+ * Anfrage.
+ */
+export async function decideLegStart(page: Page, sideName?: string): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: /Anwurf ausbullen/ });
+  await (sideName === undefined
+    ? dialog.getByRole("button").first()
+    : dialog.getByRole("button", { name: sideName })
+  ).click();
+  await expect(dialog).toHaveCount(0);
+}
+
+/**
  * Öffnet das Einstellungs-Modal über das Zahnrad und schaltet die Eingabeart
  * um. Die Einstellung liegt geräte-/browserlokal (`scoreboard-settings.ts`,
  * `localStorage`) und bleibt für den Rest des Browserkontexts bestehen — ein

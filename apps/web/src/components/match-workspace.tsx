@@ -25,7 +25,6 @@ export function MatchWorkspace({ organization, players }: { readonly organizatio
   const [boardName, setBoardName] = useState("");
   const [playerOneId, setPlayerOneId] = useState("");
   const [playerTwoId, setPlayerTwoId] = useState("");
-  const [startingPlayerId, setStartingPlayerId] = useState("");
   const [boardId, setBoardId] = useState("");
   const [bestOfLegs, setBestOfLegs] = useState(3);
   const [bestOfSets, setBestOfSets] = useState(1);
@@ -34,9 +33,6 @@ export function MatchWorkspace({ organization, players }: { readonly organizatio
   const resolvedPlayerTwoId = activePlayers.some((player) => player.id === playerTwoId && player.id !== resolvedPlayerOneId)
     ? playerTwoId
     : (activePlayers.find((player) => player.id !== resolvedPlayerOneId)?.id ?? "");
-  const resolvedStartingPlayerId = [resolvedPlayerOneId, resolvedPlayerTwoId].includes(startingPlayerId)
-    ? startingPlayerId
-    : resolvedPlayerOneId;
 
   const boardsQuery = useQuery({ queryKey: ["boards", organization.id], queryFn: ({ signal }) => apiRequest({ path: `/organizations/${organization.id}/boards`, schema: boardListSchema, signal }) });
   const matchesQuery = useQuery({ queryKey: ["matches", organization.id], queryFn: ({ signal }) => apiRequest({ path: `/organizations/${organization.id}/matches`, schema: matchListSchema, signal }) });
@@ -48,7 +44,7 @@ export function MatchWorkspace({ organization, players }: { readonly organizatio
     onSuccess: async (board) => { setBoardName(""); setBoardId(board.id); await queryClient.invalidateQueries({ queryKey: ["boards", organization.id] }); },
   });
   const createMatch = useMutation({
-    mutationFn: () => apiRequest({ path: `/organizations/${organization.id}/matches`, method: "POST", body: { playerOneId: resolvedPlayerOneId, playerTwoId: resolvedPlayerTwoId, startingPlayerId: resolvedStartingPlayerId, bestOfLegs, bestOfSets, boardId: boardId || null }, schema: matchStateSchema }),
+    mutationFn: () => apiRequest({ path: `/organizations/${organization.id}/matches`, method: "POST", body: { playerOneId: resolvedPlayerOneId, playerTwoId: resolvedPlayerTwoId, bestOfLegs, bestOfSets, boardId: boardId || null }, schema: matchStateSchema }),
     onSuccess: async (match) => {
       await Promise.all([queryClient.invalidateQueries({ queryKey: ["matches", organization.id] }), queryClient.invalidateQueries({ queryKey: ["boards", organization.id] })]);
       router.push(`/matches/${match.id}?organisation=${organization.id}`);
@@ -59,7 +55,7 @@ export function MatchWorkspace({ organization, players }: { readonly organizatio
     <div className="space-y-6">
       <div>
         <h2 className="font-numerals text-title font-bold text-white">Match starten</h2>
-        <p className="mt-1 text-body text-slate-400">501 · Double Out</p>
+        <p className="mt-1 text-body text-slate-400">501 · Double Out · Anwurf wird ausgebullt</p>
       </div>
       {canManageBoards || canCreateMatches ? (
         <div className="grid gap-4 xl:grid-cols-[0.7fr_1.3fr]">
@@ -87,15 +83,11 @@ export function MatchWorkspace({ organization, players }: { readonly organizatio
             <form className="grid gap-4 rounded-xl border border-slate-800 bg-slate-950/40 p-4 sm:grid-cols-2" onSubmit={(event) => { event.preventDefault(); createMatch.mutate(); }}>
               <div className="space-y-1.5">
                 <label className={labelClassName} htmlFor="match-player-one">Spieler 1</label>
-                <select id="match-player-one" className={inputClassName} value={resolvedPlayerOneId} onChange={(event) => { setPlayerOneId(event.target.value); setStartingPlayerId(event.target.value); }}><option value="">Spieler wählen</option>{activePlayers.map((player) => <option key={player.id} value={player.id}>{player.displayName}</option>)}</select>
+                <select id="match-player-one" className={inputClassName} value={resolvedPlayerOneId} onChange={(event) => setPlayerOneId(event.target.value)}><option value="">Spieler wählen</option>{activePlayers.map((player) => <option key={player.id} value={player.id}>{player.displayName}</option>)}</select>
               </div>
               <div className="space-y-1.5">
                 <label className={labelClassName} htmlFor="match-player-two">Spieler 2</label>
                 <select id="match-player-two" className={inputClassName} value={resolvedPlayerTwoId} onChange={(event) => setPlayerTwoId(event.target.value)}><option value="">Spieler wählen</option>{activePlayers.map((player) => <option key={player.id} value={player.id}>{player.displayName}</option>)}</select>
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <label className={labelClassName} htmlFor="match-starting-player">Wer beginnt?</label>
-                <select id="match-starting-player" className={inputClassName} value={resolvedStartingPlayerId} onChange={(event) => setStartingPlayerId(event.target.value)}>{activePlayers.filter((player) => [resolvedPlayerOneId, resolvedPlayerTwoId].includes(player.id)).map((player) => <option key={player.id} value={player.id}>{player.displayName}</option>)}</select>
               </div>
               <div className="space-y-1.5">
                 <label className={labelClassName} htmlFor="match-best-of-legs">Legs (Best of)</label>

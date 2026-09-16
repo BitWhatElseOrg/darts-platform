@@ -387,7 +387,7 @@ describe("tournament scoring lock context", () => {
       const repository = new MatchesRepository({ database: connection.database } as unknown as DatabaseService);
       const scoringMatchId = await repository.create({
         organizationId,
-        data: { playerOneId, playerTwoId, startingPlayerId: playerOneId, boardId: null, bestOfLegs: 1, bestOfSets: 1 },
+        data: { playerOneId, playerTwoId, boardId: null, bestOfLegs: 1, bestOfSets: 1 },
         auth,
         audit,
       });

@@ -3,14 +3,23 @@ import { z } from "zod";
 import { inRuleSchema, outRuleSchema } from "./tournament";
 
 export const matchStatusSchema = z.enum(["IN_PROGRESS", "COMPLETED"]);
+/**
+ * Wer ein Leg anwirft: `LEAGUE` nach Reglement 2.2.9 (Leg 1 Heimseite, Leg 2
+ * Gastseite, ab Leg 3 Bull), `BULL_EVERY_LEG` im Entscheidungsdoppel,
+ * `BULL_FIRST_LEG` in freien Matches und Turniermatches ohne Heimseite.
+ */
+export const legStartRuleSchema = z.enum(["LEAGUE", "BULL_EVERY_LEG", "BULL_FIRST_LEG"]);
 export const visitOutcomeSchema = z.enum(["SCORED", "BUST", "LEG_WON", "SET_WON", "MATCH_WON"]);
+/**
+ * Ein freies Match traegt keine Anwurfangabe: wer beginnt, entscheidet das
+ * Ausbullen von Leg eins (`legStartRule` BULL_FIRST_LEG).
+ */
 export const createMatchSchema = z.object({
-  playerOneId: z.uuid(), playerTwoId: z.uuid(), startingPlayerId: z.uuid(),
+  playerOneId: z.uuid(), playerTwoId: z.uuid(),
   boardId: z.uuid().nullable().optional(),
   bestOfLegs: z.number().int().min(1).max(21).refine((value) => value % 2 === 1, "Best of legs must be odd."),
   bestOfSets: z.number().int().min(1).max(21).refine((value) => value % 2 === 1, "Best of sets must be odd.").default(1),
-}).refine((value) => value.playerOneId !== value.playerTwoId, { message: "A match requires two different players.", path: ["playerTwoId"] })
-  .refine((value) => [value.playerOneId, value.playerTwoId].includes(value.startingPlayerId), { message: "Starting player must participate in the match.", path: ["startingPlayerId"] });
+}).refine((value) => value.playerOneId !== value.playerTwoId, { message: "A match requires two different players.", path: ["playerTwoId"] });
 /**
  * Ein einzelner Wurf. Segment 0 ist der Fehlwurf, 25 das Bull; beide tragen
  * keinen dritten Ring, deshalb die beiden Sonderregeln.
@@ -138,8 +147,8 @@ export const matchStateSchema = z.object({
   status: matchStatusSchema, version: z.number().int().nonnegative(), startingScore: z.number().int().positive(),
   /** Die Spielart gehört in den Zustand: das Scoreboard muss sie nennen können. */
   inRule: inRuleSchema, outRule: outRuleSchema,
-  /** Reglement 2.2.9: beim Entscheidungsdoppel wird schon Leg 1 ausgebullt. */
-  bullOffFromLegOne: z.boolean(),
+  /** Welche Legs ihren Anwurf ausbullen (Reglement 2.2.9 und Ausnahmen). */
+  legStartRule: legStartRuleSchema,
   /**
    * Reglement 2.2.9: fuer das laufende Leg steht der Anwurf noch aus. Die
    * Flaeche sperrt daran die Eingabe und verlangt zuerst den Entscheid; der
