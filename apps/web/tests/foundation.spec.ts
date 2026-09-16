@@ -414,7 +414,22 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByLabel("Format").selectOption("ROUND_ROBIN");
   await expect(page.getByText("Matches insgesamt").locator("..")).toContainText("6");
   await page.getByLabel("Name").fill("E2E Vereinscup");
+
+  // Der Set-Modus blendet die Satzzahl ein und benennt die Legs als Legs je
+  // Satz; die Zusammenfassung rechnet die Vorgabe in die Siegbedingung um.
+  await page.getByLabel("Spielmodus").selectOption("SETS");
+  await page.getByLabel("Best of Sätze").selectOption("5");
+  await page.getByLabel("Best of Legs je Satz").selectOption("5");
+  await expect(
+    page.getByText("Best of 5 Sätze à Best of 5 Legs – Satz an 3 Legs, Match an 3 Sätzen."),
+  ).toBeVisible();
+
+  // Gespielt wird dieses Turnier im Matchplay-Modus: die Satzzahl verschwindet
+  // wieder, und ein Leg entscheidet das Match.
+  await page.getByLabel("Spielmodus").selectOption("MATCHPLAY");
+  await expect(page.getByLabel("Best of Sätze")).toHaveCount(0);
   await page.getByLabel("Best of Legs").selectOption("1");
+  await expect(page.getByText("Best of 1 Leg – wer zuerst 1 Leg gewinnt.")).toBeVisible();
   await Promise.all([
     page.waitForURL(/\/turniere\/[^/?]+\?organisation=/u),
     page.getByRole("button", { name: "Turnier starten" }).click(),

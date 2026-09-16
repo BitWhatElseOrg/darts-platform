@@ -7,6 +7,7 @@ import {
   tournaments, tournamentStages,
   visitDarts, visits,
 } from "@darts-platform/database";
+import { matchTargets } from "@darts-platform/domain";
 import { ScoringValidationError, createX01Match, defaultCheckoutAttempts, executeX01Command, projectX01Match, type InRule, type LegStartRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
 import type { AbortMatchInput, AbortMatchResponse, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
@@ -336,13 +337,16 @@ export class MatchesRepository {
           throw new ScoringValidationError("BOARD_NOT_AVAILABLE", "Selected board is not available.");
         }
       }
+      // Ob Matchplay oder Set-Modus, sagt `bestOfSets`; die Siegziele leitet
+      // die Domaene daraus ab (`matchTargets`).
+      const winTargets = matchTargets(input.data);
       // Ein freies Match kennt keine Heimseite: der Anwurf von Leg eins wird
       // ausgebullt (`BULL_FIRST_LEG`). Sitz 1 ist bis dahin nur Vorbelegung,
       // die das `DECIDE_LEG_START` ueberschreibt.
       const startingSeat = 1;
       const [created] = await transaction.insert(matches).values({
         organizationId: input.organizationId, boardId: input.data.boardId ?? null, bestOfLegs: input.data.bestOfLegs,
-        legsToWinSet: Math.floor(input.data.bestOfLegs / 2) + 1, setsToWin: Math.floor(input.data.bestOfSets / 2) + 1,
+        legsToWinSet: winTargets.legsToWin, setsToWin: winTargets.setsToWin,
         startingSeat, currentSeat: startingSeat, legStartRule: "BULL_FIRST_LEG",
       }).returning();
       if (created === undefined) throw new Error("Match insert did not return a row.");

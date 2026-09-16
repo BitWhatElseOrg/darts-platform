@@ -6,6 +6,14 @@ export {
   type UserId,
 } from "./entity-id";
 export {
+  matchModeOf,
+  matchModes,
+  matchTargets,
+  type MatchFormat,
+  type MatchMode,
+  type MatchTargets,
+} from "./match-format";
+export {
   membershipStatuses,
   isMembershipStatus,
   isOrganizationRole,
