@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { abortMatchSchema, dartSchema, decideLegStartSchema, submitVisitSchema } from "./match.js";
+import { abortMatchSchema, createMatchSchema, dartSchema, decideLegStartSchema, submitVisitSchema } from "./match.js";
 
 describe("abort match contract", () => {
   it("accepts an idempotent versioned abort command", () => {
@@ -35,6 +35,24 @@ describe("abort match contract", () => {
   });
 });
 
+describe("createMatchSchema", () => {
+  const base = { playerOneId: randomUUID(), playerTwoId: randomUUID(), bestOfLegs: 3 };
+
+  it("legt ein Match ohne Anwurfangabe an — der Anwurf wird ausgebullt", () => {
+    expect(createMatchSchema.parse(base)).toMatchObject({ bestOfLegs: 3, bestOfSets: 1 });
+  });
+
+  it("verwirft eine mitgesendete Anwurfangabe eines alten Clients", () => {
+    expect(createMatchSchema.parse({ ...base, startingPlayerId: base.playerOneId })).not.toHaveProperty(
+      "startingPlayerId",
+    );
+  });
+
+  it("verlangt weiterhin zwei verschiedene Personen", () => {
+    expect(createMatchSchema.safeParse({ ...base, playerTwoId: base.playerOneId }).success).toBe(false);
+  });
+});
+
 describe("decideLegStartSchema", () => {
   const base = {
     commandId: "33333333-3333-4333-8333-333333333333",
@@ -42,7 +60,7 @@ describe("decideLegStartSchema", () => {
     startingSeat: 2 as const,
   };
 
-  it("laesst Leg eins zu — die Engine entscheidet anhand von bullOffFromLegOne (2.2.9)", () => {
+  it("laesst Leg eins zu — die Engine entscheidet anhand der Anwurfregel (2.2.9)", () => {
     expect(decideLegStartSchema.safeParse({ ...base, legNumber: 1 }).success).toBe(true);
   });
 

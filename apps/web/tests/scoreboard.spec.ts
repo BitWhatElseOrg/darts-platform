@@ -9,7 +9,7 @@ import {
 } from "./registration-invitation";
 import { applyMatchRules } from "./match-rules";
 import {
-  recordDartVisit, selectCheckoutDarts, switchInputMode, throwDart, typeRoundScore,
+  decideLegStart, recordDartVisit, selectCheckoutDarts, switchInputMode, throwDart, typeRoundScore,
 } from "./scoreboard-entry";
 import { signUpWithOrganization } from "./sign-up";
 
@@ -40,7 +40,14 @@ interface ScoreboardFixture {
  * mit offener Scoringfläche — der gemeinsame Aufbau beider Tests dieser
  * Datei, nach dem Muster aus `team-encounter.spec.ts`.
  */
-async function openScoreboard(page: Page, label: string): Promise<ScoreboardFixture> {
+async function openScoreboard(
+  page: Page,
+  label: string,
+  // Ein freies Match bullt den Anwurf von Leg eins aus; der Dialog steht
+  // deshalb vor jeder Eingabe. Tests, die das Ausbullen selbst pruefen,
+  // lassen ihn offen.
+  options: { readonly decideLegStart?: boolean } = {},
+): Promise<ScoreboardFixture> {
   const suffix = randomUUID();
   const short = suffix.slice(0, 8);
   const email = `e2e-${label}-${suffix}@example.test`;
@@ -79,11 +86,14 @@ async function openScoreboard(page: Page, label: string): Promise<ScoreboardFixt
   // zugewiesenem Board öffnen.
   await page.getByLabel("Spieler 1").selectOption({ label: playerOneName });
   await page.getByLabel("Spieler 2").selectOption({ label: playerTwoName });
-  await page.getByLabel("Wer beginnt?").selectOption({ label: playerOneName });
   await page.getByLabel("Legs (Best of)").selectOption("1");
   await page.getByLabel("Board (optional)").selectOption({ label: boardName });
   await page.getByRole("button", { name: "Match starten" }).click();
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible();
+
+  if (options.decideLegStart !== false) {
+    await decideLegStart(page, playerOneName);
+  }
 
   return { organizationId, playerOneName, playerTwoName };
 }
@@ -319,17 +329,14 @@ test("the round mode finishes on a treble under master out", async ({ page }) =>
 });
 
 /**
- * Reglement 2.2.9: beim Entscheidungsdoppel (sudden death) wird schon der
- * Anwurf von Leg eins ausgebullt. Bis zu diesem Test hatte der Entscheid
- * keinen Weg durch die Oberflaeche — `POST .../leg-start` war nur per API
- * ausloesbar, und die Flaeche startete stillschweigend auf Sitz eins.
+ * Ein freies Match kennt keine Heimseite: der Anwurf von Leg eins wird
+ * ausgebullt (`BULL_FIRST_LEG`), und bis der Entscheid erfasst ist, nimmt die
+ * Flaeche keine Aufnahme an. Vorher gab das Anlageformular den Anwurf vor und
+ * die Flaeche startete stillschweigend auf Sitz eins.
  */
-test("the scoreboard demands the bull-off before the first leg of a decider", async ({ page }) => {
-  const { organizationId, playerTwoName } = await openScoreboard(page, "anwurf");
-  await applyMatchRules(organizationId, { bullOffFromLegOne: true });
+test("the scoreboard demands the bull-off before the first leg", async ({ page }) => {
+  const { playerTwoName } = await openScoreboard(page, "anwurf", { decideLegStart: false });
 
-  // Die Flaeche fragt den Matchzustand alle vier Sekunden neu ab; der Dialog
-  // erscheint, sobald die geaenderte Regel angekommen ist.
   const dialog = page.getByRole("dialog", { name: /Anwurf ausbullen/ });
   await expect(dialog).toBeVisible();
   await expect(page.getByRole("button", { name: "Single 20" })).toBeDisabled();

@@ -68,7 +68,7 @@ function rules(overrides: Partial<X01Rules> = {}): X01Rules {
     maxRounds: null,
     legsToWinSet: 1,
     setsToWin: 1,
-    bullOffFromLegOne: false,
+    legStartRule: "LEAGUE",
     ...overrides,
   };
 }
@@ -280,7 +280,7 @@ describe("X01 scoring", () => {
     const match = createX01Match({
       sides: singles("one", "two"),
       startingSeat: 1,
-      rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, bullOffFromLegOne: true }),
+      rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, legStartRule: "BULL_EVERY_LEG" }),
     });
     const decided = executeX01Command(match, {
       type: "DECIDE_LEG_START",
@@ -295,10 +295,62 @@ describe("X01 scoring", () => {
     expect(state.activeSeat).toBe(2);
   });
 
-  it("haelt ohne das Flag am festen Legbeginn der ersten beiden Legs fest", () => {
+  it("bullt unter BULL_FIRST_LEG nur Leg eins aus und wechselt danach", () => {
+    // Freie Matches und Turniermatches kennen keine Heimseite: der Anwurf des
+    // ersten Legs wird ausgebullt, danach wechselt er wie gewohnt.
     const match = createX01Match({
       sides: singles("one", "two"),
-      rules: rules({ bullOffFromLegOne: false }),
+      rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, legStartRule: "BULL_FIRST_LEG" }),
+    });
+    expect(projectX01Match(match).legStartPending).toBe(true);
+
+    const decided = executeX01Command(match, {
+      type: "DECIDE_LEG_START",
+      commandId: "bull-leg-one",
+      legNumber: 1,
+      startingSeat: 2,
+    }).match;
+    expect(projectX01Match(decided).legStartingSeat).toBe(2);
+
+    const second = executeX01Command(decided, visit("leg1", 2, "two", 40, 1, 20)).match;
+    const state = projectX01Match(second);
+    expect(state.legNumber).toBe(2);
+    expect(state.legStartingSeat).toBe(1);
+    expect(state.legStartPending).toBe(false);
+  });
+
+  it("lehnt unter BULL_FIRST_LEG ein Ausbullen fuer ein Folgeleg ab", () => {
+    const match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, legStartRule: "BULL_FIRST_LEG" }),
+    });
+    const running = executeX01Command(
+      executeX01Command(match, {
+        type: "DECIDE_LEG_START",
+        commandId: "bull-leg-one",
+        legNumber: 1,
+        startingSeat: 1,
+      }).match,
+      visit("leg1", 1, "one", 40, 1, 20),
+    ).match;
+
+    try {
+      executeX01Command(running, {
+        type: "DECIDE_LEG_START",
+        commandId: "bull-leg-two",
+        legNumber: 2,
+        startingSeat: 1,
+      });
+      expect.unreachable("only leg one is decided by bull");
+    } catch (error: unknown) {
+      expect((error as ScoringValidationError).code).toBe("LEG_START_FIXED");
+    }
+  });
+
+  it("haelt unter der Ligaregel am festen Legbeginn der ersten beiden Legs fest", () => {
+    const match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ legStartRule: "LEAGUE" }),
     });
     try {
       executeX01Command(match, {
@@ -315,7 +367,7 @@ describe("X01 scoring", () => {
 
   it("wertet ein gespeichertes DECIDE_LEG_START fuer Leg drei unveraendert (Replay-Sicherheit)", () => {
     // Reglement 2.2.9: das Flag ist eine Match-Regel, kein Kommandofeld.
-    // Ein Bestandsmatch traegt `bullOffFromLegOne: false` und muss ein
+    // Ein Bestandsmatch traegt `legStartRule: "LEAGUE"` und muss ein
     // gespeichertes `DECIDE_LEG_START` fuer Leg drei (vor dieser Aenderung
     // zulaessig) beim Replay unveraendert werten. Verglichen wird der
     // VOLLSTAENDIGE projizierte Zustand — nicht nur einzelne Felder — gegen
@@ -323,7 +375,7 @@ describe("X01 scoring", () => {
     // (`executeX01Command`) aufgebaut: beide muessen exakt uebereinstimmen.
     const initial = createX01Match({
       sides: singles("one", "two"),
-      rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, bullOffFromLegOne: false }),
+      rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, legStartRule: "LEAGUE" }),
     });
     const commands: readonly X01Command[] = [
       visit("leg1", 1, "one", 40, 1, 20),
@@ -351,7 +403,7 @@ describe("X01 scoring", () => {
     it("verlangt den Anwurf im Entscheidungsdoppel schon fuer Leg eins", () => {
       const match = createX01Match({
         sides: singles("one", "two"),
-        rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, bullOffFromLegOne: true }),
+        rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, legStartRule: "BULL_EVERY_LEG" }),
       });
 
       expect(projectX01Match(match).legStartPending).toBe(true);
@@ -360,7 +412,7 @@ describe("X01 scoring", () => {
     it("verlangt ihn nach dem Entscheid nicht mehr", () => {
       const match = createX01Match({
         sides: singles("one", "two"),
-        rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, bullOffFromLegOne: true }),
+        rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 1, legStartRule: "BULL_EVERY_LEG" }),
       });
       const decided = executeX01Command(match, {
         type: "DECIDE_LEG_START",
@@ -414,7 +466,7 @@ describe("X01 scoring", () => {
     it("verlangt ihn im beendeten Match nicht", () => {
       const match = createX01Match({
         sides: singles("one", "two"),
-        rules: rules({ startingScore: 40, legsToWinSet: 1, setsToWin: 1, bullOffFromLegOne: true }),
+        rules: rules({ startingScore: 40, legsToWinSet: 1, setsToWin: 1, legStartRule: "BULL_EVERY_LEG" }),
       });
       const finished = executeX01Command(match, visit("out", 1, "one", 40, 1, 20)).match;
 

@@ -7,7 +7,8 @@ import {
   tournaments, tournamentStages,
   visitDarts, visits,
 } from "@darts-platform/database";
-import { ScoringValidationError, createX01Match, defaultCheckoutAttempts, executeX01Command, projectX01Match, type InRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
+import { matchTargets } from "@darts-platform/domain";
+import { ScoringValidationError, createX01Match, defaultCheckoutAttempts, executeX01Command, projectX01Match, type InRule, type LegStartRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
 import type { AbortMatchInput, AbortMatchResponse, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
 import { isBoardInProgressConflict, isBoardOccupied } from "../boards/board-occupancy.js";
@@ -129,6 +130,17 @@ function toInRule(value: string): InRule {
 
 function toOutRule(value: string): OutRule {
   return value === "SINGLE" ? "SINGLE" : value === "MASTER" ? "MASTER" : "DOUBLE";
+}
+
+/**
+ * Anders als bei In- und Out-Regel gibt es hier keinen unverfaenglichen
+ * Rueckfall: jede der drei Auspraegungen entscheidet, welche Legs ihren Anwurf
+ * ausbullen. Der Check-Constraint `matches_leg_start_rule_check` schliesst
+ * andere Werte aus; trifft doch einer ein, ist der Zustand nicht lesbar.
+ */
+function toLegStartRule(value: string): LegStartRule {
+  if (value === "LEAGUE" || value === "BULL_EVERY_LEG" || value === "BULL_FIRST_LEG") return value;
+  throw new ScoringValidationError("INVALID_LEG_START_RULE", "The stored leg start rule is unknown.");
 }
 
 @Injectable()
@@ -264,7 +276,7 @@ export class MatchesRepository {
       id: matchRow.match.id, organizationId, boardId: matchRow.match.boardId, boardName: matchRow.boardName,
       status: projection.status, version: matchRow.match.version, startingScore: matchRow.match.startingScore,
       inRule: matchRow.match.inRule as "STRAIGHT" | "DOUBLE", outRule: matchRow.match.outRule as "SINGLE" | "DOUBLE" | "MASTER",
-      bullOffFromLegOne: matchRow.match.bullOffFromLegOne,
+      legStartRule: toLegStartRule(matchRow.match.legStartRule),
       legStartPending: projection.legStartPending, roundLimitReached: projection.roundLimitReached,
       bestOfLegs: matchRow.match.bestOfLegs, legsToWin: Math.floor(matchRow.match.bestOfLegs / 2) + 1,
       bestOfSets: matchRow.match.setsToWin * 2 - 1, setsToWin: matchRow.match.setsToWin, currentSetNumber: projection.setNumber,
@@ -325,11 +337,17 @@ export class MatchesRepository {
           throw new ScoringValidationError("BOARD_NOT_AVAILABLE", "Selected board is not available.");
         }
       }
-      const startingSeat = input.data.startingPlayerId === input.data.playerOneId ? 1 : 2;
+      // Ob Matchplay oder Set-Modus, sagt `bestOfSets`; die Siegziele leitet
+      // die Domaene daraus ab (`matchTargets`).
+      const winTargets = matchTargets(input.data);
+      // Ein freies Match kennt keine Heimseite: der Anwurf von Leg eins wird
+      // ausgebullt (`BULL_FIRST_LEG`). Sitz 1 ist bis dahin nur Vorbelegung,
+      // die das `DECIDE_LEG_START` ueberschreibt.
+      const startingSeat = 1;
       const [created] = await transaction.insert(matches).values({
         organizationId: input.organizationId, boardId: input.data.boardId ?? null, bestOfLegs: input.data.bestOfLegs,
-        legsToWinSet: Math.floor(input.data.bestOfLegs / 2) + 1, setsToWin: Math.floor(input.data.bestOfSets / 2) + 1,
-        startingSeat, currentSeat: startingSeat,
+        legsToWinSet: winTargets.legsToWin, setsToWin: winTargets.setsToWin,
+        startingSeat, currentSeat: startingSeat, legStartRule: "BULL_FIRST_LEG",
       }).returning();
       if (created === undefined) throw new Error("Match insert did not return a row.");
       const participantRows = await transaction.insert(matchParticipants).values([
@@ -1201,7 +1219,7 @@ export class MatchesRepository {
         maxRounds: match.maxRounds,
         legsToWinSet: match.legsToWinSet,
         setsToWin: match.setsToWin,
-        bullOffFromLegOne: match.bullOffFromLegOne,
+        legStartRule: toLegStartRule(match.legStartRule),
       },
     });
     const seatOfPlayer = (playerId: string): 1 | 2 => (sides[0].playerIds.includes(playerId) ? 1 : 2);

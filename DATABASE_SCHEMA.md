@@ -438,7 +438,7 @@ game_type varchar NOT NULL
 starting_score integer
 in_rule varchar NOT NULL
 out_rule varchar NOT NULL
-bull_off_from_leg_one boolean NOT NULL DEFAULT false
+leg_start_rule varchar(20) NOT NULL DEFAULT 'BULL_FIRST_LEG'
 best_of_legs integer
 best_of_sets integer
 
@@ -565,23 +565,34 @@ Sperrdauer: `ADD CONSTRAINT … CHECK` ohne `NOT VALID` prüft den Bestand unter
 `ACCESS EXCLUSIVE`. Bei der heutigen Grösse Sekundenbruchteile; das Deployment
 gehört trotzdem ausserhalb des Spielbetriebs.
 
-`bull_off_from_leg_one` bildet die Ausnahme aus Reglement 2.2.9 ab: normalerweise
-beginnt Leg 1 die Heimseite und Leg 2 die Gastseite, erst ab Leg 3 entscheidet
-ein Wurf auf Bull. Beim Entscheidungsdoppel (sudden death) wird der Spielbeginn
-**immer** ausgebullt; `apps/api/src/encounters/encounters.repository.ts` setzt
-das Flag beim Start eines DECIDER-Slots. Es ist eine Match-Regel wie `in_rule`
-und steht bewusst nicht im Kommando: gespeicherte `score_commands` werten
-dadurch unverändert (Migration `0024_league_decider_bull_off.sql`). Die Spalte
-wird ausschliesslich beim Insert gesetzt und darf danach nicht mehr geändert
-werden — es existiert kein Update-Pfad: ein Wechsel true→false bei einem
-Match mit bereits gespeichertem Leg-1-Anwurf (`DECIDE_LEG_START` für Leg 1)
-machte den Kommandostrom beim nächsten Replay unprojizierbar
+`leg_start_rule` sagt, welche Legs ihren Anwurf ausbullen. Drei Ausprägungen,
+abgesichert durch `matches_leg_start_rule_check`:
+
+- `LEAGUE` — Reglement 2.2.9: Leg 1 gehört der Heimseite, Leg 2 der Gastseite,
+  ab Leg 3 entscheidet ein Wurf auf Bull. Gesetzt von
+  `apps/api/src/encounters/encounters.repository.ts` für jeden regulären Slot
+  einer Begegnung.
+- `BULL_EVERY_LEG` — Reglement 2.2.9, Ausnahme Entscheidungsdoppel (sudden
+  death): der Spielbeginn wird immer ausgebullt. Gesetzt für den DECIDER-Slot.
+- `BULL_FIRST_LEG` — freie Matches und Turniermatches kennen keine Heimseite:
+  Leg 1 wird ausgebullt, danach wechselt der Anwurf. Gesetzt von
+  `matches.repository.ts` und `tournaments.repository.ts`, und der Default der
+  Spalte.
+
+Es ist eine Match-Regel wie `in_rule` und steht bewusst nicht im Kommando:
+gespeicherte `score_commands` werten dadurch unverändert (Migrationen
+`0024_league_decider_bull_off.sql` und `0031_match_leg_start_rule.sql`). Die
+Spalte wird ausschliesslich beim Insert gesetzt und darf danach nicht mehr
+geändert werden — es existiert kein Update-Pfad: ein Wechsel auf `LEAGUE` bei
+einem Match mit bereits gespeichertem Leg-1-Anwurf (`DECIDE_LEG_START` für
+Leg 1) machte den Kommandostrom beim nächsten Replay unprojizierbar
 (`activeCommands` lehnt das Kommando dann mit `LEG_START_FIXED` ab).
 
-Sperrdauer: `ADD COLUMN … boolean NOT NULL DEFAULT false` nimmt ein
+Sperrdauer: `ADD COLUMN … varchar NOT NULL DEFAULT '…'` nimmt ein
 `ACCESS EXCLUSIVE`-Lock auf `matches`, ist aber ab PostgreSQL 11 eine reine
-Metadatenänderung ohne Tabellen-Rewrite — kein Bestandscheck nötig, bestehende
-Zeilen erhalten `false` und verhalten sich unverändert.
+Metadatenänderung ohne Tabellen-Rewrite. Das anschliessende `UPDATE` der
+Bestandszeilen (`LEAGUE`, für das Entscheidungsdoppel `BULL_EVERY_LEG`) hält
+ihr bisheriges Verhalten fest; neue Matches erhalten ihre Regel beim Insert.
 
 ---
 

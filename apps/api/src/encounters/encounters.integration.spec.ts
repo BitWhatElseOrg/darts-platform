@@ -299,7 +299,7 @@ async function walkover(
  * beiden Positionsgruppen, siehe „awards the decider bonus after nine games
  * each") und weist dessen Slot (Sequenz 19) einer Scheibe zu, ohne ihn
  * auszuspielen. Reglement 2.2.9: genau dieser Slotstart muss
- * `bullOffFromLegOne` setzen.
+ * die Anwurfregel `BULL_EVERY_LEG` setzen.
  */
 async function startDeciderSlot(): Promise<{ readonly matchId: string; readonly slotId: string }> {
   const competitionId = await createCompetition();
@@ -1404,10 +1404,10 @@ describe("team encounter persistence", () => {
     // Wurf auf Bull entschieden."
     const { matchId, slotId } = await startDeciderSlot();
     const [row] = await databaseService.database
-      .select({ bullOff: matchesTable.bullOffFromLegOne })
+      .select({ legStartRule: matchesTable.legStartRule })
       .from(matchesTable)
       .where(eq(matchesTable.id, matchId));
-    expect(row?.bullOff).toBe(true);
+    expect(row?.legStartRule).toBe("BULL_EVERY_LEG");
 
     const state = await matchesService.decideLegStart({
       organizationId,
@@ -1422,7 +1422,7 @@ describe("team encounter persistence", () => {
       audit,
     });
 
-    expect(state.bullOffFromLegOne).toBe(true);
+    expect(state.legStartRule).toBe("BULL_EVERY_LEG");
     const storedLegs = await databaseService.database
       .select({ legNumber: legsTable.legNumber, startingSeat: legsTable.startingSeat })
       .from(legsTable)

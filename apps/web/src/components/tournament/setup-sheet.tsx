@@ -25,6 +25,7 @@ import {
   type SeedingMode,
   type TournamentFormat,
 } from "@darts-platform/schemas";
+import { type MatchMode } from "@darts-platform/domain";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -32,6 +33,7 @@ import { useForm, useWatch } from "react-hook-form";
 
 import { NavLink, PageNav } from "@/components/page-nav";
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
+import { bestOfOptions, describeMatchFormat } from "@/lib/match-format";
 
 /**
  * React Hook Form owns the form state (AGENTS.md §18). The values stay in the
@@ -45,6 +47,8 @@ interface SetupFormValues {
   startingScore: string;
   inRule: InRule;
   outRule: OutRule;
+  /** Reine Eingabehilfe: im Matchplay-Modus geht `bestOfSets: 1` an den Server. */
+  mode: MatchMode;
   bestOfLegs: string;
   bestOfSets: string;
   participantIds: string[];
@@ -89,8 +93,9 @@ export function SetupSheet({ organizationId, players, boards }: {
       startingScore: "501",
       inRule: "STRAIGHT",
       outRule: "DOUBLE",
+      mode: "MATCHPLAY",
       bestOfLegs: "3",
-      bestOfSets: "1",
+      bestOfSets: "3",
       participantIds: players.slice(0, 32).map((player) => player.id),
       groupCount: String(defaultGroupCount),
       qualifyPerGroup: "2",
@@ -163,7 +168,7 @@ export function SetupSheet({ organizationId, players, boards }: {
       outRule: formValues.outRule,
       maxRounds: null,
       bestOfLegs: Number(formValues.bestOfLegs),
-      bestOfSets: Number(formValues.bestOfSets),
+      bestOfSets: formValues.mode === "MATCHPLAY" ? 1 : Number(formValues.bestOfSets),
       participantIds: [...formValues.participantIds],
       groupCount: Number(formValues.groupCount),
       qualifyPerGroup: Number(formValues.qualifyPerGroup),
@@ -275,38 +280,46 @@ export function SetupSheet({ organizationId, players, boards }: {
                 <div>
                   <SheetLabel as="p" className="text-caption normal-case">Spielregeln</SheetLabel>
                   <div className="mt-2 grid gap-4 sm:grid-cols-2">
+                    <Field htmlFor="mode" label="Spielmodus">
+                      <SelectInput id="mode" {...register("mode")}>
+                        <option value="MATCHPLAY">Matchplay</option>
+                        <option value="SETS">Sets</option>
+                      </SelectInput>
+                    </Field>
                     <Field
                       error={contractErrors.bestOfLegs ?? null}
                       htmlFor="bestOfLegs"
-                      label="Best of Legs"
+                      label={values.mode === "SETS" ? "Best of Legs je Satz" : "Best of Legs"}
                     >
                       <SelectInput
                         aria-describedby={contractErrors.bestOfLegs ? "bestOfLegs-error" : undefined}
                         id="bestOfLegs"
                         {...register("bestOfLegs")}
                       >
-                        <option value="1">Best of 1</option>
-                        <option value="3">Best of 3</option>
-                        <option value="5">Best of 5</option>
-                        <option value="7">Best of 7</option>
+                        {bestOfOptions.map((count) => <option key={count} value={String(count)}>Best of {count}</option>)}
                       </SelectInput>
                     </Field>
-                    <Field
-                      error={contractErrors.bestOfSets ?? null}
-                      htmlFor="bestOfSets"
-                      label="Best of Sets"
-                    >
-                      <SelectInput
-                        aria-describedby={contractErrors.bestOfSets ? "bestOfSets-error" : undefined}
-                        id="bestOfSets"
-                        {...register("bestOfSets")}
+                    {values.mode === "SETS" ? (
+                      <Field
+                        error={contractErrors.bestOfSets ?? null}
+                        htmlFor="bestOfSets"
+                        label="Best of Sätze"
                       >
-                        <option value="1">Best of 1</option>
-                        <option value="3">Best of 3</option>
-                        <option value="5">Best of 5</option>
-                        <option value="7">Best of 7</option>
-                      </SelectInput>
-                    </Field>
+                        <SelectInput
+                          aria-describedby={contractErrors.bestOfSets ? "bestOfSets-error" : undefined}
+                          id="bestOfSets"
+                          {...register("bestOfSets")}
+                        >
+                          {bestOfOptions.map((count) => <option key={count} value={String(count)}>Best of {count}</option>)}
+                        </SelectInput>
+                      </Field>
+                    ) : null}
+                    <p className="font-plate text-caption text-sisal-500 sm:col-span-2">
+                      {describeMatchFormat({
+                        bestOfLegs: Number(values.bestOfLegs ?? "3"),
+                        bestOfSets: values.mode === "SETS" ? Number(values.bestOfSets ?? "3") : 1,
+                      })}
+                    </p>
                     <Field error={contractErrors.inRule ?? null} htmlFor="inRule" label="In-Regel">
                       <SelectInput
                         aria-describedby={contractErrors.inRule ? "inRule-error" : undefined}

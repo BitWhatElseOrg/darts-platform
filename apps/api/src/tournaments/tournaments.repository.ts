@@ -788,8 +788,11 @@ export class TournamentsRepository {
           bestOfLegs: tournament.bestOfLegs,
           legsToWinSet: tournament.legsToWinSet,
           setsToWin: tournament.setsToWin,
+          // Ein Turniermatch kennt keine Heimseite: der Anwurf von Leg eins
+          // wird ausgebullt, Sitz 1 ist bis dahin nur Vorbelegung.
           startingSeat: 1,
           currentSeat: 1,
+          legStartRule: "BULL_FIRST_LEG",
         })
         .returning();
       if (scoringMatch === undefined) throw new Error("Scoring match insert did not return a row.");

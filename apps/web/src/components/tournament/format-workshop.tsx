@@ -1,12 +1,14 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
+import { type MatchMode } from "@darts-platform/domain";
 import { advancedFormatPreviewSchema, type AdvancedFormatPreviewInput } from "@darts-platform/schemas";
 import { Control, Field, Rule, SelectInput, SheetLabel, TextInput, Wedge } from "@darts-platform/ui";
 import { useState } from "react";
 
 import { NavLink, PageNav } from "@/components/page-nav";
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
+import { bestOfOptions, describeMatchFormat } from "@/lib/match-format";
 import { generateId } from "@/lib/id";
 import { useTournamentOrganization } from "./use-tournament-organization";
 
@@ -25,8 +27,12 @@ export function FormatWorkshop({ requestedOrganizationId }: { readonly requested
   const { query, organization } = useTournamentOrganization(requestedOrganizationId);
   const [participantCount, setParticipantCount] = useState(32);
   const [competitorKind, setCompetitorKind] = useState<"PLAYER" | "PAIR" | "TEAM">("PLAYER");
+  // Genau ein Satz heisst Matchplay; der Modus waehlt nur, welche Felder die
+  // Werkstatt zeigt (`matchModeOf` in der Domaene).
+  const [mode, setMode] = useState<MatchMode>("MATCHPLAY");
   const [bestOfLegs, setBestOfLegs] = useState(3);
-  const [bestOfSets, setBestOfSets] = useState(1);
+  const [bestOfSets, setBestOfSets] = useState(3);
+  const format = { bestOfLegs, bestOfSets: mode === "MATCHPLAY" ? 1 : bestOfSets };
   const [stages, setStages] = useState<readonly WorkshopStage[]>([
     { id: generateId(), type: "SWISS", rounds: 5, advance: 16 },
     { id: generateId(), type: "DOUBLE_ELIMINATION", rounds: 1, advance: 1 },
@@ -35,7 +41,7 @@ export function FormatWorkshop({ requestedOrganizationId }: { readonly requested
     mutationFn: () => apiRequest({
       path: `/organizations/${organization?.id ?? ""}/tournaments/advanced-format-preview`,
       method: "POST",
-      body: { participantCount, competitorKind, bestOfLegs, bestOfSets, stages: stages.map((stage, index) => ({ key: `stage-${index + 1}`, type: stage.type, rounds: stage.rounds, advance: stage.advance })) },
+      body: { participantCount, competitorKind, bestOfLegs: format.bestOfLegs, bestOfSets: format.bestOfSets, stages: stages.map((stage, index) => ({ key: `stage-${index + 1}`, type: stage.type, rounds: stage.rounds, advance: stage.advance })) },
       schema: advancedFormatPreviewSchema,
     }),
   });
@@ -54,9 +60,11 @@ export function FormatWorkshop({ requestedOrganizationId }: { readonly requested
       <section className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Field htmlFor="teilnehmerzahl" label="Teilnehmer"><TextInput id="teilnehmerzahl" min={2} max={256} onChange={(event) => setParticipantCount(Number(event.target.value))} type="number" value={participantCount} /></Field>
         <Field htmlFor="teilnehmerart" label="Teilnehmerart"><SelectInput id="teilnehmerart" onChange={(event) => setCompetitorKind(event.target.value as typeof competitorKind)} value={competitorKind}><option value="PLAYER">Einzel</option><option value="PAIR">Paare</option><option value="TEAM">Teams</option></SelectInput></Field>
-        <Field htmlFor="legs" label="Best of Legs"><SelectInput id="legs" onChange={(event) => setBestOfLegs(Number(event.target.value))} value={bestOfLegs}><option value={1}>Best of 1</option><option value={3}>Best of 3</option><option value={5}>Best of 5</option><option value={7}>Best of 7</option></SelectInput></Field>
-        <Field htmlFor="sets" label="Best of Sets"><SelectInput id="sets" onChange={(event) => setBestOfSets(Number(event.target.value))} value={bestOfSets}><option value={1}>Best of 1</option><option value={3}>Best of 3</option><option value={5}>Best of 5</option></SelectInput></Field>
+        <Field htmlFor="spielmodus" label="Spielmodus"><SelectInput id="spielmodus" onChange={(event) => setMode(event.target.value as MatchMode)} value={mode}><option value="MATCHPLAY">Matchplay</option><option value="SETS">Sets</option></SelectInput></Field>
+        <Field htmlFor="legs" label={mode === "SETS" ? "Legs je Satz (Best of)" : "Legs (Best of)"}><SelectInput id="legs" onChange={(event) => setBestOfLegs(Number(event.target.value))} value={bestOfLegs}>{bestOfOptions.map((count) => <option key={count} value={count}>Best of {count}</option>)}</SelectInput></Field>
+        {mode === "SETS" ? <Field htmlFor="sets" label="Sätze (Best of)"><SelectInput id="sets" onChange={(event) => setBestOfSets(Number(event.target.value))} value={bestOfSets}>{bestOfOptions.map((count) => <option key={count} value={count}>Best of {count}</option>)}</SelectInput></Field> : null}
       </section>
+      <p className="mt-3 font-plate text-body text-sisal-500">{describeMatchFormat(format)}</p>
 
       <section className="mt-9">
         <div className="flex items-center justify-between"><SheetLabel as="h2">Turnierphasen in Reihenfolge</SheetLabel><Control onClick={() => setStages((current) => [...current, { id: generateId(), type: "SINGLE_ELIMINATION", rounds: 1, advance: 1 }])} variant="wire">Turnierphase hinzufügen</Control></div>
