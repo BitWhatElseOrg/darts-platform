@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
+import { and, eq } from "drizzle-orm";
+import { createHash, randomUUID } from "node:crypto";
 import sharp from "sharp";
 
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
@@ -282,14 +282,32 @@ describe("player avatar endpoints", () => {
   });
 
   it("findet einen Spieler einer fremden Organisation nicht", async () => {
-    // 404, nicht 403: sonst verriete die Antwort seine Existenz.
+    // Befund 1: ohne Bild waere dieser Test mehrdeutig — `getAvatar` wirft
+    // 404 sowohl fuer einen fehlenden Spieler als auch fuer ein fehlendes
+    // Bild. Verloere `playersRepository.get` den `organizationId`-Filter,
+    // faende der Aufruf den fremden Spieler trotzdem, liefe weiter zu
+    // `findAvatar`, faende dort nichts — und ergaebe wieder 404, obwohl die
+    // Mandantengrenze laengst durchbrochen waere. Der fremde Spieler bekommt
+    // deshalb zuerst ein Bild: ein kaputter Filter faende jetzt eine Zeile
+    // und muesste mit 200 antworten.
+    await playersService.setAvatar({
+      organizationId: foreignOrganizationId,
+      playerId: foreignPlayerId,
+      body: await sampleImage(),
+      auth: foreignOwnerAuth,
+      audit,
+    });
+
+    // 404, nicht 403: sonst verriete die Antwort seine Existenz. Die
+    // Fehlermeldung wird mitgeprueft, damit klar ist, dass der Spieler selbst
+    // nicht gefunden wird (nicht erst sein Bild).
     await expect(
       playersService.getAvatar({
         organizationId,
         playerId: foreignPlayerId,
         auth: ownerAuth,
       }),
-    ).rejects.toMatchObject({ status: 404 });
+    ).rejects.toMatchObject({ status: 404, message: "Player not found." });
   });
 
   it("entfernt das Bild wieder", async () => {
@@ -342,31 +360,110 @@ describe("player avatar endpoints", () => {
   });
 
   it("schreibt einen Audit-Eintrag ohne die Bilddaten", async () => {
-    await playersService.setAvatar({
+    // Befund 2: mit einer eigenen `correlationId` und der Filterung nach
+    // `entityId` UND `correlationId` trifft die Abfrage garantiert genau
+    // diesen Aufruf — nicht eine Alt- oder Nachbarzeile aus einem frueheren
+    // Testlauf (`audit_events.organization_id` ist `on delete set null`,
+    // nicht `cascade`; solche Zeilen bleiben in der geteilten
+    // Entwicklungsdatenbank stehen) und nicht eine Zeile eines anderen Tests
+    // in dieser Datei, der denselben Spieler und dieselbe geteilte
+    // `audit`-Konstante verwendet.
+    const dedicatedAudit = { ...audit, correlationId: randomUUID() };
+    const stored = await playersService.setAvatar({
       organizationId,
       playerId,
       body: await sampleImage(),
       auth: ownerAuth,
-      audit,
+      audit: dedicatedAudit,
     });
 
     const [entry] = await databaseService.database
       .select()
       .from(auditEvents)
-      .where(eq(auditEvents.action, "PLAYER_AVATAR_UPDATED"));
+      .where(
+        and(
+          eq(auditEvents.action, "PLAYER_AVATAR_UPDATED"),
+          eq(auditEvents.entityId, playerId),
+          eq(auditEvents.correlationId, dedicatedAudit.correlationId),
+        ),
+      );
     expect(entry).toBeDefined();
     expect(JSON.stringify(entry?.newValue)).not.toContain("bytes");
-    expect(entry?.newValue).toMatchObject({ checksum: expect.any(String) });
+    expect(entry?.newValue).toMatchObject({ checksum: stored.avatarChecksum });
+  });
+
+  it("schreibt einen Entfernen-Audit-Eintrag mit der alten Pruefsumme, nicht mit den Bytes", async () => {
+    // Befund 5: `PLAYER_AVATAR_REMOVED` war bisher ungetestet.
+    const dedicatedAudit = { ...audit, correlationId: randomUUID() };
+    const stored = await playersService.setAvatar({
+      organizationId,
+      playerId,
+      body: await sampleImage(),
+      auth: ownerAuth,
+      audit: dedicatedAudit,
+    });
+    await playersService.removeAvatar({
+      organizationId,
+      playerId,
+      auth: ownerAuth,
+      audit: dedicatedAudit,
+    });
+
+    const [entry] = await databaseService.database
+      .select()
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.action, "PLAYER_AVATAR_REMOVED"),
+          eq(auditEvents.entityId, playerId),
+          eq(auditEvents.correlationId, dedicatedAudit.correlationId),
+        ),
+      );
+    expect(entry).toBeDefined();
+    expect(JSON.stringify(entry?.oldValue)).not.toContain("bytes");
+    expect(entry?.oldValue).toMatchObject({ checksum: stored.avatarChecksum });
+  });
+
+  it("schreibt beim Entfernen ohne vorhandenes Bild keinen Audit-Eintrag", async () => {
+    // Stille Entscheidung in `deleteAvatar`: ohne getroffene Zeile
+    // (`removed === undefined`) entsteht kein Audit-Eintrag — ein Entfernen
+    // ohne vorhandenes Bild ist keine Aenderung und soll auch nicht als eine
+    // protokolliert werden.
+    const withoutAvatar = await playersService.create({
+      organizationId,
+      data: { displayName: "Ohne Bild", status: "ACTIVE" },
+      auth: ownerAuth,
+      audit,
+    });
+    const dedicatedAudit = { ...audit, correlationId: randomUUID() };
+
+    await playersService.removeAvatar({
+      organizationId,
+      playerId: withoutAvatar.id,
+      auth: ownerAuth,
+      audit: dedicatedAudit,
+    });
+
+    const rows = await databaseService.database
+      .select({ id: auditEvents.id })
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.action, "PLAYER_AVATAR_REMOVED"),
+          eq(auditEvents.entityId, withoutAvatar.id),
+        ),
+      );
+    expect(rows).toHaveLength(0);
   });
 });
 
 /**
- * Nur dieser eine Fall braucht die echte HTTP-Ebene: ob ein
- * Fastify-Koerperlimitfehler die Nest-Pipeline ueberhaupt erreicht, laesst
- * sich ueber `playersService` (das den Koerper schon als `Buffer` bekommt)
- * nicht pruefen.
+ * Faelle, die die echte HTTP-Ebene brauchen statt `playersService` direkt:
+ * ob ein Fastify-Koerperlimitfehler die Nest-Pipeline ueberhaupt erreicht,
+ * und ob `GET .../avatar` die zugesagten Header setzt und rohe Bytes statt
+ * eines JSON-serialisierten `Buffer`-Objekts ausliefert.
  */
-describe("PUT .../avatar mit zu grossem Koerper", () => {
+describe("HTTP-Ebene .../avatar", () => {
   let application: NestFastifyApplication;
   const authHeaders = {} as const;
 
@@ -389,5 +486,36 @@ describe("PUT .../avatar mit zu grossem Koerper", () => {
 
     expect(response.statusCode).toBe(413);
     expect(response.json()).toMatchObject({ error: { code: "AVATAR_TOO_LARGE" } });
+  });
+
+  it("liefert Cache-Header, ETag und die rohen Bildbytes", async () => {
+    // Befund 3: `Cache-Control`, `ETag`, `Content-Type` und `Vary` sind
+    // Zusagen des Controllers, kein Test berührte sie. Ausserdem prüft dies,
+    // ob `@Res({ passthrough: true })` mit einem zurückgegebenen `Buffer`
+    // wirklich rohe Bytes ausliefert statt eines JSON-serialisierten
+    // Buffer-Objekts (`{"type":"Buffer","data":[...]}`) — die Prüfsumme der
+    // rohen Antwort muss exakt der gespeicherten entsprechen.
+    const stored = await playersService.setAvatar({
+      organizationId,
+      playerId,
+      body: await sampleImage(),
+      auth: ownerAuth,
+      audit,
+    });
+
+    const response = await application.inject({
+      method: "GET",
+      url: `/api/v1/organizations/${organizationId}/players/${playerId}/avatar`,
+      headers: { ...authHeaders },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toBe("image/webp");
+    expect(response.headers["cache-control"]).toBe("private, max-age=31536000, immutable");
+    expect(response.headers.etag).toBe(`"${stored.avatarChecksum}"`);
+    expect(response.headers.vary).toBe("Cookie");
+    expect(createHash("sha256").update(response.rawPayload).digest("hex")).toBe(
+      stored.avatarChecksum,
+    );
   });
 });

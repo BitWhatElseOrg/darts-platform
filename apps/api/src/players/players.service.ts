@@ -16,7 +16,11 @@ import {
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
-import { AvatarImageError, normalizeAvatarImage } from "./avatar-image.js";
+import {
+  AvatarImageError,
+  normalizeAvatarImage,
+  type NormalizedAvatar,
+} from "./avatar-image.js";
 import { PlayersRepository } from "./players.repository.js";
 
 /** Antwort auf `GET .../avatar`: Bytes plus die Metadaten fuer die Header. */
@@ -207,7 +211,7 @@ export class PlayersService {
   }): Promise<PlayerResponse> {
     await this.requireAvatarWrite(input);
 
-    let normalized;
+    let normalized: NormalizedAvatar;
     try {
       normalized = await normalizeAvatarImage(input.body);
     } catch (error: unknown) {

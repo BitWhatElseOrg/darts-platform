@@ -113,6 +113,11 @@ export class PlayersController {
     reply.header("Content-Type", avatar.contentType);
     reply.header("Cache-Control", "private, max-age=31536000, immutable");
     reply.header("ETag", `"${avatar.checksum}"`);
+    // `private` allein schuetzt nicht vor einem zweiten Konto im selben
+    // Browserprofil: der Cache kennt keine Sitzung. `Vary: Cookie` bindet den
+    // Cache-Eintrag an das Sitzungs-Cookie, unter dem er entstand — ein
+    // Kontowechsel im selben Browser trifft damit nie den fremden Eintrag.
+    reply.header("Vary", "Cookie");
     return avatar.bytes;
   }
 

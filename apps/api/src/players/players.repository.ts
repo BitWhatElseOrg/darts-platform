@@ -363,6 +363,12 @@ export class PlayersRepository {
             checksum: input.avatar.checksum,
             updatedAt: new Date(),
           },
+          // Ohne diese Bedingung würde der Konfliktzweig eine Zeile einer
+          // fremden Organisation überschreiben, träfe `playerId` (die
+          // Konfliktspalte) je eine solche. Dieselbe Überlegung wie bei
+          // `findAvatarChecksum`: die Mandantengrenze steht nicht nur in der
+          // Verantwortung der Aufrufer.
+          setWhere: eq(playerAvatars.organizationId, input.organizationId),
         });
       // Die Pruefsumme, nicht die Bytes: ein Audit-Log mit Bilddaten waere
       // eine zweite, unkontrollierte Kopie der Personendaten.
