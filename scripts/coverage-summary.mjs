@@ -1,10 +1,27 @@
 import { readFileSync, globSync } from "node:fs";
 
 const files = globSync("{apps,packages}/*/coverage/coverage-summary.json");
-const rows = files.map((file) => {
-  const total = JSON.parse(readFileSync(file, "utf8")).total;
+
+const entries = files.map((file) => {
   const pkg = file.split("/").slice(0, 2).join("/");
-  return `| ${pkg} | ${total.lines.pct} | ${total.branches.pct} | ${total.functions.pct} |`;
+  try {
+    const total = JSON.parse(readFileSync(file, "utf8")).total;
+    if (!total?.lines || !total?.branches || !total?.functions) {
+      throw new Error("'total.lines/branches/functions' fehlt");
+    }
+    return {
+      pkg,
+      line: `| ${pkg} | ${total.lines.pct} | ${total.branches.pct} | ${total.functions.pct} |`,
+    };
+  } catch {
+    return { pkg, line: `| ${pkg} (Bericht unlesbar) | – | – | – |` };
+  }
 });
+
 console.log("| Paket | Zeilen % | Zweige % | Funktionen % |\n| --- | --- | --- | --- |");
-console.log(rows.sort().join("\n"));
+console.log(
+  entries
+    .sort((a, b) => a.pkg.localeCompare(b.pkg))
+    .map((entry) => entry.line)
+    .join("\n"),
+);
