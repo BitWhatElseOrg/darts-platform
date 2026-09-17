@@ -40,6 +40,16 @@ export const keypadKeyClassName =
  * tragen sie deshalb wieder 56 px — ein Sprung, den sich diese Zeile leisten
  * kann: er kostet die elastische Fläche 12 px, die sie durch Schrumpfen
  * hergibt, statt sie ins Scrollen zu schieben.
+ *
+ * Die Höhenregel steht zusätzlich einzeln bereit: Komponenten mit eigener
+ * Rendition — `BackspaceKey` und ihre rote Undo-Identität — nehmen NUR sie
+ * entgegen. Die volle Klasse durchzureichen hat deren rote Farbtoken still
+ * überschrieben: `cn()` (tailwind-merge) lässt bei gleichartigen Utilities
+ * die spätere Klasse gewinnen, und `className` steht in `BackspaceKey`
+ * zuletzt. Die Taste sah dadurch aus wie jede andere, obwohl sie die einzige
+ * destruktive Handlung der Fläche trägt.
  */
+export const keypadActionKeyHeightClassName = "[@media(min-height:44rem)]:min-h-14";
+
 export const keypadActionKeyClassName =
-  `${keypadKeyClassName} [@media(min-height:44rem)]:min-h-14`;
+  `${keypadKeyClassName} ${keypadActionKeyHeightClassName}`;
