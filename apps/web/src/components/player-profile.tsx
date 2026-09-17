@@ -42,12 +42,14 @@ export function PlayerProfile({ playerId, requestedOrganizationId }: { readonly 
   const avatarPlayer = { id: profile.player.id, displayName: profile.player.displayName, avatarChecksum };
   // Serverseitig entscheidet `PlayersService.requireAvatarWrite`: erlaubt ist
   // `player:update` ODER die Verknüpfung mit dem eigenen Konto. Die zweite
-  // Bedingung kennt diese Fläche nicht (dafür bräuchte es die eigene
-  // Spieler-ID aus der Sitzung), deshalb ist das Ausblenden hier nur die
-  // halbe Wahrheit — wer über die eigene Verknüpfung berechtigt ist, sieht
-  // das Bedienelement momentan nicht, obwohl der Server es zuliesse. Die
-  // Berechtigung selbst bleibt davon unberührt (AGENTS.md §13).
-  const canEditAvatar = hasOrganizationPermission(organization.role, "player:update");
+  // Bedingung bildet `organization.playerId` ab — dasselbe Feld, über das
+  // `workspace-shell.tsx` den Link „Mein Profil" führt, also genau der Weg,
+  // über den verknüpfte Personen überhaupt hierher kommen. Das Ausblenden
+  // ist reine Bequemlichkeit; die Berechtigung selbst bleibt serverseitig
+  // geprüft (AGENTS.md §13).
+  const canEditAvatar =
+    hasOrganizationPermission(organization.role, "player:update") ||
+    organization.playerId === profile.player.id;
   return <main className="sektorenring min-h-screen">
     <div className="mx-auto max-w-6xl px-5 py-8">
       <PageNav>

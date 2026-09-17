@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
 import { playerSchema } from "@darts-platform/schemas";
-import { Button } from "@darts-platform/ui";
+import { Button, buttonVariants, cn } from "@darts-platform/ui";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { prepareAvatarUpload } from "@/lib/avatar-upload";
@@ -43,6 +43,13 @@ export function PlayerAvatarControl({
       queryClient.invalidateQueries({ queryKey: ["player-avatar", organizationId, player.id] }),
     ]);
 
+  // Die Mutationsantwort IST bereits der frische Datensatz. `setQueryData`
+  // schreibt ihn synchron in den `player-avatar`-Cache, BEVOR die Vorschau
+  // verschwindet bzw. invalidiert wird — sonst rendert `PlayerAvatar`
+  // zwischen dem Verwerfen der Vorschau und dem Abschluss von
+  // `invalidateAvatarQueries` kurz mit dem alten (oder bei einer Neuanlage:
+  // fehlenden) Bild wieder die Initialen, und bliebe dort stehen, wenn der
+  // Nachlade-Request scheitert, obwohl der Upload selbst durchlief.
   const uploadAvatar = useMutation({
     mutationFn: (blob: Blob) =>
       apiRequest({
@@ -51,7 +58,8 @@ export function PlayerAvatarControl({
         rawBody: blob,
         schema: playerSchema,
       }),
-    onSuccess: async () => {
+    onSuccess: async (data) => {
+      queryClient.setQueryData(["player-avatar", organizationId, player.id], data);
       clearSelection();
       await invalidateAvatarQueries();
     },
@@ -64,7 +72,8 @@ export function PlayerAvatarControl({
         method: "DELETE",
         schema: playerSchema,
       }),
-    onSuccess: async () => {
+    onSuccess: async (data) => {
+      queryClient.setQueryData(["player-avatar", organizationId, player.id], data);
       await invalidateAvatarQueries();
     },
   });
@@ -112,20 +121,32 @@ export function PlayerAvatarControl({
           <img alt="" className="inline-block h-24 w-24 shrink-0 rounded-full object-cover" src={preview.url} />
         )}
         <div className="flex flex-col gap-2">
-          <label
-            className="inline-flex min-h-11 w-fit cursor-pointer items-center justify-center rounded-lg border border-slate-700 bg-transparent px-4 text-body font-medium text-slate-100 transition-colors hover:bg-slate-800"
-            htmlFor={`player-avatar-file-${player.id}`}
-          >
-            Bild auswählen
-          </label>
+          {/* Fokussierbar ist nur das (unsichtbare) Eingabefeld; das
+              sichtbare Label rein optisch, ohne native Fokus-Semantik. Ein
+              Tastaturnutzer, der auf das Feld tabbt, muss die Markierung
+              trotzdem SEHEN — deshalb `peer` auf dem Eingabefeld und
+              `peer-focus-visible:*` auf dem Label, das dafür im DOM hinter
+              dem Eingabefeld stehen muss (CSS-Geschwisterselektoren wirken
+              nur vorwärts). `buttonVariants({ variant: "outline" })` statt
+              einer Handkopie der Button-Stile, damit ein Wechsel dort nicht
+              still auseinanderläuft. */}
           <input
             accept="image/*"
-            className="sr-only"
+            className="peer sr-only"
             id={`player-avatar-file-${player.id}`}
             onChange={(event) => void handleFileChange(event)}
             ref={fileInputRef}
             type="file"
           />
+          <label
+            className={cn(
+              buttonVariants({ variant: "outline" }),
+              "w-fit cursor-pointer peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-400 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-slate-950",
+            )}
+            htmlFor={`player-avatar-file-${player.id}`}
+          >
+            Bild auswählen
+          </label>
           <div className="flex flex-wrap gap-2">
             {preview !== null ? (
               <>
