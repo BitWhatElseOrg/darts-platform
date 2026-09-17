@@ -85,5 +85,7 @@ export async function configureApplication(
   await registerSecurityHeaders(app);
   await registerRateLimit(app, environment);
   app.useGlobalFilters(new ApiExceptionFilter());
-  app.useGlobalInterceptors(new ApiLoggingInterceptor(new Logger("HTTP")));
+  app.useGlobalInterceptors(
+    new ApiLoggingInterceptor(new Logger("HTTP"), environment.LOG_CLIENT_ADDRESS),
+  );
 }
