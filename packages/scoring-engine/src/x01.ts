@@ -811,13 +811,45 @@ function isRoundLimitReached(
   return maxRounds !== null && roundsCompleted(visitsInLeg) >= maxRounds;
 }
 
-function nextLegStartIndex(
-  legStarts: ReadonlyMap<number, 1 | 2>,
-  nextLegNumber: number,
-  previous: 0 | 1,
-): 0 | 1 {
-  const decided = legStarts.get(nextLegNumber);
-  return decided === undefined ? other(previous) : indexOfSeat(decided);
+interface LegStart {
+  /** Wer das kommende Leg anwirft. */
+  readonly legStartingIndex: 0 | 1;
+  /** Wer das erste Leg des laufenden Satzes angeworfen hat. */
+  readonly setStartingIndex: 0 | 1;
+}
+
+/**
+ * Der Anwurf des naechsten Legs.
+ *
+ * DRA 6.13.2: Der Gewinner des Wurfs auf das Bull wirft im ersten und in allen
+ * danach folgenden ungeraden Legs ODER SAETZEN zuerst. Innerhalb eines Satzes
+ * wechselt der Anwurf deshalb von Leg zu Leg, ueber eine Satzgrenze hinweg
+ * aber vom Anwurf des VORIGEN SATZES aus — sonst drehte ein Satz mit gerader
+ * Legzahl den Satzbeginn zurueck auf dieselbe Seite (Satz 1 mit 3:1 gewonnen,
+ * Satz 2 danach wieder von derselben Seite angeworfen).
+ *
+ * Im Matchplay (`setsToWin` eins) gibt es keine Satzgrenze vor dem Matchende;
+ * dort bleibt es bei der Leg-Alternation.
+ *
+ * Ein ausgebullter Anwurf (`DECIDE_LEG_START`) geht in jedem Fall vor. Weil
+ * `setStartingIndex` dem tatsaechlichen Anwurf des Satz-Eroeffnungslegs folgt,
+ * gilt das auch fuer die Satzgrenzen danach.
+ */
+function advanceLegStart(input: {
+  readonly legStarts: ReadonlyMap<number, 1 | 2>;
+  readonly nextLegNumber: number;
+  readonly current: LegStart;
+  readonly setWon: boolean;
+}): LegStart {
+  const fallback = input.setWon
+    ? other(input.current.setStartingIndex)
+    : other(input.current.legStartingIndex);
+  const decided = input.legStarts.get(input.nextLegNumber);
+  const legStartingIndex = decided === undefined ? fallback : indexOfSeat(decided);
+  return {
+    legStartingIndex,
+    setStartingIndex: input.setWon ? legStartingIndex : input.current.setStartingIndex,
+  };
 }
 
 export function projectX01Match(match: X01Match): X01MatchState {
@@ -835,6 +867,7 @@ export function projectX01Match(match: X01Match): X01MatchState {
   const decidedFirstLegStart = active.legStarts.get(1);
   let legStartingIndex: 0 | 1 =
     decidedFirstLegStart === undefined ? indexOfSeat(match.startingSeat) : indexOfSeat(decidedFirstLegStart);
+  let setStartingIndex: 0 | 1 = legStartingIndex;
   let activeIndex: 0 | 1 = legStartingIndex;
   let visitsInLeg: [number, number] = [0, 0];
   let legNumber = 1;
@@ -869,7 +902,12 @@ export function projectX01Match(match: X01Match): X01MatchState {
       }
       legNumber += 1;
       if (won.setWon) setNumber += 1;
-      legStartingIndex = nextLegStartIndex(active.legStarts, legNumber, legStartingIndex);
+      ({ legStartingIndex, setStartingIndex } = advanceLegStart({
+        legStarts: active.legStarts,
+        nextLegNumber: legNumber,
+        current: { legStartingIndex, setStartingIndex },
+        setWon: won.setWon,
+      }));
       activeIndex = legStartingIndex;
       visitsInLeg = [0, 0];
       sides = resetForNextLeg(sides, match.rules);
@@ -1015,7 +1053,12 @@ export function projectX01Match(match: X01Match): X01MatchState {
     if (validCheckout && winnerSeat === null) {
       legNumber += 1;
       if (setWonByVisit) setNumber += 1;
-      legStartingIndex = nextLegStartIndex(active.legStarts, legNumber, legStartingIndex);
+      ({ legStartingIndex, setStartingIndex } = advanceLegStart({
+        legStarts: active.legStarts,
+        nextLegNumber: legNumber,
+        current: { legStartingIndex, setStartingIndex },
+        setWon: setWonByVisit,
+      }));
       activeIndex = legStartingIndex;
       visitsInLeg = [0, 0];
       sides = resetForNextLeg(sides, match.rules);

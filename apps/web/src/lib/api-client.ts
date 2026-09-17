@@ -38,6 +38,8 @@ function localizedMessage(code: string): string {
     NOMINATION_DUPLICATE_PLAYER: "Diese Person ist zweimal gemeldet.",
     NOMINATION_PLAYER_NOT_IN_SQUAD:
       "Diese Person gehört nicht zum Kader. Melde sie als Aushilfe.",
+    NOMINATION_PLAYER_ON_BOTH_SIDES:
+      "Diese Person ist bereits für die Gegenseite gemeldet und kann in einer Begegnung nur für eine Mannschaft spielen.",
     DOUBLES_PAIRING_INCOMPLETE: "Ein Doppel braucht genau zwei gemeldete Personen je Seite.",
     DOUBLES_PLAYER_LIMIT_EXCEEDED:
       "Diese Person spielt bereits ein reguläres Doppel dieser Begegnung.",

@@ -22,6 +22,12 @@ export interface NominationInput {
   readonly nominations: readonly NominationEntry[];
   /** Der zum Ansetzungszeitpunkt gültige Kader des Teams dieser Seite. */
   readonly squadPlayerIds: readonly string[];
+  /**
+   * Die bereits gemeldeten Personen der Gegenseite, leer, solange diese nicht
+   * gemeldet hat. Grundlage der Prüfung nach DRA 6.10.3 (eine Person spielt in
+   * einem Event für höchstens ein Team).
+   */
+  readonly opposingPlayerIds: readonly string[];
   readonly rules: LineupRules;
 }
 
@@ -106,6 +112,7 @@ function isPositiveInteger(value: number): boolean {
 export function validateNominations(input: NominationInput): void {
   const { rules } = input;
   const squad = new Set(input.squadPlayerIds);
+  const opposing = new Set(input.opposingPlayerIds);
   const seenPlayers = new Set<string>();
   const seenPositions = new Set<number>();
 
@@ -144,6 +151,19 @@ export function validateNominations(input: NominationInput): void {
       throw new LeagueValidationError(
         "PLAYER_NOT_IN_SQUAD",
         `Die Person ${nomination.playerId} gehört nicht zum Kader und ist nicht als Aushilfe gemeldet.`,
+      );
+    }
+
+    // DRA 6.10.3. Die Kaderprüfung fängt das nicht ab: eine Aushilfe ist an
+    // keinen Kader gebunden, und dieselbe Person kann in zwei Mannschaften
+    // aktiv sein (`team_players` bindet die Mitgliedschaft nur an die
+    // Mannschaft). Ohne diese Prüfung stünde dieselbe Person in einem Slot auf
+    // beiden Seiten — `createX01Match` verwirft das Match dann beim Lesen mit
+    // DUPLICATE_PLAYER, also erst, wenn es längst angelegt ist.
+    if (opposing.has(nomination.playerId)) {
+      throw new LeagueValidationError(
+        "PLAYER_ON_BOTH_SIDES",
+        `Die Person ${nomination.playerId} ist bereits für die Gegenseite gemeldet.`,
       );
     }
   }

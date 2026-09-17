@@ -714,12 +714,15 @@ describe("X01 scoring", () => {
 
   it("tracks leg, set and match wins", () => {
     let match = createX01Match({ sides: singles("a", "b"), rules: rules({ startingScore: 40, legsToWinSet: 2, setsToWin: 2 }) });
+    // Satz 1 dauert zwei Legs (Anwurf a, dann b). Satz 2 wirft deshalb b an
+    // (DRA 6.13.2: ueber die Satzgrenze entscheidet der Anwurf des vorigen
+    // Satzes), innerhalb des Satzes wechselt der Anwurf wieder zu a.
     const commands = [
       visit("1", 1, "a", 40, 1, 20),
       visit("2", 2, "b", 0, 1),
       visit("3", 1, "a", 40, 1, 20),
-      visit("4", 1, "a", 40, 1, 20),
-      visit("5", 2, "b", 0, 1),
+      visit("4", 2, "b", 0, 1),
+      visit("5", 1, "a", 40, 1, 20),
       visit("6", 1, "a", 40, 1, 20),
     ];
     const outcomes: string[] = [];
@@ -1347,6 +1350,30 @@ describe("X01 Audit-Korrekturen", () => {
     expect(next.state.sides[1].legsWonInSet).toBe(1);
     expect(next.state.sides[1].setsWon).toBe(0);
     expect(next.state.setNumber).toBe(2);
+  });
+
+  it("gibt den Anwurf des naechsten Satzes an die andere Seite, auch nach gerader Legzahl", () => {
+    // DRA 6.13.2: Der Gewinner des Wurfs auf das Bull wirft im ersten und in
+    // allen danach folgenden ungeraden Legs ODER SAETZEN zuerst. Ueber eine
+    // Satzgrenze entscheidet deshalb der Anwurf des vorigen Satzes, nicht der
+    // des vorigen Legs: endet ein Satz nach einer geraden Anzahl Legs, drehte
+    // die blosse Leg-Alternation den Satzbeginn zurueck auf dieselbe Seite.
+    let match = createX01Match({
+      sides: singles("one", "two"),
+      rules: rules({ startingScore: 40, legsToWinSet: 3, setsToWin: 2 }),
+    });
+    // Satz 1 geht 3:1 an Sitz 1 und dauert vier Legs. Angeworfen haben sie
+    // Sitz 1, 2, 1, 2; das vierte Leg gewinnt Sitz 1 gegen den Anwurf.
+    match = executeX01Command(match, visit("s1l1", 1, "one", 40, 1, 20)).match;
+    match = executeX01Command(match, visit("s1l2", 2, "two", 40, 1, 20)).match;
+    match = executeX01Command(match, visit("s1l3", 1, "one", 40, 1, 20)).match;
+    match = executeX01Command(match, visit("s1l4-anwurf", 2, "two", 0)).match;
+    match = executeX01Command(match, visit("s1l4", 1, "one", 40, 1, 20)).match;
+
+    const afterSet = projectX01Match(match);
+    expect(afterSet.setNumber).toBe(2);
+    expect(afterSet.sides[0].setsWon).toBe(1);
+    expect(afterSet.legStartingSeat).toBe(2);
   });
 
   it("wertet einen Satz ohne Gegenlegs unveraendert", () => {
