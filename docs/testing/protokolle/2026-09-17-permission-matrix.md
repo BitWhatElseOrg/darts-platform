@@ -3,13 +3,13 @@
 Datum: 17.09.2026. Test: `apps/api/src/security/permission-matrix.integration.spec.ts`,
 gegen die echte, per `createApiTestApplication` gebaute Anwendung (Postgres/Redis
 aus dem Worktree-`.env`). Sechs Rollen (`OWNER`, `ADMIN`, `TOURNAMENT_DIRECTOR`,
-`SCORER`, `MEMBER`, `VIEWER`) × 27 Permissions aus
+`SCORER`, `MEMBER`, `VIEWER`) × 28 Permissions aus
 `packages/domain/src/permissions.ts`. Erwartung je Paar kommt ausschliesslich
 aus `hasOrganizationPermission`.
 
 ## Ergebnis
 
-162 von 162 Paaren (6 Rollen × 27 Permissions) stimmen mit
+168 von 168 Paaren (6 Rollen × 28 Permissions) stimmen mit
 `hasOrganizationPermission` überein. Kein Sicherheitsbefund. Der Test läuft
 grün:
 
