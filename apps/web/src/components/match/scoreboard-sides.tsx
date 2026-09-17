@@ -1,5 +1,6 @@
 "use client";
 
+import { matchModeOf } from "@darts-platform/domain";
 import type { Dart, MatchStateResponse } from "@darts-platform/schemas";
 import { cn, Score } from "@darts-platform/ui";
 import { dartLabel, threeDartAverage } from "@/lib/scoreboard-view";
@@ -34,6 +35,11 @@ export function ScoreboardSides({ match, pendingDarts, showDartBand }: {
   readonly pendingDarts: readonly Dart[];
   readonly showDartBand: boolean;
 }) {
+  // Der Modus ist keine eigene Angabe, sondern liegt in `bestOfSets`: genau
+  // ein Satz heisst Matchplay (Domaene, `matchModeOf`). Die Flaeche fragt
+  // deshalb die Domaene, statt die Regel ein zweites Mal zu schreiben.
+  const matchplay = matchModeOf({ bestOfLegs: match.bestOfLegs, bestOfSets: match.bestOfSets }) === "MATCHPLAY";
+
   return (
     <div className="grid grid-cols-2 divide-x divide-sisal-300">
       {match.participants.map((participant) => {
@@ -95,12 +101,19 @@ export function ScoreboardSides({ match, pendingDarts, showDartBand }: {
                 </span>
               ))}
             </p>
-            {/* Nach dem Matchende steht der Legzähler auf dem nächsten, nie
-                begonnenen Satz; dann zählen nur noch die Sätze. */}
+            {/* Im Matchplay-Modus gibt es keine Sätze zu gewinnen — „0 / 1
+                Sets" wäre dort eine Zahl, die sich nie bewegt, und sie stünde
+                in der einen Zeile, die auf dem Telefon den Spielstand trägt.
+                Gezählt wird dann der Gesamt-Legstand: nach dem Matchende steht
+                `legsWonInSet` auf dem nächsten, nie begonnenen Satz.
+                Im Set-Modus bleibt es beim bisherigen Verhalten — Legs und
+                Sätze nebeneinander, nach dem Matchende nur noch die Sätze. */}
             <p className="text-body">
-              {match.status === "COMPLETED"
-                ? `${participant.setsWon} / ${match.setsToWin} Sets`
-                : `${participant.legsWonInSet} / ${match.legsToWin} Legs · ${participant.setsWon} / ${match.setsToWin} Sets`}
+              {matchplay
+                ? `${participant.legsWon} / ${match.legsToWin} Legs`
+                : match.status === "COMPLETED"
+                  ? `${participant.setsWon} / ${match.setsToWin} Sets`
+                  : `${participant.legsWonInSet} / ${match.legsToWin} Legs · ${participant.setsWon} / ${match.setsToWin} Sets`}
             </p>
             {showDartBand ? (
               <div className="mt-auto flex gap-2">
