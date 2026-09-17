@@ -4,6 +4,7 @@ import {
   boolean,
   char,
   check,
+  customType,
   index,
   inet,
   integer,
@@ -167,6 +168,16 @@ export const memberships = pgTable(
   ],
 );
 
+/**
+ * `bytea` fehlt in `pg-core`. Der Treiber (`postgres`) liefert und erwartet
+ * einen Buffer; der Typ macht das an der Schemagrenze sichtbar.
+ */
+export const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
 export const players = pgTable(
   "players",
   {
@@ -217,6 +228,40 @@ export const players = pgTable(
     ),
   ],
 );
+
+/**
+ * Das Profilbild eines Spielers, als Bytes in der Datenbank (ADR 0016).
+ * Eigene Tabelle statt Spalten auf `players`: `players` wird überall
+ * vollständig gelesen, ein Bild in jeder Spielerliste mitzuschleppen wäre
+ * teuer. Gespeichert wird ausschliesslich das vom Server erzeugte WebP.
+ */
+export const playerAvatars = pgTable(
+  "player_avatars",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => players.id, { onDelete: "cascade" }),
+    contentType: varchar("content_type", { length: 50 }).notNull(),
+    bytes: bytea("bytes").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    checksum: varchar("checksum", { length: 64 }).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    // Ein Spieler trägt genau ein Bild.
+    uniqueIndex("player_avatars_player_unique").on(table.playerId),
+    index("player_avatars_organization_idx").on(table.organizationId),
+    check("player_avatars_content_type_check", sql`${table.contentType} = 'image/webp'`),
+    check("player_avatars_byte_size_check", sql`${table.byteSize} > 0 and ${table.byteSize} <= 262144`),
+  ],
+);
+
+export type PlayerAvatar = typeof playerAvatars.$inferSelect;
+export type NewPlayerAvatar = typeof playerAvatars.$inferInsert;
 
 export const organizationInvitations = pgTable(
   "organization_invitations",
