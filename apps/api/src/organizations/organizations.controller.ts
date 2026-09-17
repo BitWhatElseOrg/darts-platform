@@ -27,6 +27,7 @@ import {
   type CreatedInvitation,
   type LinkMemberPlayerInput,
   type Invitation,
+  type OrganizationCapabilities,
   type OrganizationMember,
   type OrganizationSummary,
   type UpdateMembershipInput,
@@ -48,6 +49,17 @@ export class OrganizationsController {
     @Inject(APPLICATION_ENVIRONMENT)
     private readonly environment: ApplicationEnvironment,
   ) {}
+
+  /**
+   * Plattformweit, ohne Mandantenbezug. Steht bewusst vor den
+   * `:organizationId`-Routen: kaeme hier je ein `@Get(":organizationId")`
+   * dazu, wuerde die Reihenfolge entscheiden, ob „capabilities“ als Kennung
+   * gelesen wird.
+   */
+  @Get("capabilities")
+  public capabilities(): OrganizationCapabilities {
+    return this.organizationsService.capabilities();
+  }
 
   @Get()
   public async list(

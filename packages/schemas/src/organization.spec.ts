@@ -4,6 +4,7 @@ import {
   createInvitationSchema,
   invitationSchema,
   linkMemberPlayerSchema,
+  organizationCapabilitiesSchema,
   organizationMemberSchema,
   updateMembershipSchema,
   updateOrganizationSchema,
@@ -115,4 +116,18 @@ it("verlangt mindestens ein Stammdatenfeld und laesst den Slug nicht zu", () => 
   expect(updateOrganizationSchema.safeParse({ name: "x" }).success).toBe(false);
   const parsed = updateOrganizationSchema.parse({ slug: "neuer-slug", locale: "fr-CH" });
   expect(parsed).toEqual({ locale: "fr-CH" });
+});
+
+it("nimmt den Faehigkeitsbescheid nur als echten Wahrheitswert entgegen", () => {
+  // Faellt das Feld aus der Antwort oder kommt es als Zeichenkette, darf der
+  // Client daraus nicht „erlaubt“ ableiten: der Weg waere dann sichtbar,
+  // obwohl der Server ihn sperrt.
+  expect(organizationCapabilitiesSchema.safeParse({}).success).toBe(false);
+  expect(
+    organizationCapabilitiesSchema.safeParse({ selfServiceEnabled: "true" }).success,
+  ).toBe(false);
+  expect(
+    organizationCapabilitiesSchema.parse({ selfServiceEnabled: false })
+      .selfServiceEnabled,
+  ).toBe(false);
 });
