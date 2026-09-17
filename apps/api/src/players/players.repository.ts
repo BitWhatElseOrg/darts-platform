@@ -1,7 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, eq } from "drizzle-orm";
 
-import { auditEvents, players } from "@darts-platform/database";
+import {
+  auditEvents,
+  playerAvatars,
+  players,
+  type DatabaseExecutor,
+} from "@darts-platform/database";
 import type {
   CreatePlayerInput,
   UpdatePlayerInput,
@@ -19,7 +24,7 @@ type PlayerRow = typeof players.$inferSelect;
  * `organization:manage_members` liegen (ADR 0015). Die Felder stehen einzeln
  * da, damit eine kuenftige Spalte nicht stillschweigend mitreist.
  */
-function toPlayerResponse(row: PlayerRow) {
+function toPlayerResponse(row: PlayerRow, avatarChecksum: string | null) {
   return {
     id: row.id,
     organizationId: row.organizationId,
@@ -32,9 +37,30 @@ function toPlayerResponse(row: PlayerRow) {
     externalReference: row.externalReference,
     status: row.status,
     hasAccount: row.userId !== null,
+    avatarChecksum,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+/**
+ * Liest ausschliesslich die Pruefsumme eines vorhandenen Profilbildes, nie
+ * die Bytes selbst. Wird von den Schreibpfaden gebraucht, die den Spieler
+ * nicht ueber den `leftJoin` aus `list`/`get` lesen, aber trotzdem den
+ * tatsaechlichen Bildstand melden muessen (z. B. beim Archivieren eines
+ * Spielers mit bestehendem Bild).
+ */
+async function findAvatarChecksum(
+  executor: DatabaseExecutor,
+  playerId: string,
+): Promise<string | null> {
+  const [avatar] = await executor
+    .select({ checksum: playerAvatars.checksum })
+    .from(playerAvatars)
+    .where(eq(playerAvatars.playerId, playerId))
+    .limit(1);
+
+  return avatar?.checksum ?? null;
 }
 
 interface TenantActorInput {
@@ -51,21 +77,25 @@ export class PlayersRepository {
 
   public async list(organizationId: string) {
     const rows = await this.databaseService.database
-      .select()
+      .select({ player: players, avatarChecksum: playerAvatars.checksum })
       .from(players)
+      .leftJoin(playerAvatars, eq(playerAvatars.playerId, players.id))
       .where(eq(players.organizationId, organizationId))
       .orderBy(players.displayName);
 
-    return rows.map(toPlayerResponse);
+    return rows.map((row) =>
+      toPlayerResponse(row.player, row.avatarChecksum ?? null),
+    );
   }
 
   public async get(input: {
     readonly organizationId: string;
     readonly playerId: string;
   }) {
-    const [player] = await this.databaseService.database
-      .select()
+    const [row] = await this.databaseService.database
+      .select({ player: players, avatarChecksum: playerAvatars.checksum })
       .from(players)
+      .leftJoin(playerAvatars, eq(playerAvatars.playerId, players.id))
       .where(
         and(
           eq(players.organizationId, input.organizationId),
@@ -74,7 +104,9 @@ export class PlayersRepository {
       )
       .limit(1);
 
-    return player === undefined ? null : toPlayerResponse(player);
+    return row === undefined
+      ? null
+      : toPlayerResponse(row.player, row.avatarChecksum ?? null);
   }
 
   public async create(
@@ -119,7 +151,8 @@ export class PlayersRepository {
         correlationId: input.audit.correlationId,
       });
 
-      return toPlayerResponse(player);
+      // Ein frisch angelegter Spieler kann noch kein Profilbild haben.
+      return toPlayerResponse(player, null);
     });
   }
 
@@ -194,7 +227,10 @@ export class PlayersRepository {
         correlationId: input.audit.correlationId,
       });
 
-      return toPlayerResponse(player);
+      // Das Update aendert das Profilbild nicht; die vorhandene Pruefsumme
+      // (falls eine existiert) bleibt massgeblich fuer die Antwort.
+      const avatarChecksum = await findAvatarChecksum(transaction, player.id);
+      return toPlayerResponse(player, avatarChecksum);
     });
   }
 
@@ -245,7 +281,10 @@ export class PlayersRepository {
         correlationId: input.audit.correlationId,
       });
 
-      return toPlayerResponse(player);
+      // Das Archivieren aendert das Profilbild nicht; die vorhandene
+      // Pruefsumme (falls eine existiert) bleibt massgeblich.
+      const avatarChecksum = await findAvatarChecksum(transaction, player.id);
+      return toPlayerResponse(player, avatarChecksum);
     });
   }
 }

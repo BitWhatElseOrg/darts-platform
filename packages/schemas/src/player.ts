@@ -38,6 +38,12 @@ export const playerSchema = z.object({
    * abfliessen, die hinter `organization:manage_members` liegen (ADR 0015).
    */
   hasAccount: z.boolean(),
+  /**
+   * Die Prüfsumme des gespeicherten Profilbildes, oder `null`. Die Fläche
+   * weiss damit ohne Zusatzabfrage, ob es ein Bild gibt, und hängt den Wert
+   * als `?v=` an die Bildadresse — eine Änderung bricht den Cache von selbst.
+   */
+  avatarChecksum: z.string().nullable(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
 });
