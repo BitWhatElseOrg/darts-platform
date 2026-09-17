@@ -588,6 +588,15 @@ einem Match mit bereits gespeichertem Leg-1-Anwurf (`DECIDE_LEG_START` für
 Leg 1) machte den Kommandostrom beim nächsten Replay unprojizierbar
 (`activeCommands` lehnt das Kommando dann mit `LEG_START_FIXED` ab).
 
+Wer ein Leg anwirft, wenn die Regel keinen Ausbull-Entscheid verlangt, sagt
+`advanceLegStart` in der Scoring Engine: innerhalb eines Satzes wechselt der
+Anwurf von Leg zu Leg, über eine Satzgrenze hinweg aber ausgehend vom Anwurf
+des vorigen Satzes (DRA 6.13.2 — der Gewinner des Bull-Wurfs wirft im ersten
+und in allen folgenden ungeraden Legs oder Sätzen zuerst). Ohne diese
+Unterscheidung drehte ein Satz mit gerader Legzahl den Satzbeginn zurück auf
+dieselbe Seite. Es ist keine Spalte, sondern eine Ableitung aus dem
+Kommandostrom; betroffen sind nur Matches mit `sets_to_win > 1`.
+
 Sperrdauer: `ADD COLUMN … varchar NOT NULL DEFAULT '…'` nimmt ein
 `ACCESS EXCLUSIVE`-Lock auf `matches`, ist aber ab PostgreSQL 11 eine reine
 Metadatenänderung ohne Tabellen-Rewrite. Das anschliessende `UPDATE` der
