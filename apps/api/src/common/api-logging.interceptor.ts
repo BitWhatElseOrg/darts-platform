@@ -52,6 +52,7 @@ export class ApiLoggingInterceptor implements NestInterceptor {
     readonly correlationId: string;
     readonly startedAt: number;
   }): void {
+    const headers = input.request.headers;
     this.logger.log(
       {
         event: "http_request_completed",
@@ -60,8 +61,18 @@ export class ApiLoggingInterceptor implements NestInterceptor {
         statusCode: input.statusCode,
         durationMs: Math.round((performance.now() - input.startedAt) * 100) / 100,
         correlationId: input.correlationId,
+        ip: input.request.ip,
+        addressHeaders: {
+          "x-real-ip": headerValue(headers["x-real-ip"]),
+          "x-forwarded-for": headerValue(headers["x-forwarded-for"]),
+        },
       },
       ApiLoggingInterceptor.name,
     );
   }
+}
+
+function headerValue(value: string | string[] | undefined): string | null {
+  if (value === undefined) return null;
+  return Array.isArray(value) ? value.join(", ") : value;
 }
