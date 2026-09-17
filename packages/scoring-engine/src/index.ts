@@ -14,6 +14,7 @@ export {
   type ExecuteX01Result,
   type InRule,
   type LegDecision,
+  type LegStartRule,
   type OutRule,
   type SubmitVisitCommand,
   type UndoVisitCommand,

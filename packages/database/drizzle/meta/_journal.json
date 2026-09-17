@@ -218,6 +218,13 @@
       "when": 1789493898068,
       "tag": "0030_player_account_link",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1789493898069,
+      "tag": "0031_match_leg_start_rule",
+      "breakpoints": true
     }
   ]
 }
