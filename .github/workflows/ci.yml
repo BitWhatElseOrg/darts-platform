@@ -108,6 +108,9 @@ jobs:
       - name: End-to-end test
         run: pnpm test:e2e
 
+      - name: End-to-end test gegen Produktivbuild
+        run: pnpm test:e2e:prod
+
       # Ohne diesen Schritt verschwindet jeder Beweis mit dem Runner. Genau
       # das machte einen sporadisch roten Lauf (`team-encounter.spec.ts`,
       # Audit-Nachtrag) im Nachhinein unaufklaerbar: Playwright schreibt bei
