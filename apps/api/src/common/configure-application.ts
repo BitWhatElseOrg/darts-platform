@@ -37,6 +37,20 @@ function registerCspReportContentTypes(app: NestFastifyApplication): void {
 }
 
 /**
+ * Profilbilder kommen als roher Binärkörper (`PUT`, `Content-Type: image/*`),
+ * nicht als Multipart und nicht als base64-JSON. Das spart ein Plugin, und
+ * clientseitig ist es `fetch(url, { method: "PUT", body: blob })`. Die
+ * Bytegrenze bleibt das Fastify-Standardlimit von 1 MB; die Fläche
+ * verkleinert vorher im Browser.
+ */
+function registerImageUploadContentType(app: NestFastifyApplication): void {
+  const instance = app.getHttpAdapter().getInstance();
+  instance.addContentTypeParser(/^image\//u, { parseAs: "buffer" }, (_request, body, done) => {
+    done(null, body);
+  });
+}
+
+/**
  * Verkabelt die Produktions-Pipeline einer Nest-Fastify-Anwendung: CORS-
  * Allowlist, Sicherheits-Header, Rate-Limiting, globaler Fehlerfilter und
  * Logging-Interceptor — in dieser Reihenfolge, wie bisher in `main.ts`.
@@ -58,7 +72,7 @@ export async function configureApplication(
 
   app.enableCors({
     origin: trustedWebOrigins,
-    methods: ["GET", "POST", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "HEAD", "OPTIONS"],
     credentials: true,
     allowedHeaders: [
       "Content-Type",
@@ -67,6 +81,7 @@ export async function configureApplication(
     ],
   });
   registerCspReportContentTypes(app);
+  registerImageUploadContentType(app);
   await registerSecurityHeaders(app);
   await registerRateLimit(app, environment);
   app.useGlobalFilters(new ApiExceptionFilter());

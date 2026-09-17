@@ -58,6 +58,12 @@ describe("buildContentSecurityPolicy", () => {
     );
   });
 
+  it("erlaubt Bilder von der API und aus dem Zuschnitt im Browser fuer das Profilbild", () => {
+    const policy = buildContentSecurityPolicy({ ...options, allowEval: false });
+
+    expect(policy).toContain("img-src 'self' data: blob: https://api.dartbase.ch");
+  });
+
   it("haelt die scharfen Direktiven und beide Meldewege", () => {
     const policy = buildContentSecurityPolicy({ ...options, allowEval: false });
 

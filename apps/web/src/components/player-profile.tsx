@@ -1,13 +1,16 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { playerStatisticsProfileSchema } from "@darts-platform/schemas";
+import { hasOrganizationPermission } from "@darts-platform/domain";
+import { playerSchema, playerStatisticsProfileSchema } from "@darts-platform/schemas";
 import { Rule, SheetLabel } from "@darts-platform/ui";
 import { useMemo } from "react";
 
 import { NavLink, PageNav } from "@/components/page-nav";
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { calendarDateNumeric } from "@/lib/tournament-format";
+import { PlayerAvatar } from "@/components/players/player-avatar";
+import { PlayerAvatarControl } from "@/components/players/player-avatar-control";
 import { useTournamentOrganization } from "./tournament/use-tournament-organization";
 
 export function PlayerProfile({ playerId, requestedOrganizationId }: { readonly playerId: string; readonly requestedOrganizationId: string | undefined }) {
@@ -17,18 +20,50 @@ export function PlayerProfile({ playerId, requestedOrganizationId }: { readonly 
     queryFn: ({ signal }) => apiRequest({ path: `/organizations/${organization?.id ?? ""}/players/${playerId}/statistics`, schema: playerStatisticsProfileSchema, signal }),
     enabled: organization !== null,
   });
+  // Zwischenstand: `playerStatisticsProfileSchema.player` traegt noch kein
+  // `avatarChecksum` (das braeuchte den Statistik-Join und ist ein eigener
+  // Vorgang, kein Teil dieses Tasks). Bis dahin holt eine zweite, gezielt
+  // auf diesen einen Spieler zugeschnittene Abfrage die Pruefsumme — nicht
+  // die ganze Organisationsliste, die bei dreihundert Spielern dreihundert
+  // Datensaetze fuer ein einziges Feld laden wuerde. Eigener Schluessel
+  // ["player-avatar", organizationId, playerId]: ein Bildwechsel muss ihn
+  // beim Invalidieren treffen, sonst zeigt der Kopf das alte Bild weiter.
+  const avatarQuery = useQuery({
+    queryKey: ["player-avatar", organization?.id, playerId],
+    queryFn: ({ signal }) => apiRequest({ path: `/organizations/${organization?.id ?? ""}/players/${playerId}`, schema: playerSchema, signal }),
+    enabled: organization !== null,
+  });
   if (organizationsQuery.isPending || profileQuery.isPending) return <Notice text="Spielerprofil wird geladen …" />;
   if (organization === null) return <Notice text="Keine zugängliche Organisation gefunden." />;
   if (profileQuery.data === undefined) return <Notice text={userFacingErrorMessage(profileQuery.error, "Spielerprofil konnte nicht geladen werden.")} />;
   const profile = profileQuery.data;
   const stats = profile.career;
+  const avatarChecksum = avatarQuery.data?.avatarChecksum ?? null;
+  const avatarPlayer = { id: profile.player.id, displayName: profile.player.displayName, avatarChecksum };
+  // Serverseitig entscheidet `PlayersService.requireAvatarWrite`: erlaubt ist
+  // `player:update` ODER die Verknüpfung mit dem eigenen Konto. Die zweite
+  // Bedingung bildet `organization.playerId` ab — dasselbe Feld, über das
+  // `workspace-shell.tsx` den Link „Mein Profil" führt, also genau der Weg,
+  // über den verknüpfte Personen überhaupt hierher kommen. Das Ausblenden
+  // ist reine Bequemlichkeit; die Berechtigung selbst bleibt serverseitig
+  // geprüft (AGENTS.md §13).
+  const canEditAvatar =
+    hasOrganizationPermission(organization.role, "player:update") ||
+    organization.playerId === profile.player.id;
   return <main className="sektorenring min-h-screen">
     <div className="mx-auto max-w-6xl px-5 py-8">
       <PageNav>
         <NavLink href="/">Übersicht</NavLink>
       </PageNav>
       <header className="flex flex-wrap items-end justify-between gap-4">
-        <div><h1 className="font-numerals text-headline font-bold text-wedge-900">{profile.player.displayName}</h1>{profile.player.nickname ? <p className="mt-1 font-plate text-body text-sisal-500">«{profile.player.nickname}»</p> : null}</div>
+        <div className="flex items-center gap-4">
+          {canEditAvatar ? (
+            <PlayerAvatarControl organizationId={organization.id} player={avatarPlayer} />
+          ) : (
+            <PlayerAvatar decorative organizationId={organization.id} player={avatarPlayer} size={96} />
+          )}
+          <div><h1 className="font-numerals text-headline font-bold text-wedge-900">{profile.player.displayName}</h1>{profile.player.nickname ? <p className="mt-1 font-plate text-body text-sisal-500">«{profile.player.nickname}»</p> : null}</div>
+        </div>
         <p className="font-plate text-body text-sisal-500">{stats.matchesPlayed} Matches · {stats.wins} Siege · {stats.losses} Niederlagen</p>
       </header>
       <Rule className="mt-6" />

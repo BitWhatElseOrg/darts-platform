@@ -200,6 +200,77 @@ Matches, Legs und Statistiken.
 
 ---
 
+## player_avatars
+
+```text
+id uuid PK
+organization_id uuid FK organizations NOT NULL ON DELETE CASCADE
+player_id uuid FK players NOT NULL ON DELETE CASCADE
+content_type varchar(50) NOT NULL
+bytes bytea NOT NULL
+byte_size integer NOT NULL
+checksum varchar(64) NOT NULL
+
+created_at timestamptz NOT NULL
+updated_at timestamptz NOT NULL
+```
+
+Indizes:
+
+```text
+UNIQUE (player_id)                               -- player_avatars_player_unique
+organization_id                                  -- player_avatars_organization_idx
+```
+
+Eigene Tabelle statt Spalten auf `players` (ADR 0016): `players` wird an
+vielen Stellen vollständig gelesen (Spielerlisten, Turnierteilnehmerlisten,
+Aufstellungen), ein Bild dort mitzuschleppen würde jede dieser Abfragen
+verteuern, auch wenn niemand ein Bild anzeigt. `player_avatars_player_unique`
+hält die 1:1-Beziehung fest — ein Spieler trägt höchstens ein Bild.
+
+Gespeichert wird ausschliesslich das vom Server erzeugte 256-px-WebP, nie die
+hochgeladene Originaldatei. Die Applikation nimmt den Upload entgegen,
+normalisiert ihn (Grösse, Format, EXIF-Rotation) und schreibt erst danach
+einen Datensatz — die Tabelle kennt keine Zwischenstufe.
+
+`player_avatars_content_type_check` (Migration `0033_player_avatars`) lässt
+ausschliesslich `content_type = 'image/webp'` zu:
+
+```text
+content_type = 'image/webp'
+```
+
+Da der Server immer WebP erzeugt, ist jeder andere Wert ein Fehler in der
+Applikation, nicht eine gültige fachliche Variante. Der Constraint macht
+diese Annahme zu einer Datenbankregel statt einer stillen Erwartung im Code.
+
+`player_avatars_byte_size_check` (Migration `0033_player_avatars`) begrenzt
+jeden Datensatz auf 256 KiB:
+
+```text
+byte_size > 0 and byte_size <= 262144
+```
+
+Ein 256-px-WebP liegt in der Praxis bei 15–25 KB; 262144 Byte (256 · 1024)
+liegt bewusst weit darüber und ist ein Sicherheitsnetz gegen eine fehlerhafte
+oder manipulierte Bildverarbeitung, nicht die angestrebte Grösse. `> 0`
+schliesst leere Datensätze aus, die weder Applikationslogik noch Fehlerpfad
+je erzeugen sollten.
+
+Beide Fremdschlüssel tragen `ON DELETE CASCADE`: löscht die Applikation einen
+Spieler oder eine Organisation, verschwindet das zugehörige Profilbild ohne
+separaten Aufräumschritt. Anders als bei `players.user_id` (ADR 0015, `SET
+NULL`) gibt es hier keinen sinnvollen verwaisten Zustand — ein Profilbild ohne
+Spieler oder Organisation ist kein Datum, das die Applikation je liest.
+
+`player_avatars` ist eine neue Tabelle ohne Bestand; anders als bei einem
+`ALTER TABLE` auf eine bestehende Tabelle entfällt daher sowohl die
+Bestandsprüfung vor dem Ausrollen als auch die Frage nach der Sperrdauer für
+Fremdschlüssel und Check-Constraints — `CREATE TABLE` sperrt nur das neue,
+leere Objekt.
+
+---
+
 ## teams
 
 ```text
