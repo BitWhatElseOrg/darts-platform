@@ -48,16 +48,26 @@ function toPlayerResponse(row: PlayerRow, avatarChecksum: string | null) {
  * die Bytes selbst. Wird von den Schreibpfaden gebraucht, die den Spieler
  * nicht ueber den `leftJoin` aus `list`/`get` lesen, aber trotzdem den
  * tatsaechlichen Bildstand melden muessen (z. B. beim Archivieren eines
- * Spielers mit bestehendem Bild).
+ * Spielers mit bestehendem Bild). `organizationId` wird explizit mitgefuehrt
+ * (AGENTS.md §14) statt sich auf die Mandantenpruefung der Aufrufer zu
+ * verlassen: die Funktion bleibt auch dann sicher, wenn sie kuenftig von
+ * einer Stelle aufgerufen wird, die `playerId` nicht selbst schon
+ * tenant-scoped validiert hat.
  */
 async function findAvatarChecksum(
   executor: DatabaseExecutor,
+  organizationId: string,
   playerId: string,
 ): Promise<string | null> {
   const [avatar] = await executor
     .select({ checksum: playerAvatars.checksum })
     .from(playerAvatars)
-    .where(eq(playerAvatars.playerId, playerId))
+    .where(
+      and(
+        eq(playerAvatars.organizationId, organizationId),
+        eq(playerAvatars.playerId, playerId),
+      ),
+    )
     .limit(1);
 
   return avatar?.checksum ?? null;
@@ -229,7 +239,11 @@ export class PlayersRepository {
 
       // Das Update aendert das Profilbild nicht; die vorhandene Pruefsumme
       // (falls eine existiert) bleibt massgeblich fuer die Antwort.
-      const avatarChecksum = await findAvatarChecksum(transaction, player.id);
+      const avatarChecksum = await findAvatarChecksum(
+        transaction,
+        input.organizationId,
+        player.id,
+      );
       return toPlayerResponse(player, avatarChecksum);
     });
   }
@@ -283,7 +297,11 @@ export class PlayersRepository {
 
       // Das Archivieren aendert das Profilbild nicht; die vorhandene
       // Pruefsumme (falls eine existiert) bleibt massgeblich.
-      const avatarChecksum = await findAvatarChecksum(transaction, player.id);
+      const avatarChecksum = await findAvatarChecksum(
+        transaction,
+        input.organizationId,
+        player.id,
+      );
       return toPlayerResponse(player, avatarChecksum);
     });
   }
