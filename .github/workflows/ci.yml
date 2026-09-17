@@ -30,7 +30,7 @@ jobs:
   quality:
     name: Phase 0 quality gate
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     services:
       postgres:
@@ -83,10 +83,7 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
-        run: pnpm test
-
-      - name: Coverage
+      - name: Test mit Coverage
         run: pnpm test:coverage && node scripts/coverage-summary.mjs >> "$GITHUB_STEP_SUMMARY"
 
       - name: Coverage-Berichte sichern
