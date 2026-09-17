@@ -225,6 +225,13 @@
       "when": 1789493898069,
       "tag": "0031_match_leg_start_rule",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1789493898070,
+      "tag": "0032_encounter_nomination_single_side",
+      "breakpoints": true
     }
   ]
 }

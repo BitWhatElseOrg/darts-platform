@@ -66,8 +66,28 @@ const expectCode = (act: () => void, code: string): void => {
 };
 
 describe("validateNominations", () => {
-  const validate = (nominations: readonly NominationEntry[]) =>
-    validateNominations({ side: "HOME", nominations, squadPlayerIds: squad, rules });
+  const validate = (
+    nominations: readonly NominationEntry[],
+    opposingPlayerIds: readonly string[] = [],
+  ) =>
+    validateNominations({
+      side: "HOME",
+      nominations,
+      squadPlayerIds: squad,
+      opposingPlayerIds,
+      rules,
+    });
+
+  it("lehnt eine Person ab, welche die Gegenseite bereits gemeldet hat", () => {
+    // DRA 6.10.3: Kein Spieler darf in einem Darts-Event fuer mehr als ein
+    // Team spielen. Die Kaderpruefung greift dagegen nicht — eine Aushilfe
+    // (`origin: "GUEST"`) ist an keinen Kader gebunden, und dieselbe Person
+    // kann in zwei Mannschaften aktiv sein.
+    expectCode(
+      () => validate(fullLineup(), ["h3"]),
+      "PLAYER_ON_BOTH_SIDES",
+    );
+  });
 
   it("akzeptiert vier besetzte Positionen mit zwei Ersatzpersonen", () => {
     expect(() => validate(fullLineup())).not.toThrow();
@@ -128,6 +148,7 @@ describe("validateNominations", () => {
         side: "HOME",
         nominations: fullLineup(),
         squadPlayerIds: squad,
+        opposingPlayerIds: [],
         rules: { ...rules, minNominations: 7 },
       }),
     ).toThrow(expect.objectContaining({ code: "NOT_ENOUGH_NOMINATIONS" }));

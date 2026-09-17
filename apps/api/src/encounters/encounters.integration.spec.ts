@@ -550,6 +550,41 @@ describe("team encounter persistence", () => {
     expect(stored.every((row) => row.side === "HOME")).toBe(true);
   }, 30_000);
 
+  it("refuses a person nominated by both sides", async () => {
+    // DRA 6.10.3: Kein Spieler darf in einem Darts-Event fuer mehr als ein
+    // Team spielen. Als Aushilfe gemeldet greift die Kaderpruefung nicht —
+    // ohne die seitenuebergreifende Pruefung stuende dieselbe Person im
+    // Einzel der Position vier auf beiden Seiten.
+    const competitionId = await createCompetition();
+    const encounter = await scheduleEncounter(competitionId);
+    const nominated = await nominate(encounter, "HOME", homePlayerIds.slice(0, 4));
+
+    await expect(
+      encountersService.submitNominations({
+        organizationId,
+        encounterId: encounter.id,
+        data: {
+          commandId: randomUUID(),
+          expectedVersion: nominated.version,
+          side: "AWAY",
+          nominations: [
+            ...awayPlayerIds.slice(0, 3).map((playerId, index) => ({
+              position: index + 1,
+              playerId,
+              origin: "SQUAD" as const,
+            })),
+            { position: 4, playerId: homePlayerIds[0]!, origin: "GUEST" as const },
+          ],
+        },
+        auth,
+        audit,
+      }),
+    ).rejects.toMatchObject({
+      response: { code: "NOMINATION_PLAYER_ON_BOTH_SIDES" },
+      status: 422,
+    });
+  }, 30_000);
+
   it("ignores a repeated commandId instead of applying it twice", async () => {
     const competitionId = await createCompetition();
     const encounter = await scheduleEncounter(competitionId);

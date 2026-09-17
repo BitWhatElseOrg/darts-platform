@@ -1463,7 +1463,13 @@ export const encounterNominations = pgTable(
       table.organizationId,
       table.encounterId,
     ),
-    index("encounter_nominations_encounter_player_idx").on(table.encounterId, table.playerId),
+    // DRA 6.10.3: Eine Person spielt in einem Darts-Event fuer hoechstens ein
+    // Team. Der Index deckt zugleich die Suche nach (Begegnung, Person) ab,
+    // die er als nicht eindeutiger Index zuvor allein getragen hat.
+    uniqueIndex("encounter_nominations_encounter_player_unique").on(
+      table.encounterId,
+      table.playerId,
+    ),
     check("encounter_nominations_side_check", sql`${table.side} in ('HOME', 'AWAY')`),
     check(
       "encounter_nominations_position_check",
