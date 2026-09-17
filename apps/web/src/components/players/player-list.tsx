@@ -17,6 +17,7 @@ import {
 import { ListFilterBar } from "@/components/list-filter-bar";
 
 import { inputClassName } from "./form-styles";
+import { PlayerAvatar } from "./player-avatar";
 
 export function PlayerList({
   players,
@@ -195,15 +196,18 @@ function PlayerRow({
             />
           </div>
         ) : (
-          <div>
-            <p className="font-semibold text-white">{player.displayName}</p>
-            <p className="text-caption text-slate-400">
-              {player.nickname ?? "Kein Spitzname"} · {player.status === "ACTIVE" ? "Aktiv" : "Archiviert"}
-              {" · "}
-              {teams.length > 0 ? teams.join(", ") : "Ohne Team"}
-              {" · "}
-              {player.hasAccount ? "Konto verknüpft" : "Kein Konto verknüpft"}
-            </p>
+          <div className="flex items-center gap-3">
+            <PlayerAvatar decorative organizationId={organizationId} player={player} size={40} />
+            <div>
+              <p className="font-semibold text-white">{player.displayName}</p>
+              <p className="text-caption text-slate-400">
+                {player.nickname ?? "Kein Spitzname"} · {player.status === "ACTIVE" ? "Aktiv" : "Archiviert"}
+                {" · "}
+                {teams.length > 0 ? teams.join(", ") : "Ohne Team"}
+                {" · "}
+                {player.hasAccount ? "Konto verknüpft" : "Kein Konto verknüpft"}
+              </p>
+            </div>
           </div>
         )}
         <div className="flex flex-wrap gap-2">

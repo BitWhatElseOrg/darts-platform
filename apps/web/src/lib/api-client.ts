@@ -73,6 +73,8 @@ function localizedMessage(code: string): string {
       "Nur eine aktive Eigentümerin oder ein aktiver Eigentümer kann Eigentum übertragen.",
     SELF_MEMBERSHIP_CHANGE_FORBIDDEN:
       "Die eigene Mitgliedschaft ändert eine andere verwaltende Person.",
+    AVATAR_INVALID_IMAGE: "Diese Datei liess sich nicht als Bild lesen. Wähle ein JPEG, PNG oder WebP.",
+    AVATAR_TOO_LARGE: "Das Bild ist zu gross. Wähle ein kleineres Bild.",
   };
   const translated = messages[code];
   if (translated !== undefined) return translated;
@@ -91,6 +93,13 @@ export async function apiRequest<T>(input: {
   readonly schema: z.ZodType<T>;
   readonly method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   readonly body?: unknown;
+  /**
+   * Roher Binärkörper (z. B. ein Bild-`Blob`) statt eines JSON-Körpers. Der
+   * `Content-Type`-Header kommt vom `Blob` selbst — der Avatar-Endpunkt
+   * erwartet `image/*`, kein JSON (siehe `PUT .../players/:playerId/avatar`).
+   * Schliesst sich mit `body` aus.
+   */
+  readonly rawBody?: Blob;
   readonly signal?: AbortSignal;
 }): Promise<T> {
   const response = await fetch(
@@ -100,9 +109,17 @@ export async function apiRequest<T>(input: {
       credentials: "include",
       headers: {
         Accept: "application/json",
-        ...(input.body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...(input.rawBody !== undefined
+          ? { "Content-Type": input.rawBody.type }
+          : input.body === undefined
+            ? {}
+            : { "Content-Type": "application/json" }),
       },
-      ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
+      ...(input.rawBody !== undefined
+        ? { body: input.rawBody }
+        : input.body === undefined
+          ? {}
+          : { body: JSON.stringify(input.body) }),
       signal: input.signal ?? null,
     },
   );

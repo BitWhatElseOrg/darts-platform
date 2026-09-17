@@ -50,8 +50,10 @@ export function buildContentSecurityPolicy({
     "form-action 'self'",
     scriptSource,
     "style-src 'self' 'unsafe-inline'",
-    // QR-Codes der Board-Ansicht sind `data:`-URLs.
-    "img-src 'self' data:",
+    // QR-Codes der Board-Ansicht sind `data:`-URLs; das Profilbild kommt von
+    // der API (`apiOrigin`), und seine Vorschau vor dem Speichern ist ein
+    // `blob:`-Objekt-URL aus dem Zuschnitt im Browser (`avatar-upload.ts`).
+    `img-src 'self' data: blob: ${apiOrigin}`,
     "font-src 'self' data:",
     `connect-src 'self' ${apiOrigin} ${websocketOrigin}`,
     `report-uri ${reportUri}`,
