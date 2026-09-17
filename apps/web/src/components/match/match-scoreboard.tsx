@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import { type MatchStateResponse } from "@darts-platform/schemas";
 import { cn, Control } from "@darts-platform/ui";
 import { userFacingErrorMessage } from "@/lib/api-client";
@@ -41,6 +42,13 @@ function winnerName(match: MatchStateResponse): string {
   return side === undefined ? "" : sideNames(side);
 }
 const mutationMessage = (error: unknown) => userFacingErrorMessage(error);
+
+/**
+ * Wie lange das Band „Match beendet" stehen bleibt, bevor die Fläche zurück
+ * auf die Übersicht geht. Lang genug, um den Ausgang zu lesen, kurz genug,
+ * dass an einem Ligaabend niemand den Rückweg von Hand geht.
+ */
+export const matchEndRedirectDelayMs = 5_000;
 
 export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match, organizationId }: {
   readonly backHref: string;
@@ -134,6 +142,34 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
     setAbortOpen(false);
     setSettingsOpen(false);
   }
+  // Der Rückweg von der Fläche. Beide Wege enden auf `backHref` — der
+  // Begegnung, aus der das Match gestartet wurde, sonst der Matchübersicht
+  // (`matchBackLink`).
+  //
+  // Ein abgebrochenes Match trägt nichts mehr zu lesen, dort geht es sofort.
+  // Ein regulär beendetes schon: das Band mit dem Ausgang bleibt
+  // `matchEndRedirectDelayMs` stehen.
+  //
+  // Beide Effekte reagieren auf den ÜBERGANG, nicht auf den Zustand. Sonst
+  // liesse sich ein abgeschlossenes Match nicht mehr ansehen — die Fläche
+  // würde es beim Öffnen sofort wieder verlassen.
+  const router = useRouter();
+  const seenAbort = useRef(scoring.abortSucceededAt);
+  useEffect(() => {
+    if (seenAbort.current === scoring.abortSucceededAt) return;
+    seenAbort.current = scoring.abortSucceededAt;
+    router.push(backHref);
+  }, [scoring.abortSucceededAt, backHref, router]);
+  const seenStatus = useRef(match.status);
+  const [leaving, setLeaving] = useState(false);
+  useEffect(() => {
+    const before = seenStatus.current;
+    seenStatus.current = match.status;
+    if (before === match.status || match.status !== "COMPLETED") return;
+    setLeaving(true);
+    const timer = setTimeout(() => router.push(backHref), matchEndRedirectDelayMs);
+    return () => { clearTimeout(timer); };
+  }, [match.status, backHref, router]);
   const handleRoundDigit = (digit: number) => setRoundValue((current) => appendRoundDigit(current, digit));
   const handleRoundQuickScore = (score: number) => setRoundValue(String(score));
   const handleRoundBackspace = () => {
@@ -441,6 +477,14 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
             <div className="border-b border-ring-green/30 bg-ring-green/10 p-5 text-center">
               <p className="text-body uppercase tracking-[0.12em] text-ring-green">Match beendet</p>
               <p className="mt-1 font-numerals text-title font-bold text-chalk">{winnerName(match)} gewinnt</p>
+              {/* Nur wenn der Sprung wirklich ansteht: wer ein abgeschlossenes
+                  Match nachschaut, bekommt keine Zusage, die niemand einlöst.
+                  Live-Region, weil die Fläche gleich ohne Zutun wechselt. */}
+              {leaving ? (
+                <p aria-live="polite" className="mt-2 text-body text-spider" role="status">
+                  {backLabel} geht es gleich von selbst.
+                </p>
+              ) : null}
             </div>
           ) : canScore && inputMode === "DART" ? (
             // Begrenzt und an die Unterkante gezogen: auf 820 x 1180 streckte
