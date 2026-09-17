@@ -1,13 +1,14 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { playerStatisticsProfileSchema } from "@darts-platform/schemas";
+import { playerListSchema, playerStatisticsProfileSchema } from "@darts-platform/schemas";
 import { Rule, SheetLabel } from "@darts-platform/ui";
 import { useMemo } from "react";
 
 import { NavLink, PageNav } from "@/components/page-nav";
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { calendarDateNumeric } from "@/lib/tournament-format";
+import { PlayerAvatar } from "@/components/players/player-avatar";
 import { useTournamentOrganization } from "./tournament/use-tournament-organization";
 
 export function PlayerProfile({ playerId, requestedOrganizationId }: { readonly playerId: string; readonly requestedOrganizationId: string | undefined }) {
@@ -17,18 +18,30 @@ export function PlayerProfile({ playerId, requestedOrganizationId }: { readonly 
     queryFn: ({ signal }) => apiRequest({ path: `/organizations/${organization?.id ?? ""}/players/${playerId}/statistics`, schema: playerStatisticsProfileSchema, signal }),
     enabled: organization !== null,
   });
+  // Dieselbe Abfrage (Schluessel und Pfad) wie in der Spielerliste: kommt
+  // man von dort her, steht die Pruefsumme schon im Cache, und eine
+  // Invalidierung der Liste erfasst kuenftig auch diese Anzeige.
+  const playersQuery = useQuery({
+    queryKey: ["players", organization?.id],
+    queryFn: ({ signal }) => apiRequest({ path: `/organizations/${organization?.id ?? ""}/players`, schema: playerListSchema, signal }),
+    enabled: organization !== null,
+  });
   if (organizationsQuery.isPending || profileQuery.isPending) return <Notice text="Spielerprofil wird geladen …" />;
   if (organization === null) return <Notice text="Keine zugängliche Organisation gefunden." />;
   if (profileQuery.data === undefined) return <Notice text={userFacingErrorMessage(profileQuery.error, "Spielerprofil konnte nicht geladen werden.")} />;
   const profile = profileQuery.data;
   const stats = profile.career;
+  const avatarChecksum = playersQuery.data?.find((entry) => entry.id === profile.player.id)?.avatarChecksum ?? null;
   return <main className="sektorenring min-h-screen">
     <div className="mx-auto max-w-6xl px-5 py-8">
       <PageNav>
         <NavLink href="/">Übersicht</NavLink>
       </PageNav>
       <header className="flex flex-wrap items-end justify-between gap-4">
-        <div><h1 className="font-numerals text-headline font-bold text-wedge-900">{profile.player.displayName}</h1>{profile.player.nickname ? <p className="mt-1 font-plate text-body text-sisal-500">«{profile.player.nickname}»</p> : null}</div>
+        <div className="flex items-center gap-4">
+          <PlayerAvatar decorative organizationId={organization.id} player={{ id: profile.player.id, displayName: profile.player.displayName, avatarChecksum }} size={96} />
+          <div><h1 className="font-numerals text-headline font-bold text-wedge-900">{profile.player.displayName}</h1>{profile.player.nickname ? <p className="mt-1 font-plate text-body text-sisal-500">«{profile.player.nickname}»</p> : null}</div>
+        </div>
         <p className="font-plate text-body text-sisal-500">{stats.matchesPlayed} Matches · {stats.wins} Siege · {stats.losses} Niederlagen</p>
       </header>
       <Rule className="mt-6" />
