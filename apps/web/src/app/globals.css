@@ -117,7 +117,18 @@ html {
 }
 
 body {
+  /* `100vh` ist auf iOS die GROSSE Viewporthöhe — die Höhe, die die Seite
+     hätte, wenn Safari seine Leisten eingefahren hat. Bei eingeblendeten
+     Leisten ist das Dokument damit um deren Höhe höher als der sichtbare
+     Bereich, und jede Seite lässt sich vertikal schieben, auch eine, die
+     genau in den Viewport gebaut ist: die Scoringfläche ist `100dvh` hoch
+     (`match-scoreboard.tsx`), das `body` darunter aber `100vh`.
+     `100svh` ist die KLEINE Viewporthöhe und damit die einzige, die nie
+     Überlauf erzeugt. Die `100vh`-Zeile bleibt als Rückfallwert für
+     Browser ohne `svh` stehen (vor Safari 15.4 / Chrome 108) — sie wird
+     von der folgenden Zeile überschrieben, wo die Einheit bekannt ist. */
   min-height: 100vh;
+  min-height: 100svh;
   margin: 0;
   background:
     radial-gradient(circle at top, rgb(16 185 129 / 0.12), transparent 36rem),

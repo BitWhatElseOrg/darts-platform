@@ -425,3 +425,65 @@ test("the keypad action row stays in view on a 360x640 board device", async ({ p
   expect(await inView("Ziffer 0")).toBe(true);
   expect(await inView("Ziffer 7")).toBe(true);
 });
+
+/**
+ * Keine Taste der Scoringfläche darf sich aus dem Bild schieben — auf keiner
+ * Gerätehöhe. Der frühere Höhen-Breakpoint (`max-height: 44rem`, 704 px)
+ * schaltete die Tastenhöhe in einem Sprung von 44 auf 56 px um: knapp
+ * oberhalb der Schwelle wuchsen Tasten und Panelabstände um rund 80 px,
+ * während der Viewport nur 1 px höher war. Der Überhang landete im
+ * scrollenden Teil des Keypads — auf einem iPhone mit eingeblendeten
+ * Safari-Leisten (705–720 px Sichthöhe) scrollten damit genau die
+ * Zähltasten, und zwar mitten im Zählen.
+ *
+ * Der Fall prüft deshalb nicht eine einzelne Taste, sondern jede Taste der
+ * Fläche über ein Höhenband, das die gängigen iPhone-Sichthöhen und die alte
+ * Sprungstelle einschliesst. 600 px ist die Untergrenze: darunter passen
+ * fünf Tastenreihen zu 44 px (AGENTS.md §19) samt Kopfzeile und Panels
+ * nachweislich nicht mehr, dort bleibt das Scrollen die ehrlichere Antwort
+ * als abgeschnittene Tasten.
+ */
+test("keine Taste der Scoringflaeche rutscht auf Geraetehoehen ab 600 px aus dem Bild", async ({ page }) => {
+  await page.setViewportSize({ width: 393, height: 734 });
+  await openScoreboard(page, "tastenhoehe");
+
+  // Gemessen wird der Überlauf der Scrollbereiche selbst, nicht die Lage der
+  // Tasten im Viewport: eine unten abgeschnittene Tastenreihe steht zwar
+  // ausserhalb ihres Scrollkastens, aber oft noch innerhalb des Bildes — die
+  // Aktionszeile liegt ja darunter. Scrollbar ist scrollbar.
+  const scrollable = () => page.evaluate(() => {
+    const section = document.querySelector("section[aria-label='Match-Scoreboard']");
+    if (section === null) return ["Keine Scoringfläche."];
+    const overflowing = Array.from(section.querySelectorAll("*"))
+      .filter((node): node is HTMLElement => node instanceof HTMLElement)
+      .filter((node) => {
+        const overflowY = getComputedStyle(node).overflowY;
+        return (overflowY === "auto" || overflowY === "scroll")
+          && node.clientHeight > 0
+          && node.scrollHeight > node.clientHeight + 1;
+      })
+      .map((node) =>
+        `${node.className.slice(0, 40)} scrollt ${node.scrollHeight - node.clientHeight} px`
+        + ` bei ${window.innerHeight} px Sichthöhe`);
+    const cutOff = Array.from(section.querySelectorAll("button"))
+      .map((button) => ({ button, rect: button.getBoundingClientRect() }))
+      .filter(({ rect }) => rect.height > 0 && (rect.top < -0.5 || rect.bottom > window.innerHeight + 0.5))
+      .map(({ button }) => `${button.getAttribute("aria-label") ?? button.textContent?.trim() ?? "?"} liegt ausserhalb des Bildes`);
+    return [...overflowing, ...cutOff];
+  });
+
+  // Sichthöhen gängiger iPhones mit eingeblendeten Safari-Leisten, dazu die
+  // Sprungstelle 704/705 px und ihr unmittelbares Umfeld.
+  const heights = [600, 625, 660, 690, 700, 705, 712, 720, 745, 760, 814];
+
+  for (const height of heights) {
+    await page.setViewportSize({ width: 393, height });
+    await expect.poll(scrollable, { message: `Dart-Modus bei ${height} px` }).toEqual([]);
+  }
+
+  await switchInputMode(page, "Runde");
+  for (const height of heights) {
+    await page.setViewportSize({ width: 393, height });
+    await expect.poll(scrollable, { message: `Runden-Modus bei ${height} px` }).toEqual([]);
+  }
+});

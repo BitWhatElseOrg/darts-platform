@@ -492,8 +492,10 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
             // Ziffern, und ein Keypad an der Oberkante eines Tablets liegt
             // ausserhalb der Daumenzone. `self-end` haelt es unten, `max-w-lg`
             // und `max-h` halten die Tastengroesse in einem Verhaeltnis, das
-            // eine Hand bedienen kann.
-            <div className="relative mx-auto min-h-0 w-full max-w-lg flex-1 basis-auto p-3 [@media(min-height:56rem)]:max-h-[44rem]">
+            // eine Hand bedienen kann. Unter 44 rem Sichthoehe faellt der
+            // Rahmen auf 8 px: dort zaehlt jedes Pixel fuer die Tastenhoehe,
+            // und der Rahmen ist die einzige Flaeche ohne eigene Aussage.
+            <div className="relative mx-auto min-h-0 w-full max-w-lg flex-1 basis-auto p-3 [@media(max-height:44rem)]:p-2 [@media(min-height:56rem)]:max-h-[44rem]">
               {/* Der erzwungene Wechsel wird benannt, nicht bloss vollzogen:
                   sonst steht die zaehlende Person vor einem anderen Keypad,
                   als sie eingestellt hat. Live-Region, weil der Hinweis ohne
@@ -529,7 +531,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
             // scrollt seit der 360x640-Messung seinen Mittelteil selbst und
             // haelt Ruecktaste und Absenden fest (round-keypad.tsx). Ein
             // Scroller hier wuerde beides wieder mitnehmen.
-            <div className="relative mx-auto min-h-0 w-full max-w-lg flex-1 basis-auto p-3 [@media(min-height:56rem)]:max-h-[44rem]">
+            <div className="relative mx-auto min-h-0 w-full max-w-lg flex-1 basis-auto p-3 [@media(max-height:44rem)]:p-2 [@media(min-height:56rem)]:max-h-[44rem]">
               <RoundKeypad
                 disabled={!mayControl || legDecision !== null || activeParticipant === undefined || scoring.submitPending || checkoutOpen || roundBustVisit !== null}
                 onBackspace={handleRoundBackspace}

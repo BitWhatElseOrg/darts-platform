@@ -4,7 +4,7 @@ import type { FrequentScores } from "@darts-platform/schemas";
 import { cn, Rule } from "@darts-platform/ui";
 import { quickScoresSourceLabel } from "@/lib/scoreboard-view";
 import { BackspaceKey } from "./backspace-key";
-import { keypadKeyClassName } from "./keypad-key";
+import { keypadActionKeyClassName, keypadKeyClassName } from "./keypad-key";
 
 /**
  * Absendeknopf als gezeichnete Marke statt eines Unicode-Chevrons —
@@ -41,11 +41,18 @@ const digitRows: readonly (readonly number[])[] = [
  * solange `submittable` falsch ist — eine mit drei Darts nicht werfbare Summe
  * lässt sich zwar weiter eintippen, aber nicht abschicken.
  *
- * Die Aktionszeile steht ausserhalb des scrollenden Bereichs: bei 360 × 640
+ * Die Aktionszeile steht ausserhalb des mitwachsenden Bereichs: bei 360 × 640
  * (das schmalste erwartete Boardgerät) brauchte der Inhalt 473 px bei 392 px
  * Platz, und der Absendeknopf lag damit unter der Kante — erreichbar nur
  * durch Scrollen im Keypad, mitten im häufigsten Handgriff der Fläche.
- * Schnellwerte und Ziffern scrollen notfalls, Rücktaste und Absenden nie.
+ *
+ * Schnellwerte und Ziffern wiederum fordern keine feste Höhe mehr, sie teilen
+ * sich den Platz, der nach Wertanzeige und Aktionszeile bleibt (2 zu 3 nach
+ * Reihenzahl), und schrumpfen bis auf die 44 px aus AGENTS.md §19. Das
+ * `overflow-y-auto` bleibt nur als letzte Sicherung für Geräte unter rund
+ * 600 px Sichthöhe stehen, wo auch 44 px je Reihe nicht mehr passen —
+ * abgeschnittene Tasten wären dort die schlechtere Antwort als scrollende.
+ * Auf jedem iPhone mit eingeblendeten Safari-Leisten greift sie nicht mehr.
  */
 export function RoundKeypad({ value, quickScores, quickScoresSource, submittable, disabled, undoAvailable, undoPoints, onDigit, onQuickScore, onBackspace, onSubmit }: {
   readonly value: string;
@@ -68,7 +75,7 @@ export function RoundKeypad({ value, quickScores, quickScoresSource, submittable
   // Der Platzhalter steht in `spider-dim` (6,9:1 gegen den Grund); in
   // `sisal-300` erreichte er 2,7:1 und las sich wie ein Ziehgriff.
   return (
-    <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] gap-2">
+    <div className="grid h-full min-h-0 grid-rows-[auto_1fr_auto] gap-2 [@media(max-height:44rem)]:gap-1">
       <p
         aria-live="polite"
         className={cn(
@@ -78,29 +85,32 @@ export function RoundKeypad({ value, quickScores, quickScoresSource, submittable
       >
         {value === "" ? "–" : value}
       </p>
-      <div className="grid min-h-0 grid-rows-[auto_auto_1fr] gap-2 overflow-y-auto">
-        <div className="space-y-1">
-          <p className="text-center text-caption font-semibold uppercase tracking-[0.12em] text-spider-dim">
-            {quickScoresSourceLabel(quickScoresSource)}
-          </p>
-          <div className="grid grid-rows-2 gap-2">
-            {quickScoreRows.map((row, rowIndex) => (
-              <div className="grid grid-cols-3 gap-2" key={rowIndex}>
-                {row.map((score) => (
-                  <button
-                    aria-label={`${score} Punkte`}
-                    className={cn(keypadKeyClassName, "bg-wedge-800")}
-                    disabled={disabled}
-                    key={score}
-                    onClick={() => onQuickScore(score)}
-                    type="button"
-                  >
-                    {score}
-                  </button>
-                ))}
-              </div>
-            ))}
-          </div>
+      {/* Vier Zeilen statt drei, und die beiden Tastenblöcke im Verhältnis
+          ihrer Reihenzahl (2 zu 3): so bleiben Schnellwert- und Zifferntasten
+          gleich hoch, und beide Blöcke geben Höhe her, wenn das Gerät knapp
+          ist. Vorher stand der Schnellwertblock in einer `auto`-Zeile, nahm
+          also seine Wunschhöhe und liess das Schrumpfen allein den Ziffern. */}
+      <div className="grid min-h-0 grid-rows-[auto_2fr_auto_3fr] gap-2 overflow-y-auto [@media(max-height:44rem)]:gap-1">
+        <p className="text-center text-caption font-semibold uppercase tracking-[0.12em] text-spider-dim">
+          {quickScoresSourceLabel(quickScoresSource)}
+        </p>
+        <div className="grid min-h-0 grid-rows-2 gap-2 [@media(max-height:44rem)]:gap-1">
+          {quickScoreRows.map((row, rowIndex) => (
+            <div className="grid grid-cols-3 gap-2 [@media(max-height:44rem)]:gap-1" key={rowIndex}>
+              {row.map((score) => (
+                <button
+                  aria-label={`${score} Punkte`}
+                  className={cn(keypadKeyClassName, "bg-wedge-800")}
+                  disabled={disabled}
+                  key={score}
+                  onClick={() => onQuickScore(score)}
+                  type="button"
+                >
+                  {score}
+                </button>
+              ))}
+            </div>
+          ))}
         </div>
         {/* Schnellwerte und Ziffern sind beides Reihen zu drei gleich
             aussehenden Tasten; ohne Kante verschwimmen sie zu einem Feld und
@@ -110,9 +120,9 @@ export function RoundKeypad({ value, quickScores, quickScoresSource, submittable
             Telefon unsichtbar. Die Schnellwerte tragen zusätzlich den
             helleren Feld-Grund (#334155), die Ziffern den dunkleren (#1e293b). */}
         <Rule tone="ink" />
-        <div className="grid grid-rows-3 gap-2">
+        <div className="grid min-h-0 grid-rows-3 gap-2 [@media(max-height:44rem)]:gap-1">
           {digitRows.map((row, rowIndex) => (
-            <div className="grid grid-cols-3 gap-2" key={rowIndex}>
+            <div className="grid grid-cols-3 gap-2 [@media(max-height:44rem)]:gap-1" key={rowIndex}>
               {row.map((digit) => (
                 <button
                   aria-label={`Ziffer ${digit}`}
@@ -133,6 +143,7 @@ export function RoundKeypad({ value, quickScores, quickScoresSource, submittable
       </div>
       <div className="grid grid-cols-3 gap-2">
         <BackspaceKey
+          className={keypadActionKeyClassName}
           disabled={disabled}
           entryEmpty={value === ""}
           onPress={onBackspace}
@@ -141,7 +152,7 @@ export function RoundKeypad({ value, quickScores, quickScoresSource, submittable
         />
         <button
           aria-label="Ziffer 0"
-          className={keypadKeyClassName}
+          className={keypadActionKeyClassName}
           disabled={disabled}
           onClick={() => onDigit(0)}
           type="button"
@@ -150,7 +161,7 @@ export function RoundKeypad({ value, quickScores, quickScoresSource, submittable
         </button>
         <button
           aria-label="Aufnahme erfassen"
-          className={cn(keypadKeyClassName, "border-ring-green bg-ring-green text-chalk hover:enabled:bg-ring-green-deep")}
+          className={cn(keypadActionKeyClassName, "border-ring-green bg-ring-green text-chalk hover:enabled:bg-ring-green-deep")}
           disabled={disabled || !submittable}
           onClick={onSubmit}
           type="button"
