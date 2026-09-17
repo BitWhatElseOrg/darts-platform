@@ -177,7 +177,11 @@ function fillParams(url: string): string {
 describe("Tenant-Isolation: Owner von A gegen Ressourcen von B", () => {
   it("prüft jede Route mit :organizationId", async () => {
     const tenantRoutes = routes.filter((route) => route.url.includes(":organizationId"));
-    expect(tenantRoutes.length).toBeGreaterThanOrEqual(40);
+    expect(
+      tenantRoutes.length,
+      `Nur ${tenantRoutes.length} tenant-bezogene Routen gefunden, erwartet mindestens 60 ` +
+        "(Stand 17.09.2026: 65) — moeglicherweise ist das Routen-Inventar (collectRoutes) kaputt.",
+    ).toBeGreaterThanOrEqual(60);
 
     const leaks: string[] = [];
     const unproven: string[] = [];

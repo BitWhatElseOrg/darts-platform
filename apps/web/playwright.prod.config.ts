@@ -13,7 +13,10 @@ const apiOrigin = `http://localhost:${apiPort}`;
 // hier auf den tatsaechlichen Produktiv-API-Port zu setzen, statt den
 // Testfall anzufassen. `PLAYWRIGHT_WEB_PORT` liest aktuell kein Spec direkt
 // (siehe `grep -r PLAYWRIGHT_WEB_PORT tests/`), bleibt also unangetastet.
-process.env.PLAYWRIGHT_API_PORT = String(apiPort);
+// `??=` statt einer unbedingten Zuweisung: ist die Variable bereits gesetzt
+// (z. B. von aussen fuer einen anderen Lauf im selben Prozess), gilt sie als
+// Vorgabe und wird hier nicht ueberschrieben.
+process.env.PLAYWRIGHT_API_PORT ??= String(apiPort);
 
 /**
  * Eigenstaendige Konfiguration gegen den echten Produktivbuild statt
