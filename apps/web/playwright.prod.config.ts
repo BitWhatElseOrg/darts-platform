@@ -51,10 +51,25 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
-  retries: 0,
-  reporter: "list",
+  retries: process.env.CI ? 2 : 0,
+  // Eigenes Ausgabeverzeichnis, damit dieser Lauf im selben CI-Job nicht die
+  // `test-results` des Dev-Laufs (`playwright.config.ts`) ueberschreibt --
+  // beide laufen im selben Job nacheinander (siehe `ci.yml`).
+  outputDir: "test-results-prod",
+  // Im CI zusaetzlich der HTML-Bericht: die Annotationen des
+  // `github`-Reporters stehen in der Job-Zusammenfassung, aber ein
+  // sporadisch roter Lauf laesst sich erst mit Bericht und Trace aufklaeren
+  // (`.github/workflows/ci.yml` hebt beides als Artefakt auf). Eigener
+  // `outputFolder` aus demselben Grund wie `outputDir` oben -- sonst
+  // ueberschreibt dieser Lauf den `playwright-report` des Dev-Laufs. `open:
+  // never`, damit der Lauf nicht auf einen Browser wartet, den es dort nicht
+  // gibt.
+  reporter: process.env.CI
+    ? [["github"], ["html", { open: "never", outputFolder: "playwright-report-prod" }]]
+    : "list",
   use: {
     baseURL: webOrigin,
+    trace: "on-first-retry",
   },
   projects: [
     {

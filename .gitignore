@@ -17,7 +17,9 @@ coverage/
 .worktrees/
 *.tsbuildinfo
 playwright-report/
+playwright-report-prod/
 test-results/
+test-results-prod/
 
 # Logs
 *.log
