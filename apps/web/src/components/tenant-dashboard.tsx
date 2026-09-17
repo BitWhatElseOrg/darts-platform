@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -17,6 +17,14 @@ import {
   type OrganizationSummary,
 } from "@darts-platform/schemas";
 import { Button, buttonVariants, cn } from "@darts-platform/ui";
+
+import {
+  readOrganizationSelection,
+  readServerOrganizationSelection,
+  resolveOrganization,
+  subscribeOrganizationSelection,
+  writeOrganizationSelection,
+} from "@/lib/organization-selection";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { ApiClientError } from "@/lib/api-error";
@@ -68,17 +76,26 @@ export function TenantDashboard({
       apiRequest({ path: "/invitations", schema: invitationListSchema, signal }),
   });
 
-  const resolvedActiveOrganizationId =
-    organizationsQuery.data?.some(
-      (organization) => organization.id === activeOrganizationId,
-    ) === true
-      ? activeOrganizationId
-      : (organizationsQuery.data?.[0]?.id ?? null);
-  const activeOrganization = organizationsQuery.data?.find(
-    (organization) => organization.id === resolvedActiveOrganizationId,
+  // Dieselbe gemerkte Auswahl wie auf den Arbeitsflächen
+  // (`use-tournament-organization.ts`). Vorher hielt die Startseite sie nur
+  // im lokalen Zustand: wer von hier wegnavigierte und über «Übersicht»
+  // zurückkam, sah wieder die erste Organisation der Liste.
+  const rememberedId = useSyncExternalStore(
+    subscribeOrganizationSelection,
+    readOrganizationSelection,
+    readServerOrganizationSelection,
   );
+  const activeOrganization = resolveOrganization({
+    organizations: organizationsQuery.data,
+    requestedId: activeOrganizationId ?? undefined,
+    rememberedId,
+  });
+  const resolvedActiveOrganizationId = activeOrganization?.id ?? null;
+  useEffect(() => {
+    if (resolvedActiveOrganizationId !== null) writeOrganizationSelection(resolvedActiveOrganizationId);
+  }, [resolvedActiveOrganizationId]);
   const tournamentOrganization =
-    activeOrganization !== undefined &&
+    activeOrganization !== null &&
     hasOrganizationPermission(activeOrganization.role, "tournament:update")
       ? activeOrganization
       : organizationsQuery.data?.find((organization) =>
@@ -184,7 +201,7 @@ export function TenantDashboard({
           onSelect={setActiveOrganizationId}
         />
 
-        {activeOrganization === undefined ? (
+        {activeOrganization === null ? (
           <section className="rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">
             Erstelle eine Organisation, um Spieler und Matches zu verwalten.
           </section>

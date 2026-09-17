@@ -325,7 +325,10 @@ test("a club can complete a match and start a generated tournament match", async
   // Task 14: beide Dialoge schliessen erst gemeinsam bei erfolgreichem
   // Abbruch (match-scoreboard.tsx, `lastAbortSuccess`).
   await expect(page.getByRole("dialog", { name: "Einstellungen" })).toHaveCount(0);
-  await page.goto(matchesUrl);
+  // Der Abbruch verlässt die Fläche von selbst: ein verworfenes Match trägt
+  // nichts mehr zu lesen. Vorher stand hier ein `page.goto` — der Test ging
+  // den Rückweg, den die Fläche der zählenden Person schuldig blieb.
+  await expect(page).toHaveURL(new RegExp(String.raw`/matches\?`));
   await expect(page.getByRole("region", { name: "Match-Scoreboard" })).toHaveCount(0);
   await expect(page.locator("li").filter({ hasText: "E2E Board" }).filter({ hasText: "frei" })).toBeVisible();
   await page.getByLabel("Legs (Best of)").selectOption("1");

@@ -5,7 +5,7 @@ import { cn, MarkCheck } from "@darts-platform/ui";
 import { isSegmentAvailable } from "@/lib/dart-entry";
 import { dartKeypadLabel } from "@/lib/scoreboard-view";
 import { BackspaceKey } from "./backspace-key";
-import { keypadKeyClassName } from "./keypad-key";
+import { keypadActionKeyClassName, keypadKeyClassName } from "./keypad-key";
 
 /** Vier Segmenttasten je Zeile, 1–20 der Reihe nach. */
 const numberRows: readonly (readonly number[])[] = [
@@ -79,11 +79,18 @@ export function DartKeypad({ disabled, entryEmpty, segmentsLocked, modifier, und
   };
 
   return (
-    <div className="grid h-full min-h-0 grid-rows-[1fr_auto] gap-2">
-      {/* Die Umschalterzeile steht ausserhalb des scrollenden Bereichs: bei
+    <div className="grid h-full min-h-0 grid-rows-[1fr_auto] gap-2 [@media(max-height:44rem)]:gap-1">
+      {/* Die Umschalterzeile steht ausserhalb des mitwachsenden Bereichs: bei
           360 × 640 lagen DOUBLE und TRIPLE mit 9 von 56 px unter der Kante,
-          und ohne Doppel ist unter Double Out kein Leg zu beenden. */}
-      <div className="grid min-h-0 grid-cols-5 gap-2 overflow-y-auto">
+          und ohne Doppel ist unter Double Out kein Leg zu beenden.
+
+          `grid-rows-5` macht die fünf Segmentreihen zu `1fr`-Zeilen: sie
+          teilen sich den Platz, der bleibt, statt ihre Wunschhöhe zu fordern
+          und den Rest ins Scrollen zu schieben (siehe `keypad-key.ts`).
+          Darunter greift `min-h-11` als Untergrenze — und erst unterhalb von
+          rund 600 px Sichthöhe, wo auch die nicht mehr passt, das
+          `overflow-y-auto` als letzte Sicherung. */}
+      <div className="grid min-h-0 grid-cols-5 grid-rows-5 gap-2 overflow-y-auto [@media(max-height:44rem)]:gap-1">
         {numberRows.map((row, rowIndex) => {
           const sideKey = sideKeys[rowIndex];
           return (
@@ -106,11 +113,11 @@ export function DartKeypad({ disabled, entryEmpty, segmentsLocked, modifier, und
           );
         })}
       </div>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2 [@media(max-height:44rem)]:gap-1">
         <button
           aria-label="Umschalter DOUBLE"
           aria-pressed={modifier === 2}
-          className={cn(keypadKeyClassName, modifier === 2 && "border-ring-green bg-ring-green text-chalk")}
+          className={cn(keypadActionKeyClassName, modifier === 2 && "border-ring-green bg-ring-green text-chalk")}
           disabled={disabled}
           onClick={() => onModifier(2)}
           type="button"
@@ -121,7 +128,7 @@ export function DartKeypad({ disabled, entryEmpty, segmentsLocked, modifier, und
         <button
           aria-label="Umschalter TRIPLE"
           aria-pressed={modifier === 3}
-          className={cn(keypadKeyClassName, modifier === 3 && "border-ring-green bg-ring-green text-chalk")}
+          className={cn(keypadActionKeyClassName, modifier === 3 && "border-ring-green bg-ring-green text-chalk")}
           disabled={disabled}
           onClick={() => onModifier(3)}
           type="button"
