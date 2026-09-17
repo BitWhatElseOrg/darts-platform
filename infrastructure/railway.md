@@ -8,7 +8,7 @@ Stand: 31. August 2026
 | --- | --- |
 | Railway Workspace | `BitWhatElse Projects` |
 | Railway-Projekt | `dartbase` |
-| Environment | `production` |
+| Environments | `production`, `staging` (siehe [Staging-Environment](#staging-environment)) |
 | Tarif | Hobby |
 | App-Services | `@darts-platform/web`, `@darts-platform/api`, `@darts-platform/worker` |
 | Datenservices | `Postgres`, `Redis` |
@@ -20,6 +20,85 @@ Cloudflare meldet die Zone als aktiv. Die Zertifikate für `dartbase.ch` und
 `*.dartbase.ch` sowie `api.dartbase.ch` sind gültig. Web, API, Worker,
 PostgreSQL und Redis sind erfolgreich deployt und die internen Healthchecks
 bestehen. Die öffentlichen Web- und API-Smoke-Tests bestehen ebenfalls.
+
+## Staging-Environment
+
+Stand: 17. September 2026
+
+Neben `production` existiert im Projekt `dartbase` das Environment
+`staging` (ID `ade64d16-d5ff-4be6-bd80-39e582335a20`). Es ist eine
+Duplikation von `production` mit eigenen, leeren Postgres- und Redis-Instanzen
+samt eigenen Volumes und Zugangsdaten. Staging enthält keine Production-Daten.
+
+| Bereich | production | staging |
+| --- | --- | --- |
+| Git-Branch | `main` | `develop` |
+| Railway `checkSuites` | `true` laut IaC (Ist-Zustand am 17.09.2026: `false`) | `true` |
+| Web-Domain | `dartbase.ch`, `*.dartbase.ch` | `staging.dartbase.ch`, `darts-platformweb-staging.up.railway.app` |
+| API-Domain | `api.dartbase.ch` | `api-staging.dartbase.ch`, `darts-platformapi-staging.up.railway.app` |
+| `BETTER_AUTH_URL` | `https://api.dartbase.ch` | `https://api-staging.dartbase.ch` |
+| `WEB_ORIGIN` | `https://dartbase.ch` | `https://staging.dartbase.ch` |
+| `WEB_ADDITIONAL_ORIGINS` | `https://www.dartbase.ch` | leer |
+| `NEXT_PUBLIC_API_URL` | `https://api.dartbase.ch/api/v1` | `https://api-staging.dartbase.ch/api/v1` |
+| `BETTER_AUTH_SECRET` | eigener Wert | eigener, von Production abweichender Wert |
+| `ALLOW_SELF_SERVICE_ORGANIZATIONS` | nicht gesetzt (`false`) | `true` (Testorganisationen ohne Bootstrap) |
+| `DATABASE_URL`, `REDIS_URL` | Referenz auf Production-Datenservices | Referenz auf Staging-Datenservices |
+
+Alle übrigen Variablen (`NODE_ENV=production`, `TRUST_PROXY_HOPS=1`,
+Rate-Limits, Ports, `LOG_LEVEL`) sind identisch zu Production, damit Staging
+dieselben Startprüfungen und dieselbe Proxy-Konfiguration durchläuft.
+
+### Deployment-Fluss
+
+```text
+Push auf develop  → GitHub CI (Phase 0 quality gate, Deployment artifacts)
+                  → Railway staging (wartet auf grüne Check Suites)
+PR develop → main → GitHub CI
+                  → Railway production
+```
+
+Der CI-Workflow reagiert deshalb seit dem 17.09.2026 auch auf `push` nach
+`develop`. Ohne diesen Trigger hätte `checkSuites: true` in Staging keinen
+Check zum Abwarten.
+
+### Custom Domains für Staging
+
+Die Wildcard `*.dartbase.ch` am Production-Web-Service fängt in DNS jede nicht
+explizit definierte Subdomain ab. Für Staging sind deshalb explizite Einträge
+nötig; Railway routet die exakten Hostnamen zum Staging-Service. Die Cookies
+von Better Auth laufen mit `SameSite=Lax`; Web und API müssen darum wie in
+Production unter derselben Site `dartbase.ch` liegen. Die generierten
+`up.railway.app`-Domains eignen sich nur für API-Tests ohne Browser-Login.
+
+| Typ | Name | Ziel / Inhalt | Proxy |
+| --- | --- | --- | --- |
+| CNAME | `staging` | `6291r31z.up.railway.app` | DNS only |
+| TXT | `_railway-verify.staging` | `railway-verify=fce1377ce18995d0d210ab746fc04824e237285a1099348e03047f469edaa758` | DNS only |
+| CNAME | `api-staging` | `sq7xife8.up.railway.app` | DNS only |
+| TXT | `_railway-verify.api-staging` | `railway-verify=13a256c3ef813cf5997c9a84241f7722a11f5f7b1b203455e5621b2874f5cbad` | DNS only |
+
+Kontrolle nach dem Eintragen:
+
+```bash
+railway domain list --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+  --environment staging --service @darts-platform/web --json
+curl -sS https://api-staging.dartbase.ch/api/v1/health
+```
+
+### IaC-Hinweis
+
+[`.railway/railway.ts`](../.railway/railway.ts) beschreibt ausschliesslich
+`production` (Branch `main`, Production-Domains). `railway config plan` oder
+`apply` dürfen nur mit verlinktem Environment `production` laufen; gegen
+`staging` würde der Plan Branch und Domains überschreiben.
+
+### Betriebsregeln
+
+- Staging darf jederzeit kaputtgehen, gelöscht und neu dupliziert werden.
+- Lasttests, Restore-Proben und Migrationsproben laufen gegen Staging, nie
+  gegen Production.
+- Ein Import maskierter Production-Daten in Staging ist eine eigene, zu
+  dokumentierende Operation; bis dahin bleibt Staging mit Seed-Daten befüllt.
 
 ## Provider-Zuständigkeiten
 
