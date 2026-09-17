@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { playerListSchema, playerStatisticsProfileSchema } from "@darts-platform/schemas";
+import { playerSchema, playerStatisticsProfileSchema } from "@darts-platform/schemas";
 import { Rule, SheetLabel } from "@darts-platform/ui";
 import { useMemo } from "react";
 
@@ -18,12 +18,17 @@ export function PlayerProfile({ playerId, requestedOrganizationId }: { readonly 
     queryFn: ({ signal }) => apiRequest({ path: `/organizations/${organization?.id ?? ""}/players/${playerId}/statistics`, schema: playerStatisticsProfileSchema, signal }),
     enabled: organization !== null,
   });
-  // Dieselbe Abfrage (Schluessel und Pfad) wie in der Spielerliste: kommt
-  // man von dort her, steht die Pruefsumme schon im Cache, und eine
-  // Invalidierung der Liste erfasst kuenftig auch diese Anzeige.
-  const playersQuery = useQuery({
-    queryKey: ["players", organization?.id],
-    queryFn: ({ signal }) => apiRequest({ path: `/organizations/${organization?.id ?? ""}/players`, schema: playerListSchema, signal }),
+  // Zwischenstand: `playerStatisticsProfileSchema.player` traegt noch kein
+  // `avatarChecksum` (das braeuchte den Statistik-Join und ist ein eigener
+  // Vorgang, kein Teil dieses Tasks). Bis dahin holt eine zweite, gezielt
+  // auf diesen einen Spieler zugeschnittene Abfrage die Pruefsumme — nicht
+  // die ganze Organisationsliste, die bei dreihundert Spielern dreihundert
+  // Datensaetze fuer ein einziges Feld laden wuerde. Eigener Schluessel
+  // ["player-avatar", organizationId, playerId]: ein Bildwechsel muss ihn
+  // beim Invalidieren treffen, sonst zeigt der Kopf das alte Bild weiter.
+  const avatarQuery = useQuery({
+    queryKey: ["player-avatar", organization?.id, playerId],
+    queryFn: ({ signal }) => apiRequest({ path: `/organizations/${organization?.id ?? ""}/players/${playerId}`, schema: playerSchema, signal }),
     enabled: organization !== null,
   });
   if (organizationsQuery.isPending || profileQuery.isPending) return <Notice text="Spielerprofil wird geladen …" />;
@@ -31,7 +36,7 @@ export function PlayerProfile({ playerId, requestedOrganizationId }: { readonly 
   if (profileQuery.data === undefined) return <Notice text={userFacingErrorMessage(profileQuery.error, "Spielerprofil konnte nicht geladen werden.")} />;
   const profile = profileQuery.data;
   const stats = profile.career;
-  const avatarChecksum = playersQuery.data?.find((entry) => entry.id === profile.player.id)?.avatarChecksum ?? null;
+  const avatarChecksum = avatarQuery.data?.avatarChecksum ?? null;
   return <main className="sektorenring min-h-screen">
     <div className="mx-auto max-w-6xl px-5 py-8">
       <PageNav>

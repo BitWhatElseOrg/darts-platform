@@ -11,7 +11,9 @@ export interface AvatarPlayer {
  * Das Profilbild eines Spielers, oder die Initialen.
  *
  * `decorative` ist zu setzen, wo der Name daneben steht: eine Vorlesehilfe
- * liest ihn sonst zweimal. Allein stehend trägt das Bild den Namen.
+ * liest ihn sonst zweimal. Allein stehend trägt das Bild den Namen — das
+ * Foto über `alt`, die Initialen-Fläche über `aria-label` (ihr Textknoten
+ * "AM" wäre sonst alles, was eine Vorlesehilfe im Lesefluss findet).
  *
  * Die Prüfsumme steht als `?v=` in der Adresse. Der Endpunkt antwortet mit
  * `immutable`, der Browser lädt jedes Bild also genau einmal — und eine
@@ -35,6 +37,7 @@ export function PlayerAvatar({
     return (
       <span
         aria-hidden={decorative ? true : undefined}
+        aria-label={decorative ? undefined : player.displayName}
         className="inline-flex shrink-0 items-center justify-center rounded-full font-plate font-semibold text-chalk"
         style={{
           ...dimension,

@@ -23,6 +23,15 @@ describe("PlayerAvatar", () => {
     expect(screen.queryByRole("img")).toBeNull();
   });
 
+  it("traegt den Namen, wenn die Initialen allein stehen", () => {
+    // Ein Screenreader liest im Textfluss den Knoteninhalt ("AM"), nicht
+    // `title` — die Komponente muss also einen eigenen Accessible Name
+    // setzen, so wie die Bild-Variante es ueber `alt` tut.
+    render(<PlayerAvatar organizationId={organizationId} player={{ ...player, avatarChecksum: null }} />);
+
+    expect(screen.getByText("AM").getAttribute("aria-label")).toBe("Alex Muster");
+  });
+
   it("zeigt das Bild mit der Pruefsumme in der Adresse", () => {
     render(<PlayerAvatar organizationId={organizationId} player={{ ...player, avatarChecksum: "abc123" }} />);
 
