@@ -4,7 +4,7 @@ import type { FrequentScores } from "@darts-platform/schemas";
 import { cn, Rule } from "@darts-platform/ui";
 import { quickScoresSourceLabel } from "@/lib/scoreboard-view";
 import { BackspaceKey } from "./backspace-key";
-import { keypadActionKeyClassName, keypadKeyClassName } from "./keypad-key";
+import { keypadActionKeyClassName, keypadActionKeyHeightClassName, keypadKeyClassName } from "./keypad-key";
 
 /**
  * Absendeknopf als gezeichnete Marke statt eines Unicode-Chevrons —
@@ -143,7 +143,7 @@ export function RoundKeypad({ value, quickScores, quickScoresSource, submittable
       </div>
       <div className="grid grid-cols-3 gap-2">
         <BackspaceKey
-          className={keypadActionKeyClassName}
+          className={keypadActionKeyHeightClassName}
           disabled={disabled}
           entryEmpty={value === ""}
           onPress={onBackspace}
