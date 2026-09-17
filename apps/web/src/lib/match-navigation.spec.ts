@@ -28,15 +28,18 @@ describe("matchBackLink", () => {
     });
   });
 
-  it("falls back to the overview without an encounter", () => {
-    expect(matchBackLink({ organizationId: ORG })).toEqual({ href: "/", label: "Zurück" });
+  it("falls back to the match overview without an encounter", () => {
+    expect(matchBackLink({ organizationId: ORG })).toEqual({
+      href: `/matches?organisation=${ORG}`,
+      label: "Zur Übersicht",
+    });
   });
 
   it("refuses an encounter id that is not a uuid", () => {
     // Der Wert kommt aus der Adresszeile; ein Link daraus wäre sonst frei wählbar.
     expect(matchBackLink({ organizationId: ORG, encounterId: "javascript:alert(1)" })).toEqual({
-      href: "/",
-      label: "Zurück",
+      href: `/matches?organisation=${ORG}`,
+      label: "Zur Übersicht",
     });
   });
 });
