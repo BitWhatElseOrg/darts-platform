@@ -74,7 +74,7 @@ Befund: 53 Zeilen (siehe Ergebnis unten).
 | tournament_boards | board_id | boards | Lookup |
 | tournament_boards | tournament_id | tournaments | Lookup |
 | tournament_commands | tournament_id | tournaments | kritisch |
-| tournament_display_keys | tournament_id | tournaments | Lookup |
+| tournament_display_keys | tournament_id | tournaments | kritisch (öffentlicher Secret-Lookup ohne organization_id-Filter, siehe Auswertung) |
 | tournament_group_participants | group_id | tournament_groups | kritisch |
 | tournament_group_participants | player_id | players | kritisch |
 | tournament_group_participants | tournament_id | tournaments | kritisch |
@@ -96,7 +96,9 @@ Befund: 53 Zeilen (siehe Ergebnis unten).
 | visits | match_id | matches | kritisch |
 | visits | thrower_player_id | players | kritisch |
 
-53 Zeilen, keine davon von Hand ergänzt oder entfernt.
+53 Zeilen, keine davon von Hand ergänzt oder entfernt. Davon 44 als
+„kritisch" und 9 als „Lookup" markiert (ausgezählt anhand der
+`Bemerkung`-Spalte der Tabelle oben, nicht geschätzt: 44 + 9 = 53).
 
 ## Auswertung
 
@@ -104,7 +106,8 @@ Befund: 53 Zeilen (siehe Ergebnis unten).
 
 Das sind Beziehungen, bei denen ein falsch zugeordneter Fremdschlüssel eine
 fremde Organisation tatsächlich beeinflussen könnte — Scoring-Daten,
-Spielteilnahme, Kaderzugehörigkeit, Turnier-/Encounter-Struktur:
+Spielteilnahme, Kaderzugehörigkeit, Turnier-/Encounter-Struktur, oder ein
+Lesezugriff, der ohne `organization_id`-Filter erfolgt:
 
 - **Scoring-Kette**: `visits` → `matches`/`legs`/`players`, `visit_darts` →
   `visits`, `score_commands` → `matches`, `board_controller_leases` →
@@ -126,6 +129,25 @@ Spielteilnahme, Kaderzugehörigkeit, Turnier-/Encounter-Struktur:
   `tournament_group_participants` → `tournaments`/`tournament_groups`/
   `players`, `tournament_participants` → `tournaments`/`players`,
   `tournament_commands` → `tournaments`.
+- **Öffentlicher Secret-Lookup**: `tournament_display_keys` → `tournaments`.
+  `DisplayKeysRepository.findBySecretHash`
+  (`apps/api/src/tournaments/display-keys.repository.ts:151-163`) sucht die
+  Zeile ausschliesslich über `secret_hash` — ohne `organization_id`- oder
+  auch nur `tournament_id`-Filter in der Query selbst — und liefert die
+  `tournament_id` an den Aufrufer zurück. Diese Route
+  (`DisplayKeysService.stateOf`/`resolve`, aufgerufen aus der
+  unauthentifizierten `GET /public/tournaments/:publicId/live`) ist der
+  einzige Lesepfad im Schema, der eine tenant-tragende Zeile allein über ein
+  Geheimnis auflöst, das ein anonymer Besucher besitzt. Heute vergleicht der
+  Aufrufer die zurückgegebene `tournament_id` gegen die über `publicId`
+  erwartete ID, bevor er den Schlüssel als gültig behandelt — ohne
+  zusammengesetzten Fremdschlüssel hängt die Tenant-Bindung aber allein von
+  dieser Anwendungsprüfung ab, nicht von einem DB-Constraint. Ein
+  Dateninkonsistenz-Fehler (z. B. eine `tournament_display_keys`-Zeile,
+  deren `organization_id` nicht mehr zur tatsächlichen Organisation ihres
+  Turniers passt) könnte hier tatsächlich zur Auflösung eines fremden
+  Turniers führen. Deshalb: kritisch nach dem eigenen Kriterium dieses
+  Dokuments, nicht nur Lookup.
 
 In jeder dieser Zeilen könnte eine Anwendungslücke (fehlender
 `organization_id`-Filter bei einem Insert/Update) heute unbemerkt eine Zeile
@@ -144,13 +166,55 @@ Inkonsistenz als zu einer stillen Dateneigentums-Verletzung führen würde:
 - `player_statistic_aggregates` → `players` (abgeleitete/aggregierte Daten,
   neu berechenbar)
 - `tournament_boards` → `boards`/`tournaments`
-- `tournament_display_keys` → `tournaments`
 - `tournament_matches` → `boards` (Board-Zuweisung)
 - `tournament_stages` → `tournaments`
 
 Diese Einordnung ersetzt keine Risikoanalyse der späteren Spec, sondern
 sortiert nur nach Schadenspotenzial bei einer hypothetischen
 Fehlzuordnung.
+
+### Gegenprobe: gibt es bei den übrigen Lookup-Zeilen einen Lesepfad ohne `organization_id`-Filter?
+
+Nach dem Fund bei `tournament_display_keys` wurde jede verbliebene
+Lookup-Zeile im Code gegen dasselbe Kriterium geprüft (löst irgendein
+Codepfad die referenzierte Zeile auf, ohne `organization_id` zu filtern —
+insbesondere über einen unauthentifizierten oder secret-basierten Weg?):
+
+- `competition_slots` → `competitions`: alle Fundstellen
+  (`apps/api/src/competitions/competitions.repository.ts`,
+  `apps/api/src/encounters/encounters.repository.ts`) filtern
+  `competitionSlots.organizationId` explizit. Kein öffentlicher Lesepfad.
+  Bleibt Lookup.
+- `encounter_slots.board_id` → `boards`, `matches.board_id` → `boards`,
+  `tournament_matches.board_id` → `boards`, `tournament_boards.board_id` →
+  `boards`: `boards` wird nirgends direkt über eine Client-Kennung
+  aufgelöst; jeder Board-Join hängt an einer bereits organisationsgebunden
+  aufgelösten Zeile (Encounter/Match/Turnier). Im öffentlichen
+  Turnier-Dashboard (`getPublicDashboardDataByPublicId` →
+  `getDashboardData`, `apps/api/src/tournaments/tournaments.repository.ts`)
+  und in der öffentlichen Begegnungsansicht (`EncountersRepository.loadData`,
+  `apps/api/src/encounters/encounters.repository.ts:1555`) wird die
+  `organization_id` einmal aus der über `public_id` gefundenen
+  Turnier-/Begegnungszeile gelesen und danach für alle Folgeabfragen
+  (Boards, Slots, Gruppen, Matches) wiederverwendet — nie unabhängig vom
+  Client übernommen. Bleibt Lookup.
+- `player_avatars.player_id` → `players`: jede Fundstelle in
+  `apps/api/src/players/players.repository.ts` filtert
+  `playerAvatars.organizationId` explizit, auch das
+  `onConflictDoUpdate` (`setWhere`). Bleibt Lookup.
+- `player_statistic_aggregates.player_id` → `players`: aktuell existiert nur
+  ein Schreibpfad (`apps/worker/src/statistics/rebuild-player-statistics.ts`),
+  kein API-Lesepfad. Kein Lesezugriff ohne Filter, weil noch kein Lesezugriff
+  existiert. Bleibt Lookup, mit dem Hinweis, dies bei Einführung eines
+  Lesepfads erneut zu prüfen.
+- `tournament_boards.tournament_id` → `tournaments`,
+  `tournament_stages.tournament_id` → `tournaments`: beide werden nur über
+  `getDashboardData` gelesen, das wie oben beschrieben mit der bereits
+  aufgelösten `organization_id` filtert. Bleibt Lookup.
+
+Ergebnis der Gegenprobe: `tournament_display_keys` ist die einzige
+Lookup-Zeile mit einem Lesepfad ohne `organization_id`-Filter; alle übrigen
+bleiben unverändert eingestuft.
 
 ### Nicht in der Liste, mit Begründung
 
