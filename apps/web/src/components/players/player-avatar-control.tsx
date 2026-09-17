@@ -114,7 +114,10 @@ export function PlayerAvatarControl({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-4">
+      {/* Auch hier `flex-wrap`: auf sehr schmalen Geraeten rutscht die
+          Knopfspalte unter das Bild, statt neben ihm zusammengedrueckt zu
+          werden. */}
+      <div className="flex flex-wrap items-center gap-4">
         {preview === null ? (
           <PlayerAvatar decorative organizationId={organizationId} player={player} size={96} />
         ) : (

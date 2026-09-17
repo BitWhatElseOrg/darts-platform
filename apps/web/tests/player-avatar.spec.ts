@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import { expect, test } from "./fixtures";
 import {
@@ -55,12 +55,17 @@ test.afterEach(async () => {
   await Promise.all(registrationSeeds.splice(0).map((seed) => seed.cleanup()));
 });
 
-test("ein Profilbild laesst sich hochladen und erscheint im Profil und in der Spielerliste", async ({ page }) => {
+/**
+ * Registrierung, ein Spieler, sein Profil und ein hochgeladenes Bild — der
+ * gemeinsame Aufbau beider Fälle dieser Datei, nach dem Muster von
+ * `openScoreboard` aus `scoreboard.spec.ts`.
+ */
+async function openProfileWithAvatar(page: Page, label: string): Promise<{ readonly organizationId: string; readonly playerName: string }> {
   const suffix = randomUUID();
   const short = suffix.slice(0, 8);
-  const email = `e2e-profilbild-${suffix}@example.test`;
-  const ownerName = `E2E Profilbild Leitung ${short}`;
-  const playerName = `E2E Profilbild Spieler ${short}`;
+  const email = `e2e-${label}-${suffix}@example.test`;
+  const ownerName = `E2E ${label} Leitung ${short}`;
+  const playerName = `E2E ${label} Spieler ${short}`;
 
   const invitation = await createRegistrationInvitation(email);
   registrationSeeds.push(invitation);
@@ -68,8 +73,8 @@ test("ein Profilbild laesst sich hochladen und erscheint im Profil und in der Sp
   const { organizationId } = await signUpWithOrganization(page, {
     claimToken: invitation.claimToken,
     email,
-    organizationName: `E2E Profilbild Club ${short}`,
-    organizationSlug: `e2e-profilbild-club-${suffix}`,
+    organizationName: `E2E ${label} Club ${short}`,
+    organizationSlug: `e2e-${label}-club-${suffix}`,
     ownerName,
   });
 
@@ -90,6 +95,13 @@ test("ein Profilbild laesst sich hochladen und erscheint im Profil und in der Sp
   // Beweist den Upload UND das Nachladen von ["player-avatar", ...]: der
   // Knopf existiert nur ohne Vorschau UND mit gesetzter Prüfsumme.
   await expect(page.getByRole("button", { name: "Bild entfernen" })).toBeVisible();
+
+  return { organizationId, playerName };
+}
+
+test("ein Profilbild laesst sich hochladen und erscheint im Profil und in der Spielerliste", async ({ page }) => {
+  const { playerName } = await openProfileWithAvatar(page, "profilbild");
+
   const profileHeader = page.locator("header").filter({ hasText: playerName });
   await expectRealImage(profileHeader.locator("img"));
 
@@ -104,4 +116,56 @@ test("ein Profilbild laesst sich hochladen und erscheint im Profil und in der Sp
     has: page.getByRole("link", { name: "Profil" }),
   });
   await expectRealImage(playerRow.locator("img").first());
+});
+
+/**
+ * Der Profilkopf stellte Bild, Bedienknöpfe und Namen in EINE nicht
+ * umbrechende Zeile. Auf einem 390 px breiten Telefon reichte sie nicht: der
+ * Name in `headline` (2,75 rem) lief über seine Spalte, legte sich über die
+ * Knöpfe „Bild auswählen" und „Bild entfernen" und wurde rechts
+ * abgeschnitten — auf dem Gerät gemeldet, in Chromium reproduzierbar.
+ *
+ * Geprüft wird geometrisch statt optisch: keine zwei sichtbaren Kästen der
+ * Kopfzeile dürfen sich schneiden, und die Seite darf nicht waagrecht
+ * scrollen. Ein Test auf Klassennamen würde dieselbe Regel ein zweites Mal
+ * schreiben, statt ihr Ergebnis zu prüfen.
+ */
+test("der Profilkopf haelt Bild, Knoepfe und Namen auf einem schmalen Telefon getrennt", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const { playerName } = await openProfileWithAvatar(page, "profilkopf");
+  await expect(page.getByRole("heading", { level: 1, name: playerName })).toBeVisible();
+
+  const befunde = await page.evaluate(() => {
+    const header = document.querySelector("header");
+    if (header === null) return ["Keine Kopfzeile."];
+    const beteiligte = Array.from(header.querySelectorAll("h1, button, label, img"))
+      .map((element) => ({
+        name: element.tagName.toLowerCase() === "h1"
+          ? "Name"
+          : element.tagName.toLowerCase() === "img"
+            ? "Bild"
+            : (element.textContent?.trim() ?? "") || element.tagName.toLowerCase(),
+        rect: element.getBoundingClientRect(),
+      }))
+      .filter((eintrag) => eintrag.rect.width > 0 && eintrag.rect.height > 0);
+
+    const gefunden: string[] = [];
+    for (let i = 0; i < beteiligte.length; i += 1) {
+      for (let j = i + 1; j < beteiligte.length; j += 1) {
+        const a = beteiligte[i]!;
+        const b = beteiligte[j]!;
+        const schnittBreite = Math.min(a.rect.right, b.rect.right) - Math.max(a.rect.left, b.rect.left);
+        const schnittHoehe = Math.min(a.rect.bottom, b.rect.bottom) - Math.max(a.rect.top, b.rect.top);
+        if (schnittBreite > 1 && schnittHoehe > 1) {
+          gefunden.push(`„${a.name}" und „${b.name}" überlappen sich um ${Math.round(schnittBreite)} × ${Math.round(schnittHoehe)} px`);
+        }
+      }
+    }
+    if (document.documentElement.scrollWidth > window.innerWidth + 1) {
+      gefunden.push(`Die Seite scrollt waagrecht: ${document.documentElement.scrollWidth} px Inhalt bei ${window.innerWidth} px Sichtbreite`);
+    }
+    return gefunden;
+  });
+
+  expect(befunde).toEqual([]);
 });
