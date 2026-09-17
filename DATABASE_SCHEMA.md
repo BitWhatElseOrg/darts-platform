@@ -588,6 +588,15 @@ einem Match mit bereits gespeichertem Leg-1-Anwurf (`DECIDE_LEG_START` für
 Leg 1) machte den Kommandostrom beim nächsten Replay unprojizierbar
 (`activeCommands` lehnt das Kommando dann mit `LEG_START_FIXED` ab).
 
+Wer ein Leg anwirft, wenn die Regel keinen Ausbull-Entscheid verlangt, sagt
+`advanceLegStart` in der Scoring Engine: innerhalb eines Satzes wechselt der
+Anwurf von Leg zu Leg, über eine Satzgrenze hinweg aber ausgehend vom Anwurf
+des vorigen Satzes (DRA 6.13.2 — der Gewinner des Bull-Wurfs wirft im ersten
+und in allen folgenden ungeraden Legs oder Sätzen zuerst). Ohne diese
+Unterscheidung drehte ein Satz mit gerader Legzahl den Satzbeginn zurück auf
+dieselbe Seite. Es ist keine Spalte, sondern eine Ableitung aus dem
+Kommandostrom; betroffen sind nur Matches mit `sets_to_win > 1`.
+
 Sperrdauer: `ADD COLUMN … varchar NOT NULL DEFAULT '…'` nimmt ein
 `ACCESS EXCLUSIVE`-Lock auf `matches`, ist aber ab PostgreSQL 11 eine reine
 Metadatenänderung ohne Tabellen-Rewrite. Das anschliessende `UPDATE` der
@@ -1327,6 +1336,51 @@ team_rosters
 league_tables
 transfers
 ```
+
+---
+
+## encounter_nominations
+
+```text
+unique (encounter_id, player_id)   -- encounter_nominations_encounter_player_unique
+unique (encounter_id, side, player_id)
+unique (encounter_id, side, position)
+```
+
+`encounter_nominations_encounter_player_unique` (Migration
+`0032_encounter_nomination_single_side`) hält DRA 6.10.3 fest: kein Spieler
+spielt in einem Darts-Event für mehr als ein Team. Die Meldung prüfte das
+bisher nur je Seite, und keine der beiden anderen Prüfungen greift dagegen —
+eine Aushilfe (`origin = 'GUEST'`) ist an keinen Kader gebunden, und
+`team_players` erlaubt dieselbe Person als aktives Mitglied mehrerer
+Mannschaften. Stand dieselbe Person auf beiden Seiten, entstand die Zeile in
+`matches` trotzdem; erst der Lesepfad verwarf sie mit `DUPLICATE_PLAYER`
+(`createX01Match`), womit das Match unlesbar war.
+
+Die Regel selbst liegt in `validateNominations` (`packages/league-engine`) und
+wird im Schreibpfad gegen die bereits gemeldete Gegenseite geprüft; die Sperre
+auf der Begegnungszeile in `mutate` serialisiert die beiden Seiten. Nach aussen
+antwortet die API mit `NOMINATION_PLAYER_ON_BOTH_SIDES` (HTTP 422), nicht mit
+einer Postgres-Meldung. Der Unique-Index ist die strukturelle Klammer darunter;
+er ersetzt den bisherigen nicht eindeutigen Index auf denselben Spalten und
+trägt dessen Suchen weiter.
+
+Bestandscheck vor dem Ausrollen — die Migration prüft ihn selbst in einem
+`DO $$ … $$`-Block und bricht mit `RAISE EXCEPTION` samt der betroffenen
+Begegnungen und Personen ab:
+
+```sql
+select encounter_id, player_id from encounter_nominations
+group by encounter_id, player_id having count(*) > 1;
+```
+
+Welche der beiden Meldungen zurückgenommen wird, bleibt bewusst eine
+menschliche Entscheidung.
+
+Sperrdauer: `CREATE UNIQUE INDEX` ohne `CONCURRENTLY` nimmt für die Dauer des
+Aufbaus ein `SHARE`-Lock auf `encounter_nominations`. Die Tabelle ist klein und
+wird nur zwischen Ansetzung und Spielbeginn beschrieben; das Deployment gehört
+trotzdem ausserhalb des Spielbetriebs.
 
 ---
 

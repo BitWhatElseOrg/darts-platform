@@ -391,10 +391,23 @@ export class EncountersRepository {
         teamId,
         encounter.scheduledAt,
       );
+      // DRA 6.10.3: eine Person spielt in einem Event fuer hoechstens ein
+      // Team. Die Sperre auf der Begegnungszeile in `mutate` serialisiert die
+      // beiden Seiten, die Pruefung sieht deshalb die endgueltige Meldung der
+      // Gegenseite. Der Unique-Index auf (Begegnung, Person) haelt dieselbe
+      // Regel in der Datenbank.
+      const otherSide: Side = side === "HOME" ? "AWAY" : "HOME";
+      const opposingPlayerIds = await this.loadNominatedPlayerIds(
+        transaction,
+        input.organizationId,
+        input.encounterId,
+        otherSide,
+      );
       validateNominations({
         side,
         nominations: input.data.nominations.map(toNominationEntry),
         squadPlayerIds: squad,
+        opposingPlayerIds,
         rules: {
           lineupPositions: competition.lineupPositions,
           minNominations: competition.minNominations,
@@ -445,19 +458,9 @@ export class EncountersRepository {
         input.data.nominations.map((entry) => entry.playerId),
       );
 
-      const otherSide: Side = side === "HOME" ? "AWAY" : "HOME";
-      const [opponent] = await transaction
-        .select({ playerId: encounterNominations.playerId })
-        .from(encounterNominations)
-        .where(
-          and(
-            eq(encounterNominations.organizationId, input.organizationId),
-            eq(encounterNominations.encounterId, input.encounterId),
-            eq(encounterNominations.side, otherSide),
-          ),
-        )
-        .limit(1);
-      context.statusAfter = opponent === undefined ? "LINEUPS_OPEN" : "READY";
+      // Die Meldung der Gegenseite steht schon oben fest; diese Seite hat sie
+      // nicht angefasst.
+      context.statusAfter = opposingPlayerIds.length === 0 ? "LINEUPS_OPEN" : "READY";
       return "ok";
     });
   }
@@ -1404,6 +1407,26 @@ export class EncountersRepository {
           eq(teamPlayers.teamId, teamId),
           lte(teamPlayers.validFrom, at),
           or(isNull(teamPlayers.validTo), gt(teamPlayers.validTo, at)),
+        ),
+      );
+    return rows.map((row) => row.playerId);
+  }
+
+  /** Die gemeldeten Personen einer Seite; leer, solange sie nicht gemeldet hat. */
+  private async loadNominatedPlayerIds(
+    transaction: DatabaseTransaction,
+    organizationId: string,
+    encounterId: string,
+    side: Side,
+  ): Promise<string[]> {
+    const rows = await transaction
+      .select({ playerId: encounterNominations.playerId })
+      .from(encounterNominations)
+      .where(
+        and(
+          eq(encounterNominations.organizationId, organizationId),
+          eq(encounterNominations.encounterId, encounterId),
+          eq(encounterNominations.side, side),
         ),
       );
     return rows.map((row) => row.playerId);
