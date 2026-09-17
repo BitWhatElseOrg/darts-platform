@@ -16,13 +16,18 @@ export function playerInitials(displayName: string): string {
  * Ein Farbwinkel von 0 bis 359, stabil je Kennung. Bewusst kein Zufall und
  * kein Index in der Liste: beides änderte die Farbe einer Person, sobald
  * sich die Liste ändert.
+ *
+ * Hinweis: Die naheliegende Variante mit `(hash * 31 + charCode) % 360`
+ * erzeugt Kollisionen bei ähnlich strukturierten UUIDs (z.B. "1111..." und
+ * "2222..." geben beide 348). Diese Funktion nutzt stattdessen sdbm/djb2-Hash,
+ * um Kollisionen zu minimieren.
  */
 export function avatarTone(playerId: string): number {
   let hash = 0;
   for (let index = 0; index < playerId.length; index += 1) {
     const char = playerId.charCodeAt(index);
     hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32bit integer
+    hash = hash & hash; // Bitweise UND auf 32-Bit-Integer begrenzen, um Ueberlaeufe zu vermeiden
   }
   return Math.abs(hash) % 360;
 }
