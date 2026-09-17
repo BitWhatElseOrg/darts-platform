@@ -16,6 +16,7 @@
     "lint": "eslint .",
     "typecheck": "turbo run typecheck",
     "test": "dotenv -e .env -- turbo run test",
+    "test:coverage": "dotenv -e .env -- turbo run test:coverage",
     "test:e2e": "turbo run build --filter=@darts-platform/config --filter=@darts-platform/database --filter=@darts-platform/domain --filter=@darts-platform/scoring-engine --filter=@darts-platform/league-engine --filter=@darts-platform/statistics --filter=@darts-platform/schemas --filter=@darts-platform/ui && dotenv -e .env -- pnpm --filter @darts-platform/web test:e2e",
     "db:generate": "dotenv -e .env -- pnpm --filter @darts-platform/database db:generate",
     "db:migrate": "dotenv -e .env -- pnpm --filter @darts-platform/database db:migrate",
