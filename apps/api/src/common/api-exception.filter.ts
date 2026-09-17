@@ -17,6 +17,10 @@ const errorCodes: Readonly<Record<number, string>> = {
   [HttpStatus.NOT_FOUND]: "RESOURCE_NOT_FOUND",
   [HttpStatus.CONFLICT]: "RESOURCE_CONFLICT",
   [HttpStatus.TOO_MANY_REQUESTS]: "RATE_LIMIT_EXCEEDED",
+  // Der Profilbild-Upload ist heute die einzige Route mit Binärkörper;
+  // deshalb trägt 413 seinen Code. Kommt eine zweite dazu, wird der Code
+  // generisch und die Route nennt ihren eigenen.
+  [HttpStatus.PAYLOAD_TOO_LARGE]: "AVATAR_TOO_LARGE",
 };
 
 function getMessage(exception: HttpException): string {

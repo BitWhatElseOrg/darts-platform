@@ -305,4 +305,134 @@ export class PlayersRepository {
       return toPlayerResponse(player, avatarChecksum);
     });
   }
+
+  public async findAvatar(input: {
+    readonly organizationId: string;
+    readonly playerId: string;
+  }): Promise<{
+    readonly bytes: Buffer;
+    readonly contentType: string;
+    readonly checksum: string;
+  } | null> {
+    const [row] = await this.databaseService.database
+      .select({
+        bytes: playerAvatars.bytes,
+        contentType: playerAvatars.contentType,
+        checksum: playerAvatars.checksum,
+      })
+      .from(playerAvatars)
+      .where(
+        and(
+          eq(playerAvatars.organizationId, input.organizationId),
+          eq(playerAvatars.playerId, input.playerId),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  }
+
+  public async upsertAvatar(input: {
+    readonly organizationId: string;
+    readonly playerId: string;
+    readonly avatar: {
+      readonly bytes: Buffer;
+      readonly contentType: string;
+      readonly checksum: string;
+      readonly byteSize: number;
+    };
+    readonly actorUserId: string;
+    readonly audit: AuditContext;
+  }): Promise<void> {
+    await this.databaseService.database.transaction(async (transaction) => {
+      await transaction
+        .insert(playerAvatars)
+        .values({
+          organizationId: input.organizationId,
+          playerId: input.playerId,
+          contentType: input.avatar.contentType,
+          bytes: input.avatar.bytes,
+          byteSize: input.avatar.byteSize,
+          checksum: input.avatar.checksum,
+        })
+        .onConflictDoUpdate({
+          target: playerAvatars.playerId,
+          set: {
+            contentType: input.avatar.contentType,
+            bytes: input.avatar.bytes,
+            byteSize: input.avatar.byteSize,
+            checksum: input.avatar.checksum,
+            updatedAt: new Date(),
+          },
+        });
+      // Die Pruefsumme, nicht die Bytes: ein Audit-Log mit Bilddaten waere
+      // eine zweite, unkontrollierte Kopie der Personendaten.
+      await transaction.insert(auditEvents).values({
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: "PLAYER_AVATAR_UPDATED",
+        entityType: "Player",
+        entityId: input.playerId,
+        newValue: { checksum: input.avatar.checksum, byteSize: input.avatar.byteSize },
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+    });
+  }
+
+  public async deleteAvatar(input: {
+    readonly organizationId: string;
+    readonly playerId: string;
+    readonly actorUserId: string;
+    readonly audit: AuditContext;
+  }): Promise<void> {
+    await this.databaseService.database.transaction(async (transaction) => {
+      const [removed] = await transaction
+        .delete(playerAvatars)
+        .where(
+          and(
+            eq(playerAvatars.organizationId, input.organizationId),
+            eq(playerAvatars.playerId, input.playerId),
+          ),
+        )
+        .returning({ checksum: playerAvatars.checksum });
+      if (removed === undefined) return;
+      await transaction.insert(auditEvents).values({
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: "PLAYER_AVATAR_REMOVED",
+        entityType: "Player",
+        entityId: input.playerId,
+        oldValue: { checksum: removed.checksum },
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+    });
+  }
+
+  /**
+   * Ob dieses Konto mit diesem Spieler verknuepft ist (ADR 0015): Grundlage
+   * fuer die Regel „Schreiben braucht `player:update` oder das eigene
+   * Profil". `organizationId` wird mitgefuehrt, damit die Prüfung auch ohne
+   * vorherige Mandantenpruefung durch die Aufrufer sicher bleibt.
+   */
+  public async isLinkedToUser(input: {
+    readonly organizationId: string;
+    readonly playerId: string;
+    readonly userId: string;
+  }): Promise<boolean> {
+    const [row] = await this.databaseService.database
+      .select({ id: players.id })
+      .from(players)
+      .where(
+        and(
+          eq(players.organizationId, input.organizationId),
+          eq(players.id, input.playerId),
+          eq(players.userId, input.userId),
+        ),
+      )
+      .limit(1);
+    return row !== undefined;
+  }
 }

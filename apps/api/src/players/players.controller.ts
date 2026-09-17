@@ -8,9 +8,11 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Req,
+  Res,
 } from "@nestjs/common";
-import type { FastifyRequest } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 
 import {
   createPlayerSchema,
@@ -91,6 +93,54 @@ export class PlayersController {
     @Req() request: FastifyRequest,
   ): Promise<PlayerResponse> {
     return this.playersService.archive({
+      organizationId,
+      playerId,
+      auth,
+      audit: getAuditContext(request),
+    });
+  }
+
+  @Get(":playerId/avatar")
+  public async avatar(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("playerId", ParseUUIDPipe) playerId: string,
+    @CurrentAuth() auth: AuthContext,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ): Promise<Buffer> {
+    const avatar = await this.playersService.getAvatar({ organizationId, playerId, auth });
+    // Die Adresse trägt die Prüfsumme als `?v=`; eine Änderung bricht den
+    // Cache dadurch von selbst, und der Browser lädt jedes Bild genau einmal.
+    reply.header("Content-Type", avatar.contentType);
+    reply.header("Cache-Control", "private, max-age=31536000, immutable");
+    reply.header("ETag", `"${avatar.checksum}"`);
+    return avatar.bytes;
+  }
+
+  @Put(":playerId/avatar")
+  public async setAvatar(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("playerId", ParseUUIDPipe) playerId: string,
+    @Body() body: Buffer,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<PlayerResponse> {
+    return this.playersService.setAvatar({
+      organizationId,
+      playerId,
+      body,
+      auth,
+      audit: getAuditContext(request),
+    });
+  }
+
+  @Delete(":playerId/avatar")
+  public async removeAvatar(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("playerId", ParseUUIDPipe) playerId: string,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<PlayerResponse> {
+    return this.playersService.removeAvatar({
       organizationId,
       playerId,
       auth,
