@@ -56,13 +56,20 @@ export function PlayerProfile({ playerId, requestedOrganizationId }: { readonly 
         <NavLink href="/">Übersicht</NavLink>
       </PageNav>
       <header className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex items-center gap-4">
+        {/* `flex-wrap` plus `min-w-0`: das Bedienelement traegt neben dem Bild
+            zwei Knoepfe, und auf einem 390 px breiten Telefon reicht die
+            Zeile dann nicht mehr fuer den Namen in `headline` (2,75 rem).
+            Ohne Umbruch ueberlief der Name seine Spalte, schob sich ueber die
+            Knoepfe und wurde rechts abgeschnitten. Mit Umbruch rutscht er in
+            die naechste Zeile und bekommt die volle Breite; ohne Knoepfe
+            (Profil ohne Bearbeitungsrecht) bleibt er neben dem Bild. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-4">
           {canEditAvatar ? (
             <PlayerAvatarControl organizationId={organization.id} player={avatarPlayer} />
           ) : (
             <PlayerAvatar decorative organizationId={organization.id} player={avatarPlayer} size={96} />
           )}
-          <div><h1 className="font-numerals text-headline font-bold text-wedge-900">{profile.player.displayName}</h1>{profile.player.nickname ? <p className="mt-1 font-plate text-body text-sisal-500">«{profile.player.nickname}»</p> : null}</div>
+          <div className="min-w-0"><h1 className="font-numerals text-headline font-bold break-words text-wedge-900">{profile.player.displayName}</h1>{profile.player.nickname ? <p className="mt-1 font-plate text-body text-sisal-500">«{profile.player.nickname}»</p> : null}</div>
         </div>
         <p className="font-plate text-body text-sisal-500">{stats.matchesPlayed} Matches · {stats.wins} Siege · {stats.losses} Niederlagen</p>
       </header>
