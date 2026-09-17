@@ -10,23 +10,31 @@ ausfuehrt.
 
 ## Ergebnis
 
-27 von 29 Faellen gruen, 2 rot, 1 Worker, ca. 1,6 Minuten reine Testlaufzeit
-(Gesamtlauf inkl. beider Produktivbuilds und DB-Migration unter 3 Minuten
-lokal mit warmen Caches — im CI ohne warme Caches ist mit deutlich mehr
-Zeit zu rechnen, siehe Aufgabenstellung). Dieselben Spezifikationen wie im
-Dev-Lauf liefen zusaetzlich zu `production-csp.spec.ts` (5 Faelle, alle
-gruen). API und Web liefen dabei ueber `pnpm --filter @darts-platform/api...
-build && node ../../scripts/start-api.mjs` bzw. `pnpm --filter
-@darts-platform/web... build && npx next start` auf den Ports 3201/3200 —
-beide Server wurden gesund (Health-Check bzw. Startseite) und bedienten den
-kompletten Testlauf, inklusive Faellen mit echten Backend-Ablaeufen
+**Erster Lauf** (vor der Behebung, siehe unten): 27 von 29 Faellen gruen,
+2 rot, 1 Worker, ca. 1,6 Minuten reine Testlaufzeit (Gesamtlauf inkl. beider
+Produktivbuilds und DB-Migration unter 3 Minuten lokal mit warmen Caches —
+im CI ohne warme Caches ist mit deutlich mehr Zeit zu rechnen, siehe
+Aufgabenstellung). Dieselben Spezifikationen wie im Dev-Lauf liefen
+zusaetzlich zu `production-csp.spec.ts` (5 Faelle, alle gruen). API und Web
+liefen dabei ueber `pnpm --filter @darts-platform/api... build && node
+../../scripts/start-api.mjs` bzw. `pnpm --filter @darts-platform/web...
+build && npx next start` auf den Ports 3201/3200 — beide Server wurden
+gesund (Health-Check bzw. Startseite) und bedienten den kompletten
+Testlauf, inklusive Faellen mit echten Backend-Ablaeufen
 (Organisation/Turnier/Team-Begegnung anlegen, Scoreboard, Spieler-Avatar).
 Das bestaetigt, dass die neue Zwei-Server-Konfiguration in
 `playwright.prod.config.ts` funktioniert.
 
-Beide roten Faelle sind Befunde, die nur auftreten, weil hier tatsaechlich
-gegen `next build`/`next start` statt `next dev` getestet wird — keiner
-davon wurde durch eine Aenderung an einer Spezifikation "wegge­macht".
+Beide roten Faelle traten nur auf, weil hier tatsaechlich gegen `next
+build`/`next start` statt `next dev` getestet wird. Nach Ruling durch die
+Kontrolle wurden beide in `playwright.prod.config.ts` behoben (Details bei
+den jeweiligen Befunden), ohne eine Spezifikation zu veraendern oder
+abzuschwaechen.
+
+**Zweiter Lauf** (nach der Behebung, gleicher Befehl, warme Caches): **28
+von 28 Faellen gruen**, 1 Worker, 1,5 Minuten reine Testlaufzeit, Exit-Code
+0. `security-headers.spec.ts` ist jetzt regulaer ausgeschlossen (28 statt 29
+Faelle insgesamt), `foundation.spec.ts:599` ist gruen.
 
 ### Befund 1: `tests/security-headers.spec.ts:3` — „die Weboberflaeche liefert die Sicherheits-Header"
 
@@ -42,8 +50,14 @@ Assert sagt „Dieser Lauf faehrt `next dev`, und dessen Uebersetzer braucht
 gegen `next dev`; gegen den Produktivbuild fehlt `'unsafe-eval'`
 erwartungsgemaess (die Abwesenheit ist korrektes Verhalten, siehe
 `production-csp.spec.ts`, das genau das Gegenteil verlangt und gruen ist).
-Kein Fix noetig, keine Aenderung an dieser Spezifikation vorgenommen
-(ausserhalb des Aufgabenumfangs von Task 7 und fachlich nicht falsch).
+Kein Fix an der Spezifikation vorgenommen (fachlich nicht falsch, deckt
+bewusst nur Dev ab).
+
+**Loesung (nach Ruling):** `playwright.prod.config.ts` schliesst den Fall
+jetzt regulaer aus (`testIgnore: /security-headers\.spec\.ts/u`, analog zum
+umgekehrten `testIgnore` in `playwright.config.ts` fuer
+`production-csp.spec.ts`) statt ihn rot mitlaufen zu lassen. Das
+Produktivverhalten bleibt durch `production-csp.spec.ts` abgedeckt.
 
 ### Befund 2: `tests/foundation.spec.ts:599` — „stellt einen Anzeige-Schluessel aus und oeffnet damit die Board-Ansicht eines privaten Turniers"
 
@@ -65,12 +79,17 @@ Server lauscht — die CSP blockiert den Versuch zusaetzlich sichtbar, noch
 bevor der Verbindungsfehler selbst aufschlaegt. Kein Befund an der
 Produktivkonfiguration oder am CSP-Verhalten, sondern ein bestehender Fall,
 der einen Konfigurationswert hart codiert, statt ihn passend zur jeweiligen
-Playwright-Konfiguration zu lesen. Ausserhalb des Dateiumfangs dieser
-Aufgabe (nur `playwright.prod.config.ts` und `ci.yml`); Fix gehoert in
-`apps/web/tests/foundation.spec.ts` (z. B. `PLAYWRIGHT_PROD_API_PORT` mit
-demselben Fallback wie in `playwright.prod.config.ts` lesen, wenn
-`--config=playwright.prod.config.ts` laeuft) und ist nicht Teil dieses
-Tasks.
+Playwright-Konfiguration zu lesen.
+
+**Loesung (nach Ruling):** die Spezifikation bleibt unveraendert. Stattdessen
+setzt `playwright.prod.config.ts` direkt nach dem Berechnen von `apiPort`
+`process.env.PLAYWRIGHT_API_PORT = String(apiPort)`. Playwright-Worker erben
+die Umgebung des Konfigurationsprozesses, wodurch `foundation.spec.ts` beim
+eigenen direkten `fetch` denselben Port sieht, auf dem der Produktiv-API-
+Server tatsaechlich lauscht (3201 statt des Dev-Defaults 3101). Ein Grep
+(`grep -rn PLAYWRIGHT_WEB_PORT tests/`) zeigt, dass kein Spec
+`PLAYWRIGHT_WEB_PORT` direkt liest — dafuer war keine analoge Ergaenzung
+noetig.
 
 ## Entscheidungen
 

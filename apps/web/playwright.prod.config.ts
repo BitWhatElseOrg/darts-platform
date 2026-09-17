@@ -5,6 +5,16 @@ const apiPort = Number(process.env.PLAYWRIGHT_PROD_API_PORT ?? 3_201);
 const webOrigin = `http://localhost:${webPort}`;
 const apiOrigin = `http://localhost:${apiPort}`;
 
+// `tests/foundation.spec.ts` liest den API-Port fuer einen eigenen direkten
+// `fetch`-Aufruf (Board-/oeffentliche ID ueber die Dashboard-Route) selbst
+// aus `process.env.PLAYWRIGHT_API_PORT` -- eine Variable, die urspruenglich
+// nur fuer `playwright.config.ts` (Dev) gedacht ist. Playwright-Worker erben
+// die Umgebung des Konfigurationsprozesses, also reicht es, die Variable
+// hier auf den tatsaechlichen Produktiv-API-Port zu setzen, statt den
+// Testfall anzufassen. `PLAYWRIGHT_WEB_PORT` liest aktuell kein Spec direkt
+// (siehe `grep -r PLAYWRIGHT_WEB_PORT tests/`), bleibt also unangetastet.
+process.env.PLAYWRIGHT_API_PORT = String(apiPort);
+
 /**
  * Eigenstaendige Konfiguration gegen den echten Produktivbuild statt
  * `next dev` (siehe `playwright.config.ts`). Deckt Luecken, die die
@@ -32,6 +42,12 @@ const apiOrigin = `http://localhost:${apiPort}`;
  */
 export default defineConfig({
   testDir: "./tests",
+  // Der Fall pruefte laut eigenem Kommentar bewusst nur `next dev`
+  // (`'unsafe-eval'` braucht dessen Uebersetzer, nicht der Produktivbuild);
+  // das Produktivverhalten deckt `production-csp.spec.ts` ab, das hier
+  // regulaer mitlaeuft. Gegen den Produktivbuild waere dieser eine Fall
+  // strukturell immer rot.
+  testIgnore: /security-headers\.spec\.ts/u,
   fullyParallel: false,
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
