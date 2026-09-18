@@ -82,3 +82,47 @@ Korrigiert wurden die Payloads für:
   (`submitNominationsSchema`).
 
 Nach der Korrektur bestehen alle sechs Rollen-Tests grün; siehe Ergebnis oben.
+
+## Nachtrag 18.09.2026 – eigene Routen für `organization:read` und `organization:update`
+
+Die beiden Wartungsbefunde oben sind behoben. Es gibt jetzt zwei Routen,
+die genau diese Permissions prüfen:
+
+- `GET /api/v1/organizations/:organizationId` – die eigene Organisation
+  aus Sicht des Mitglieds (`OrganizationSummary` mit Rolle und
+  verknüpftem Spielerprofil), geschützt durch `organization:read`.
+- `PATCH /api/v1/organizations/:organizationId` – Stammdaten `name`,
+  `timezone`, `locale` (`updateOrganizationSchema`, mindestens ein Feld,
+  Slug bewusst nicht änderbar, weil er in öffentlichen Adressen und
+  Einladungen steht), geschützt durch `organization:update`; die Änderung
+  läuft transaktional mit Audit-Eintrag `ORGANIZATION_UPDATED` (alter und
+  neuer Stand).
+
+Die Proben der Matrix zeigen jetzt auf diese Routen statt auf die
+Platzhalter (`GET .../players` beziehungsweise `PATCH .../members/:userId`).
+Tests: `apps/api/src/organizations/organizations.integration.spec.ts`
+(Lesen als OWNER und MEMBER, 403 für Nichtmitglieder, Änderung mit Audit,
+403 für MEMBER ohne Schreibzugriff), `packages/schemas/src/organization.spec.ts`
+(Schemagrenzen). Die Matrix bleibt 168/168 grün.
+
+### Validierung vor Autorisierung – akzeptiert
+
+Der dritte Befund (Zod-Validierung läuft vor `requirePermission`, eine
+Rolle ohne Berechtigung bekommt bei ungültigem Rumpf 400 statt 403) wird
+bewusst hingenommen und nicht umgebaut:
+
+- Es fliessen keine Daten ab. Die Validierungsmeldungen nennen nur die
+  Schemaform; die Schemas liegen in `packages/schemas` im öffentlichen
+  Repository.
+- Die Reihenfolge ist in allen Controllern gleich (`parseBody`, dann
+  Service mit `requirePermission` als erstem Schritt). Ein Umbau hiesse
+  entweder Berechtigungsprüfung in jedem der rund 40 schreibenden
+  Controller vor dem Parsen oder ein Guard mit Permission-Dekoratoren an
+  allen Routen – ein Architekturwechsel, dessen Regressionsrisiko bei der
+  Scoring- und Turnierlogik den kosmetischen Gewinn (403 statt 400 für
+  ohnehin unberechtigte Aufrufer) nicht rechtfertigt.
+- Die Proben beider Matrizen tragen gültige Rümpfe; die Reihenfolge
+  verfälscht damit kein Testsignal mehr.
+
+Sollte ein zentraler Permission-Guard aus anderen Gründen eingeführt
+werden, wird dieser Punkt damit automatisch erledigt.

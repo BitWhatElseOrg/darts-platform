@@ -20,6 +20,7 @@ import {
   type CreateInvitationInput,
   type CreateOrganizationInput,
   type OrganizationMember,
+  type UpdateOrganizationInput,
 } from "@darts-platform/schemas";
 
 import type { AuditContext } from "../common/audit-context.js";
@@ -67,6 +68,10 @@ interface ActorInput {
   readonly audit: AuditContext;
 }
 
+type DatabaseTransaction = Parameters<
+  Parameters<DatabaseService["database"]["transaction"]>[0]
+>[0];
+
 @Injectable()
 export class OrganizationsRepository {
   public constructor(
@@ -103,6 +108,112 @@ export class OrganizationsRepository {
         and(eq(memberships.userId, userId), eq(memberships.status, "ACTIVE")),
       )
       .orderBy(organizations.name);
+  }
+
+  /**
+   * Eine einzelne Organisation aus Sicht eines Mitglieds: dieselbe Zeile wie
+   * in `listForUser`, eingeschraenkt auf die Organisation. Ohne aktive
+   * Mitgliedschaft gibt es keine Zeile — die Berechtigung prueft der Service
+   * vorher, hier steht die Organisation trotzdem im `WHERE` (AGENTS.md §14).
+   */
+  public async getForUser(
+    input: {
+      readonly organizationId: string;
+      readonly userId: string;
+    },
+    executor: DatabaseTransaction | DatabaseService["database"] = this.databaseService.database,
+  ) {
+    const [organization] = await executor
+      .select({
+        id: organizations.id,
+        name: organizations.name,
+        slug: organizations.slug,
+        timezone: organizations.timezone,
+        locale: organizations.locale,
+        role: memberships.role,
+        playerId: players.id,
+      })
+      .from(memberships)
+      .innerJoin(
+        organizations,
+        eq(memberships.organizationId, organizations.id),
+      )
+      .leftJoin(
+        players,
+        and(
+          eq(players.organizationId, organizations.id),
+          eq(players.userId, memberships.userId),
+        ),
+      )
+      .where(
+        and(
+          eq(memberships.organizationId, input.organizationId),
+          eq(memberships.userId, input.userId),
+          eq(memberships.status, "ACTIVE"),
+        ),
+      )
+      .limit(1);
+
+    return organization ?? null;
+  }
+
+  /**
+   * Stammdaten aendern. Alter und neuer Stand landen im Audit; der Slug ist
+   * nicht Teil der Schreibgrenze (`updateOrganizationSchema`).
+   */
+  public async update(
+    input: UpdateOrganizationInput &
+      ActorInput & { readonly organizationId: string },
+  ) {
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [current] = await transaction
+        .select({
+          name: organizations.name,
+          timezone: organizations.timezone,
+          locale: organizations.locale,
+        })
+        .from(organizations)
+        .where(eq(organizations.id, input.organizationId))
+        .limit(1)
+        .for("update");
+
+      if (current === undefined) {
+        return null;
+      }
+
+      const next = {
+        name: input.name ?? current.name,
+        timezone: input.timezone ?? current.timezone,
+        locale: input.locale ?? current.locale,
+      };
+
+      await transaction
+        .update(organizations)
+        .set({ ...next, updatedAt: new Date() })
+        .where(eq(organizations.id, input.organizationId));
+
+      await transaction.insert(auditEvents).values({
+        organizationId: input.organizationId,
+        actorUserId: input.userId,
+        action: "ORGANIZATION_UPDATED",
+        entityType: "Organization",
+        entityId: input.organizationId,
+        oldValue: current,
+        newValue: next,
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+
+      // Auf derselben Verbindung lesen: die Transaktion sieht ihre eigenen
+      // Schreibvorgaenge, und die Antwort kann nicht mehr an einer nach dem
+      // Commit veraenderten Mitgliedschaft scheitern (Update committet,
+      // Client bekaeme 404 und wiederholte die Mutation).
+      return this.getForUser(
+        { organizationId: input.organizationId, userId: input.userId },
+        transaction,
+      );
+    });
   }
 
   public async getActiveMembership(input: {
