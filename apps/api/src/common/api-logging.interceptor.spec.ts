@@ -20,9 +20,11 @@ describe("ApiLoggingInterceptor", () => {
     });
   }
 
-  it("protokolliert request.ip und die rohen Adress-Header, wenn LOG_CLIENT_ADDRESS gesetzt ist", async () => {
+  it("protokolliert request.ip, die aufgeloeste Client-Adresse und die rohen Adress-Header, wenn LOG_CLIENT_ADDRESS gesetzt ist", async () => {
     const logger = { log: vi.fn() } as unknown as Logger;
-    const interceptor = new ApiLoggingInterceptor(logger, true);
+    // trustProxyHops=0 explizit: kein Default mehr (Fix-Runde 1) — ohne
+    // vertrauten Hop entspricht `clientAddress` `request.ip`.
+    const interceptor = new ApiLoggingInterceptor(logger, true, 0);
     const request = {
       method: "GET",
       url: "/api/v1/health",
@@ -36,15 +38,16 @@ describe("ApiLoggingInterceptor", () => {
       expect.objectContaining({
         event: "http_request_completed",
         ip: "10.0.0.5",
+        clientAddress: "10.0.0.5",
         addressHeaders: { "x-real-ip": "203.0.113.10", "x-forwarded-for": "203.0.113.10, 10.0.0.1" },
       }),
       "ApiLoggingInterceptor",
     );
   });
 
-  it("laesst ip und addressHeaders weg, wenn LOG_CLIENT_ADDRESS deaktiviert ist", async () => {
+  it("laesst ip, clientAddress und addressHeaders weg, wenn LOG_CLIENT_ADDRESS deaktiviert ist", async () => {
     const logger = { log: vi.fn() } as unknown as Logger;
-    const interceptor = new ApiLoggingInterceptor(logger, false);
+    const interceptor = new ApiLoggingInterceptor(logger, false, 0);
     const request = {
       method: "GET",
       url: "/api/v1/health",
@@ -63,12 +66,13 @@ describe("ApiLoggingInterceptor", () => {
       unknown
     >;
     expect(loggedObject).not.toHaveProperty("ip");
+    expect(loggedObject).not.toHaveProperty("clientAddress");
     expect(loggedObject).not.toHaveProperty("addressHeaders");
   });
 
   it("kuerzt einen ueberlangen x-forwarded-for-Header auf 200 Zeichen", async () => {
     const logger = { log: vi.fn() } as unknown as Logger;
-    const interceptor = new ApiLoggingInterceptor(logger, true);
+    const interceptor = new ApiLoggingInterceptor(logger, true, 0);
     const longHeader = "1.2.3.4, ".repeat(34); // > 300 Zeichen
     const request = {
       method: "GET",

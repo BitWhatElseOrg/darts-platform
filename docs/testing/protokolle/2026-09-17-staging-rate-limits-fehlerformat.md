@@ -58,16 +58,16 @@ geprüft (`apps/api`, Rate-Limit-Konfiguration und Auth-Rate-Limit-Storage).
 ## Messung 18.09.2026 (Plan Task 3, Step 3)
 
 Umgebung `staging`, `LOG_CLIENT_ADDRESS=true`. 12 Anfragen von einer
-Maschine mit öffentlicher Adresse `92.105.157.75` gegen
-`/api/v1/health`, davon 6 mit gefälschtem `X-Real-IP: 198.51.100.7` und
+Maschine mit fester, öffentlicher Adresse gegen `/api/v1/health`, davon 6
+mit gefälschtem `X-Real-IP: 198.51.100.7` und
 `X-Forwarded-For: 198.51.100.8`. Ausgewertet über das Request-Log
 (`ip`, `addressHeaders`).
 
 | Merkmal | Ergebnis |
 | --- | --- |
 | `request.ip` (Fastify, `TRUST_PROXY_HOPS=1`) | `212.102.36.193` oder `212.102.36.194` — zwei abwechselnde Railway-Proxy-Adressen. Ursache von Befund D3-1 (zwei Rate-Limit-Eimer für einen Client). |
-| `x-real-ip` | in allen 12 Anfragen `92.105.157.75` — auch in den 6 Anfragen mit gefälschtem Wert. Railway überschreibt den Header vollständig. |
-| `x-forwarded-for` | in allen 12 Anfragen `92.105.157.75, 212.102.36.19x` — Railway schreibt die ganze Kette neu; die gefälschte Adresse erschien nirgends. Client steht als erster Eintrag, der Proxy als letzter. |
+| `x-real-ip` | in allen 12 Anfragen die eigene öffentliche Adresse (in allen 12 Anfragen identisch) — auch in den 6 Anfragen mit gefälschtem Wert. Railway überschreibt den Header vollständig. |
+| `x-forwarded-for` | in allen 12 Anfragen dieselbe öffentliche Adresse gefolgt von `212.102.36.19x` — Railway schreibt die ganze Kette neu; die gefälschte Adresse erschien nirgends. Client steht als erster Eintrag, der Proxy als letzter. |
 | Railways interne Probe | `ip=100.64.0.2`, beide Header `null` — kein `x-real-ip` und kein `x-forwarded-for`. |
 
 **Entscheidung: Fall A.** `X-Real-IP` wird von Railway zuverlässig
@@ -76,7 +76,21 @@ kamen nie durch. Rate-Limit-Schlüssel, Audit-Kontext (`ip`) und die an
 Better Auth gereichte Adresse verwenden ab sofort `resolveClientAddress`
 (`apps/api/src/common/client-address.ts`): mit vertrautem Hop
 (`TRUST_PROXY_HOPS > 0`) `X-Real-IP`, sonst — inklusive Railways interner
-Probe ohne beide Header — Rückfall auf `request.ip`.
+Probe ohne beide Header — Rückfall auf `request.ip`. Verworfen: `TRUST_PROXY_HOPS`
+auf 2 setzen und bei `X-Forwarded-For` bleiben — die Kettenlänge ist kein
+von Railway zugesichertes Verhalten, die interne Probe schickt gar keine
+Kette, und `X-Real-IP` ist der dokumentierte Vertrag dafür, `X-Forwarded-For`
+nicht.
 
-Nachmessung gegen Staging (Step 7) steht noch aus; Ergebnis wird hier
-ergänzt.
+## Nachmessung (offen)
+
+Schritt 7 (Plan Task 3) steht noch aus. Der gesamte Fix ruht auf der
+Annahme, dass Railway `X-Real-IP` zuverlässig überschreibt — belegt bisher
+nur gegen den Staging-Host. Schritt 7 muss deshalb, bevor er als grün
+gilt, mindestens eine Anfrage mit gefälschtem `X-Real-IP` gegen die
+produktive Custom-Domain `api.dartbase.ch` schicken (lesender `GET
+/api/v1/health` reicht) und im Log bestätigen, dass dort die eigene, reale
+Adresse steht, nicht der gefälschte Wert. Das ist ein Gate für Schritt 7,
+keine Annahme, die er stillschweigend übernehmen darf — Custom-Domains
+können anders geroutet sein als der `*.up.railway.app`-Host, gegen den
+diese Messung lief.

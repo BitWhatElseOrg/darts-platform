@@ -30,6 +30,26 @@ describe("resolveHandshakeAddress", () => {
     ).toBe("203.0.113.7");
   });
 
+  /**
+   * Befund D3-1 (Plan 2026-09-17-go-live-testprogramm, Task 3): hinter
+   * Railway ist der letzte Eintrag von `X-Forwarded-For` eine von mehreren
+   * abwechselnden Proxy-Adressen, nicht die Adresse des Clients.
+   * `X-Real-IP` hat bei einem vertrauten Hop Vorrang, auch wenn die
+   * `X-Forwarded-For`-Kette selbst eine andere Adresse ergeben wuerde.
+   */
+  it("bevorzugt bei einem vertrauten Hop ein gueltiges X-Real-IP vor der Forwarded-For-Kette", () => {
+    expect(
+      resolveHandshakeAddress({
+        headers: {
+          "x-real-ip": "203.0.113.7",
+          "x-forwarded-for": "203.0.113.7, 198.51.100.9",
+        },
+        remoteAddress: "10.0.0.1",
+        trustProxyHops: 1,
+      }),
+    ).toBe("203.0.113.7");
+  });
+
   it("faellt auf die direkte Verbindung zurueck, wenn die Kette zu kurz ist", () => {
     expect(
       resolveHandshakeAddress({

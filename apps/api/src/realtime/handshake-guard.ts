@@ -1,5 +1,7 @@
 import type { IncomingHttpHeaders, IncomingMessage } from "node:http";
 
+import { pickRealIp } from "../common/client-address.js";
+
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const UNKNOWN_ADDRESS = "unknown";
 
@@ -7,11 +9,16 @@ const UNKNOWN_ADDRESS = "unknown";
  * Client-Adresse eines Handshakes. Socket.IO haengt am HTTP-Server und laeuft
  * damit nicht durch Fastify — `request.ip` und dessen `trustProxy`-Auswertung
  * stehen hier nicht zur Verfuegung, die Hop-Zaehlung muss also dieselbe
- * Entscheidung noch einmal treffen. Semantik wie `resolveTrustProxyOption`:
- * bei `hops = n` gilt der n-te Eintrag vom Ende der `X-Forwarded-For`-Kette
- * als Client — bei `hops = 1` also der, den der eigene Reverse Proxy selbst
- * angehaengt hat. Ohne vertrauten Hop zaehlt allein die direkte Verbindung;
- * vom Client mitgeschickte Header werden dann ignoriert.
+ * Entscheidung noch einmal treffen.
+ *
+ * Dieselbe Praeferenz wie `resolveClientAddress` (`common/client-address.ts`,
+ * Plan 2026-09-17-go-live-testprogramm, Task 3, Befund D3-1): mit einem
+ * vertrauten Hop zuerst ein gueltiges `X-Real-IP` (von Railway ueberschrieben,
+ * `pickRealIp`), sonst die `X-Forwarded-For`-Kette nach der Semantik von
+ * `resolveTrustProxyOption` — bei `hops = n` der n-te Eintrag vom Ende, bei
+ * `hops = 1` also der, den der eigene Reverse Proxy selbst angehaengt hat.
+ * Ohne vertrauten Hop zaehlt allein die direkte Verbindung; vom Client
+ * mitgeschickte Header werden dann ignoriert.
  */
 export function resolveHandshakeAddress(input: {
   readonly headers: IncomingHttpHeaders;
@@ -20,6 +27,9 @@ export function resolveHandshakeAddress(input: {
 }): string {
   const direct = input.remoteAddress ?? UNKNOWN_ADDRESS;
   if (input.trustProxyHops <= 0) return direct;
+
+  const realIp = pickRealIp(input.headers);
+  if (realIp !== undefined) return realIp;
 
   const header = input.headers["x-forwarded-for"];
   const chain = (Array.isArray(header) ? header.join(",") : header ?? "")

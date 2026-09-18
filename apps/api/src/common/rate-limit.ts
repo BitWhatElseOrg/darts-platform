@@ -80,13 +80,16 @@ function maxFor(tier: RateLimitTier, environment: ApplicationEnvironment): numbe
  * Fastify-Zaehler ist die grobe Bremse fuer die uebrigen Routen; ihn ueber
  * `ioredis` zu teilen, waere an dieser Stelle den Zusatzaufwand nicht wert.
  *
- * Der Zaehler-Schluessel ist `"<stufe>:<ip>"` statt nur der IP-Adresse: ohne
- * die Stufe im Schluessel teilten sich alle drei Stufen einen einzigen
- * Eimer je IP, und wer die allgemeine Grenze ausschoepft, waere faelschlich
- * auch von der sensiblen Grenze blockiert (und umgekehrt). `request.ip`
- * beruecksichtigt `TRUST_PROXY_HOPS` (`trust-proxy.ts`) — ohne vertrauten
- * Hop waeren hinter Railway alle Clients dieselbe Adresse und teilten sich
- * ohnehin einen Eimer je Stufe.
+ * Der Zaehler-Schluessel ist `"<stufe>:<adresse>"` statt nur der Adresse:
+ * ohne die Stufe im Schluessel teilten sich alle drei Stufen einen
+ * einzigen Eimer je Adresse, und wer die allgemeine Grenze ausschoepft,
+ * waere faelschlich auch von der sensiblen Grenze blockiert (und
+ * umgekehrt). Die Adresse selbst kommt aus `resolveClientAddress`
+ * (siehe unten) und beruecksichtigt `TRUST_PROXY_HOPS` (`trust-proxy.ts`)
+ * nur als Voraussetzung dafuer, `X-Real-IP` ueberhaupt zu vertrauen — ohne
+ * vertrauten Hop waeren hinter Railway sonst entweder alle Clients dieselbe
+ * Adresse oder ein selbst gesetzter Header liesse sich faelschen, und alle
+ * Clients teilten sich ohnehin einen Eimer je Stufe.
  *
  * Zweite bewusste Grenze: auf `/api/v1/auth/**` greifen beide Bremsen. Wer
  * zuerst auslöst, bestimmt den Antwortkörper — Fastify antwortet im

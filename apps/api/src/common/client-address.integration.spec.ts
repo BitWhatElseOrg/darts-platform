@@ -52,4 +52,32 @@ describe("Client-Adresse als Rate-Limit-Schlüssel", () => {
       (await app.inject({ method: "POST", url, remoteAddress: "10.0.0.6" })).statusCode,
     ).not.toBe(429);
   }, 30_000);
+
+  /**
+   * Fix-Runde 1, Punkt 1 (Sicherheitsreview): `audit_events.ip` ist Postgres
+   * `inet` (`packages/database/src/schema.ts`). Ein ungueltiger `X-Real-IP`
+   * darf deshalb nicht durchgereicht werden — er wuerde die auditierte
+   * Mutation mit einem 500 statt einer sauberen Antwort abbrechen. Zwei
+   * unterschiedliche `remoteAddress`-Werte mit demselben ungueltigen Header
+   * muessen deshalb getrennte Eimer treffen, weil beide auf `request.ip`
+   * zurueckfallen.
+   */
+  it("faellt bei einem ungueltigen X-Real-IP auf request.ip zurueck", async () => {
+    app = await createApiTestApplication({ RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: 1, TRUST_PROXY_HOPS: 1 });
+    const url = `/api/v1/invitations/${randomUUID()}/accept`;
+    const invalidHeader = { "x-real-ip": "nicht-eine-adresse" };
+
+    expect(
+      (await app.inject({ method: "POST", url, headers: invalidHeader, remoteAddress: "10.0.0.5" }))
+        .statusCode,
+    ).not.toBe(429);
+    expect(
+      (await app.inject({ method: "POST", url, headers: invalidHeader, remoteAddress: "10.0.0.5" }))
+        .statusCode,
+    ).toBe(429);
+    expect(
+      (await app.inject({ method: "POST", url, headers: invalidHeader, remoteAddress: "10.0.0.6" }))
+        .statusCode,
+    ).not.toBe(429);
+  }, 30_000);
 });

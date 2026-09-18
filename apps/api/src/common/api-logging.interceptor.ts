@@ -11,6 +11,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Observable } from "rxjs";
 import { tap } from "rxjs";
 
+import { RAW_ADDRESS_HEADERS, resolveClientAddress } from "./client-address.js";
 import { getAuditContext } from "./audit-context.js";
 
 @Injectable()
@@ -18,11 +19,12 @@ export class ApiLoggingInterceptor implements NestInterceptor {
   public constructor(
     @Inject(Logger) private readonly logger: Logger,
     private readonly logClientAddress: boolean = false,
-    // Fuer `getAuditContext` (Plan 2026-09-17-go-live-testprogramm, Task 3):
-    // Default 0 haelt bestehende Unit-Tests grün, die diesen Parameter nicht
-    // mitgeben; `configure-application.ts` reicht den echten Wert aus
-    // `APPLICATION_ENVIRONMENT.TRUST_PROXY_HOPS` durch.
-    private readonly trustProxyHops: number = 0,
+    // Fuer `getAuditContext`/`resolveClientAddress` (Plan
+    // 2026-09-17-go-live-testprogramm, Task 3): kein Default — der Aufrufer
+    // muss den echten Wert aus `APPLICATION_ENVIRONMENT.TRUST_PROXY_HOPS`
+    // mitgeben (`configure-application.ts`), sonst faellt die zwischen-
+    // gespeicherte `AuditContext.ip` still auf `request.ip` zurueck.
+    private readonly trustProxyHops: number,
   ) {}
 
   public intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -69,18 +71,21 @@ export class ApiLoggingInterceptor implements NestInterceptor {
         statusCode: input.statusCode,
         durationMs: Math.round((performance.now() - input.startedAt) * 100) / 100,
         correlationId: input.correlationId,
-        // Diagnose fuer die Untersuchung des Rate-Limit-Schluessels (Plan
-        // 2026-09-17-go-live-testprogramm, Task 3): nur mit
-        // LOG_CLIENT_ADDRESS=true, weil `ip` und die rohen Adress-Header
-        // personenbezogen sind. Wieder entfernen, sobald
-        // `resolveClientAddress` entschieden ist.
+        // Diagnose fuer die Nachmessung des Rate-Limit-Schluessels (Plan
+        // 2026-09-17-go-live-testprogramm, Task 3, Step 7) gegen Staging und
+        // Production: nur mit LOG_CLIENT_ADDRESS=true, weil `ip`,
+        // `clientAddress` und die rohen Adress-Header personenbezogen sind.
+        // Bleibt bis zur Nachmessung bestehen — erst danach ist belegt, dass
+        // Railway `X-Real-IP` auch im Produktions-Setup ueberschreibt.
         ...(this.logClientAddress
           ? {
               ip: input.request.ip,
-              addressHeaders: {
-                "x-real-ip": headerValue(headers["x-real-ip"]),
-                "x-forwarded-for": headerValue(headers["x-forwarded-for"]),
-              },
+              clientAddress: resolveClientAddress(input.request, this.trustProxyHops),
+              addressHeaders: Object.fromEntries(
+                RAW_ADDRESS_HEADERS.map(
+                  (name): [string, string | null] => [name, headerValue(headers[name])],
+                ),
+              ) as Record<(typeof RAW_ADDRESS_HEADERS)[number], string | null>,
             }
           : {}),
       },
