@@ -23,7 +23,7 @@ bestehen. Die öffentlichen Web- und API-Smoke-Tests bestehen ebenfalls.
 
 ## Staging-Environment
 
-Stand: 17. September 2026
+Stand: 18.09.2026
 
 Neben `production` existiert im Projekt `dartbase` das Environment
 `staging` (ID `ade64d16-d5ff-4be6-bd80-39e582335a20`). Es ist eine
@@ -127,6 +127,8 @@ der git-ignorierten `.env.staging` im Repository-Wurzelverzeichnis:
 | `STAGING_EMAIL` | Anmeldeadresse des Testkontos `test-runner@example.test` |
 | `STAGING_PASSWORD` | Passwort des Testkontos |
 | `STAGING_ORGANIZATION_ID` | ID der Organisation «Staging Testverein» |
+| `STAGING_LOAD_BOARDS` | Anzahl Boards für Fall A3 (Vorgabe 20; kleinere Werte für einen Smoke-Lauf) |
+| `STAGING_LOAD_SECONDS` | Laufzeit von Fall A3 in Sekunden (Vorgabe 120) |
 
 Alle Fälle auf einmal (inklusive des rund zweiminütigen Lasttests):
 
@@ -145,21 +147,89 @@ cd apps/api && npx dotenv -e ../../.env.staging -- npx vitest run \
 Einladungsannahme) sind serverseitig auf `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE`
 (Vorgabe 10) je Client und Minute begrenzt. Staging-Testfälle, die sich
 mehrfach anmelden, müssen mit diesem Budget planen (z. B. eine Sitzung
-wiederverwenden statt pro Fall neu anzumelden).
+wiederverwenden statt pro Fall neu anzumelden). Ein voller Lauf von
+`pnpm test:staging` verbraucht **7 von 10** Logins/Minute: 1 Smoke-Test
+(`staging-client.staging.spec.ts`) + 1 Nebenläufigkeit (`concurrency…`) +
+1 Last (`load…`) + 1 Realtime (`realtime…`) + 3 Auth-Flows
+(`auth-flows…`, D4-1/D4-2/D4-3). Die Vitest-Konfiguration
+(`apps/api/test/staging/vitest.config.mts`, `fileParallelism: false`) führt
+die Dateien deshalb nacheinander statt parallel aus — nur so bleiben die
+Logins über die Minute verteilt statt gleichzeitig anzufallen.
+
+**Exit-Code von `pnpm test:staging`.** Solange Befund D3-1 offen ist, endet
+`pnpm test:staging` wegen Fall A5 bewusst mit Exit-Code ≠ 0 (roter Testfall,
+siehe `docs/testing/protokolle/2026-09-18-block-a.md`). Das ist kein
+Ausführungsfehler des Laufs selbst; ein grüner Exit-Code ist erst nach
+Behebung (oder explizit begründeter Akzeptanz) von D3-1 zu erwarten.
+
+**Datenwachstum in Staging.** Jeder volle Lauf legt in der Staging-Datenbank
+neue, nie automatisch gelöschte Organisationen an — pro Lauf fünf, mit dem
+Slug-Präfix `lasttest-` und den Läufer-Präfixen `conc-`, `load-`, `rt-`,
+`d5-` und `run-` (z. B. `lasttest-load-1758...`), plus die dazugehörigen
+Spieler, Matches und Visits. Aufräumen:
+
+```sql
+DELETE FROM organizations WHERE slug LIKE 'lasttest-%';
+```
+
+direkt auf der Staging-Datenbank, oder alternativ Staging komplett neu aus
+Production duplizieren (siehe Betriebsregeln oben — Staging darf jederzeit
+kaputtgehen und neu entstehen).
 
 **Limits für Lastläufe vorübergehend anheben.** Die Fälle A3/A4/A6 (Block A)
-und die B4/B5-Proben brauchen mehr als das reguläre Rate-Limit. Ablauf:
+und die B4/B5-Proben brauchen mehr als das reguläre Rate-Limit. Jeder
+`railway`-Befehl trägt dabei explizit
+`--project b72b141e-1685-44d7-960e-06c6b3998b34 --environment staging`
+sowie den passenden `--service`; ohne diese Flags entscheidet der zuletzt
+verlinkte Kontext, welches Projekt/Environment/Service getroffen wird.
+Ablauf:
 
-1. `RATE_LIMIT_MAX_PER_MINUTE` und `RATE_LIMIT_SOCKET_MAX_PER_MINUTE` auf der
-   Staging-API auf einen hohen Wert setzen (z. B. 100000).
-2. `railway redeploy --yes` (ohne `--from-source`) im Environment `staging`,
-   damit die neuen Werte greifen.
+1. Beide Variablen auf der Staging-API auf einen hohen Wert setzen:
+
+   ```bash
+   railway variable set RATE_LIMIT_MAX_PER_MINUTE=100000 \
+     RATE_LIMIT_SOCKET_MAX_PER_MINUTE=100000 \
+     --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+     --environment staging --service @darts-platform/api
+   ```
+
+2. ```bash
+   railway redeploy --yes \
+     --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+     --environment staging --service @darts-platform/api
+   ```
+
+   (ohne `--from-source`), damit die neuen Werte greifen.
 3. Lastlauf ausführen.
 4. Beide Variablen wieder löschen — `railway variable delete <KEY>` nimmt
-   jeweils nur einen einzelnen Schlüssel entgegen, also zwei Aufrufe.
-5. Erneut `railway redeploy --yes`, danach mit einer Anfrage den
-   `x-ratelimit-limit`-Antwort-Header prüfen: er muss wieder die Vorgabewerte
-   zeigen (300 allgemein, 60 für Socket-Handshakes).
+   jeweils nur einen einzelnen Schlüssel entgegen, also zwei Aufrufe, je mit
+   denselben `--project`/`--environment`/`--service`-Flags wie in Schritt 1.
+5. Erneut
+
+   ```bash
+   railway redeploy --yes \
+     --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+     --environment staging --service @darts-platform/api
+   ```
+
+   danach mit einer Anfrage den `x-ratelimit-limit`-Antwort-Header prüfen:
+   er muss wieder die Vorgabewerte zeigen (300 allgemein, 60 für
+   Socket-Handshakes). **Einschränkung:** `x-ratelimit-limit` zeigt nur das
+   allgemeine Limit (`RATE_LIMIT_MAX_PER_MINUTE`); das
+   Socket-Handshake-Limit (`RATE_LIMIT_SOCKET_MAX_PER_MINUTE`) erscheint in
+   keinem Antwort-Header und lässt sich nur indirekt über das Verhalten der
+   Socket-Verbindungen selbst prüfen.
+
+**Redis- und Worker-Neustart unter Last (B4/B5).** Dieselben expliziten
+Flags gelten für die Restart-Proben, jeweils mit dem Namen des betroffenen
+Service statt der API:
+
+```bash
+railway restart --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+  --environment staging --service Redis
+railway restart --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+  --environment staging --service @darts-platform/worker
+```
 
 **Beobachtung zu SKIPPED-Deploys.** Mit `checkSuites: true` verwirft Railway
 in Staging einen Deploy, der allein durch eine Variablenänderung ausgelöst
