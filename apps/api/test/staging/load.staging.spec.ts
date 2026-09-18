@@ -39,11 +39,11 @@ function sleep(ms: number): Promise<void> {
  */
 const BOARDS = Number(process.env.STAGING_LOAD_BOARDS ?? 20);
 const DURATION_MS = Number(process.env.STAGING_LOAD_SECONDS ?? 120) * 1000;
-const VISIT_INTERVAL_MS = 333; // ~3 Visits/Sekunde je Match
+const VISIT_INTERVAL_MS = 333; // Ziel-Taktung: ~3 Visits/Sekunde je Match
 
 describe("Block A – Last", () => {
   it(
-    `A3: ${BOARDS} Matches, 3 Visits pro Sekunde je Match, ${DURATION_MS / 1000} Sekunden`,
+    `A3: ${BOARDS} Matches, angestrebt 3 Visits pro Sekunde je Match, ${DURATION_MS / 1000} Sekunden`,
     async () => {
       const latencies: number[] = [];
       let errors = 0;
@@ -109,7 +109,13 @@ describe("Block A – Last", () => {
               errors += 1;
               break;
             }
-            await sleep(VISIT_INTERVAL_MS);
+            // Feste Taktung auf den Intervall-START, nicht auf das ENDE der
+            // Antwort: eine feste Pause NACH jeder Antwort haette die
+            // Antwortzeit selbst mit aufsummiert und die tatsaechliche Rate
+            // je nach Latenz unter das Ziel gedrueckt (siehe Protokoll:
+            // vorherige Laeufe erreichten dadurch nur ~1,7-2,5 statt der
+            // angestrebten 3 Visits/s).
+            await sleep(Math.max(0, VISIT_INTERVAL_MS - (performance.now() - started)));
           }
         }),
       );
