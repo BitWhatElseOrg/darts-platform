@@ -131,6 +131,12 @@ Die Staging-Tests liegen als eigenes Vitest-Projekt unter
 Staging-API und schreiben dort Daten; Zugangsdaten und Ziel-URLs kommen aus
 der git-ignorierten `.env.staging` im Repository-Wurzelverzeichnis:
 
+`.env.staging` gehört in den Haupt-Checkout
+(`/home/sut/projects/darts-platform/.env.staging`) und wird von dort bei
+Bedarf in einen Worktree kopiert. Ein entfernter Worktree nimmt
+git-ignorierte Dateien mit sich; eine dort abgelegte `.env.staging` ist
+damit verloren, sobald der Worktree gelöscht wird.
+
 | Variable | Zweck |
 | --- | --- |
 | `STAGING_API_URL` | Basis-URL der Staging-API |

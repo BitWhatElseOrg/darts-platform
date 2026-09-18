@@ -23,7 +23,7 @@ alle sechs Fälle gemessen.
 | A2 Gleicher Command doppelt | 18.09.2026 | grün | [2026-09-18-block-a.md](protokolle/2026-09-18-block-a.md) | 10× 201 mit identischem Zustand, Version 1, genau ein Visit (idempotent). |
 | A3 20 Boards gleichzeitig | 18.09.2026 | grün | [2026-09-18-block-a.md](protokolle/2026-09-18-block-a.md) | 4'076 Anfragen, 0 Fehler, p50 252 ms, p95 298 ms, p99 373 ms, 0 Matches vorzeitig beendet. Angestrebt 3 Visits/s je Match; durch die feste 333-ms-Pause nach jeder Antwort effektiv 1,7/s (4076 statt 7200 Anfragen) — Code inzwischen auf feste Taktung umgestellt. Messwerte: [2026-09-18-a3.json](protokolle/messwerte/2026-09-18-a3.json). |
 | A4 Realtime-Fan-out | 18.09.2026 | grün | [2026-09-18-block-a.md](protokolle/2026-09-18-block-a.md) | 0 von 50 Sockets ohne `tournament:changed`; p50 194 ms, p95 194 ms, max 200 ms. Messwerte: [2026-09-18-a4.json](protokolle/messwerte/2026-09-18-a4.json). |
-| A5 Public-Polling unter NAT | 18.09.2026 | rot | [2026-09-18-block-a.md](protokolle/2026-09-18-block-a.md) | 0 von 700 Antworten 429 (erwartet 50–150) — konsistent mit dem Verdacht aus D3-1 (Zähler pro Client verdoppelt; Nachmessung nach dem Fix offen): sollte er zutreffen, läge die reale Schwelle bei rund 1200 statt 600 Anfragen/Minute. Messwerte: [2026-09-18-a5.json](protokolle/messwerte/2026-09-18-a5.json). |
+| A5 Public-Polling unter NAT | 18.09.2026, Nachmessung 18.09.2026 grün | grün | [2026-09-18-block-a.md](protokolle/2026-09-18-block-a.md) | Ursprünglich rot: 0 von 700 Antworten 429 (erwartet 50–150), konsistent mit D3-1. Nach dem Fix (PR #46) manuell nachgemessen: 700 Anfragen, 50 parallel, gegen `api-staging.dartbase.ch` → 600× 404, 100× 429 — innerhalb der Erwartung. Automatisierter Spec-Lauf nicht wiederholt (Testkonto-Zugangsdaten verloren, siehe „Blocker beim Betreiber"); die manuelle Messung ist gleichwertig. Ursprüngliche Messwerte: [2026-09-18-a5.json](protokolle/messwerte/2026-09-18-a5.json). |
 | A6 Undo unter Last | 18.09.2026 | grün | [2026-09-18-block-a.md](protokolle/2026-09-18-block-a.md) | Ein 201, ein 409; Version = vorherige Version + 1; zwei aktive Visits (Undo hat gewonnen). |
 
 ## Block B – Betrieb und Wiederherstellung
@@ -52,7 +52,7 @@ alle sechs Fälle gemessen.
 | --- | --- | --- | --- | --- |
 | D1 Tenant-Isolationsmatrix | 17.09.2026 | grün | [2026-09-17-tenant-isolation.md](protokolle/2026-09-17-tenant-isolation.md) | 65/65 tenant-bezogene Routen isoliert (403/404), 0 Leaks. Routenliste automatisch aus dem Fastify-Router gelesen. Einschränkung: alle Pfadparameter ausser `:organizationId` sind zufällige UUIDs, die in Organisation B nicht existieren — ein 404 belegt dort ebenso gut fehlende Existenz wie korrekte Tenant-Bindung. Test mit echten, in Organisation B angelegten Ressourcen ist ein benannter Follow-up (siehe Blocker/Follow-ups). |
 | D2 Permission-Matrix | 17.09.2026 | grün | [2026-09-17-permission-matrix.md](protokolle/2026-09-17-permission-matrix.md) | 168/168 Rollen-Permission-Paare stimmen mit `hasOrganizationPermission` überein. Zwei kleine Wartungsbefunde (niedrig): `organization:update` und `organization:read` werden von keiner Route eigenständig geprüft, ihre Proben laufen ersatzweise über eine andere Permission, die aktuell an denselben Rollen hängt — kein Sicherheitsrisiko, aber ein blinder Fleck bei künftigem Auseinanderlaufen der Rollentabelle. Ausserdem: Validierung läuft vor Autorisierung (400 statt 403 bei leerem Payload einer Rolle ohne Berechtigung) — niedrig, da keine Daten preisgegeben werden. |
-| D3 Rate-Limits auf Staging | 17.09.2026, Ursache bestätigt 18.09.2026 | rot | [2026-09-17-staging-rate-limits-fehlerformat.md](protokolle/2026-09-17-staging-rate-limits-fehlerformat.md) | Befund D3-1 (hoch): unter gleichzeitigen Anfragen zählt der Limiter nur etwa die Hälfte (nach 401 Anfragen stand der Zähler bei 198; beim Login kamen 17 statt 10 Versuche durch) — Muster eines nicht-atomaren Zählers oder eines Schlüssels, der nicht je Client stabil ist. **Ursache bestätigt (Messung 18.09.2026, Abschnitt „Messung 18.09.2026" im Protokoll):** `request.ip` war zwei abwechselnde Railway-Proxy-Adressen statt der Client-Adresse; `x-real-ip` war dagegen stabil und wurde von Railway auch bei gefälschtem Header überschrieben (Fall A). **Fix in dieser PR:** Rate-Limit-Schlüssel, Audit-`ip` und die an Better Auth gereichte Adresse laufen jetzt über `resolveClientAddress` (`apps/api/src/common/client-address.ts`) und nutzen `X-Real-IP` hinter einem vertrauten Hop. Befund D3-2 (mittel): im seriellen Login-Fall blieb innerhalb des Fensters jedes 429 aus, Ursache offen, unverändert durch diesen Fix. Nachmessung gegen Staging (Plan Task 3, Step 7) steht noch aus — weiterhin blockiert durch das GitHub-Actions-Zahlungsproblem, das den Staging-Deploy dieser PR verhindert. A5 (Block A) ist mit dem ursprünglichen Verdacht konsistent, bestätigt ihn aber nicht eigenständig. |
+| D3 Rate-Limits auf Staging | 17.09.2026, Ursache bestätigt 18.09.2026, Nachmessung 18.09.2026 grün | grün (Staging) | [2026-09-17-staging-rate-limits-fehlerformat.md](protokolle/2026-09-17-staging-rate-limits-fehlerformat.md) | Befund D3-1 (hoch): unter gleichzeitigen Anfragen zählte der Limiter nur etwa die Hälfte (nach 401 Anfragen stand der Zähler bei 198; beim Login kamen 17 statt 10 Versuche durch) — Muster eines nicht-atomaren Zählers oder eines Schlüssels, der nicht je Client stabil ist. **Ursache bestätigt und behoben (PR #46, Merge 2311f2c):** `request.ip` war zwei abwechselnde Railway-Proxy-Adressen statt der Client-Adresse; `x-real-ip` war dagegen stabil und wurde von Railway auch bei gefälschtem Header überschrieben. Rate-Limit-Schlüssel, Audit-`ip` und die an Better Auth gereichte Adresse laufen seither über `resolveClientAddress` (`apps/api/src/common/client-address.ts`) und nutzen `X-Real-IP` hinter einem vertrauten Hop. **Nachmessung 18.09.2026 gegen Staging (`api-staging.dartbase.ch`, Deploy 2311f2c) grün:** allgemeine Stufe 299× 401 / 101× 429 bei 400 parallelen Anfragen (ein Zähler statt zwei), sensible Stufe 10× 401 / 15× 429 bei 25 parallelen Logins, öffentliche Stufe 100× 429 bei 700 Anfragen (A5, siehe dort), Spoof-Gate mit gefälschtem `X-Real-IP`/`X-Forwarded-For` gegen die Custom-Domain: eigene Adresse im Log, gefälschte Werte kamen nie durch. Details: Abschnitt „Nachmessung 18.09.2026 – grün" im verlinkten Protokoll. Befund D3-2 (mittel, seriell kein 429 im Login-Fall) bleibt unverändert offen, unabhängig von diesem Fix. **Restpunkt:** Die Nachmessung lief nur gegen Staging; dieselbe Probe (mindestens der Spoof-Gate-Fall) ist nach dem Release nach `main` einmal gegen Production zu wiederholen — offen bis Release, nicht rot. |
 | D4 Auth-Flows gegen Staging | 18.09.2026 | grün | [2026-09-18-block-d4-d5.md](protokolle/2026-09-18-block-d4-d5.md) | 4/4 Fälle grün: Session-Cookie mit `HttpOnly`, `Secure`, `SameSite=Lax`, `__Secure`-Präfix (D4-1); Logout invalidiert die Sitzung serverseitig, danach 401 (D4-2); fremde Origin bei Cookie-Anfrage an eine Auth-Route → 403 (D4-3); Cookie-Anfrage ohne Origin → 403 (D4-4, nach Korrektur der Testannahme: Better Auth prüft den Origin nur, wenn ein Cookie mitgeschickt wird). Sign-in-Budget eingehalten: 3 von 10 Logins/Minute verbraucht. |
 | D5 Öffentliche Routen | 18.09.2026 | grün | [2026-09-18-block-d4-d5.md](protokolle/2026-09-18-block-d4-d5.md) | 3/3 Fälle grün: öffentliches Dashboard verrät keine internen Felder, Form entspricht `publicTournamentDashboardSchema` (D5-1); unbekannte `publicId` → 404 im einheitlichen Fehlerformat (D5-2); privates Turnier ohne Anzeige-Schlüssel antwortet ebenfalls mit 404 wie ein unbekanntes Turnier, bewusst ununterscheidbar, kein Befund (D5-3). |
 | D6 Fehlerformat | 17.09.2026 | grün | [2026-09-17-staging-rate-limits-fehlerformat.md](protokolle/2026-09-17-staging-rate-limits-fehlerformat.md) | Alle vier Fälle (ungültiges JSON, unbekannte Route, 2-MB-Body, fehlende Session) liefern das einheitliche Format mit `correlationId`, ohne Stacktrace. Befund D6-1 (klein): der Fehlercode `AVATAR_TOO_LARGE` erscheint auch bei zu grossem Body auf der Login-Route — irreführend, kein Sicherheitsproblem. |
@@ -79,6 +79,7 @@ Weiterhin offen:
 - **PITR-Entscheid aussteht.** `railway postgres pitr status` zeigt für Production `enabled: false`, `bucketWired: false` (Befund B1, hoch). Einschalten ist eine Mutation an Production und bewusst ein separater Betreiberentscheid, kein Automatismus dieses Programms.
 - **B2/B6 noch nicht gefahren.** Restore-Probe auf Staging (B2, wartet zusätzlich auf den PITR-Entscheid) und API-Neustart mit offenen Sockets (B6, Vorgehen wie B4 mit den 50 Sockets aus A4) stehen aus.
 - **D1 mit echten Ressourcen in Organisation B nachziehen.** Die aktuelle Tenant-Isolationsmatrix nutzt zufällige UUIDs für alle Pfadparameter ausser `:organizationId`; ein Nachlauf mit tatsächlich in Organisation B angelegten Ressourcen würde 404 (nicht existent) und 403 (existent, aber fremder Tenant) sauber trennen.
+- **Neue Einladung für ein zweites Testkonto nötig.** Die Zugangsdaten des bisherigen Testkontos (`test-runner@example.test`, `.env.staging`) gingen mit einem zwischenzeitlich gelöschten Worktree verloren. Für weitere automatisierte Staging-Läufe (`pnpm test:staging`) braucht es eine neue Einladung, vorzugsweise für ein zweites Testkonto (`test-runner-2@example.test`), damit künftige Läufe nicht wieder von einem lokal gehaltenen `.env.staging` abhängen, das ausserhalb des Haupt-Checkouts verloren gehen kann (siehe `infrastructure/railway.md`, Abschnitt „Staging-Tests und Lastläufe").
 
 ## Freigabe Block E
 
@@ -91,20 +92,28 @@ Block E."
 
 Begründung:
 
-- Block A: 5 von 6 Fällen grün (A1, A2, A3, A4, A6). A5 ist rot — nicht als
-  eigenständiger Befund, sondern konsistent mit dem Verdacht aus D3-1
-  (Zähler pro Client verdoppelt; Nachmessung nach dem Fix offen): sollte er
-  zutreffen, liesse sich das Public-Limit mit der vorgegebenen Anfragezahl
-  nicht scharf prüfen.
+- Block A: alle 6 Fälle grün (A1, A2, A3, A4, A5, A6). A5 war ursprünglich
+  rot, ist nach dem D3-1-Fix (PR #46) und der Nachmessung vom 18.09.2026
+  grün.
 - Block B: B4 und B5 sind grün. B1 ist rot und nicht akzeptiert (PITR aus,
   Betreiberentscheid aussteht). B2, B3 und B6 sind offen.
-- Block D: D1, D2, D4, D5 und D6 sind grün. D3 ist weiterhin rot — die
-  Befunde D3-1 (hoch) und D3-2 (mittel) sind unbehoben, ihre Nachmessung ist
-  blockiert, weil der dafür nötige Staging-Deploy GitHub Actions voraussetzt.
+- Block D: D1, D2, D3 (Staging), D4, D5 und D6 sind grün. D3-1 ist auf
+  Staging behoben und nachgemessen; die Production-Probe steht als
+  Restpunkt aus (offen bis Release, kein Rot). D3-2 (mittel, serieller
+  Login-Fall ohne 429) bleibt unbehoben und offen.
 - Block C ist vollständig grün; das allein genügt nicht, weil das Kriterium
   alle vier Blöcke verlangt.
 
-Block E kann erst starten, wenn: B1, D3-1 und D3-2 entweder behoben oder mit
-Begründung und Risiko explizit im Protokoll als akzeptiert markiert sind,
-B2, B3 und B6 gemessen wurden und A5 im Licht einer behobenen oder
-akzeptierten D3-1 neu bewertet ist.
+Was aktuell noch rot oder offen ist, bevor Block E starten kann: B1 (PITR,
+Betreiberentscheid aussteht), B2 (Restore-Probe, wartet auf B1), B3
+(Migrationsprobe, wartet auf die nächste Migration in `develop`), B6
+(API-Neustart mit offenen Sockets, noch nicht gefahren), die
+D3-Production-Probe (Spoof-Gate gegen `api.dartbase.ch` nach dem Release
+nach `main`) sowie die benannten Follow-ups: D3-2 (seriellen Login-Fall
+klären) und D1 mit echten Ressourcen in Organisation B nachziehen (siehe
+„Blocker beim Betreiber" und „Weiterhin offen" oben).
+
+Block E kann erst starten, wenn: B1 entweder behoben oder mit Begründung
+und Risiko explizit im Protokoll als akzeptiert markiert ist, B2, B3 und B6
+gemessen wurden, die D3-Production-Probe nachgezogen ist und D3-2 geklärt
+oder akzeptiert ist.
