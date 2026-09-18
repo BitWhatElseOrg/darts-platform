@@ -54,3 +54,29 @@ geprüft (`apps/api`, Rate-Limit-Konfiguration und Auth-Rate-Limit-Storage).
 2. Integrationstest, der 50 parallele Anfragen gegen eine Route mit Limit 10
    schickt und genau 10 Erfolge erwartet.
 3. Nach dem Fix denselben Lauf gegen Staging wiederholen und hier ergänzen.
+
+## Messung 18.09.2026 (Plan Task 3, Step 3)
+
+Umgebung `staging`, `LOG_CLIENT_ADDRESS=true`. 12 Anfragen von einer
+Maschine mit öffentlicher Adresse `92.105.157.75` gegen
+`/api/v1/health`, davon 6 mit gefälschtem `X-Real-IP: 198.51.100.7` und
+`X-Forwarded-For: 198.51.100.8`. Ausgewertet über das Request-Log
+(`ip`, `addressHeaders`).
+
+| Merkmal | Ergebnis |
+| --- | --- |
+| `request.ip` (Fastify, `TRUST_PROXY_HOPS=1`) | `212.102.36.193` oder `212.102.36.194` — zwei abwechselnde Railway-Proxy-Adressen. Ursache von Befund D3-1 (zwei Rate-Limit-Eimer für einen Client). |
+| `x-real-ip` | in allen 12 Anfragen `92.105.157.75` — auch in den 6 Anfragen mit gefälschtem Wert. Railway überschreibt den Header vollständig. |
+| `x-forwarded-for` | in allen 12 Anfragen `92.105.157.75, 212.102.36.19x` — Railway schreibt die ganze Kette neu; die gefälschte Adresse erschien nirgends. Client steht als erster Eintrag, der Proxy als letzter. |
+| Railways interne Probe | `ip=100.64.0.2`, beide Header `null` — kein `x-real-ip` und kein `x-forwarded-for`. |
+
+**Entscheidung: Fall A.** `X-Real-IP` wird von Railway zuverlässig
+überschrieben und ist über alle 12 Anfragen stabil; die gefälschten Header
+kamen nie durch. Rate-Limit-Schlüssel, Audit-Kontext (`ip`) und die an
+Better Auth gereichte Adresse verwenden ab sofort `resolveClientAddress`
+(`apps/api/src/common/client-address.ts`): mit vertrautem Hop
+(`TRUST_PROXY_HOPS > 0`) `X-Real-IP`, sonst — inklusive Railways interner
+Probe ohne beide Header — Rückfall auf `request.ip`.
+
+Nachmessung gegen Staging (Step 7) steht noch aus; Ergebnis wird hier
+ergänzt.

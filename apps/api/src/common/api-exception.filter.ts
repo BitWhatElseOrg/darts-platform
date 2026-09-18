@@ -55,11 +55,18 @@ function getErrorMetadata(exception: HttpException): { readonly code?: string; r
 export class ApiExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(ApiExceptionFilter.name);
 
+  /**
+   * `trustProxyHops` fuer `getAuditContext`: dieser Filter kann als globaler
+   * Nest-Filter nicht per DI auf `APPLICATION_ENVIRONMENT` zugreifen, deshalb
+   * gibt `configure-application.ts` den Wert im Konstruktor mit.
+   */
+  public constructor(private readonly trustProxyHops: number) {}
+
   public catch(exception: unknown, host: ArgumentsHost): void {
     const http = host.switchToHttp();
     const request = http.getRequest<FastifyRequest>();
     const reply = http.getResponse<FastifyReply>();
-    const correlationId = getAuditContext(request).correlationId;
+    const correlationId = getAuditContext(request, this.trustProxyHops).correlationId;
     const status =
       exception instanceof HttpException
         ? exception.getStatus()

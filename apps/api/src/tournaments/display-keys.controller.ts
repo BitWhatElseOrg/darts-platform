@@ -19,15 +19,22 @@ import {
   type DisplayKeyList,
 } from "@darts-platform/schemas";
 
+import type { ApplicationEnvironment } from "@darts-platform/config";
+
 import { CurrentAuth } from "../auth/current-auth.decorator.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { getAuditContext } from "../common/audit-context.js";
 import { parseBody } from "../common/parse-body.js";
+import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 import { DisplayKeysService } from "./display-keys.service.js";
 
 @Controller("organizations/:organizationId/tournaments/:tournamentId/display-keys")
 export class DisplayKeysController {
-  public constructor(@Inject(DisplayKeysService) private readonly service: DisplayKeysService) {}
+  public constructor(
+    @Inject(DisplayKeysService) private readonly service: DisplayKeysService,
+    @Inject(APPLICATION_ENVIRONMENT)
+    private readonly environment: ApplicationEnvironment,
+  ) {}
 
   @Post()
   public create(
@@ -43,7 +50,7 @@ export class DisplayKeysController {
       tournamentId,
       data,
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -70,7 +77,7 @@ export class DisplayKeysController {
       tournamentId,
       keyId,
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 }

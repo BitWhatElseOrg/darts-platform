@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 
+import type { ApplicationEnvironment } from "@darts-platform/config";
 import {
   acceptInvitationSchema,
   type AcceptInvitationInput,
@@ -20,6 +21,7 @@ import { CurrentAuth } from "../auth/current-auth.decorator.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { getAuditContext } from "../common/audit-context.js";
 import { parseBody } from "../common/parse-body.js";
+import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 import { OrganizationsService } from "./organizations.service.js";
 
 @Controller("invitations")
@@ -27,6 +29,8 @@ export class InvitationsController {
   public constructor(
     @Inject(OrganizationsService)
     private readonly organizationsService: OrganizationsService,
+    @Inject(APPLICATION_ENVIRONMENT)
+    private readonly environment: ApplicationEnvironment,
   ) {}
 
   @Get()
@@ -49,7 +53,7 @@ export class InvitationsController {
       invitationId,
       data,
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 }

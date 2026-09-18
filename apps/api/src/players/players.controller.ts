@@ -22,16 +22,21 @@ import {
   type UpdatePlayerInput,
 } from "@darts-platform/schemas";
 
+import type { ApplicationEnvironment } from "@darts-platform/config";
+
 import { CurrentAuth } from "../auth/current-auth.decorator.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { getAuditContext } from "../common/audit-context.js";
 import { parseBody } from "../common/parse-body.js";
+import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 import { PlayersService } from "./players.service.js";
 
 @Controller("organizations/:organizationId/players")
 export class PlayersController {
   public constructor(
     @Inject(PlayersService) private readonly playersService: PlayersService,
+    @Inject(APPLICATION_ENVIRONMENT)
+    private readonly environment: ApplicationEnvironment,
   ) {}
 
   @Get()
@@ -63,7 +68,7 @@ export class PlayersController {
       organizationId,
       data,
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -81,7 +86,7 @@ export class PlayersController {
       playerId,
       data,
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -96,7 +101,7 @@ export class PlayersController {
       organizationId,
       playerId,
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -134,7 +139,7 @@ export class PlayersController {
       playerId,
       body,
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -149,7 +154,7 @@ export class PlayersController {
       organizationId,
       playerId,
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 }

@@ -24,15 +24,22 @@ import {
   type WithdrawTournamentParticipantInput,
 } from "@darts-platform/schemas";
 
+import type { ApplicationEnvironment } from "@darts-platform/config";
+
 import { CurrentAuth } from "../auth/current-auth.decorator.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { getAuditContext } from "../common/audit-context.js";
 import { parseBody } from "../common/parse-body.js";
+import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 import { TournamentsService } from "./tournaments.service.js";
 
 @Controller("organizations/:organizationId/tournaments")
 export class TournamentsController {
-  public constructor(@Inject(TournamentsService) private readonly service: TournamentsService) {}
+  public constructor(
+    @Inject(TournamentsService) private readonly service: TournamentsService,
+    @Inject(APPLICATION_ENVIRONMENT)
+    private readonly environment: ApplicationEnvironment,
+  ) {}
 
   @Get()
   public list(
@@ -73,7 +80,7 @@ export class TournamentsController {
     @Req() request: FastifyRequest,
   ): Promise<TournamentSummary> {
     const data: CreateTournamentInput = parseBody(createTournamentSchema, body);
-    return this.service.create({ organizationId, data, auth, audit: getAuditContext(request) });
+    return this.service.create({ organizationId, data, auth, audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS) });
   }
 
   @Get(":tournamentId/dashboard")
@@ -99,7 +106,7 @@ export class TournamentsController {
       tournamentId,
       data,
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -117,7 +124,7 @@ export class TournamentsController {
       tournamentId,
       data,
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -135,7 +142,7 @@ export class TournamentsController {
       tournamentId,
       data,
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -148,7 +155,7 @@ export class TournamentsController {
     @Req() request: FastifyRequest,
   ): Promise<TournamentDashboard> {
     const data: WithdrawTournamentParticipantInput = parseBody(withdrawTournamentParticipantSchema, body);
-    return this.service.withdrawParticipant({ organizationId, tournamentId, data, auth, audit: getAuditContext(request) });
+    return this.service.withdrawParticipant({ organizationId, tournamentId, data, auth, audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS) });
   }
 
   @Patch(":tournamentId/visibility")
@@ -165,7 +172,7 @@ export class TournamentsController {
       tournamentId,
       data,
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 }

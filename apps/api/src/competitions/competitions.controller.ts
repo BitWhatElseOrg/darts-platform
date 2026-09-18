@@ -12,15 +12,22 @@ import {
   type UpdateCompetitionInput,
 } from "@darts-platform/schemas";
 
+import type { ApplicationEnvironment } from "@darts-platform/config";
+
 import { CurrentAuth } from "../auth/current-auth.decorator.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { getAuditContext } from "../common/audit-context.js";
 import { parseBody } from "../common/parse-body.js";
+import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 import { CompetitionsService } from "./competitions.service.js";
 
 @Controller("organizations/:organizationId/competitions")
 export class CompetitionsController {
-  public constructor(@Inject(CompetitionsService) private readonly service: CompetitionsService) {}
+  public constructor(
+    @Inject(CompetitionsService) private readonly service: CompetitionsService,
+    @Inject(APPLICATION_ENVIRONMENT)
+    private readonly environment: ApplicationEnvironment,
+  ) {}
 
   @Get()
   public list(
@@ -65,7 +72,7 @@ export class CompetitionsController {
     @Req() request: FastifyRequest,
   ): Promise<CompetitionDetail> {
     const data: CreateCompetitionInput = parseBody(createCompetitionSchema, body);
-    return this.service.create({ organizationId, data, auth, audit: getAuditContext(request) });
+    return this.service.create({ organizationId, data, auth, audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS) });
   }
 
   @Patch(":competitionId")
@@ -82,7 +89,7 @@ export class CompetitionsController {
       competitionId,
       data,
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 }

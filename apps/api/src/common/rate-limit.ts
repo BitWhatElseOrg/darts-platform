@@ -5,6 +5,8 @@ import type { FastifyRequest } from "fastify";
 
 import type { ApplicationEnvironment } from "@darts-platform/config";
 
+import { resolveClientAddress } from "./client-address.js";
+
 const RATE_LIMIT_WINDOW = "1 minute";
 const PUBLIC_PATH_PREFIX = "/api/v1/public/";
 const HEALTH_PATH = "/api/v1/health";
@@ -91,6 +93,15 @@ function maxFor(tier: RateLimitTier, environment: ApplicationEnvironment): numbe
  * einheitlichen Format, Better Auth mit seinem eigenen `{ "message": … }`.
  * Die Auth-Routen reichen ohnehin schon Better-Auth-Fehlerkörper unveraendert
  * durch (`auth.controller.ts`), die Unschaerfe ist dort also nicht neu.
+ *
+ * Client-Adresse (Plan 2026-09-17-go-live-testprogramm, Task 3, Befund D3-1):
+ * hinter Railway war `request.ip` (aus `X-Forwarded-For` ueber
+ * `TRUST_PROXY_HOPS`, `trust-proxy.ts`) in Staging eine von zwei
+ * abwechselnden Proxy-Adressen, nicht die Adresse des Clients — Messung vom
+ * 18.09.2026, siehe `client-address.ts`. Der Schluessel nutzt deshalb
+ * `resolveClientAddress`, das mit einem vertrauten Hop `X-Real-IP`
+ * bevorzugt (von Railway ueberschrieben, siehe dort) und sonst auf
+ * `request.ip` zurueckfaellt.
  */
 export async function registerRateLimit(
   app: NestFastifyApplication,
@@ -109,7 +120,7 @@ export async function registerRateLimit(
     max: (request: FastifyRequest): number =>
       maxFor(resolveRateLimitTier(pathOf(request)), environment),
     keyGenerator: (request: FastifyRequest): string =>
-      `${resolveRateLimitTier(pathOf(request))}:${request.ip}`,
+      `${resolveRateLimitTier(pathOf(request))}:${resolveClientAddress(request, environment.TRUST_PROXY_HOPS)}`,
     // `@fastify/rate-limit` wirft den Rueckgabewert aus einem
     // `onRequest`-Hook, der vor dem Nest-Routing laeuft. Trotzdem faengt
     // Nests globaler `ApiExceptionFilter` ihn ab — jede unbehandelte

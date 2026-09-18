@@ -18,6 +18,11 @@ export class ApiLoggingInterceptor implements NestInterceptor {
   public constructor(
     @Inject(Logger) private readonly logger: Logger,
     private readonly logClientAddress: boolean = false,
+    // Fuer `getAuditContext` (Plan 2026-09-17-go-live-testprogramm, Task 3):
+    // Default 0 haelt bestehende Unit-Tests grün, die diesen Parameter nicht
+    // mitgeben; `configure-application.ts` reicht den echten Wert aus
+    // `APPLICATION_ENVIRONMENT.TRUST_PROXY_HOPS` durch.
+    private readonly trustProxyHops: number = 0,
   ) {}
 
   public intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -25,7 +30,7 @@ export class ApiLoggingInterceptor implements NestInterceptor {
     const request = http.getRequest<FastifyRequest>();
     const reply = http.getResponse<FastifyReply>();
     const startedAt = performance.now();
-    const correlationId = getAuditContext(request).correlationId;
+    const correlationId = getAuditContext(request, this.trustProxyHops).correlationId;
 
     return next.handle().pipe(
       tap({
