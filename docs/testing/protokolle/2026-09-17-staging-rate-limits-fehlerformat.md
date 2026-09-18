@@ -82,15 +82,29 @@ von Railway zugesichertes Verhalten, die interne Probe schickt gar keine
 Kette, und `X-Real-IP` ist der dokumentierte Vertrag dafür, `X-Forwarded-For`
 nicht.
 
-## Nachmessung (offen)
+## Nachmessung 18.09.2026 – grün
 
-Schritt 7 (Plan Task 3) steht noch aus. Der gesamte Fix ruht auf der
-Annahme, dass Railway `X-Real-IP` zuverlässig überschreibt — belegt bisher
-nur gegen den Staging-Host. Schritt 7 muss deshalb, bevor er als grün
-gilt, mindestens eine Anfrage mit gefälschtem `X-Real-IP` gegen die
-produktive Custom-Domain `api.dartbase.ch` schicken (lesender `GET
-/api/v1/health` reicht) und im Log bestätigen, dass dort die eigene, reale
-Adresse steht, nicht der gefälschte Wert. Das ist ein Gate für Schritt 7,
-keine Annahme, die er stillschweigend übernehmen darf — Custom-Domains
-können anders geroutet sein als der `*.up.railway.app`-Host, gegen den
-diese Messung lief.
+Datum/Zeit ca. 13:57 UTC, Umgebung `staging`, Deploy `develop` 2311f2c
+(Merge von PR #46, „Client-Adresse hinter Railway aus X-Real-IP"). Limits
+auf Standardwerten (300 allgemein / 10 sensibel / 600 öffentlich pro
+Minute). Werkzeug: `curl`, parallel über `xargs -P`, gegen die
+Custom-Domain `api-staging.dartbase.ch` — dieselbe Ingress-Klasse wie die
+produktive Custom-Domain, anders als der zuvor genutzte
+`*.up.railway.app`-Host.
+
+| Fall | Erwartung | vorher | nachher |
+| --- | --- | --- | --- |
+| Spoof-Gate: 4× `GET /api/v1/health` mit gefälschtem `X-Real-IP: 198.51.100.7` und `X-Forwarded-For: 198.51.100.8` | Log zeigt die eigene, reale Adresse; gefälschte Werte kommen nicht durch | nicht gemessen (Schritt 7 stand aus) | in allen 4 Anfragen `clientAddress` = die eigene öffentliche Adresse; roher `ip` weiterhin der Railway-Proxy (212.102.36.193 / .194); `x-real-ip` = eigene Adresse; `x-forwarded-for` = eigene Adresse gefolgt vom Proxy. Die gefälschten Werte erschienen in keinem Feld. |
+| Allgemeine Stufe: 400× `GET /organizations`, 40 gleichzeitig | 300 frei, danach 429 | 400× 401, kein 429; Restzähler inkonsistent (Hinweis auf zwei Zähler, Befund D3-1) | 299× 401, 101× 429 (eine Anfrage zuvor für den Header-Check verbraucht, Summe 300 frei); Restzähler danach sechsmal 0 — eine einzige Zählreihe, kein Split mehr |
+| Sensible Stufe: 25 parallele Login-Versuche | 10× 401, 15× 429 | 17× 401, 8× 429 | 10× 401, 15× 429 |
+| Öffentliche Stufe (A5): 700× `GET /public/tournaments/<unbekannte UUID>/live`, 50 gleichzeitig | zwischen 50 und 150× 429 | 0× 429 (Block-A-Lauf) | 600× 404, 100× 429; die allgemeine Stufe blieb danach unverändert frei (401 statt 429) |
+
+Damit ist der Verdacht aus Befund D3-1 (zwei Zähler pro Client) bestätigt
+behoben: alle drei Stufen zählen wieder konsistent gegen einen einzigen
+Client-Schlüssel.
+
+**Offen bis Release:** Die Messung lief ausschliesslich gegen Staging. Für
+Production ist dieselbe Probe (mindestens der Spoof-Gate-Fall gegen
+`api.dartbase.ch`) nach dem Release nach `main` einmal zu wiederholen
+(Flag `LOG_CLIENT_ADDRESS` dort kurz einschalten) — als letzter offener
+Punkt unter D3, nicht als rot geführt.
