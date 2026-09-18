@@ -39,7 +39,7 @@ registriert; seine Zugangsdaten liegen in der git-ignorierten `.env.staging`
 | Bereich | production | staging |
 | --- | --- | --- |
 | Git-Branch | `main` | `develop` |
-| Railway `checkSuites` | `true` laut IaC (Ist-Zustand am 17.09.2026: `false`) | `true` |
+| Railway `checkSuites` | `true` laut IaC | `true` |
 | Web-Domain | `dartbase.ch`, `*.dartbase.ch` | `staging.dartbase.ch`, `darts-platformweb-staging.up.railway.app` |
 | API-Domain | `api.dartbase.ch` | `api-staging.dartbase.ch`, `darts-platformapi-staging.up.railway.app` |
 | `BETTER_AUTH_URL` | `https://api.dartbase.ch` | `https://api-staging.dartbase.ch` |
@@ -57,15 +57,26 @@ dieselben Startprüfungen und dieselbe Proxy-Konfiguration durchläuft.
 ### Deployment-Fluss
 
 ```text
-Push auf develop  → GitHub CI (Phase 0 quality gate, Deployment artifacts)
-                  → Railway staging (wartet auf grüne Check Suites)
-PR develop → main → GitHub CI
-                  → Railway production
+PR   → develop (Merge) → GitHub CI (Phase 0 quality gate, Deployment artifacts)
+                       → Railway staging (wartet auf grüne Check Suites)
+PR develop → main       → GitHub CI
+                       → Railway production
 ```
 
-Der CI-Workflow reagiert deshalb seit dem 17.09.2026 auch auf `push` nach
-`develop`. Ohne diesen Trigger hätte `checkSuites: true` in Staging keinen
-Check zum Abwarten.
+Der CI-Workflow reagiert seit dem 17.09.2026 auch auf `push` nach `develop`
+(nicht nur auf Pull Requests); ohne diesen Trigger hätte `checkSuites: true`
+in Staging keinen Check zum Abwarten. Seit der Branch-Protection vom
+18.09.2026 (siehe [GitHub-CI-Gate](#github-ci-gate)) entsteht dieser Push
+ausschliesslich als Merge-Commit eines Pull Requests — direkte Pushes auf
+`develop` sind seither technisch unterbunden.
+
+**Vorübergehende GitHub-Actions-Pause (15.–18.09.2026).** Wegen ausstehender
+GitHub-Abrechnung führte GitHub Actions vom 15.09.2026 bis zum 18.09.2026
+keinen einzigen Workflow-Lauf aus — weder `Phase 0 quality gate` noch
+`Deployment artifacts` liefen in diesem Fenster. `checkSuites: true` blieb in
+Staging während der gesamten Pause gesetzt; ohne Check Suite wartete Railway
+dort einfach weiter, statt ungeprüft zu deployen. Seit das Repository am
+18.09.2026 öffentlich wurde, laufen GitHub-Actions-Workflows wieder normal.
 
 ### Custom Domains für Staging
 
@@ -563,6 +574,8 @@ railway ssh keys list
 
 ## GitHub-CI-Gate
 
+Stand: 18.09.2026.
+
 Der Workflow `.github/workflows/ci.yml` veröffentlicht zwei stabile Checks:
 
 ```text
@@ -570,13 +583,29 @@ Phase 0 quality gate
 Deployment artifacts
 ```
 
-Das private Repository läuft derzeit auf GitHub Free und besitzt deshalb keine
-geschützten Required-Check-Regeln für `main`. Unabhängig davon verwendet der von
-Web, API und Worker gemeinsam genutzte Railway-GitHub-Source
-`checkSuites: true`: Railway wartet vor dem Deployment auf erfolgreiche Check
-Suites des verfolgten Commits. Der Workflow reagiert zusätzlich auf
-`merge_group`, sodass er nach einer späteren Ruleset-Aktivierung auch mit einer
-Merge Queue funktioniert.
+Das Repository ist seit dem 18.09.2026 öffentlich. `main` und `develop`
+tragen seither eine Branch-Protection-Regel:
+
+- nur per Pull Request, keine direkten Pushes
+- erforderliche Status-Checks: `Phase 0 quality gate` und
+  `Deployment artifacts`, jeweils `strict` (der Branch muss vor dem Merge auf
+  dem aktuellen Stand des Zielbranches sein)
+- gilt auch für Administratoren
+- kein Force-Push, kein Löschen des Branches
+- Konversationen (Review-Kommentare) müssen vor dem Merge aufgelöst sein
+- keine Mindestzahl an Freigaben (Solo-Maintainer)
+
+Konsequenz für den Ablauf: Feature-Branches gehen ausschliesslich per Pull
+Request nach `develop`, `develop` ausschliesslich per Pull Request nach
+`main` — direkte Pushes auf `develop` sind seither technisch unterbunden.
+Der von Web, API und Worker gemeinsam genutzte Railway-GitHub-Source
+verwendet weiterhin `checkSuites: true`: Railway wartet vor dem Deployment
+auf erfolgreiche Check Suites des verfolgten Commits. Weil der Merge selbst
+bereits grüne Checks voraussetzt, liegen sie am Merge-Commit vor, sobald der
+Pull Request angenommen wird — Railway staging deployt also unmittelbar nach
+dem Merge nach `develop`, ohne selbst noch auf einen laufenden Check zu
+warten. Der Workflow reagiert zusätzlich auf `merge_group`, sodass er auch
+nach einer künftigen Aktivierung einer Merge Queue funktioniert.
 
 ## Kontrollierter Deployment-Ablauf
 
@@ -714,8 +743,10 @@ Danach über die Weboberfläche:
 
 Der gemeinsame Railway-GitHub-Source ist in der IaC-Konfiguration mit
 `checkSuites: true` definiert und wird von Web, API und Worker verwendet. Das
-private GitHub-Free-Repository besitzt weiterhin keine geschützten
-Required-Check-Regeln; Railway wartet dennoch auf erfolgreiche Check Suites des
+Repository ist seit dem 18.09.2026 öffentlich; `main` und `develop` tragen
+seither die unter [GitHub-CI-Gate](#github-ci-gate) beschriebene
+Branch-Protection mit beiden Checks als Required Status Checks. Railway
+wartet unabhängig davon weiterhin auf erfolgreiche Check Suites des
 verfolgten Commits, bevor das jeweilige Deployment beginnt. Vor dem Release
 werden der separat freigegebene IaC-Apply samt leerem Readback, beide
 GitHub-CI-Checks und die exakten Deployment-Revisionen aller drei Services
