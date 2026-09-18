@@ -187,11 +187,12 @@ describe("Block A – Last", () => {
     mkdirSync(outDir, { recursive: true });
     writeFileSync(path.join(outDir, `${result.at.slice(0, 10)}-a5.json`), JSON.stringify(result, null, 2));
 
-    // Befund D3-1: Staging zaehlt den Client hinter Railways Proxy teils auf
-    // zwei Schluessel auf, wodurch die Schwelle effektiv naeher bei 1200 als
-    // bei 600 liegen kann. Diese Erwartung wird NICHT abgeschwaecht, falls
-    // `blocked` 0 ist -- ein solcher Lauf gilt als rot und wird im Protokoll
-    // als mit D3-1 konsistent dokumentiert, nicht stillschweigend angepasst.
+    // Konsistent mit dem Verdacht aus D3-1 (Zaehler pro Client verdoppelt;
+    // Nachmessung nach dem Fix offen): sollte diese Vermutung zutreffen,
+    // liegt die tatsaechliche Schwelle naeher bei 1200 als bei 600. Diese
+    // Erwartung wird NICHT abgeschwaecht, falls `blocked` 0 ist -- ein
+    // solcher Lauf gilt als rot und wird im Protokoll als mit dem D3-1-
+    // Verdacht konsistent dokumentiert, nicht stillschweigend angepasst.
     expect(blocked).toBeGreaterThan(50);
     expect(blocked).toBeLessThan(150);
 
