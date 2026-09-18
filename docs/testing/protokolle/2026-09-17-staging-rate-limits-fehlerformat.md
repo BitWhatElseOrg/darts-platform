@@ -1,0 +1,56 @@
+# Protokoll: Rate-Limits und Fehlerformat gegen Staging
+
+Datum: 17.09.2026, Umgebung `staging`, API `https://darts-platformapi-staging.up.railway.app`,
+Deploy `develop` 316a9f7. Werkzeug: `curl`, parallel über `xargs -P`.
+Spec: Block D3 und D6 in `docs/superpowers/specs/2026-09-17-go-live-testprogramm-design.md`.
+
+## D6 Fehlerformat – grün
+
+| Fall | Erwartung | Ergebnis |
+| --- | --- | --- |
+| Ungültiges JSON | 400, `VALIDATION_ERROR`, `correlationId` | 400, `VALIDATION_ERROR`, `correlationId` vorhanden |
+| Unbekannte Route | 404, einheitliches Format | 404, `RESOURCE_NOT_FOUND` |
+| 2 MB Body | 413, kein Stacktrace | 413, Code `AVATAR_TOO_LARGE` |
+| Ohne Session auf `/organizations` | 401 | 401, `AUTHENTICATION_REQUIRED` |
+
+Befund D6-1 (klein): Der Code `AVATAR_TOO_LARGE` erscheint auch bei einem zu
+grossen Body auf der Login-Route. Der Body-Limit-Handler ist offenbar global
+auf den Avatar-Fall benannt. Kein Sicherheitsproblem, aber irreführend.
+
+## D3 Rate-Limits – rot
+
+### Seriell (Anfragen nacheinander, je ca. 0,3 bis 0,5 s)
+
+| Fall | Erwartung | Ergebnis |
+| --- | --- | --- |
+| 12× Login mit falschem Passwort | ab Nr. 11 → 429 | 12× 401, kein 429 |
+| 310× `GET /organizations` | ab Nr. 301 → 429 | 310× 401, danach `x-ratelimit-remaining: 133` |
+
+Der zweite Fall ist nicht aussagekräftig: die 310 Anfragen dauerten länger als
+das 60-Sekunden-Fenster. Der erste Fall lag klar innerhalb des Fensters.
+
+### Parallel
+
+| Fall | Erwartung | Ergebnis |
+| --- | --- | --- |
+| 25× Login gleichzeitig | 10× 401, 15× 429 | 17× 401, 8× 429 |
+| 400× `GET /organizations`, 40 gleichzeitig | 300× 401, 100× 429 | 400× 401, kein 429; danach `x-ratelimit-remaining: 102` von 300 |
+
+Befund D3-1 (hoch): Unter gleichzeitigen Anfragen zählt der Limiter nur etwa
+die Hälfte. Nach 401 Anfragen stand der Zähler bei 198. Beim Login kamen 17
+statt 10 Versuche durch. Das ist genau das Muster eines nicht-atomaren
+Zählers (lesen, erhöhen, schreiben) oder eines Schlüssels, der nicht je
+Client stabil ist. Der Angriffsfall (Passwort-Raten mit parallelen
+Verbindungen) ist damit nur teilweise gebremst.
+
+Befund D3-2 (mittel): Im seriellen Login-Fall kam innerhalb des Fensters kein
+429. Ursache noch offen; wird zusammen mit D3-1 in der Implementierung
+geprüft (`apps/api`, Rate-Limit-Konfiguration und Auth-Rate-Limit-Storage).
+
+## Nächste Schritte
+
+1. Implementierung lesen: Zählerspeicher (Redis), Schlüsselbildung
+   (`TRUST_PROXY_HOPS`, `X-Forwarded-For`), Atomarität.
+2. Integrationstest, der 50 parallele Anfragen gegen eine Route mit Limit 10
+   schickt und genau 10 Erfolge erwartet.
+3. Nach dem Fix denselben Lauf gegen Staging wiederholen und hier ergänzen.

@@ -5,6 +5,6 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": ["dist"],
-  "scripts": { "build": "tsc -p tsconfig.build.json", "typecheck": "tsc --noEmit", "test": "vitest run" },
-  "devDependencies": { "typescript": "catalog:", "vitest": "catalog:" }
+  "scripts": { "build": "tsc -p tsconfig.build.json", "typecheck": "tsc --noEmit", "test": "vitest run", "test:coverage": "vitest run --coverage --coverage.provider=v8 --coverage.reporter=text --coverage.reporter=json-summary" },
+  "devDependencies": { "@vitest/coverage-v8": "catalog:", "typescript": "catalog:", "vitest": "catalog:" }
 }

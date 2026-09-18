@@ -10,8 +10,10 @@
     "bootstrap:production": "node dist/operations/bootstrap-production.js",
     "seed:demo:production": "node dist/operations/seed-demo-organization.js",
     "seed:dev": "tsx src/development/seed-development.ts",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test/staging/tsconfig.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage --coverage.provider=v8 --coverage.reporter=text --coverage.reporter=json-summary",
+    "test:staging": "vitest run --config test/staging/vitest.config.mts"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "1.7.1",
@@ -43,6 +45,7 @@
   "devDependencies": {
     "@nestjs/testing": "^11.1.0",
     "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "socket.io-client": "^4.8.3",
     "tsx": "catalog:",
     "typescript": "catalog:",

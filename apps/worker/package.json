@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "tsx watch src/main.ts", "build": "tsc -p tsconfig.build.json", "start": "node dist/main.js", "typecheck": "tsc --noEmit", "test": "vitest run --passWithNoTests" },
+  "scripts": { "dev": "tsx watch src/main.ts", "build": "tsc -p tsconfig.build.json", "start": "node dist/main.js", "typecheck": "tsc --noEmit", "test": "vitest run --passWithNoTests", "test:coverage": "vitest run --coverage --coverage.provider=v8 --coverage.reporter=text --coverage.reporter=json-summary" },
   "dependencies": { "@darts-platform/config": "workspace:*", "@darts-platform/database": "workspace:*", "@darts-platform/statistics": "workspace:*", "drizzle-orm": "0.45.2" },
-  "devDependencies": { "@types/node": "catalog:", "tsx": "catalog:", "typescript": "catalog:", "vitest": "catalog:" }
+  "devDependencies": { "@types/node": "catalog:", "@vitest/coverage-v8": "catalog:", "tsx": "catalog:", "typescript": "catalog:", "vitest": "catalog:" }
 }

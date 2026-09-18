@@ -23,17 +23,23 @@ bestehen. Die öffentlichen Web- und API-Smoke-Tests bestehen ebenfalls.
 
 ## Staging-Environment
 
-Stand: 17. September 2026
+Stand: 18.09.2026
 
 Neben `production` existiert im Projekt `dartbase` das Environment
 `staging` (ID `ade64d16-d5ff-4be6-bd80-39e582335a20`). Es ist eine
 Duplikation von `production` mit eigenen, leeren Postgres- und Redis-Instanzen
 samt eigenen Volumes und Zugangsdaten. Staging enthält keine Production-Daten.
 
+Am 18.09.2026 hat der Betreiber die erste Staging-Organisation gemäss diesem
+Runbook bootstrapped: «Staging Testverein» (Slug `staging-testverein`). Das
+fiktive Testkonto `test-runner@example.test` (Rolle MEMBER) ist darin
+registriert; seine Zugangsdaten liegen in der git-ignorierten `.env.staging`
+(siehe [Staging-Tests und Lastläufe](#staging-tests-und-lastläufe)).
+
 | Bereich | production | staging |
 | --- | --- | --- |
 | Git-Branch | `main` | `develop` |
-| Railway `checkSuites` | `true` laut IaC (Ist-Zustand am 17.09.2026: `false`) | `true` |
+| Railway `checkSuites` | `true` laut IaC | `true` |
 | Web-Domain | `dartbase.ch`, `*.dartbase.ch` | `staging.dartbase.ch`, `darts-platformweb-staging.up.railway.app` |
 | API-Domain | `api.dartbase.ch` | `api-staging.dartbase.ch`, `darts-platformapi-staging.up.railway.app` |
 | `BETTER_AUTH_URL` | `https://api.dartbase.ch` | `https://api-staging.dartbase.ch` |
@@ -51,15 +57,26 @@ dieselben Startprüfungen und dieselbe Proxy-Konfiguration durchläuft.
 ### Deployment-Fluss
 
 ```text
-Push auf develop  → GitHub CI (Phase 0 quality gate, Deployment artifacts)
-                  → Railway staging (wartet auf grüne Check Suites)
-PR develop → main → GitHub CI
-                  → Railway production
+PR   → develop (Merge) → GitHub CI (Phase 0 quality gate, Deployment artifacts)
+                       → Railway staging (wartet auf grüne Check Suites)
+PR develop → main       → GitHub CI
+                       → Railway production
 ```
 
-Der CI-Workflow reagiert deshalb seit dem 17.09.2026 auch auf `push` nach
-`develop`. Ohne diesen Trigger hätte `checkSuites: true` in Staging keinen
-Check zum Abwarten.
+Der CI-Workflow reagiert seit dem 17.09.2026 auch auf `push` nach `develop`
+(nicht nur auf Pull Requests); ohne diesen Trigger hätte `checkSuites: true`
+in Staging keinen Check zum Abwarten. Seit der Branch-Protection vom
+18.09.2026 (siehe [GitHub-CI-Gate](#github-ci-gate)) entsteht dieser Push
+ausschliesslich als Merge-Commit eines Pull Requests — direkte Pushes auf
+`develop` sind seither technisch unterbunden.
+
+**Vorübergehende GitHub-Actions-Pause (15.–18.09.2026).** Wegen ausstehender
+GitHub-Abrechnung führte GitHub Actions vom 15.09.2026 bis zum 18.09.2026
+keinen einzigen Workflow-Lauf aus — weder `Phase 0 quality gate` noch
+`Deployment artifacts` liefen in diesem Fenster. `checkSuites: true` blieb in
+Staging während der gesamten Pause gesetzt; ohne Check Suite wartete Railway
+dort einfach weiter, statt ungeprüft zu deployen. Seit das Repository am
+18.09.2026 öffentlich wurde, laufen GitHub-Actions-Workflows wieder normal.
 
 ### Custom Domains für Staging
 
@@ -77,7 +94,11 @@ Production unter derselben Site `dartbase.ch` liegen. Die generierten
 | CNAME | `api-staging` | `sq7xife8.up.railway.app` | DNS only |
 | TXT | `_railway-verify.api-staging` | `railway-verify=13a256c3ef813cf5997c9a84241f7722a11f5f7b1b203455e5621b2874f5cbad` | DNS only |
 
-Kontrolle nach dem Eintragen:
+Die vier Einträge sind seit dem 18.09.2026 gesetzt; Railway hat beide Domains
+verifiziert, die Zertifikate sind gültig, und der CORS-Preflight von
+`https://staging.dartbase.ch` auf die Staging-API antwortet mit 204.
+
+Kontrolle:
 
 ```bash
 railway domain list --project b72b141e-1685-44d7-960e-06c6b3998b34 \
@@ -99,6 +120,134 @@ curl -sS https://api-staging.dartbase.ch/api/v1/health
   gegen Production.
 - Ein Import maskierter Production-Daten in Staging ist eine eigene, zu
   dokumentierende Operation; bis dahin bleibt Staging mit Seed-Daten befüllt.
+
+### Staging-Tests und Lastläufe
+
+Stand: 18.09.2026.
+
+Die Staging-Tests liegen als eigenes Vitest-Projekt unter
+`apps/api/test/staging/` (Konfiguration
+`apps/api/test/staging/vitest.config.mts`). Sie laufen gegen die echte
+Staging-API und schreiben dort Daten; Zugangsdaten und Ziel-URLs kommen aus
+der git-ignorierten `.env.staging` im Repository-Wurzelverzeichnis:
+
+| Variable | Zweck |
+| --- | --- |
+| `STAGING_API_URL` | Basis-URL der Staging-API |
+| `STAGING_WEB_ORIGIN` | erlaubter Origin des Staging-Web-Frontends |
+| `STAGING_EMAIL` | Anmeldeadresse des Testkontos `test-runner@example.test` |
+| `STAGING_PASSWORD` | Passwort des Testkontos |
+| `STAGING_ORGANIZATION_ID` | ID der Organisation «Staging Testverein» |
+| `STAGING_LOAD_BOARDS` | Anzahl Boards für Fall A3 (Vorgabe 20; kleinere Werte für einen Smoke-Lauf) |
+| `STAGING_LOAD_SECONDS` | Laufzeit von Fall A3 in Sekunden (Vorgabe 120) |
+
+Alle Fälle auf einmal (inklusive des rund zweiminütigen Lasttests):
+
+```bash
+pnpm test:staging
+```
+
+Eine einzelne Datei gezielt ausführen:
+
+```bash
+cd apps/api && npx dotenv -e ../../.env.staging -- npx vitest run \
+  --config test/staging/vitest.config.mts test/staging/<datei>
+```
+
+**Sign-in-Budget.** Die sensiblen Routen (Login, Registrierung,
+Einladungsannahme) sind serverseitig auf `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE`
+(Vorgabe 10) je Client und Minute begrenzt. Staging-Testfälle, die sich
+mehrfach anmelden, müssen mit diesem Budget planen (z. B. eine Sitzung
+wiederverwenden statt pro Fall neu anzumelden). Ein voller Lauf von
+`pnpm test:staging` verbraucht **7 von 10** Logins/Minute: 1 Smoke-Test
+(`staging-client.staging.spec.ts`) + 1 Nebenläufigkeit (`concurrency…`) +
+1 Last (`load…`) + 1 Realtime (`realtime…`) + 3 Auth-Flows
+(`auth-flows…`, D4-1/D4-2/D4-3). Die Vitest-Konfiguration
+(`apps/api/test/staging/vitest.config.mts`, `fileParallelism: false`) führt
+die Dateien deshalb nacheinander statt parallel aus — nur so bleiben die
+Logins über die Minute verteilt statt gleichzeitig anzufallen.
+
+**Exit-Code von `pnpm test:staging`.** Solange Befund D3-1 offen ist, endet
+`pnpm test:staging` wegen Fall A5 bewusst mit Exit-Code ≠ 0 (roter Testfall,
+siehe `docs/testing/protokolle/2026-09-18-block-a.md`). Das ist kein
+Ausführungsfehler des Laufs selbst; ein grüner Exit-Code ist erst nach
+Behebung (oder explizit begründeter Akzeptanz) von D3-1 zu erwarten.
+
+**Datenwachstum in Staging.** Jeder volle Lauf legt in der Staging-Datenbank
+neue, nie automatisch gelöschte Organisationen an — pro Lauf fünf, mit dem
+Slug-Präfix `lasttest-` und den Läufer-Präfixen `conc-`, `load-`, `rt-`,
+`d5-` und `run-` (z. B. `lasttest-load-1758...`), plus die dazugehörigen
+Spieler, Matches und Visits. Aufräumen:
+
+```sql
+DELETE FROM organizations WHERE slug LIKE 'lasttest-%';
+```
+
+direkt auf der Staging-Datenbank, oder alternativ Staging komplett neu aus
+Production duplizieren (siehe Betriebsregeln oben — Staging darf jederzeit
+kaputtgehen und neu entstehen).
+
+**Limits für Lastläufe vorübergehend anheben.** Die Fälle A3/A4/A6 (Block A)
+und die B4/B5-Proben brauchen mehr als das reguläre Rate-Limit. Jeder
+`railway`-Befehl trägt dabei explizit
+`--project b72b141e-1685-44d7-960e-06c6b3998b34 --environment staging`
+sowie den passenden `--service`; ohne diese Flags entscheidet der zuletzt
+verlinkte Kontext, welches Projekt/Environment/Service getroffen wird.
+Ablauf:
+
+1. Beide Variablen auf der Staging-API auf einen hohen Wert setzen:
+
+   ```bash
+   railway variable set RATE_LIMIT_MAX_PER_MINUTE=100000 \
+     RATE_LIMIT_SOCKET_MAX_PER_MINUTE=100000 \
+     --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+     --environment staging --service @darts-platform/api
+   ```
+
+2. ```bash
+   railway redeploy --yes \
+     --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+     --environment staging --service @darts-platform/api
+   ```
+
+   (ohne `--from-source`), damit die neuen Werte greifen.
+3. Lastlauf ausführen.
+4. Beide Variablen wieder löschen — `railway variable delete <KEY>` nimmt
+   jeweils nur einen einzelnen Schlüssel entgegen, also zwei Aufrufe, je mit
+   denselben `--project`/`--environment`/`--service`-Flags wie in Schritt 1.
+5. Erneut
+
+   ```bash
+   railway redeploy --yes \
+     --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+     --environment staging --service @darts-platform/api
+   ```
+
+   danach mit einer Anfrage den `x-ratelimit-limit`-Antwort-Header prüfen:
+   er muss wieder die Vorgabewerte zeigen (300 allgemein, 60 für
+   Socket-Handshakes). **Einschränkung:** `x-ratelimit-limit` zeigt nur das
+   allgemeine Limit (`RATE_LIMIT_MAX_PER_MINUTE`); das
+   Socket-Handshake-Limit (`RATE_LIMIT_SOCKET_MAX_PER_MINUTE`) erscheint in
+   keinem Antwort-Header und lässt sich nur indirekt über das Verhalten der
+   Socket-Verbindungen selbst prüfen.
+
+**Redis- und Worker-Neustart unter Last (B4/B5).** Dieselben expliziten
+Flags gelten für die Restart-Proben, jeweils mit dem Namen des betroffenen
+Service statt der API:
+
+```bash
+railway restart --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+  --environment staging --service Redis
+railway restart --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+  --environment staging --service @darts-platform/worker
+```
+
+**Beobachtung zu SKIPPED-Deploys.** Mit `checkSuites: true` verwirft Railway
+in Staging einen Deploy, der allein durch eine Variablenänderung ausgelöst
+wird, als `SKIPPED`, solange am betroffenen Commit keine Check-Suite vorliegt.
+`railway redeploy --yes` (ohne `--from-source`) läuft davon unabhängig und
+übernimmt die geänderten Variablen trotzdem — das ist der verlässliche Weg,
+um eine Variablenänderung tatsächlich auszurollen.
 
 ## Provider-Zuständigkeiten
 
@@ -220,6 +369,7 @@ Mindestens diese Shared beziehungsweise Service-Variablen werden benötigt:
 | `RATE_LIMIT_SOCKET_MAX_PER_MINUTE` | `60` | Obergrenze für Socket.IO-Handshakes je Client-Adresse und Minute (optional, Vorgabe 60) |
 | `TRUST_PROXY_HOPS` | `1` | **Pflicht.** Anzahl vertrauter Reverse-Proxy-Hops vor der Anwendung |
 | `ALLOW_SELF_SERVICE_ORGANIZATIONS` | nicht gesetzt (`false`) | öffnet `POST /organizations` für jede angemeldete Person; in Production bewusst aus |
+| `LOG_CLIENT_ADDRESS` | nicht gesetzt (`false`) | Diagnose: schreibt `request.ip` und die rohen Adress-Header ins Request-Log (Staging, Plan Task 3) |
 
 `REDIS_URL` akzeptiert `redis://` und `rediss://`; für die verschlüsselte
 Verbindung wird die TLS-Variante der Railway-Referenz eingetragen.
@@ -424,6 +574,8 @@ railway ssh keys list
 
 ## GitHub-CI-Gate
 
+Stand: 18.09.2026.
+
 Der Workflow `.github/workflows/ci.yml` veröffentlicht zwei stabile Checks:
 
 ```text
@@ -431,13 +583,29 @@ Phase 0 quality gate
 Deployment artifacts
 ```
 
-Das private Repository läuft derzeit auf GitHub Free und besitzt deshalb keine
-geschützten Required-Check-Regeln für `main`. Unabhängig davon verwendet der von
-Web, API und Worker gemeinsam genutzte Railway-GitHub-Source
-`checkSuites: true`: Railway wartet vor dem Deployment auf erfolgreiche Check
-Suites des verfolgten Commits. Der Workflow reagiert zusätzlich auf
-`merge_group`, sodass er nach einer späteren Ruleset-Aktivierung auch mit einer
-Merge Queue funktioniert.
+Das Repository ist seit dem 18.09.2026 öffentlich. `main` und `develop`
+tragen seither eine Branch-Protection-Regel:
+
+- nur per Pull Request, keine direkten Pushes
+- erforderliche Status-Checks: `Phase 0 quality gate` und
+  `Deployment artifacts`, jeweils `strict` (der Branch muss vor dem Merge auf
+  dem aktuellen Stand des Zielbranches sein)
+- gilt auch für Administratoren
+- kein Force-Push, kein Löschen des Branches
+- Konversationen (Review-Kommentare) müssen vor dem Merge aufgelöst sein
+- keine Mindestzahl an Freigaben (Solo-Maintainer)
+
+Konsequenz für den Ablauf: Feature-Branches gehen ausschliesslich per Pull
+Request nach `develop`, `develop` ausschliesslich per Pull Request nach
+`main` — direkte Pushes auf `develop` sind seither technisch unterbunden.
+Der von Web, API und Worker gemeinsam genutzte Railway-GitHub-Source
+verwendet weiterhin `checkSuites: true`: Railway wartet vor dem Deployment
+auf erfolgreiche Check Suites des verfolgten Commits. Weil der Merge selbst
+bereits grüne Checks voraussetzt, liegen sie am Merge-Commit vor, sobald der
+Pull Request angenommen wird — Railway staging deployt also unmittelbar nach
+dem Merge nach `develop`, ohne selbst noch auf einen laufenden Check zu
+warten. Der Workflow reagiert zusätzlich auf `merge_group`, sodass er auch
+nach einer künftigen Aktivierung einer Merge Queue funktioniert.
 
 ## Kontrollierter Deployment-Ablauf
 
@@ -575,8 +743,10 @@ Danach über die Weboberfläche:
 
 Der gemeinsame Railway-GitHub-Source ist in der IaC-Konfiguration mit
 `checkSuites: true` definiert und wird von Web, API und Worker verwendet. Das
-private GitHub-Free-Repository besitzt weiterhin keine geschützten
-Required-Check-Regeln; Railway wartet dennoch auf erfolgreiche Check Suites des
+Repository ist seit dem 18.09.2026 öffentlich; `main` und `develop` tragen
+seither die unter [GitHub-CI-Gate](#github-ci-gate) beschriebene
+Branch-Protection mit beiden Checks als Required Status Checks. Railway
+wartet unabhängig davon weiterhin auf erfolgreiche Check Suites des
 verfolgten Commits, bevor das jeweilige Deployment beginnt. Vor dem Release
 werden der separat freigegebene IaC-Apply samt leerem Readback, beide
 GitHub-CI-Checks und die exakten Deployment-Revisionen aller drei Services
