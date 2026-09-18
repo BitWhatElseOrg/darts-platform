@@ -336,7 +336,9 @@ einzeln aufzurufen). Ablauf und genaue Befehle:
      --environment staging postgres-restored
    ```
 
-   Der Service `postgres-restored` besteht zum Stand dieses Dokuments noch.
+   Der Service `postgres-restored` aus der Probe vom 18.09.2026 ist am selben
+   Abend gelöscht worden; Staging besteht wieder nur aus `api`, `web`,
+   `worker`, Postgres und Redis.
 
 Details und Messwerte: `docs/testing/protokolle/2026-09-18-block-b.md`,
 Abschnitt „B2 Restore-Probe auf Staging".
