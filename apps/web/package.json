@@ -8,8 +8,9 @@
     "start": "next start --port ${WEB_PORT:-3000}",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --dir src",
+    "test:coverage": "vitest run --dir src --coverage --coverage.provider=v8 --coverage.reporter=text --coverage.reporter=json-summary",
     "test:e2e": "node scripts/run-e2e.mjs",
-    "test:e2e:prod": "playwright test --config=playwright.prod.config.ts"
+    "test:e2e:prod": "node scripts/run-e2e.mjs --config=playwright.prod.config.ts"
   },
   "dependencies": {
     "@darts-platform/config": "workspace:*",
@@ -38,6 +39,7 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "drizzle-orm": "0.45.2",
     "happy-dom": "^20.14.0",
     "tailwindcss": "4.3.3",

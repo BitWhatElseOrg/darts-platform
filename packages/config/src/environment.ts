@@ -92,6 +92,14 @@ export const applicationEnvironmentSchema = z.object({
    * unbelegt gleichbedeutend mit `0`.
    */
   TRUST_PROXY_HOPS: trustProxyHopsSchema.optional(),
+  /**
+   * Diagnose-Flag fuer die Untersuchung des Rate-Limit-Schluessels (Plan
+   * `docs/superpowers/plans/2026-09-17-go-live-testprogramm.md`, Task 3):
+   * schreibt `request.ip` und die rohen Adress-Header ins Request-Log.
+   * Vorgabe `false`. Wieder entfernen, sobald `resolveClientAddress`
+   * entschieden ist.
+   */
+  LOG_CLIENT_ADDRESS: booleanFlagSchema,
 }).superRefine((data, ctx) => {
   // Ruling B12: ein unbelegtes `TRUST_PROXY_HOPS` waere in Production ein
   // stiller Fehlgriff — die Anwendung liefe mit `0` und der Reverse-Proxy

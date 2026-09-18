@@ -16,15 +16,22 @@ import {
   type EncounterSummary,
 } from "@darts-platform/schemas";
 
+import type { ApplicationEnvironment } from "@darts-platform/config";
+
 import { CurrentAuth } from "../auth/current-auth.decorator.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { getAuditContext } from "../common/audit-context.js";
 import { parseBody } from "../common/parse-body.js";
+import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 import { EncountersService } from "./encounters.service.js";
 
 @Controller("organizations/:organizationId")
 export class EncountersController {
-  public constructor(@Inject(EncountersService) private readonly service: EncountersService) {}
+  public constructor(
+    @Inject(EncountersService) private readonly service: EncountersService,
+    @Inject(APPLICATION_ENVIRONMENT)
+    private readonly environment: ApplicationEnvironment,
+  ) {}
 
   @Get("competitions/:competitionId/encounters")
   public list(
@@ -48,7 +55,7 @@ export class EncountersController {
       competitionId,
       data: parseBody(createEncounterSchema, body),
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -74,7 +81,7 @@ export class EncountersController {
       encounterId,
       data: parseBody(submitNominationsSchema, body),
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -91,7 +98,7 @@ export class EncountersController {
       encounterId,
       data: parseBody(submitDoublesSchema, body),
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -108,7 +115,7 @@ export class EncountersController {
       encounterId,
       data: parseBody(substitutePlayerSchema, body),
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -125,7 +132,7 @@ export class EncountersController {
       encounterId,
       data: parseBody(startEncounterSchema, body),
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -144,7 +151,7 @@ export class EncountersController {
       slotId,
       data: parseBody(assignEncounterSlotSchema, body),
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -163,7 +170,7 @@ export class EncountersController {
       slotId,
       data: parseBody(releaseEncounterSlotSchema, body),
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -182,7 +189,7 @@ export class EncountersController {
       slotId,
       data: parseBody(declareSlotWalkoverSchema, body),
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -199,7 +206,7 @@ export class EncountersController {
       encounterId,
       data: parseBody(declareEncounterForfeitSchema, body),
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 
@@ -216,7 +223,7 @@ export class EncountersController {
       encounterId,
       data: parseBody(cancelEncounterSchema, body),
       auth,
-      audit: getAuditContext(request),
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });
   }
 }

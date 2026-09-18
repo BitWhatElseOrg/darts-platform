@@ -84,6 +84,12 @@ export async function configureApplication(
   registerImageUploadContentType(app);
   await registerSecurityHeaders(app);
   await registerRateLimit(app, environment);
-  app.useGlobalFilters(new ApiExceptionFilter());
-  app.useGlobalInterceptors(new ApiLoggingInterceptor(new Logger("HTTP")));
+  app.useGlobalFilters(new ApiExceptionFilter(environment.TRUST_PROXY_HOPS));
+  app.useGlobalInterceptors(
+    new ApiLoggingInterceptor(
+      new Logger("HTTP"),
+      environment.LOG_CLIENT_ADDRESS,
+      environment.TRUST_PROXY_HOPS,
+    ),
+  );
 }

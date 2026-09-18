@@ -155,6 +155,18 @@ export interface PublishOutboxOptions {
    * genau in ihr zu erzeugen. In der Anwendung bleibt es bei `resolveScope`.
    */
   readonly resolveScope?: ResolveScope;
+  /**
+   * Nur fuer Tests: den Stapel zusaetzlich auf eine Organisation eingrenzen.
+   * `publish-outbox.integration.spec.ts` laeuft parallel zu anderen
+   * Spec-Dateien gegen dieselbe Datenbank und beansprucht mit einer
+   * vorgestellten Uhr Zeilen, die fuer fremde Poller (noch) nicht faellig
+   * sind. Ohne diese Eingrenzung wuerde dieselbe vorgestellte Uhr auch
+   * gewoehnliche, laengst faellige Zeilen anderer Dateien mitreissen und
+   * publizieren, bevor deren eigener Poller — etwa der Relay aus
+   * `realtime.service.integration.spec.ts` — sie sieht. Der Produktionscode
+   * (`realtime.service.ts`) setzt diese Option nie.
+   */
+  readonly organizationId?: string;
 }
 
 /**
@@ -226,7 +238,15 @@ export async function publishOutboxBatch(
     const events = await transaction
       .select()
       .from(outboxEvents)
-      .where(and(isNull(outboxEvents.publishedAt), outboxPending("publish", currentTime)))
+      .where(
+        and(
+          isNull(outboxEvents.publishedAt),
+          outboxPending("publish", currentTime),
+          options.organizationId === undefined
+            ? undefined
+            : eq(outboxEvents.organizationId, options.organizationId),
+        ),
+      )
       .orderBy(asc(outboxEvents.sequence))
       .limit(limit)
       .for("update", { skipLocked: true });

@@ -10,13 +10,16 @@ node_modules/
 # Build output
 .next/
 .next-e2e/
+.next-e2e-prod/
 dist/
 coverage/
 .turbo/
 .worktrees/
 *.tsbuildinfo
 playwright-report/
+playwright-report-prod/
 test-results/
+test-results-prod/
 
 # Logs
 *.log

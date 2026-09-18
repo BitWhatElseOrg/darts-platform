@@ -4,6 +4,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 
 import type { ApplicationEnvironment } from "@darts-platform/config";
 
+import { resolveClientAddress } from "../common/client-address.js";
 import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 import { AuthService } from "./auth.service.js";
 import { CLIENT_IP_HEADER } from "./client-ip.js";
@@ -42,8 +43,13 @@ export class AuthController {
     const headers = fromNodeHeaders(request.headers);
     headers.delete("content-length");
     // `set` statt `append`: ein vom Client mitgeschickter Wert wird
-    // ueberschrieben, nicht ergaenzt (siehe `client-ip.ts`).
-    headers.set(CLIENT_IP_HEADER, request.ip);
+    // ueberschrieben, nicht ergaenzt (siehe `client-ip.ts`). Die Adresse
+    // selbst kommt aus `resolveClientAddress` (Task 3, Befund D3-1): hinter
+    // einem vertrauten Hop aus `X-Real-IP`, sonst aus `request.ip`.
+    headers.set(
+      CLIENT_IP_HEADER,
+      resolveClientAddress(request, this.environment.TRUST_PROXY_HOPS),
+    );
 
     const hasBody = request.method !== "GET" && request.method !== "HEAD";
     const authRequest = new Request(url, {

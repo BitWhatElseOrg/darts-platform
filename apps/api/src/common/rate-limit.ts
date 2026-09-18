@@ -5,6 +5,8 @@ import type { FastifyRequest } from "fastify";
 
 import type { ApplicationEnvironment } from "@darts-platform/config";
 
+import { resolveClientAddress } from "./client-address.js";
+
 const RATE_LIMIT_WINDOW = "1 minute";
 const PUBLIC_PATH_PREFIX = "/api/v1/public/";
 const HEALTH_PATH = "/api/v1/health";
@@ -78,19 +80,31 @@ function maxFor(tier: RateLimitTier, environment: ApplicationEnvironment): numbe
  * Fastify-Zaehler ist die grobe Bremse fuer die uebrigen Routen; ihn ueber
  * `ioredis` zu teilen, waere an dieser Stelle den Zusatzaufwand nicht wert.
  *
- * Der Zaehler-Schluessel ist `"<stufe>:<ip>"` statt nur der IP-Adresse: ohne
- * die Stufe im Schluessel teilten sich alle drei Stufen einen einzigen
- * Eimer je IP, und wer die allgemeine Grenze ausschoepft, waere faelschlich
- * auch von der sensiblen Grenze blockiert (und umgekehrt). `request.ip`
- * beruecksichtigt `TRUST_PROXY_HOPS` (`trust-proxy.ts`) — ohne vertrauten
- * Hop waeren hinter Railway alle Clients dieselbe Adresse und teilten sich
- * ohnehin einen Eimer je Stufe.
+ * Der Zaehler-Schluessel ist `"<stufe>:<adresse>"` statt nur der Adresse:
+ * ohne die Stufe im Schluessel teilten sich alle drei Stufen einen
+ * einzigen Eimer je Adresse, und wer die allgemeine Grenze ausschoepft,
+ * waere faelschlich auch von der sensiblen Grenze blockiert (und
+ * umgekehrt). Die Adresse selbst kommt aus `resolveClientAddress`
+ * (siehe unten) und beruecksichtigt `TRUST_PROXY_HOPS` (`trust-proxy.ts`)
+ * nur als Voraussetzung dafuer, `X-Real-IP` ueberhaupt zu vertrauen — ohne
+ * vertrauten Hop waeren hinter Railway sonst entweder alle Clients dieselbe
+ * Adresse oder ein selbst gesetzter Header liesse sich faelschen, und alle
+ * Clients teilten sich ohnehin einen Eimer je Stufe.
  *
  * Zweite bewusste Grenze: auf `/api/v1/auth/**` greifen beide Bremsen. Wer
  * zuerst auslöst, bestimmt den Antwortkörper — Fastify antwortet im
  * einheitlichen Format, Better Auth mit seinem eigenen `{ "message": … }`.
  * Die Auth-Routen reichen ohnehin schon Better-Auth-Fehlerkörper unveraendert
  * durch (`auth.controller.ts`), die Unschaerfe ist dort also nicht neu.
+ *
+ * Client-Adresse (Plan 2026-09-17-go-live-testprogramm, Task 3, Befund D3-1):
+ * hinter Railway war `request.ip` (aus `X-Forwarded-For` ueber
+ * `TRUST_PROXY_HOPS`, `trust-proxy.ts`) in Staging eine von zwei
+ * abwechselnden Proxy-Adressen, nicht die Adresse des Clients — Messung vom
+ * 18.09.2026, siehe `client-address.ts`. Der Schluessel nutzt deshalb
+ * `resolveClientAddress`, das mit einem vertrauten Hop `X-Real-IP`
+ * bevorzugt (von Railway ueberschrieben, siehe dort) und sonst auf
+ * `request.ip` zurueckfaellt.
  */
 export async function registerRateLimit(
   app: NestFastifyApplication,
@@ -109,7 +123,7 @@ export async function registerRateLimit(
     max: (request: FastifyRequest): number =>
       maxFor(resolveRateLimitTier(pathOf(request)), environment),
     keyGenerator: (request: FastifyRequest): string =>
-      `${resolveRateLimitTier(pathOf(request))}:${request.ip}`,
+      `${resolveRateLimitTier(pathOf(request))}:${resolveClientAddress(request, environment.TRUST_PROXY_HOPS)}`,
     // `@fastify/rate-limit` wirft den Rueckgabewert aus einem
     // `onRequest`-Hook, der vor dem Nest-Routing laeuft. Trotzdem faengt
     // Nests globaler `ApiExceptionFilter` ihn ab — jede unbehandelte

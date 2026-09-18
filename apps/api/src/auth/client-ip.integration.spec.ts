@@ -17,6 +17,8 @@ let redis: RedisClientType;
 const octet = (): number => 2 + Math.floor(Math.random() * 250);
 const clientAddress = `203.0.113.${octet()}`;
 const spoofedAddress = `198.51.100.${octet()}`;
+const realIpAddress = `203.0.113.${octet()}`;
+const conflictingForwardedAddress = `198.51.100.${octet()}`;
 
 beforeAll(async () => {
   app = await createApiTestApplication({
@@ -68,6 +70,34 @@ describe("Client-Adresse fuer Better Auth", () => {
     ).resolves.toBe(1);
     await expect(
       redis.exists(`rate-limit:auth:${spoofedAddress}|/sign-in/email`),
+    ).resolves.toBe(0);
+  }, 30_000);
+
+  /**
+   * Fix-Runde 1, Punkt 9 (Sicherheitsreview): `X-Real-IP` hat bei einem
+   * vertrauten Hop Vorrang vor `X-Forwarded-For` — auch wenn beide Header
+   * auf unterschiedliche Adressen zeigen. Railway ueberschreibt `X-Real-IP`
+   * ohnehin (Messung 18.09.2026), ein widersprechendes `X-Forwarded-For`
+   * darf den Zaehler deshalb nicht auf die andere Adresse lenken.
+   */
+  it("bevorzugt X-Real-IP vor einem widersprechenden X-Forwarded-For", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/auth/sign-in/email",
+      remoteAddress: "10.0.0.5",
+      headers: {
+        "x-real-ip": realIpAddress,
+        "x-forwarded-for": `9.9.9.9, ${conflictingForwardedAddress}`,
+      },
+      payload: { email: "niemand@example.test", password: "falsches-passwort" },
+    });
+
+    expect(response.statusCode).not.toBe(429);
+    await expect(
+      redis.exists(`rate-limit:auth:${realIpAddress}|/sign-in/email`),
+    ).resolves.toBe(1);
+    await expect(
+      redis.exists(`rate-limit:auth:${conflictingForwardedAddress}|/sign-in/email`),
     ).resolves.toBe(0);
   }, 30_000);
 });

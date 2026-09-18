@@ -211,6 +211,28 @@ describe("parseApplicationEnvironment", () => {
       }),
     ).toThrow(EnvironmentValidationError);
   });
+
+  it("deaktiviert die Adress-Diagnose im Request-Log standardmaessig", () => {
+    const environment = parseApplicationEnvironment(validEnvironment);
+
+    expect(environment.LOG_CLIENT_ADDRESS).toBe(false);
+  });
+
+  it("aktiviert die Adress-Diagnose nur bei genau 'true'", () => {
+    expect(
+      parseApplicationEnvironment({
+        ...validEnvironment,
+        LOG_CLIENT_ADDRESS: "true",
+      }).LOG_CLIENT_ADDRESS,
+    ).toBe(true);
+
+    expect(() =>
+      parseApplicationEnvironment({
+        ...validEnvironment,
+        LOG_CLIENT_ADDRESS: "yes",
+      }),
+    ).toThrow(EnvironmentValidationError);
+  });
 });
 
 describe("parsePublicWebEnvironment", () => {
