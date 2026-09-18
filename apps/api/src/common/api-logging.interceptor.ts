@@ -18,7 +18,7 @@ import { getAuditContext } from "./audit-context.js";
 export class ApiLoggingInterceptor implements NestInterceptor {
   public constructor(
     @Inject(Logger) private readonly logger: Logger,
-    private readonly logClientAddress: boolean = false,
+    private readonly logClientAddress: boolean,
     // Fuer `getAuditContext`/`resolveClientAddress` (Plan
     // 2026-09-17-go-live-testprogramm, Task 3): kein Default — der Aufrufer
     // muss den echten Wert aus `APPLICATION_ENVIRONMENT.TRUST_PROXY_HOPS`
