@@ -10,12 +10,16 @@
  * sind nicht als stabile CIDR-Liste bekannt, taugen also nicht als
  * `trustedProxies`.
  *
- * Stattdessen entscheidet die Hop-Zaehlung, die ohnehin schon getroffen ist:
- * `AuthController` setzt diesen Header auf `request.ip` (Fastify,
- * `TRUST_PROXY_HOPS`, siehe `common/trust-proxy.ts`) und ueberschreibt damit
- * jeden vom Client mitgeschickten Wert; `createAuth` liest ueber
- * `advanced.ipAddress.ipAddressHeaders` ausschliesslich diesen Header. Beide
- * Bremsen — die von Fastify und die von Better Auth — haengen damit an
+ * Stattdessen entscheidet dieselbe Ermittlung, die auch Rate-Limit und Audit
+ * verwenden: `AuthController` setzt diesen Header auf
+ * `resolveClientAddress(request, TRUST_PROXY_HOPS)` (`common/client-address.ts`)
+ * und ueberschreibt damit jeden vom Client mitgeschickten Wert. Hinter einem
+ * vertrauten Hop (`TRUST_PROXY_HOPS > 0`) ist das `X-Real-IP` — von Railway
+ * ueberschrieben, siehe dort und Befund D3-1 (Plan
+ * 2026-09-17-go-live-testprogramm, Task 3) — sonst `request.ip` (Fastify,
+ * siehe `common/trust-proxy.ts`). `createAuth` liest ueber
+ * `advanced.ipAddress.ipAddressHeaders` ausschliesslich diesen Header. Alle
+ * drei Bremsen — Fastify-Rate-Limit, Audit und Better Auth — haengen damit an
  * derselben Adresse.
  */
 export const CLIENT_IP_HEADER = "x-dartbase-client-ip";

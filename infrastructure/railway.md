@@ -376,11 +376,20 @@ Verbindung wird die TLS-Variante der Railway-Referenz eingetragen.
 
 `TRUST_PROXY_HOPS` muss genau der Anzahl vertrauter Reverse-Proxy-Hops vor der
 Anwendung entsprechen — hinter Railways eigenem Edge-Proxy also `1`. Der Wert
-bestimmt, welcher Eintrag der `X-Forwarded-For`-Kette als tatsächliche
-Client-Adresse gilt (u. a. für das Rate Limiting, siehe `RATE_LIMIT_*` oben).
-Ein zu hoch gesetzter Wert macht `X-Forwarded-For` durch den Client selbst
-fälschbar: wer mehr Hops vorgibt als tatsächlich vorhanden sind, kann eine
-beliebige IP-Adresse als eigene ausgeben. Zulässig sind 0 bis 10.
+bestimmt, welcher Eintrag der `X-Forwarded-For`-Kette Fastify als
+`request.ip` gilt. Ein zu hoch gesetzter Wert macht `X-Forwarded-For` durch
+den Client selbst fälschbar: wer mehr Hops vorgibt als tatsächlich vorhanden
+sind, kann eine beliebige IP-Adresse als eigene ausgeben. Zulässig sind 0 bis
+10.
+
+Die tatsächlich für Rate Limiting und Audit verwendete Client-Adresse kommt
+seit Plan 2026-09-17-go-live-testprogramm (Task 3, Befund D3-1) nicht aus
+`request.ip`, sondern aus `resolveClientAddress`
+(`apps/api/src/common/client-address.ts`): mit `TRUST_PROXY_HOPS > 0` gilt
+`X-Real-IP` — von Railway überschrieben, siehe
+docs.railway.com/networking/public-networking/specs-and-limits —, `request.ip`
+bleibt der Rückfall, unter anderem für Railways interne Probe ohne diesen
+Header.
 
 Der Wert `1` ist eine Annahme über Railways Edge und **beim Deploy zu
 verifizieren**: einmal `request.ip` und den rohen `X-Forwarded-For`-Header
