@@ -85,7 +85,7 @@ export function SetupSheet({ organizationId, players, boards }: {
   const defaultGroupCount = defaultParticipantCount >= 16 ? 8 : defaultParticipantCount >= 8 ? 4 : 2;
   const defaultKnockoutSize = defaultGroupCount * 2;
 
-  const { control, formState, handleSubmit, register, setValue } = useForm<SetupFormValues>({
+  const { control, formState, handleSubmit, register, setFocus, setValue } = useForm<SetupFormValues>({
     defaultValues: {
       name: "",
       startsAt: "2026-09-12",
@@ -185,10 +185,33 @@ export function SetupSheet({ organizationId, players, boards }: {
         next[key] = MESSAGES[key] ?? issue.message;
       });
       setContractErrors(next);
+      revealInvalidField(String(parsed.error.issues[0]?.path[0] ?? "form"));
       return;
     }
     setContractErrors({});
     createMutation.mutate(parsed.data);
+  }
+
+  /**
+   * Der Button steht am Ende einer langen Seite, das erste Feld am Anfang.
+   * Ohne diesen Sprung blieb ein Klick ohne Namen fuer die Nutzerin ohne
+   * sichtbare Wirkung: die Meldung stand oben, ausserhalb des Sichtfelds.
+   * Registrierte Felder bekommen den Fokus (der Browser scrollt sie ins
+   * Bild); die Auswahlfelder ohne Eingabeelement scrollen zu ihrer Meldung,
+   * die erst mit dem naechsten Render erscheint.
+   */
+  function revealInvalidField(key: string) {
+    if (key in MESSAGES && key !== "participantIds" && key !== "boardIds") {
+      setFocus(key as keyof SetupFormValues);
+      return;
+    }
+    if (typeof window === "undefined") return;
+    window.setTimeout(() => {
+      const target = document.getElementById(`${key}-error`);
+      if (target !== null && typeof target.scrollIntoView === "function") {
+        target.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+    }, 0);
   }
 
   function nextSelection(selected: readonly string[] | undefined, id: string): string[] {
@@ -595,6 +618,16 @@ export function SetupSheet({ organizationId, players, boards }: {
               Der Start erzeugt den persistenten Spielplan. Eine nachträgliche Strukturänderung
               ist im aktuellen MVP bewusst nicht verfügbar.
             </p>
+            {Object.keys(contractErrors).length > 0 ? (
+              <Wedge className="p-4" data-testid="submit-errors" role="alert" tone="alarm">
+                <SheetLabel as="h2" tone="alarm">Eingaben prüfen</SheetLabel>
+                <ul className="mt-1.5 flex flex-col gap-1 font-plate text-body text-wedge-900">
+                  {Object.values(contractErrors).map((message) => (
+                    <li key={message}>{message}</li>
+                  ))}
+                </ul>
+              </Wedge>
+            ) : null}
 
             {previewQuery.error ? (
               <Wedge className="p-4" tone="plate">

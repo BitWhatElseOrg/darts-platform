@@ -7,7 +7,7 @@ vi.mock("@/lib/environment", () => ({
   publicEnvironment: { NEXT_PUBLIC_API_URL: "http://api.test/api/v1" },
 }));
 
-import { shareLink, shareState } from "./share-panel";
+import { liveNavTarget, shareLink, shareState } from "./share-panel";
 
 describe("shareState", () => {
   it("nennt ein privates Turnier nicht freigegeben", () => {
@@ -32,5 +32,23 @@ describe("shareLink", () => {
     expect(shareLink("https://dartbase.ch", "6f1f1f6a-0000-4000-8000-000000000001")).toBe(
       "https://dartbase.ch/live/6f1f1f6a-0000-4000-8000-000000000001",
     );
+  });
+});
+
+describe("liveNavTarget", () => {
+  it("fuehrt bei einem freigegebenen Turnier zur oeffentlichen Live-Ansicht", () => {
+    expect(liveNavTarget("PUBLIC", "6f1f1f6a-0000-4000-8000-000000000001")).toEqual({
+      href: "/live/6f1f1f6a-0000-4000-8000-000000000001",
+      label: "Öffentliche Live-Ansicht",
+    });
+  });
+
+  it("fuehrt bei einem privaten Turnier zur Freigabe statt ins Leere", () => {
+    // Die oeffentliche Route antwortet fuer ein privates Turnier absichtlich
+    // mit 404 (ADR 0013); ein Link dorthin endete in «Turnier nicht gefunden».
+    expect(liveNavTarget("PRIVATE", "6f1f1f6a-0000-4000-8000-000000000001")).toEqual({
+      href: "#share-heading",
+      label: "Live-Ansicht: noch nicht freigegeben",
+    });
   });
 });
