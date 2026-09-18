@@ -21,7 +21,7 @@ alle sechs Fälle gemessen.
 | --- | --- | --- | --- | --- |
 | A1 Zwei Scorer, ein Match | 18.09.2026 | grün | [2026-09-18-block-a.md](protokolle/2026-09-18-block-a.md) | Ein 201 (Visit angenommen), ein 409 `MATCH_VERSION_CONFLICT`; Matchversion danach 1, genau ein Visit. |
 | A2 Gleicher Command doppelt | 18.09.2026 | grün | [2026-09-18-block-a.md](protokolle/2026-09-18-block-a.md) | 10× 201 mit identischem Zustand, Version 1, genau ein Visit (idempotent). |
-| A3 20 Boards gleichzeitig | 18.09.2026 | grün | [2026-09-18-block-a.md](protokolle/2026-09-18-block-a.md) | 4'076 Anfragen, 0 Fehler, p50 252 ms, p95 298 ms, p99 373 ms, 0 Matches vorzeitig beendet. Angestrebt 3 Visits/s je Match; durch die feste 333-ms-Pause nach jeder Antwort effektiv 1,7/s (4076 statt 7200 Anfragen) — Code inzwischen auf feste Taktung umgestellt. Messwerte: [2026-09-18-a3.json](protokolle/messwerte/2026-09-18-a3.json). |
+| A3 20 Boards gleichzeitig | 18.09.2026, Nachlauf mit fester Taktung 18.09.2026 | grün | [2026-09-18-block-a.md](protokolle/2026-09-18-block-a.md) | Nach Umstellung der Testschleife auf feste Taktung auf den Intervall-Start: 7'216 Anfragen bei angestrebt 3,0 Visits/s je Match (20 Boards, 120 s), 0 Fehler, p50 111 ms, p95 157 ms, p99 190 ms, 0 Matches vorzeitig beendet. Vorheriger Lauf mit fester Nach-Pause, effektiv 1,7/s: 4'076 Anfragen, p50 252 ms, p95 298 ms, p99 373 ms. Messwerte: [2026-09-18-a3.json](protokolle/messwerte/2026-09-18-a3.json). |
 | A4 Realtime-Fan-out | 18.09.2026 | grün | [2026-09-18-block-a.md](protokolle/2026-09-18-block-a.md) | 0 von 50 Sockets ohne `tournament:changed`; p50 194 ms, p95 194 ms, max 200 ms. Messwerte: [2026-09-18-a4.json](protokolle/messwerte/2026-09-18-a4.json). |
 | A5 Public-Polling unter NAT | 18.09.2026, Nachmessung 18.09.2026 grün | grün | [2026-09-18-block-a.md](protokolle/2026-09-18-block-a.md) | Ursprünglich rot: 0 von 700 Antworten 429 (erwartet 50–150), konsistent mit D3-1. Nach dem Fix (PR #46) manuell nachgemessen: 700 Anfragen, 50 parallel, gegen `api-staging.dartbase.ch` → 600× 404, 100× 429 — innerhalb der Erwartung. Automatisierter Spec-Lauf nicht wiederholt (Testkonto-Zugangsdaten verloren, siehe „Blocker beim Betreiber"); die manuelle Messung ist gleichwertig. Ursprüngliche Messwerte: [2026-09-18-a5.json](protokolle/messwerte/2026-09-18-a5.json). |
 | A6 Undo unter Last | 18.09.2026 | grün | [2026-09-18-block-a.md](protokolle/2026-09-18-block-a.md) | Ein 201, ein 409; Version = vorherige Version + 1; zwei aktive Visits (Undo hat gewonnen). |
@@ -31,11 +31,11 @@ alle sechs Fälle gemessen.
 | Fall | Datum | Ergebnis | Protokoll | Befund |
 | --- | --- | --- | --- | --- |
 | B1 Backup-Stand Production | 17.09.2026 | rot | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | `railway postgres pitr status` auf der Production-Datenbank liefert `enabled: false`, `bucketWired: false` — keine kontinuierliche Sicherung. Gleicher Befund für Staging. Einschalten von PITR ist laut Spec ein separater Betreiberentscheid (Mutation an Production); Entscheid steht aus. |
-| B2 Restore-Probe auf Staging | – | offen | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | Noch nicht gefahren; PITR ist auch in Staging aus, Voraussetzung fehlt. |
-| B3 Migrationsprobe | – | offen | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | Wartet auf die nächste Migration in `develop` und einen Staging-Deploy; GitHub Actions startet keine Jobs. |
+| B2 Restore-Probe auf Staging | 18.09.2026 | grün | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | PITR in Staging eingeschaltet, Restore auf T1 = 14:59:07 UTC in einen neuen Service (`postgres-restored`) zurückgespielt, fertig 15:03:39 UTC (≈ 1,5 Minuten): 10 statt 11 Organisationen, die nach T1 angelegte fehlte wie erwartet. Nach Zurückschalten der Staging-API auf die Original-Datenbank wieder 11 Organisationen. Manuelle Backups auf diesem Plan nicht verfügbar (`pitr backup create` → kein Zugriff), für den Restore auch nicht nötig. |
+| B3 Migrationsprobe | – | offen | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | Wartet auf die nächste Migration in `develop` und einen Staging-Deploy. |
 | B4 Redis-Ausfall | 18.09.2026 | grün | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | Lastlauf 5 Boards/3 Visits/s über 90 s, `railway restart --service Redis` bei t=30 s (Ausfall 08:10:06–08:10:07 UTC): 0 von 1112 Visits mit Fehler, 0 von 25 Health-Abfragen nicht `ok`, p95 92 ms (p50 70 ms, p99 117 ms), `deadLettered` danach 0. |
 | B5 Worker-Neustart | 18.09.2026 | grün | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | Im selben Lauf `railway restart --service @darts-platform/worker` bei t=60 s (`worker_started` 08:10:41): Health während/nach Neustart `ok`, `publishLagSeconds` 0, `deadLettered` 0. |
-| B6 API-Neustart mit offenen Sockets | – | offen | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | Noch nicht gefahren; Vorgehen wie B4, zusätzlich mit den 50 Sockets aus Fall A4. |
+| B6 API-Neustart mit offenen Sockets | 18.09.2026 | grün | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | Vorgehen wie B4/B5, zusätzlich mit den 50 Sockets aus Fall A4: 50/50 Sockets innerhalb 6 s nach `railway restart` neu verbunden; nächstes Ereignis (Board-Zuordnung) innerhalb 6 s an 50/50 Sockets zugestellt. |
 
 ## Block C – Technische Lücken
 
@@ -76,8 +76,7 @@ Blocker für Block A, B2–B6, D3-Nachmessung, D4 und D5; siehe
 Weiterhin offen:
 
 - **GitHub Actions blockiert.** Zahlungs-/Limit-Problem auf Organisationsebene seit 15.09.2026; kein CI-Lauf seit 09.09.2026, seither ungeprüfte Deploys auf `main`. Blockiert damit auch den Staging-Deploy des `LOG_CLIENT_ADDRESS`-Diagnose-Fixes (D3-Nachmessung), die Migrationsprobe B3 und die weiteren Schritte aus Aufgabe 3 (ab Schritt 3).
-- **PITR-Entscheid aussteht.** `railway postgres pitr status` zeigt für Production `enabled: false`, `bucketWired: false` (Befund B1, hoch). Einschalten ist eine Mutation an Production und bewusst ein separater Betreiberentscheid, kein Automatismus dieses Programms.
-- **B2/B6 noch nicht gefahren.** Restore-Probe auf Staging (B2, wartet zusätzlich auf den PITR-Entscheid) und API-Neustart mit offenen Sockets (B6, Vorgehen wie B4 mit den 50 Sockets aus A4) stehen aus.
+- **PITR-Entscheid aussteht.** `railway postgres pitr status` zeigt für Production `enabled: false`, `bucketWired: false` (Befund B1, hoch). Einschalten ist eine Mutation an Production und bewusst ein separater Betreiberentscheid, kein Automatismus dieses Programms. (B2, die Restore-Probe auf Staging, ist davon unabhängig bereits gemessen und grün — Staging-PITR ist seit dem 18.09.2026 eingeschaltet.)
 - **D1 mit echten Ressourcen in Organisation B nachziehen.** Die aktuelle Tenant-Isolationsmatrix nutzt zufällige UUIDs für alle Pfadparameter ausser `:organizationId`; ein Nachlauf mit tatsächlich in Organisation B angelegten Ressourcen würde 404 (nicht existent) und 403 (existent, aber fremder Tenant) sauber trennen.
 - **Neue Einladung für ein zweites Testkonto nötig.** Die Zugangsdaten des bisherigen Testkontos (`test-runner@example.test`, `.env.staging`) gingen mit einem zwischenzeitlich gelöschten Worktree verloren. Für weitere automatisierte Staging-Läufe (`pnpm test:staging`) braucht es eine neue Einladung, vorzugsweise für ein zweites Testkonto (`test-runner-2@example.test`), damit künftige Läufe nicht wieder von einem lokal gehaltenen `.env.staging` abhängen, das ausserhalb des Haupt-Checkouts verloren gehen kann (siehe `infrastructure/railway.md`, Abschnitt „Staging-Tests und Lastläufe").
 
@@ -88,32 +87,45 @@ protokolliertes Ergebnis. Rote Fälle sind entweder behoben oder mit
 Begründung und Risiko im Protokoll als akzeptiert markiert. Erst dann startet
 Block E."
 
-**Verdikt: nicht freigegeben.**
+**Verdikt: aus Testsicht bereit, sobald der Betreiber B1 entschieden hat.**
 
 Begründung:
 
 - Block A: alle 6 Fälle grün (A1, A2, A3, A4, A5, A6). A5 war ursprünglich
   rot, ist nach dem D3-1-Fix (PR #46) und der Nachmessung vom 18.09.2026
-  grün.
-- Block B: B4 und B5 sind grün. B1 ist rot und nicht akzeptiert (PITR aus,
-  Betreiberentscheid aussteht). B2, B3 und B6 sind offen.
+  grün. Ein vollständiger Nachlauf am 18.09.2026 mit einem zweiten
+  Testkonto bestätigt alle sechs Fälle erneut grün (A3 jetzt mit fester
+  Taktung bei 3,0 Visits/s, siehe `2026-09-18-block-a.md`).
+- Block B: B2, B4, B5 und B6 sind grün. B1 bleibt rot und nicht akzeptiert
+  (PITR auf Production aus, Betreiberentscheid aussteht) — der einzige
+  verbleibende Blocker in Block B. B3 (Migrationsprobe) ist offen, wird
+  aber erst mit der nächsten Schema-Änderung in `develop` fällig, nicht
+  durch eine noch ausstehende Prüfung eines heute schon vorliegenden
+  Zustands.
 - Block D: D1, D2, D3 (Staging), D4, D5 und D6 sind grün. D3-1 ist auf
   Staging behoben und nachgemessen; die Production-Probe steht als
   Restpunkt aus (offen bis Release, kein Rot). D3-2 (mittel, serieller
   Login-Fall ohne 429) bleibt unbehoben und offen.
-- Block C ist vollständig grün; das allein genügt nicht, weil das Kriterium
-  alle vier Blöcke verlangt.
+- Block C ist vollständig grün.
 
-Was aktuell noch rot oder offen ist, bevor Block E starten kann: B1 (PITR,
-Betreiberentscheid aussteht), B2 (Restore-Probe, wartet auf B1), B3
-(Migrationsprobe, wartet auf die nächste Migration in `develop`), B6
-(API-Neustart mit offenen Sockets, noch nicht gefahren), die
-D3-Production-Probe (Spoof-Gate gegen `api.dartbase.ch` nach dem Release
-nach `main`) sowie die benannten Follow-ups: D3-2 (seriellen Login-Fall
-klären) und D1 mit echten Ressourcen in Organisation B nachziehen (siehe
-„Blocker beim Betreiber" und „Weiterhin offen" oben).
+Was noch offen ist, blockiert den eigentlichen Block-E-Szenario-Test
+nicht:
 
-Block E kann erst starten, wenn: B1 entweder behoben oder mit Begründung
-und Risiko explizit im Protokoll als akzeptiert markiert ist, B2, B3 und B6
-gemessen wurden, die D3-Production-Probe nachgezogen ist und D3-2 geklärt
-oder akzeptiert ist.
+- **B1 (PITR Production):** Betreiberentscheid aussteht — einschalten und
+  akzeptieren, oder mit Begründung und Risiko explizit als akzeptiert
+  markieren.
+- **B3 (Migrationsprobe):** wird erst mit der nächsten Migration in
+  `develop` fällig, keine heute schon messbare Voraussetzung.
+- **D3-Produktionsprobe** (Spoof-Gate gegen `api.dartbase.ch`): nach dem
+  Release nach `main` einmal zu wiederholen — Nachprüfung eines auf
+  Staging bereits bestätigten Fixes, kein offenes Risiko für den
+  Szenario-Test selbst.
+- **Follow-ups:** D1 mit echten Ressourcen in Organisation B nachziehen,
+  D3-2 (serieller Login-Fall ohne 429) klären oder akzeptieren — beides
+  dokumentierte, niedrige bis mittlere Befunde ohne bestätigtes
+  Sicherheitsrisiko.
+
+**Damit aus Testsicht: ja, sobald der Betreiber B1 entschieden hat** — die
+restlichen Punkte (B3, D3-Produktionsprobe, die genannten Follow-ups)
+blockieren den eigentlichen Block-E-Szenario-Test nicht, sie bleiben als
+Nachträge bzw. Backlog offen.
