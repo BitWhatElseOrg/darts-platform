@@ -41,7 +41,7 @@ import { DisruptionsPanel } from "./disruptions-panel";
 import { QueuePanel } from "./queue-panel";
 import { ParticipantDisruptionPanel } from "./participant-disruption-panel";
 import { ResultsPanel } from "./results-panel";
-import { SharePanel } from "./share-panel";
+import { liveNavTarget, SharePanel } from "./share-panel";
 import { StandingsSheet } from "./standings-sheet";
 
 /**
@@ -618,7 +618,9 @@ export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canW
       <div className="mx-auto max-w-[1600px] px-5 py-6 xl:px-9">
         <PageNav>
           <NavLink href={`/turniere?organisation=${organizationId}`}>Alle Turniere</NavLink>
-          <NavLink href={`/live/${dashboard.tournament.publicId}`}>Öffentliche Live-Ansicht</NavLink>
+          <NavLink href={liveNavTarget(dashboard.tournament.visibility, dashboard.tournament.publicId).href}>
+            {liveNavTarget(dashboard.tournament.visibility, dashboard.tournament.publicId).label}
+          </NavLink>
           <NavLink href="/bedienungsanleitung.html">Bedienungsanleitung</NavLink>
         </PageNav>
 

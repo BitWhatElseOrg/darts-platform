@@ -33,6 +33,21 @@ export function shareLink(origin: string, publicId: string): string {
   return `${origin}/live/${publicId}`;
 }
 
+/**
+ * Wohin der Navigationslink «Live-Ansicht» der Kommandozentrale zeigt. Die
+ * oeffentliche Route antwortet fuer ein nicht freigegebenes Turnier bewusst
+ * mit 404 (ADR 0013); ein Link dorthin endete in «Turnier nicht gefunden».
+ * Solange das Turnier privat ist, fuehrt der Eintrag deshalb zur Freigabe.
+ */
+export function liveNavTarget(
+  visibility: TournamentVisibility,
+  publicId: string,
+): { readonly href: string; readonly label: string } {
+  return visibility === "PUBLIC"
+    ? { href: `/live/${publicId}`, label: "Öffentliche Live-Ansicht" }
+    : { href: "#share-heading", label: "Live-Ansicht: noch nicht freigegeben" };
+}
+
 interface SharePanelProps {
   readonly organizationId: string;
   readonly tournamentId: string;
