@@ -7,7 +7,10 @@ const config = readStagingConfig();
 describe("Staging-Client", () => {
   it("meldet sich an und legt eine Fixture-Organisation mit Match an", async () => {
     const session = await signIn(config.baseUrl, config.email, config.password, config.origin);
-    expect(session.cookie).toContain("better-auth.session_token=");
+    // Nur die Cookie-NAMEN pruefen, nie den Rohwert -- ein Fehlschlag darf
+    // das Session-Token nicht in der Testausgabe zeigen.
+    const cookieNames = session.cookie.split("; ").map((c) => c.split("=", 1)[0] ?? "");
+    expect(cookieNames.some((name) => name.includes("better-auth.session_token"))).toBe(true);
 
     const runId = `run-${Date.now()}`;
     const fixture = await createFixtureOrganization(session, runId);

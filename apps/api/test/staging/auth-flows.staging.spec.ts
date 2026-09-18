@@ -49,11 +49,17 @@ beforeAll(async () => {
 
 describe("Block D4 – Auth-Flows", () => {
   it("D4-1: setzt das Session-Cookie mit HttpOnly, Secure, SameSite=Lax und dem __Secure-Praefix", () => {
-    expect(firstLoginSetCookie).toMatch(/^__Secure-better-auth\.session_token=/u);
-    expect(firstLoginSetCookie).toMatch(/HttpOnly/iu);
-    expect(firstLoginSetCookie).toMatch(/Secure/iu);
-    expect(firstLoginSetCookie).toMatch(/SameSite=Lax/iu);
-    expect(firstLoginSetCookie).toMatch(/Max-Age=604800/u);
+    // Redigiert den Token-Wert, bevor er in eine Assertion-Fehlermeldung
+    // geraten kann -- ein Fehlschlag darf das aktive Session-Cookie nicht im
+    // Testoutput preisgeben. Der Cookie-NAME wird separat und ungekuerzt
+    // geprueft, weil er kein Geheimnis ist.
+    const cookieName = firstLoginSetCookie.split("=", 1)[0];
+    const redacted = firstLoginSetCookie.replace(/^([^=]+)=[^;]*/u, "$1=<redacted>");
+    expect(cookieName).toBe("__Secure-better-auth.session_token");
+    expect(redacted).toMatch(/HttpOnly/iu);
+    expect(redacted).toMatch(/Secure/iu);
+    expect(redacted).toMatch(/SameSite=Lax/iu);
+    expect(redacted).toMatch(/Max-Age=604800/u);
   });
 
   it("D4-2: invalidiert die Session beim Logout serverseitig", async () => {
