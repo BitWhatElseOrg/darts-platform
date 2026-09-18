@@ -104,11 +104,36 @@ describe("Block D4 – Auth-Flows", () => {
   });
 });
 
+/**
+ * D5 pruefte am 18.09.2026 in einem vollen `pnpm test:staging`-Lauf mit
+ * `test-runner-2@example.test` fehlerhaft: Block A5 (Lasttest gegen die
+ * oeffentliche Stufe, `RATE_LIMIT_PUBLIC_MAX_PER_MINUTE`) schoepft das
+ * 60-Sekunden-Fenster genau dann aus, wenn D5 direkt danach laeuft — D5-1/2/3
+ * scheitern dann an 429 statt am eigentlich zu pruefenden Verhalten (D5
+ * allein war gruen). Diese Probe fragt vor D5 einmal die oeffentliche Stufe
+ * ab (mit einer garantiert unbekannten `publicId`, damit kein echtes
+ * Turnier gebraucht wird) und wartet noetigenfalls auf ein freies Fenster,
+ * bevor die D5-Faelle selbst Anfragen stellen.
+ */
+async function waitForFreePublicWindow(): Promise<void> {
+  const PLACEHOLDER_PUBLIC_ID = "00000000-0000-4000-8000-000000000000";
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const response = await fetch(`${config.baseUrl}/public/tournaments/${PLACEHOLDER_PUBLIC_ID}/live`);
+    const remaining = Number(response.headers.get("x-ratelimit-remaining") ?? "0");
+    if (response.status !== 429 && remaining >= 20) return;
+    const resetSeconds = Number(response.headers.get("x-ratelimit-reset") ?? "60");
+    const waitMs = Math.min(70_000, (resetSeconds + 2) * 1000);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+}
+
 describe("Block D5 – Öffentliche Routen geben keine internen Daten preis", () => {
   let publicId: string;
   let privatePublicId: string;
 
   beforeAll(async () => {
+    await waitForFreePublicWindow();
     const runId = `d5-${Date.now()}`;
     const { organizationId, playerIds, boardId } = await createFixtureOrganization(session, runId);
     const extraPlayers = await Promise.all(
