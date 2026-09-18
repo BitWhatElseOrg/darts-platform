@@ -20,6 +20,7 @@ import {
   type CreateInvitationInput,
   type CreateOrganizationInput,
   type OrganizationMember,
+  type UpdateOrganizationInput,
 } from "@darts-platform/schemas";
 
 import type { AuditContext } from "../common/audit-context.js";
@@ -103,6 +104,112 @@ export class OrganizationsRepository {
         and(eq(memberships.userId, userId), eq(memberships.status, "ACTIVE")),
       )
       .orderBy(organizations.name);
+  }
+
+  /**
+   * Eine einzelne Organisation aus Sicht eines Mitglieds: dieselbe Zeile wie
+   * in `listForUser`, eingeschraenkt auf die Organisation. Ohne aktive
+   * Mitgliedschaft gibt es keine Zeile — die Berechtigung prueft der Service
+   * vorher, hier steht die Organisation trotzdem im `WHERE` (AGENTS.md §14).
+   */
+  public async getForUser(input: {
+    readonly organizationId: string;
+    readonly userId: string;
+  }) {
+    const [organization] = await this.databaseService.database
+      .select({
+        id: organizations.id,
+        name: organizations.name,
+        slug: organizations.slug,
+        timezone: organizations.timezone,
+        locale: organizations.locale,
+        role: memberships.role,
+        playerId: players.id,
+      })
+      .from(memberships)
+      .innerJoin(
+        organizations,
+        eq(memberships.organizationId, organizations.id),
+      )
+      .leftJoin(
+        players,
+        and(
+          eq(players.organizationId, organizations.id),
+          eq(players.userId, memberships.userId),
+        ),
+      )
+      .where(
+        and(
+          eq(memberships.organizationId, input.organizationId),
+          eq(memberships.userId, input.userId),
+          eq(memberships.status, "ACTIVE"),
+        ),
+      )
+      .limit(1);
+
+    return organization ?? null;
+  }
+
+  /**
+   * Stammdaten aendern. Alter und neuer Stand landen im Audit; der Slug ist
+   * nicht Teil der Schreibgrenze (`updateOrganizationSchema`).
+   */
+  public async update(
+    input: UpdateOrganizationInput &
+      ActorInput & { readonly organizationId: string },
+  ) {
+    const outcome = await this.databaseService.database.transaction(async (transaction) => {
+      const [current] = await transaction
+        .select({
+          name: organizations.name,
+          timezone: organizations.timezone,
+          locale: organizations.locale,
+        })
+        .from(organizations)
+        .where(eq(organizations.id, input.organizationId))
+        .limit(1)
+        .for("update");
+
+      if (current === undefined) {
+        return "not-found" as const;
+      }
+
+      const next = {
+        name: input.name ?? current.name,
+        timezone: input.timezone ?? current.timezone,
+        locale: input.locale ?? current.locale,
+      };
+
+      await transaction
+        .update(organizations)
+        .set({ ...next, updatedAt: new Date() })
+        .where(eq(organizations.id, input.organizationId));
+
+      await transaction.insert(auditEvents).values({
+        organizationId: input.organizationId,
+        actorUserId: input.userId,
+        action: "ORGANIZATION_UPDATED",
+        entityType: "Organization",
+        entityId: input.organizationId,
+        oldValue: current,
+        newValue: next,
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+
+      return "updated" as const;
+    });
+
+    if (outcome === "not-found") {
+      return null;
+    }
+    // Erst nach dem Commit lesen: `getForUser` laeuft auf einer eigenen
+    // Verbindung und saehe innerhalb der Transaktion noch den alten Stand.
+    return this.getForUser({
+      organizationId: input.organizationId,
+      userId: input.userId,
+    });
   }
 
   public async getActiveMembership(input: {

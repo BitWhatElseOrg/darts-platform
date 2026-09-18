@@ -38,6 +38,21 @@ export const createOrganizationSchema = z.object({
   locale: z.string().trim().min(2).max(35).default("de-CH"),
 });
 
+/**
+ * Schreibgrenze der Stammdaten. Der Slug bleibt aussen vor: er steht in
+ * oeffentlichen Adressen und Einladungen, eine Umbenennung wuerde sie
+ * still ungueltig machen.
+ */
+export const updateOrganizationSchema = z
+  .object({
+    name: z.string().trim().min(2).max(255).optional(),
+    timezone: z.string().trim().min(1).max(100).optional(),
+    locale: z.string().trim().min(2).max(35).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one organization field must be provided.",
+  });
+
 export const organizationSummarySchema = z.object({
   id: z.uuid(),
   name: z.string(),
@@ -130,6 +145,7 @@ export const updateMembershipSchema = z
   });
 
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
+export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
 export type OrganizationSummary = z.infer<typeof organizationSummarySchema>;
 export type CreateInvitationInput = z.infer<typeof createInvitationSchema>;
 export type Invitation = z.infer<typeof invitationSchema>;

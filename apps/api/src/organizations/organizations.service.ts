@@ -24,6 +24,7 @@ import {
   type OrganizationMember,
   type OrganizationSummary,
   type UpdateMembershipInput,
+  type UpdateOrganizationInput,
 } from "@darts-platform/schemas";
 
 import type { AuthContext } from "../auth/auth.types.js";
@@ -57,6 +58,52 @@ export class OrganizationsService {
       auth.user.id,
     );
     return organizationListSchema.parse(organizations);
+  }
+
+  /** Die eigene Organisation; `organization:read` tragen alle Rollen. */
+  public async get(input: {
+    readonly organizationId: string;
+    readonly auth: AuthContext;
+  }): Promise<OrganizationSummary> {
+    await this.organizationAccessService.requirePermission({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      permission: "organization:read",
+    });
+
+    const organization = await this.organizationsRepository.getForUser({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+    });
+    if (organization === null) {
+      throw new NotFoundException("This organization does not exist.");
+    }
+    return organizationSummarySchema.parse(organization);
+  }
+
+  /** Stammdaten (Name, Zeitzone, Sprache); `organization:update`, nur OWNER/ADMIN. */
+  public async update(input: {
+    readonly organizationId: string;
+    readonly data: UpdateOrganizationInput;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<OrganizationSummary> {
+    await this.organizationAccessService.requirePermission({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      permission: "organization:update",
+    });
+
+    const organization = await this.organizationsRepository.update({
+      ...input.data,
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      audit: input.audit,
+    });
+    if (organization === null) {
+      throw new NotFoundException("This organization does not exist.");
+    }
+    return organizationSummarySchema.parse(organization);
   }
 
   public async create(input: {

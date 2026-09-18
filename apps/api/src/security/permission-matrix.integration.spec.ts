@@ -48,17 +48,12 @@ interface Probe {
 const probes: Record<OrganizationPermission, Probe> = {
   "organization:read": {
     method: "GET",
-    url: `/api/v1/organizations/${organizationId}/players`,
+    url: `/api/v1/organizations/${organizationId}`,
   },
-  // Reglement-fremd: `organization:update` schuetzt heute keine eigene
-  // Route (grep bestaetigt das, siehe Protokoll). Die Probe teilt sich die
-  // Mitgliedsrouten-Route mit `organization:manage_roles` — beide Rechte
-  // liegen bei genau denselben Rollen (nur OWNER/ADMIN), daher liefert die
-  // Probe fuer `organization:update` trotzdem das korrekte Signal.
   "organization:update": {
     method: "PATCH",
-    url: `/api/v1/organizations/${organizationId}/members/${randomUUID()}`,
-    payload: { role: "MEMBER" },
+    url: `/api/v1/organizations/${organizationId}`,
+    payload: { name: "Matrix-Verein (umbenannt)" },
   },
   "organization:manage_members": {
     method: "GET",
