@@ -63,6 +63,42 @@ function logRecorder(): OutboxLogger & { readonly records: LoggedRecord[] } {
 const silentLogger: OutboxLogger = { emit: () => undefined };
 
 /**
+ * Alle Spec-Dateien von `apps/api` laufen parallel gegen dieselbe Datenbank
+ * (`apps/api/vitest.config.mts` schliesst nur `test/staging` aus). Andere
+ * Dateien legen dabei laufend eigene Outbox-Zeilen an, die sie nie
+ * publizieren, und `realtime.service.integration.spec.ts` haengt einen
+ * echten Relay ein (`RealtimeService.attach`, 500-ms-Intervall), der mit dem
+ * echten `now()` und dem Standardlimit 100 publiziert. Ohne Schutz kann
+ * dieser fremde Relay eine hier frisch eingefuegte Zeile abgreifen, bevor der
+ * eigene Aufruf in diesem Test sie sieht — oder die Zeile liegt hinter dem
+ * Rueckstand anderer Dateien jenseits der ersten 100 wartenden Zeilen, und
+ * der lokale `recorder()` bekommt sie dann nie zu Gesicht (so der
+ * urspruengliche CI-Befund in "verteilt ein Begegnungsereignis...").
+ *
+ * Der Schutz hat zwei Haelften: Jede in dieser Datei eingefuegte Outbox-Zeile
+ * bekommt ein `publishNotBefore` eine Stunde in der Zukunft und ist damit
+ * fuer den fremden Relay unsichtbar, der stets mit dem echten `now()` liest.
+ * Der eigene Aufruf liest stattdessen mit einem `now`, das noch weiter vorne
+ * liegt (zwei Stunden), und einem hohen `limit` — so sieht ausschliesslich
+ * der eigene Aufruf die eigene Zeile, unabhaengig vom fremden Rueckstand.
+ * Tests, die selbst eine kontrollierte Uhr fuer Backoff/Dead-Letter
+ * simulieren, verschieben ihren Startzeitpunkt um denselben Horizont, statt
+ * ihn zu ersetzen — die getesteten relativen Abstaende bleiben unveraendert.
+ */
+const RELAY_SHIELD_MS = 60 * 60 * 1000;
+const OWN_CLAIM_HORIZON_MS = 2 * RELAY_SHIELD_MS;
+
+/** `publishNotBefore` fuer eigene Inserts: siehe Kommentar oben. */
+function shieldFromForeignRelay(): Date {
+  return new Date(Date.now() + RELAY_SHIELD_MS);
+}
+
+/** `now` fuer den eigenen `publishOutboxBatch`-Aufruf: siehe Kommentar oben. */
+function ownClaimNow(): Date {
+  return new Date(Date.now() + OWN_CLAIM_HORIZON_MS);
+}
+
+/**
  * Executor-Doppel, das jeden `select`-Aufruf zaehlt, ohne das Verhalten der
  * echten Datenbank zu veraendern — so laesst sich pruefen, ob der
  * `publicIdCache` einen zweiten Zugriff tatsaechlich erspart.
@@ -245,11 +281,16 @@ describe("publishOutboxBatch", () => {
         aggregateId: encounterId,
         eventType: "ENCOUNTER_STARTED",
         payload: { encounterId },
+        publishNotBefore: shieldFromForeignRelay(),
       })
       .returning();
     const broadcaster = recorder();
 
-    await publishOutboxBatch(database, broadcaster, { logger: silentLogger });
+    await publishOutboxBatch(database, broadcaster, {
+      logger: silentLogger,
+      now: ownClaimNow,
+      limit: 10_000,
+    });
 
     const delivered = broadcaster.sent.find((entry) => entry.payload.eventId === event?.id);
     expect(delivered?.room).toBe(`encounter:${encounterPublicId}`);
@@ -270,10 +311,15 @@ describe("publishOutboxBatch", () => {
       aggregateId: encounterMatchId,
       eventType: "VISIT_RECORDED",
       payload: { matchId: encounterMatchId },
+      publishNotBefore: shieldFromForeignRelay(),
     });
     const broadcaster = recorder();
 
-    await publishOutboxBatch(database, broadcaster, { logger: silentLogger });
+    await publishOutboxBatch(database, broadcaster, {
+      logger: silentLogger,
+      now: ownClaimNow,
+      limit: 10_000,
+    });
 
     expect(broadcaster.sent.map((entry) => entry.room)).toContain(
       `encounter:${encounterPublicId}`,
@@ -287,10 +333,15 @@ describe("publishOutboxBatch", () => {
       aggregateId: tournamentMatchId,
       eventType: "VISIT_RECORDED",
       payload: { matchId: tournamentMatchId },
+      publishNotBefore: shieldFromForeignRelay(),
     });
     const broadcaster = recorder();
 
-    await publishOutboxBatch(database, broadcaster, { logger: silentLogger });
+    await publishOutboxBatch(database, broadcaster, {
+      logger: silentLogger,
+      now: ownClaimNow,
+      limit: 10_000,
+    });
 
     expect(broadcaster.sent.map((entry) => entry.room)).toContain(
       `tournament:${tournamentPublicId}`,
@@ -306,11 +357,16 @@ describe("publishOutboxBatch", () => {
         aggregateId: randomUUID(),
         eventType: "PLAYER_RENAMED",
         payload: {},
+        publishNotBefore: shieldFromForeignRelay(),
       })
       .returning();
     const broadcaster = recorder();
 
-    await publishOutboxBatch(database, broadcaster, { logger: silentLogger });
+    await publishOutboxBatch(database, broadcaster, {
+      logger: silentLogger,
+      now: ownClaimNow,
+      limit: 10_000,
+    });
 
     expect(broadcaster.sent.filter((entry) => entry.payload.eventId === event?.id)).toEqual([]);
     const [stored] = await database
@@ -327,12 +383,21 @@ describe("publishOutboxBatch", () => {
       aggregateId: encounterId,
       eventType: "ENCOUNTER_COMPLETED",
       payload: { encounterId },
+      publishNotBefore: shieldFromForeignRelay(),
     });
     const first = recorder();
-    await publishOutboxBatch(database, first, { logger: silentLogger });
+    await publishOutboxBatch(database, first, {
+      logger: silentLogger,
+      now: ownClaimNow,
+      limit: 10_000,
+    });
     const second = recorder();
 
-    await publishOutboxBatch(database, second, { logger: silentLogger });
+    await publishOutboxBatch(database, second, {
+      logger: silentLogger,
+      now: ownClaimNow,
+      limit: 10_000,
+    });
 
     // Nur die eigenen Raeume pruefen: der Poller arbeitet global, und
     // parallel laufende Testdateien schreiben in dieselbe Outbox.
@@ -387,6 +452,7 @@ describe("publishOutboxBatch", () => {
           aggregateId: encounterMatchId,
           eventType: "VISIT_RECORDED",
           payload: { matchId: encounterMatchId },
+          publishNotBefore: shieldFromForeignRelay(),
         })),
       )
       .returning({ id: outboxEvents.id });
@@ -395,8 +461,16 @@ describe("publishOutboxBatch", () => {
     const second = recorder();
 
     await Promise.all([
-      publishOutboxBatch(database, first, { logger: silentLogger }),
-      publishOutboxBatch(database, second, { logger: silentLogger }),
+      publishOutboxBatch(database, first, {
+        logger: silentLogger,
+        now: ownClaimNow,
+        limit: 10_000,
+      }),
+      publishOutboxBatch(database, second, {
+        logger: silentLogger,
+        now: ownClaimNow,
+        limit: 10_000,
+      }),
     ]);
 
     const delivered = [...first.sent, ...second.sent].filter((entry) => own.has(entry.payload.eventId ?? ""));
@@ -426,6 +500,7 @@ describe("publishOutboxBatch", () => {
           aggregateId: encounterId,
           eventType: "ENCOUNTER_STARTED",
           payload: { encounterId },
+          publishNotBefore: shieldFromForeignRelay(),
         })),
       )
       .returning({ id: outboxEvents.id });
@@ -441,7 +516,11 @@ describe("publishOutboxBatch", () => {
       },
     };
 
-    await publishOutboxBatch(database, broadcaster, { logger: silentLogger });
+    await publishOutboxBatch(database, broadcaster, {
+      logger: silentLogger,
+      now: ownClaimNow,
+      limit: 10_000,
+    });
 
     const ownDelivered = sent.filter((entry) =>
       created.some((row) => row.id === entry.payload.eventId),
@@ -474,6 +553,7 @@ describe("publishOutboxBatch — Fehlerbehandlung", () => {
         eventType: "ENCOUNTER_STARTED",
         payload: { encounterId },
         occurredAt: new Date("2026-09-06T10:00:00.000Z"),
+        publishNotBefore: shieldFromForeignRelay(),
       })
       .returning();
     const [healthy] = await database
@@ -485,12 +565,17 @@ describe("publishOutboxBatch — Fehlerbehandlung", () => {
         eventType: "ENCOUNTER_COMPLETED",
         payload: { encounterId },
         occurredAt: new Date("2026-09-06T10:00:01.000Z"),
+        publishNotBefore: shieldFromForeignRelay(),
       })
       .returning();
     const broadcaster = poisonedRecorder(poison?.id ?? "");
     const logger = logRecorder();
 
-    await publishOutboxBatch(database, broadcaster, { logger, limit: 500 });
+    await publishOutboxBatch(database, broadcaster, {
+      logger,
+      limit: 10_000,
+      now: ownClaimNow,
+    });
 
     expect(
       broadcaster.sent.some((entry) => entry.payload.eventId === healthy?.id),
@@ -514,7 +599,12 @@ describe("publishOutboxBatch — Fehlerbehandlung", () => {
   });
 
   it("legt ein dauerhaft fehlschlagendes Ereignis nach OUTBOX_MAX_ATTEMPTS Versuchen ins Dead Letter", async () => {
-    const start = new Date("2026-09-06T11:00:00.000Z");
+    // `start` liegt bewusst `OWN_CLAIM_HORIZON_MS` in der Zukunft statt auf
+    // einem festen historischen Datum: nur so bleibt die Zeile fuer den
+    // fremden Relay unsichtbar (siehe Kommentar bei `shieldFromForeignRelay`),
+    // waehrend die hier getesteten relativen Abstaende zwischen den Versuchen
+    // unveraendert bleiben.
+    const start = new Date(Date.now() + OWN_CLAIM_HORIZON_MS);
     const [poison] = await database
       .insert(outboxEvents)
       .values({
@@ -524,6 +614,7 @@ describe("publishOutboxBatch — Fehlerbehandlung", () => {
         eventType: "ENCOUNTER_STARTED",
         payload: { encounterId },
         occurredAt: start,
+        publishNotBefore: shieldFromForeignRelay(),
       })
       .returning();
     const broadcaster = poisonedRecorder(poison?.id ?? "");
@@ -607,6 +698,7 @@ describe("publishOutboxBatch — Fehlerbehandlung", () => {
           aggregateId: encounterId,
           eventType: "ENCOUNTER_STARTED",
           payload: { encounterId },
+          publishNotBefore: shieldFromForeignRelay(),
         })),
       )
       .returning({ id: outboxEvents.id });
@@ -617,7 +709,8 @@ describe("publishOutboxBatch — Fehlerbehandlung", () => {
 
     await publishOutboxBatch(database, broadcaster, {
       logger,
-      limit: 500,
+      limit: 10_000,
+      now: ownClaimNow,
       resolveScope: async (executor, event) => {
         if (event.id === poisonId) {
           // Ein echter Postgres-Fehler, nicht ein geworfenes JS-Objekt: nur
