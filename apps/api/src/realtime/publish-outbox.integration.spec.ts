@@ -68,22 +68,31 @@ const silentLogger: OutboxLogger = { emit: () => undefined };
  * Dateien legen dabei laufend eigene Outbox-Zeilen an, die sie nie
  * publizieren, und `realtime.service.integration.spec.ts` haengt einen
  * echten Relay ein (`RealtimeService.attach`, 500-ms-Intervall), der mit dem
- * echten `now()` und dem Standardlimit 100 publiziert. Ohne Schutz kann
- * dieser fremde Relay eine hier frisch eingefuegte Zeile abgreifen, bevor der
- * eigene Aufruf in diesem Test sie sieht — oder die Zeile liegt hinter dem
- * Rueckstand anderer Dateien jenseits der ersten 100 wartenden Zeilen, und
- * der lokale `recorder()` bekommt sie dann nie zu Gesicht (so der
- * urspruengliche CI-Befund in "verteilt ein Begegnungsereignis...").
+ * echten `now()` und dem Standardlimit 100 publiziert. Die Interferenz laeuft
+ * dabei in beide Richtungen, und der Schutz besteht entsprechend aus zwei
+ * unabhaengigen Massnahmen:
  *
- * Der Schutz hat zwei Haelften: Jede in dieser Datei eingefuegte Outbox-Zeile
- * bekommt ein `publishNotBefore` eine Stunde in der Zukunft und ist damit
- * fuer den fremden Relay unsichtbar, der stets mit dem echten `now()` liest.
- * Der eigene Aufruf liest stattdessen mit einem `now`, das noch weiter vorne
- * liegt (zwei Stunden), und einem hohen `limit` — so sieht ausschliesslich
- * der eigene Aufruf die eigene Zeile, unabhaengig vom fremden Rueckstand.
- * Tests, die selbst eine kontrollierte Uhr fuer Backoff/Dead-Letter
- * simulieren, verschieben ihren Startzeitpunkt um denselben Horizont, statt
- * ihn zu ersetzen — die getesteten relativen Abstaende bleiben unveraendert.
+ * Richtung 1 — der fremde Relay greift eine Zeile dieser Datei ab, bevor der
+ * eigene Aufruf sie sieht, oder die Zeile liegt hinter dem Rueckstand anderer
+ * Dateien jenseits der ersten 100 wartenden Zeilen, und der lokale
+ * `recorder()` bekommt sie dann nie zu Gesicht (so der urspruengliche
+ * CI-Befund in "verteilt ein Begegnungsereignis..."). Dagegen bekommt jede in
+ * dieser Datei eingefuegte Outbox-Zeile ein `publishNotBefore` eine Stunde in
+ * der Zukunft und ist damit fuer den fremden Relay unsichtbar, der stets mit
+ * dem echten `now()` liest. Der eigene Aufruf liest stattdessen mit einem
+ * `now`, das noch weiter vorne liegt (zwei Stunden) — so sieht der eigene
+ * Aufruf die eigene Zeile trotzdem, unabhaengig vom fremden Rueckstand. Tests,
+ * die selbst eine kontrollierte Uhr fuer Backoff/Dead-Letter simulieren,
+ * verschieben ihren Startzeitpunkt um denselben Horizont, statt ihn zu
+ * ersetzen — die getesteten relativen Abstaende bleiben unveraendert.
+ *
+ * Richtung 2 — umgekehrt darf der eigene Aufruf mit seiner vorgestellten Uhr
+ * nicht seinerseits gewoehnliche, laengst faellige Outbox-Zeilen anderer
+ * Dateien mitreissen, die `realtime.service.integration.spec.ts` fuer ihren
+ * eigenen Relay erwartet. Dagegen scopt jeder Aufruf in dieser Datei
+ * `publishOutboxBatch` zusaetzlich mit der test-only `organizationId`-Option
+ * auf die eigene Fixtur-Organisation — der Stapel enthaelt dann nur noch
+ * Zeilen dieser Datei, ein hohes `limit` ist dafuer nicht mehr noetig.
  */
 const RELAY_SHIELD_MS = 60 * 60 * 1000;
 const OWN_CLAIM_HORIZON_MS = 2 * RELAY_SHIELD_MS;
@@ -288,8 +297,8 @@ describe("publishOutboxBatch", () => {
 
     await publishOutboxBatch(database, broadcaster, {
       logger: silentLogger,
+      organizationId,
       now: ownClaimNow,
-      limit: 10_000,
     });
 
     const delivered = broadcaster.sent.find((entry) => entry.payload.eventId === event?.id);
@@ -317,8 +326,8 @@ describe("publishOutboxBatch", () => {
 
     await publishOutboxBatch(database, broadcaster, {
       logger: silentLogger,
+      organizationId,
       now: ownClaimNow,
-      limit: 10_000,
     });
 
     expect(broadcaster.sent.map((entry) => entry.room)).toContain(
@@ -339,8 +348,8 @@ describe("publishOutboxBatch", () => {
 
     await publishOutboxBatch(database, broadcaster, {
       logger: silentLogger,
+      organizationId,
       now: ownClaimNow,
-      limit: 10_000,
     });
 
     expect(broadcaster.sent.map((entry) => entry.room)).toContain(
@@ -364,8 +373,8 @@ describe("publishOutboxBatch", () => {
 
     await publishOutboxBatch(database, broadcaster, {
       logger: silentLogger,
+      organizationId,
       now: ownClaimNow,
-      limit: 10_000,
     });
 
     expect(broadcaster.sent.filter((entry) => entry.payload.eventId === event?.id)).toEqual([]);
@@ -388,15 +397,15 @@ describe("publishOutboxBatch", () => {
     const first = recorder();
     await publishOutboxBatch(database, first, {
       logger: silentLogger,
+      organizationId,
       now: ownClaimNow,
-      limit: 10_000,
     });
     const second = recorder();
 
     await publishOutboxBatch(database, second, {
       logger: silentLogger,
+      organizationId,
       now: ownClaimNow,
-      limit: 10_000,
     });
 
     // Nur die eigenen Raeume pruefen: der Poller arbeitet global, und
@@ -463,13 +472,13 @@ describe("publishOutboxBatch", () => {
     await Promise.all([
       publishOutboxBatch(database, first, {
         logger: silentLogger,
+        organizationId,
         now: ownClaimNow,
-        limit: 10_000,
       }),
       publishOutboxBatch(database, second, {
         logger: silentLogger,
+        organizationId,
         now: ownClaimNow,
-        limit: 10_000,
       }),
     ]);
 
@@ -518,8 +527,8 @@ describe("publishOutboxBatch", () => {
 
     await publishOutboxBatch(database, broadcaster, {
       logger: silentLogger,
+      organizationId,
       now: ownClaimNow,
-      limit: 10_000,
     });
 
     const ownDelivered = sent.filter((entry) =>
@@ -573,7 +582,7 @@ describe("publishOutboxBatch — Fehlerbehandlung", () => {
 
     await publishOutboxBatch(database, broadcaster, {
       logger,
-      limit: 10_000,
+      organizationId,
       now: ownClaimNow,
     });
 
@@ -624,6 +633,7 @@ describe("publishOutboxBatch — Fehlerbehandlung", () => {
       const clock = new Date(start.getTime() + attempt * 600_000);
       await publishOutboxBatch(database, broadcaster, {
         logger,
+        organizationId,
         limit: 500,
         now: () => clock,
       });
@@ -668,6 +678,7 @@ describe("publishOutboxBatch — Fehlerbehandlung", () => {
 
     await publishOutboxBatch(database, broadcaster, {
       logger: silentLogger,
+      organizationId,
       limit: 500,
     });
 
@@ -709,7 +720,7 @@ describe("publishOutboxBatch — Fehlerbehandlung", () => {
 
     await publishOutboxBatch(database, broadcaster, {
       logger,
-      limit: 10_000,
+      organizationId,
       now: ownClaimNow,
       resolveScope: async (executor, event) => {
         if (event.id === poisonId) {
