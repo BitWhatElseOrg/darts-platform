@@ -108,3 +108,30 @@ Production ist dieselbe Probe (mindestens der Spoof-Gate-Fall gegen
 `api.dartbase.ch`) nach dem Release nach `main` einmal zu wiederholen
 (Flag `LOG_CLIENT_ADDRESS` dort kurz einschalten) — als letzter offener
 Punkt unter D3, nicht als rot geführt.
+
+## Produktionsprobe 18.09.2026 – grün
+
+Datum/Zeit 18.09.2026, Umgebung `production`, API `https://api.dartbase.ch`,
+Deploy `main` 051ddbf (Release-PR #49, gemergt 16:29, deployt ca. 16:40).
+`LOG_CLIENT_ADDRESS` bleibt in Production bewusst aus (siehe
+`infrastructure/railway.md`, Abschnitt Variablen); die Probe ist deshalb
+verhaltensbasiert statt log-basiert: 25 parallele Fehl-Logins gegen
+`https://api.dartbase.ch/api/v1/auth/sign-in/email`, jeder Versuch mit
+einem eigenen gefälschten `X-Real-IP` (198.51.100.1–25) und
+`X-Forwarded-For` (203.0.113.1–25).
+
+| Merkmal | Erwartung | Ergebnis |
+| --- | --- | --- |
+| Verteilung der 25 parallelen Logins | 10× 401, 15× 429 (ein gemeinsamer Zähler) | 10× 401, 15× 429 |
+| Restzähler der allgemeinen Stufe danach (6 Folgeanfragen) | eine einzige, fortlaufende Zählreihe | 299, 298, 297, 296, 295, 294 |
+
+Würde Railway den `X-Real-IP`-Header nicht zuverlässig überschreiben, hätte
+jeder der 25 gefälschten Absender einen eigenen Rate-Limit-Eimer bekommen
+und alle 25 Versuche wären als 401 durchgekommen. Stattdessen zählten alle
+25 Versuche gegen denselben Client-Schlüssel, exakt wie auf Staging
+nachgemessen. Der Restzähler danach bestätigt eine einzige, konsistente
+Zählreihe statt der zuvor beobachteten Aufspaltung (Befund D3-1).
+
+**Ergebnis: D3 ist damit auch in Production grün.** Das im Abnahmeprotokoll
+genannte Gate (Spoof-Probe gegen die Production-Domain nach dem Release) ist
+erfüllt; der Restpunkt aus der Staging-Nachmessung ist geschlossen.
