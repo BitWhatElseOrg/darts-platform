@@ -2,7 +2,7 @@
 
 ## Aktueller Stand
 
-Stand: 31. August 2026
+Stand: 18.09.2026
 
 | Bereich | Wert |
 | --- | --- |
@@ -15,11 +15,17 @@ Stand: 31. August 2026
 | Registrar | Cyon |
 | Autoritatives DNS | Cloudflare Free |
 | Plattformdomains am Web-Service | `dartbase.ch`, `*.dartbase.ch` |
+| Release-Stand Production | `main` 051ddbf (Release-PR #49, `develop` → `main`, 51 Commits, PRs #45–#48, grüne CI, Merge-Commit 051ddbf, 18.09.2026 16:29) |
 
 Cloudflare meldet die Zone als aktiv. Die Zertifikate für `dartbase.ch` und
 `*.dartbase.ch` sowie `api.dartbase.ch` sind gültig. Web, API, Worker,
 PostgreSQL und Redis sind erfolgreich deployt und die internen Healthchecks
 bestehen. Die öffentlichen Web- und API-Smoke-Tests bestehen ebenfalls.
+
+Release-PR #49 wurde am 18.09.2026 nach `main` gemergt und ist seither auf
+Production deployt: API, Web und Worker liefen ab ca. 16:40 mit
+Deployment-Stand `main` 051ddbf, `https://dartbase.ch` antwortet mit HTTP
+200, `GET /api/v1/health` meldet `ok`.
 
 ## Staging-Environment
 
@@ -49,7 +55,7 @@ registriert; seine Zugangsdaten liegen in der git-ignorierten `.env.staging`
 | `BETTER_AUTH_SECRET` | eigener Wert | eigener, von Production abweichender Wert |
 | `ALLOW_SELF_SERVICE_ORGANIZATIONS` | nicht gesetzt (`false`) | `true` (Testorganisationen ohne Bootstrap) |
 | `DATABASE_URL`, `REDIS_URL` | Referenz auf Production-Datenservices | Referenz auf Staging-Datenservices |
-| PITR (Postgres) | deaktiviert (`enabled: false`, `bucketWired: false`) — Betreiberentscheid aussteht (Befund B1) | aktiviert seit 18.09.2026 (`enabled: true`, `bucketWired: true`), Restore-Probe B2 grün gemessen |
+| PITR (Postgres) | aktiviert seit 18.09.2026, 15:41 UTC (`enabled: true`, `bucketWired: true`) — Befund B1 behoben, Health blieb während/nach dem dadurch ausgelösten Redeploy der Datenbank `ok` | aktiviert seit 18.09.2026 (`enabled: true`, `bucketWired: true`), Restore-Probe B2 grün gemessen |
 
 Alle übrigen Variablen (`NODE_ENV=production`, `TRUST_PROXY_HOPS=1`,
 Rate-Limits, Ports, `LOG_LEVEL`) sind identisch zu Production, damit Staging
