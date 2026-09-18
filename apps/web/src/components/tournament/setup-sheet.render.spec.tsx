@@ -51,7 +51,7 @@ const boards = [
   },
 ];
 
-function renderSheet() {
+function renderSheet(options: { readonly boards?: typeof boards } = {}) {
   client.apiRequest.mockResolvedValue({
     groups: [], groupMatchCount: 0, knockoutSize: 4, knockoutMatchCount: 3, byes: 0, totalMatches: 3, warnings: [],
   });
@@ -63,7 +63,7 @@ function renderSheet() {
       createElement(SetupSheet, {
         organizationId: "00000000-0000-4000-8000-0000000000aa",
         players,
-        boards,
+        boards: options.boards ?? boards,
       }),
     ),
   );
@@ -88,6 +88,27 @@ describe("SetupSheet: Rueckmeldung bei ungueltigen Eingaben", () => {
       return input.method === "POST" && input.path.endsWith("/tournaments");
     });
     expect(posts).toHaveLength(0);
+  });
+
+  it("scrollt bei einem Auswahlfeld ohne Eingabeelement zu dessen Meldung", async () => {
+    // Boards haben kein fokussierbares Feld; der Sprung geht zur Meldung
+    // `boardIds-error`, die erst mit dem naechsten Render entsteht.
+    const scrolledTo: string[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
+      scrolledTo.push(this.id);
+    };
+    try {
+      renderSheet({ boards: [] });
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Vereinsmeisterschaft" } });
+      fireEvent.click(screen.getByRole("button", { name: "Turnier starten" }));
+
+      const summary = await screen.findByTestId("submit-errors");
+      expect(summary.textContent).toContain("Wähle mindestens ein Board");
+      await waitFor(() => expect(scrolledTo).toEqual(["boardIds-error"]));
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
   });
 
   it("raeumt die Sammelmeldung weg, sobald die Eingaben gueltig sind", async () => {
