@@ -94,7 +94,7 @@ Begründung:
 - Block A: 5 von 6 Fällen grün (A1, A2, A3, A4, A6). A5 ist rot — nicht als
   eigenständiger Befund, sondern konsistent mit dem Verdacht aus D3-1
   (Zähler pro Client verdoppelt; Nachmessung nach dem Fix offen): sollte er
-  zutreffen, ließe sich das Public-Limit mit der vorgegebenen Anfragezahl
+  zutreffen, liesse sich das Public-Limit mit der vorgegebenen Anfragezahl
   nicht scharf prüfen.
 - Block B: B4 und B5 sind grün. B1 ist rot und nicht akzeptiert (PITR aus,
   Betreiberentscheid aussteht). B2, B3 und B6 sind offen.
