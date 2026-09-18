@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ForbiddenException } from "@nestjs/common";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import {
   parseApplicationEnvironment,
   type ApplicationEnvironment,
 } from "@darts-platform/config";
-import { organizations, users } from "@darts-platform/database";
+import { auditEvents, memberships, organizations, users } from "@darts-platform/database";
 
 import type { AuthContext } from "../auth/auth.types.js";
 import { DatabaseService } from "../database/database.service.js";
@@ -122,5 +122,108 @@ describe("Mandantenanlage", () => {
     createdOrganizationIds.push(organization.id);
 
     expect(organization.role).toBe("OWNER");
+  }, 30_000);
+});
+
+describe("Stammdaten der Organisation", () => {
+  const memberId = randomUUID();
+  const memberAuth: AuthContext = {
+    user: { id: memberId, email: `member-${memberId}@example.test`, name: "Mitglied" },
+    session: { id: randomUUID(), expiresAt: new Date(Date.now() + 60_000) },
+  };
+  const strangerId = randomUUID();
+  const strangerAuth: AuthContext = {
+    user: { id: strangerId, email: `stranger-${strangerId}@example.test`, name: "Fremd" },
+    session: { id: randomUUID(), expiresAt: new Date(Date.now() + 60_000) },
+  };
+  let organizationId: string;
+
+  beforeAll(async () => {
+    await databaseService.database.insert(users).values([
+      { id: memberId, email: memberAuth.user.email, displayName: "Mitglied" },
+      { id: strangerId, email: strangerAuth.user.email, displayName: "Fremd" },
+    ]);
+    const organization = await serviceWithFlag(true).create({
+      data: { name: "Stammdaten-Verein", slug: `stamm-${randomUUID()}`, timezone: "Europe/Zurich", locale: "de-CH" },
+      auth,
+      audit,
+    });
+    organizationId = organization.id;
+    createdOrganizationIds.push(organizationId);
+    await databaseService.database.insert(memberships).values({
+      organizationId,
+      userId: memberId,
+      role: "MEMBER",
+      status: "ACTIVE",
+    });
+  });
+
+  afterAll(async () => {
+    await databaseService.database.delete(users).where(eq(users.id, memberId));
+    await databaseService.database.delete(users).where(eq(users.id, strangerId));
+  });
+
+  it("liefert die Organisation jedem aktiven Mitglied mit seiner Rolle", async () => {
+    const service = serviceWithFlag(true);
+    const asOwner = await service.get({ organizationId, auth });
+    const asMember = await service.get({ organizationId, auth: memberAuth });
+    expect(asOwner).toMatchObject({ id: organizationId, name: "Stammdaten-Verein", role: "OWNER" });
+    expect(asMember).toMatchObject({ id: organizationId, role: "MEMBER", playerId: null });
+  }, 30_000);
+
+  it("verweigert Nichtmitgliedern das Lesen (organization:read)", async () => {
+    await expect(
+      serviceWithFlag(true).get({ organizationId, auth: strangerAuth }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  }, 30_000);
+
+  it("aendert Name, Zeitzone und Sprache und schreibt das Audit (organization:update)", async () => {
+    const updated = await serviceWithFlag(true).update({
+      organizationId,
+      data: { name: "Umbenannter Verein", locale: "fr-CH" },
+      auth,
+      audit,
+    });
+    expect(updated).toMatchObject({
+      id: organizationId,
+      name: "Umbenannter Verein",
+      locale: "fr-CH",
+      timezone: "Europe/Zurich",
+      role: "OWNER",
+    });
+
+    const [row] = await databaseService.database
+      .select({ name: organizations.name, locale: organizations.locale })
+      .from(organizations)
+      .where(eq(organizations.id, organizationId));
+    expect(row).toEqual({ name: "Umbenannter Verein", locale: "fr-CH" });
+
+    const events = await databaseService.database
+      .select({ oldValue: auditEvents.oldValue, newValue: auditEvents.newValue, actorUserId: auditEvents.actorUserId })
+      .from(auditEvents)
+      .where(and(eq(auditEvents.entityId, organizationId), eq(auditEvents.action, "ORGANIZATION_UPDATED")));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      actorUserId: userId,
+      oldValue: { name: "Stammdaten-Verein", locale: "de-CH", timezone: "Europe/Zurich" },
+      newValue: { name: "Umbenannter Verein", locale: "fr-CH", timezone: "Europe/Zurich" },
+    });
+  }, 30_000);
+
+  it("laesst ein MEMBER die Stammdaten nicht aendern", async () => {
+    await expect(
+      serviceWithFlag(true).update({
+        organizationId,
+        data: { name: "Hijack" },
+        auth: memberAuth,
+        audit,
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    const [row] = await databaseService.database
+      .select({ name: organizations.name })
+      .from(organizations)
+      .where(eq(organizations.id, organizationId));
+    expect(row?.name).not.toBe("Hijack");
   }, 30_000);
 });

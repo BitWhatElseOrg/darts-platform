@@ -42,6 +42,7 @@ export {
   organizationRoleSchema,
   organizationSummarySchema,
   updateMembershipSchema,
+  updateOrganizationSchema,
   type AcceptInvitationInput,
   type CreateInvitationInput,
   type CreateOrganizationInput,
@@ -53,6 +54,7 @@ export {
   type OrganizationMember,
   type OrganizationSummary,
   type UpdateMembershipInput,
+  type UpdateOrganizationInput,
 } from "./organization";
 export {
   assignMatchSchema,

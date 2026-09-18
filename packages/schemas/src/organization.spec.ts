@@ -6,6 +6,7 @@ import {
   linkMemberPlayerSchema,
   organizationMemberSchema,
   updateMembershipSchema,
+  updateOrganizationSchema,
 } from "./organization.js";
 
 it("reads the internal owner bootstrap invitation", () => {
@@ -106,4 +107,12 @@ it("verlangt fuer die manuelle Zuordnung genau eine Spieler-UUID", () => {
   expect(
     linkMemberPlayerSchema.safeParse({ playerId: crypto.randomUUID() }).success,
   ).toBe(true);
+});
+
+it("verlangt mindestens ein Stammdatenfeld und laesst den Slug nicht zu", () => {
+  expect(updateOrganizationSchema.safeParse({}).success).toBe(false);
+  expect(updateOrganizationSchema.safeParse({ name: "Neuer Name" }).success).toBe(true);
+  expect(updateOrganizationSchema.safeParse({ name: "x" }).success).toBe(false);
+  const parsed = updateOrganizationSchema.parse({ slug: "neuer-slug", locale: "fr-CH" });
+  expect(parsed).toEqual({ locale: "fr-CH" });
 });

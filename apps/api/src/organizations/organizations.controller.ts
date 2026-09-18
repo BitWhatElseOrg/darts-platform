@@ -21,6 +21,7 @@ import {
   createOrganizationSchema,
   linkMemberPlayerSchema,
   updateMembershipSchema,
+  updateOrganizationSchema,
   type CreateInvitationInput,
   type CreateOrganizationInput,
   type CreatedInvitation,
@@ -29,6 +30,7 @@ import {
   type OrganizationMember,
   type OrganizationSummary,
   type UpdateMembershipInput,
+  type UpdateOrganizationInput,
 } from "@darts-platform/schemas";
 
 import { CurrentAuth } from "../auth/current-auth.decorator.js";
@@ -65,6 +67,33 @@ export class OrganizationsController {
       body,
     );
     return this.organizationsService.create({
+      data,
+      auth,
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
+    });
+  }
+
+  @Get(":organizationId")
+  public async get(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<OrganizationSummary> {
+    return this.organizationsService.get({ organizationId, auth });
+  }
+
+  @Patch(":organizationId")
+  public async update(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Body() body: unknown,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<OrganizationSummary> {
+    const data: UpdateOrganizationInput = parseBody(
+      updateOrganizationSchema,
+      body,
+    );
+    return this.organizationsService.update({
+      organizationId,
       data,
       auth,
       audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),

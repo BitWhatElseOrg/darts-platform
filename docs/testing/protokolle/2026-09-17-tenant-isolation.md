@@ -91,9 +91,44 @@ diesen Test.
 
 ## Nicht Teil dieses Tests
 
-Die Matrix prüft ausschliesslich Kreuzzugriffe auf Ressourcen-IDs
-(`:organizationId` plus zufällige übrige Pfad-IDs). Sie prüft nicht die
-Permission-Matrix je Rolle (Spec D2, siehe
-`2026-09-17-permission-matrix.md`) und nicht das Verhalten bei tatsächlich
-existierenden fremden Ressourcen mit kollidierenden Namen/Slugs (das deckt
-die Fachlogik der jeweiligen Services ab).
+Die Matrix prüft nicht die Permission-Matrix je Rolle (Spec D2, siehe
+`2026-09-17-permission-matrix.md`) und nicht das Verhalten bei
+kollidierenden Namen/Slugs zwischen Organisationen (das deckt die Fachlogik
+der jeweiligen Services ab).
+
+## Nachtrag 18.09.2026 – zweiter Durchgang mit echten Ressourcen in B
+
+Der im Abnahmeprotokoll benannte Follow-up (D1 mit tatsächlich in
+Organisation B angelegten Ressourcen) ist umgesetzt. Derselbe Test enthält
+jetzt zwei Durchgänge:
+
+1. **Zufällige Kennungen** (unverändert): 403 oder 404, nie 2xx.
+2. **Echte Ressourcen von B:** Ein zweiter Owner (Owner B) legt vor dem
+   Durchgang über dieselben API-Routen sechs Spieler, eine Scheibe, ein
+   Match, zwei Teams, ein Turnier mit Anzeigeschlüssel, einen Wettbewerb
+   mit einer Begegnung (Slots entstehen mit der Begegnung) und eine
+   Einladung an. `fillRealParams` ersetzt jeden Pfadparameter durch die
+   echte Kennung (`:playerId`, `:matchId`, `:userId`, `:invitationId`,
+   `:teamId`, `:tournamentId`, `:keyId`, `:competitionId`, `:encounterId`,
+   `:slotId`); ein Parameter ohne Eintrag lässt den Test scheitern, damit
+   neue Pfadparameter bewusst ergänzt werden. Erwartet wird **ausschliesslich
+   403** – die Ressource existiert, der Zugriff ist fremd; ein 404 wäre
+   hier ein Hinweis auf eine Route, die Existenz vor Berechtigung prüft.
+   Zusätzlich wird ein Schnappschuss der Daten von B (Organisation,
+   Mitgliedschaften, Spieler, Scheiben, Matches, Teams, Turniere,
+   Anzeigeschlüssel, Wettbewerbe, Begegnungen, Einladungen – jeweils mit
+   Status, Version und `updatedAt` – sowie die Zahl der Audit-Einträge von
+   B und die Zahl der Audit-Einträge mit Owner A als Handelndem) vor und
+   nach dem Durchgang verglichen.
+
+Ergebnis: **67 von 67 Tenant-Routen antworten mit 403** (zwei Routen mehr
+als am 17.09., siehe Permission-Matrix-Nachtrag: `GET` und `PATCH
+/organizations/:organizationId`), der Schnappschuss ist unverändert, kein
+Audit-Eintrag mit Owner A. Damit ist die Unterscheidung „nicht existent"
+(404) gegen „existent, aber fremder Mandant" (403) für jede Route belegt.
+
+```
+$ cd apps/api && npx dotenv -e ../../.env -- npx vitest run src/security/tenant-isolation-matrix.integration.spec.ts
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+```
