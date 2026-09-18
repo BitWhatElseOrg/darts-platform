@@ -32,13 +32,21 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function requirePositiveNumber(value: number, name: string): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${name} muss eine positive Zahl sein, war: ${JSON.stringify(process.env[name] ?? value)}.`);
+  }
+  return value;
+}
+
 /**
  * Konfigurierbar fuer einen kurzen Smoke-Lauf (`STAGING_LOAD_BOARDS`,
  * `STAGING_LOAD_SECONDS`); die Vorlage (Aufgabe 10) nennt 20 Boards ueber
  * 120 Sekunden als vollen Lauf.
  */
-const BOARDS = Number(process.env.STAGING_LOAD_BOARDS ?? 20);
-const DURATION_MS = Number(process.env.STAGING_LOAD_SECONDS ?? 120) * 1000;
+const BOARDS = requirePositiveNumber(Number(process.env.STAGING_LOAD_BOARDS ?? 20), "STAGING_LOAD_BOARDS");
+const DURATION_MS =
+  requirePositiveNumber(Number(process.env.STAGING_LOAD_SECONDS ?? 120), "STAGING_LOAD_SECONDS") * 1000;
 const VISIT_INTERVAL_MS = 333; // Ziel-Taktung: ~3 Visits/Sekunde je Match
 
 describe("Block A – Last", () => {
@@ -137,6 +145,11 @@ describe("Block A – Last", () => {
       mkdirSync(outDir, { recursive: true });
       writeFileSync(path.join(outDir, `${result.at.slice(0, 10)}-a3.json`), JSON.stringify(result, null, 2));
 
+      // Mindestlast: ohne diese Schranke wuerde A3 auch gruen laufen, wenn
+      // ueberhaupt keine Anfrage rausging (z. B. weil BOARDS oder
+      // DURATION_MS versehentlich 0 waeren) -- mindestens ein Visit pro
+      // Board und Sekunde.
+      expect(result.requests).toBeGreaterThan(BOARDS * (DURATION_MS / 1000));
       expect(errors).toBe(0);
       expect(result.p95).toBeLessThan(500);
     },
