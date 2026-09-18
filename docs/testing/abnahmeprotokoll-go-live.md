@@ -62,7 +62,7 @@ alle sechs Fälle gemessen.
 | Fall | Datum | Ergebnis | Protokoll | Befund |
 | --- | --- | --- | --- | --- |
 | Quality Gate lokal (develop 9fa0384) | 17.09.2026 | grün | – | `pnpm lint` 0 Fehler, `pnpm typecheck` sauber, 1'137 Unit-/Integrationstests grün, `pnpm build` grün, 24 E2E grün. |
-| GitHub Actions | seit 15.09.2026 | rot | – | Keine Jobs mehr gestartet („recent account payments have failed or your spending limit needs to be increased"). Letzter grüner CI-Lauf 09.09.2026. Alles seit dann auf `main` Gemergte erreichte Production ohne CI-Durchlauf. |
+| GitHub Actions | Ausfall 15.–18.09.2026, seither wieder grün | grün | – | Zahlungs-/Limit-Problem auf Organisationsebene legte Actions vom 15. bis 18.09.2026 lahm („recent account payments have failed or your spending limit needs to be increased"), kein CI-Lauf seit 09.09.2026 in dem Fenster. Seit das Repository am 18.09.2026 öffentlich wurde, laufen die Workflows wieder normal — drei grüne Läufe auf den PRs #45–#47 bestätigen das. |
 
 ## Blocker beim Betreiber
 
@@ -75,7 +75,6 @@ Blocker für Block A, B2–B6, D3-Nachmessung, D4 und D5; siehe
 
 Weiterhin offen:
 
-- **GitHub Actions blockiert.** Zahlungs-/Limit-Problem auf Organisationsebene seit 15.09.2026; kein CI-Lauf seit 09.09.2026, seither ungeprüfte Deploys auf `main`. Blockiert damit auch den Staging-Deploy des `LOG_CLIENT_ADDRESS`-Diagnose-Fixes (D3-Nachmessung), die Migrationsprobe B3 und die weiteren Schritte aus Aufgabe 3 (ab Schritt 3).
 - **PITR-Entscheid aussteht.** `railway postgres pitr status` zeigt für Production `enabled: false`, `bucketWired: false` (Befund B1, hoch). Einschalten ist eine Mutation an Production und bewusst ein separater Betreiberentscheid, kein Automatismus dieses Programms. (B2, die Restore-Probe auf Staging, ist davon unabhängig bereits gemessen und grün — Staging-PITR ist seit dem 18.09.2026 eingeschaltet.)
 - **D1 mit echten Ressourcen in Organisation B nachziehen.** Die aktuelle Tenant-Isolationsmatrix nutzt zufällige UUIDs für alle Pfadparameter ausser `:organizationId`; ein Nachlauf mit tatsächlich in Organisation B angelegten Ressourcen würde 404 (nicht existent) und 403 (existent, aber fremder Tenant) sauber trennen.
 - **Neue Einladung für ein zweites Testkonto nötig.** Die Zugangsdaten des bisherigen Testkontos (`test-runner@example.test`, `.env.staging`) gingen mit einem zwischenzeitlich gelöschten Worktree verloren. Für weitere automatisierte Staging-Läufe (`pnpm test:staging`) braucht es eine neue Einladung, vorzugsweise für ein zweites Testkonto (`test-runner-2@example.test`), damit künftige Läufe nicht wieder von einem lokal gehaltenen `.env.staging` abhängen, das ausserhalb des Haupt-Checkouts verloren gehen kann (siehe `infrastructure/railway.md`, Abschnitt „Staging-Tests und Lastläufe").
