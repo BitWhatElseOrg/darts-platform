@@ -30,6 +30,12 @@ Neben `production` existiert im Projekt `dartbase` das Environment
 Duplikation von `production` mit eigenen, leeren Postgres- und Redis-Instanzen
 samt eigenen Volumes und Zugangsdaten. Staging enthält keine Production-Daten.
 
+Am 18.09.2026 hat der Betreiber die erste Staging-Organisation gemäss diesem
+Runbook bootstrapped: «Staging Testverein» (Slug `staging-testverein`). Das
+fiktive Testkonto `test-runner@example.test` (Rolle MEMBER) ist darin
+registriert; seine Zugangsdaten liegen in der git-ignorierten `.env.staging`
+(siehe [Staging-Tests und Lastläufe](#staging-tests-und-lastläufe)).
+
 | Bereich | production | staging |
 | --- | --- | --- |
 | Git-Branch | `main` | `develop` |
@@ -103,6 +109,64 @@ curl -sS https://api-staging.dartbase.ch/api/v1/health
   gegen Production.
 - Ein Import maskierter Production-Daten in Staging ist eine eigene, zu
   dokumentierende Operation; bis dahin bleibt Staging mit Seed-Daten befüllt.
+
+### Staging-Tests und Lastläufe
+
+Stand: 18.09.2026.
+
+Die Staging-Tests liegen als eigenes Vitest-Projekt unter
+`apps/api/test/staging/` (Konfiguration
+`apps/api/test/staging/vitest.config.mts`). Sie laufen gegen die echte
+Staging-API und schreiben dort Daten; Zugangsdaten und Ziel-URLs kommen aus
+der git-ignorierten `.env.staging` im Repository-Wurzelverzeichnis:
+
+| Variable | Zweck |
+| --- | --- |
+| `STAGING_API_URL` | Basis-URL der Staging-API |
+| `STAGING_WEB_ORIGIN` | erlaubter Origin des Staging-Web-Frontends |
+| `STAGING_EMAIL` | Anmeldeadresse des Testkontos `test-runner@example.test` |
+| `STAGING_PASSWORD` | Passwort des Testkontos |
+| `STAGING_ORGANIZATION_ID` | ID der Organisation «Staging Testverein» |
+
+Alle Fälle auf einmal (inklusive des rund zweiminütigen Lasttests):
+
+```bash
+pnpm test:staging
+```
+
+Eine einzelne Datei gezielt ausführen:
+
+```bash
+cd apps/api && npx dotenv -e ../../.env.staging -- npx vitest run \
+  --config test/staging/vitest.config.mts test/staging/<datei>
+```
+
+**Sign-in-Budget.** Die sensiblen Routen (Login, Registrierung,
+Einladungsannahme) sind serverseitig auf `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE`
+(Vorgabe 10) je Client und Minute begrenzt. Staging-Testfälle, die sich
+mehrfach anmelden, müssen mit diesem Budget planen (z. B. eine Sitzung
+wiederverwenden statt pro Fall neu anzumelden).
+
+**Limits für Lastläufe vorübergehend anheben.** Die Fälle A3/A4/A6 (Block A)
+und die B4/B5-Proben brauchen mehr als das reguläre Rate-Limit. Ablauf:
+
+1. `RATE_LIMIT_MAX_PER_MINUTE` und `RATE_LIMIT_SOCKET_MAX_PER_MINUTE` auf der
+   Staging-API auf einen hohen Wert setzen (z. B. 100000).
+2. `railway redeploy --yes` (ohne `--from-source`) im Environment `staging`,
+   damit die neuen Werte greifen.
+3. Lastlauf ausführen.
+4. Beide Variablen wieder löschen — `railway variable delete <KEY>` nimmt
+   jeweils nur einen einzelnen Schlüssel entgegen, also zwei Aufrufe.
+5. Erneut `railway redeploy --yes`, danach mit einer Anfrage den
+   `x-ratelimit-limit`-Antwort-Header prüfen: er muss wieder die Vorgabewerte
+   zeigen (300 allgemein, 60 für Socket-Handshakes).
+
+**Beobachtung zu SKIPPED-Deploys.** Mit `checkSuites: true` verwirft Railway
+in Staging einen Deploy, der allein durch eine Variablenänderung ausgelöst
+wird, als `SKIPPED`, solange am betroffenen Commit keine Check-Suite vorliegt.
+`railway redeploy --yes` (ohne `--from-source`) läuft davon unabhängig und
+übernimmt die geänderten Variablen trotzdem — das ist der verlässliche Weg,
+um eine Variablenänderung tatsächlich auszurollen.
 
 ## Provider-Zuständigkeiten
 
