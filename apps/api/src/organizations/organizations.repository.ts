@@ -68,6 +68,10 @@ interface ActorInput {
   readonly audit: AuditContext;
 }
 
+type DatabaseTransaction = Parameters<
+  Parameters<DatabaseService["database"]["transaction"]>[0]
+>[0];
+
 @Injectable()
 export class OrganizationsRepository {
   public constructor(
@@ -112,11 +116,14 @@ export class OrganizationsRepository {
    * Mitgliedschaft gibt es keine Zeile — die Berechtigung prueft der Service
    * vorher, hier steht die Organisation trotzdem im `WHERE` (AGENTS.md §14).
    */
-  public async getForUser(input: {
-    readonly organizationId: string;
-    readonly userId: string;
-  }) {
-    const [organization] = await this.databaseService.database
+  public async getForUser(
+    input: {
+      readonly organizationId: string;
+      readonly userId: string;
+    },
+    executor: DatabaseTransaction | DatabaseService["database"] = this.databaseService.database,
+  ) {
+    const [organization] = await executor
       .select({
         id: organizations.id,
         name: organizations.name,
@@ -158,7 +165,7 @@ export class OrganizationsRepository {
     input: UpdateOrganizationInput &
       ActorInput & { readonly organizationId: string },
   ) {
-    const outcome = await this.databaseService.database.transaction(async (transaction) => {
+    return this.databaseService.database.transaction(async (transaction) => {
       const [current] = await transaction
         .select({
           name: organizations.name,
@@ -171,7 +178,7 @@ export class OrganizationsRepository {
         .for("update");
 
       if (current === undefined) {
-        return "not-found" as const;
+        return null;
       }
 
       const next = {
@@ -198,17 +205,14 @@ export class OrganizationsRepository {
         correlationId: input.audit.correlationId,
       });
 
-      return "updated" as const;
-    });
-
-    if (outcome === "not-found") {
-      return null;
-    }
-    // Erst nach dem Commit lesen: `getForUser` laeuft auf einer eigenen
-    // Verbindung und saehe innerhalb der Transaktion noch den alten Stand.
-    return this.getForUser({
-      organizationId: input.organizationId,
-      userId: input.userId,
+      // Auf derselben Verbindung lesen: die Transaktion sieht ihre eigenen
+      // Schreibvorgaenge, und die Antwort kann nicht mehr an einer nach dem
+      // Commit veraenderten Mitgliedschaft scheitern (Update committet,
+      // Client bekaeme 404 und wiederholte die Mutation).
+      return this.getForUser(
+        { organizationId: input.organizationId, userId: input.userId },
+        transaction,
+      );
     });
   }
 
