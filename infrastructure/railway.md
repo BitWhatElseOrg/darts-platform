@@ -49,6 +49,7 @@ registriert; seine Zugangsdaten liegen in der git-ignorierten `.env.staging`
 | `BETTER_AUTH_SECRET` | eigener Wert | eigener, von Production abweichender Wert |
 | `ALLOW_SELF_SERVICE_ORGANIZATIONS` | nicht gesetzt (`false`) | `true` (Testorganisationen ohne Bootstrap) |
 | `DATABASE_URL`, `REDIS_URL` | Referenz auf Production-Datenservices | Referenz auf Staging-Datenservices |
+| PITR (Postgres) | deaktiviert (`enabled: false`, `bucketWired: false`) — Betreiberentscheid aussteht (Befund B1) | aktiviert seit 18.09.2026 (`enabled: true`, `bucketWired: true`), Restore-Probe B2 grün gemessen |
 
 Alle übrigen Variablen (`NODE_ENV=production`, `TRUST_PROXY_HOPS=1`,
 Rate-Limits, Ports, `LOG_LEVEL`) sind identisch zu Production, damit Staging
@@ -254,6 +255,85 @@ wird, als `SKIPPED`, solange am betroffenen Commit keine Check-Suite vorliegt.
 `railway redeploy --yes` (ohne `--from-source`) läuft davon unabhängig und
 übernimmt die geänderten Variablen trotzdem — das ist der verlässliche Weg,
 um eine Variablenänderung tatsächlich auszurollen.
+
+**Restore-Probe (B2).** Am 18.09.2026 gegen 14:44–15:04 UTC gegen Staging
+gefahren, Deploy Staging-API `develop` 2311f2c/c4ad4eb. Skript:
+`apps/api/test/staging/b2-probe.ts` (Betriebsprobe, kein Vitest-Fall,
+einzeln aufzurufen). Ablauf und genaue Befehle:
+
+1. PITR auf der Staging-Datenbank einschalten (löst laut Railway selbst
+   einen einmaligen Redeploy der Datenbank aus) und den Stand prüfen:
+
+   ```bash
+   railway postgres pitr enable --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+     --environment staging --service Postgres
+   railway postgres pitr status --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+     --environment staging --service Postgres
+   ```
+
+   Ergebnis: `enabled: true`, `bucketWired: true`.
+
+2. Manuelles Backup versuchen (nur zur Kontrolle, für den Restore nicht
+   nötig — PITR erlaubt Restore auf jeden Zeitpunkt aus dem laufenden WAL):
+
+   ```bash
+   railway postgres pitr backup create --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+     --environment staging --service Postgres
+   ```
+
+   Ergebnis: „You do not have access to this resource" — manuelle Backups
+   sind auf diesem Plan/dieser Ebene nicht verfügbar.
+
+3. Referenzdaten erzeugen (`b2-probe.ts before`): zählt die Organisationen
+   des Testkontos, hält den Zeitpunkt T1 fest, wartet 5 s und legt danach
+   eine weitere Organisation an. Gemessen: 10 Organisationen vor T1
+   (14:59:07 UTC), 11 danach (14:59:12 UTC, `lasttest-b2-after-…`).
+
+4. Restore auf T1 in einen neuen Service:
+
+   ```bash
+   railway postgres pitr restore --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+     --environment staging --service Postgres \
+     --at 2026-09-18T14:59:10Z --new-service-name postgres-restored --yes --json
+   ```
+
+   `--yes` ist für den nicht-interaktiven Aufruf nötig; die Aktion ist
+   asynchron. Beobachtet: pgbackrest spielte das Backup-Set
+   `20260918-140417F` zurück und replayte den WAL bis zur letzten
+   abgeschlossenen Transaktion um 14:59:08 UTC; „database system is ready"
+   um 15:03:39 UTC — Restore-Dauer ≈ 1,5 Minuten ab Start des Befehls.
+
+5. Verifikation über die Staging-API, ohne sie dauerhaft umzuhängen:
+
+   ```bash
+   railway variable set DATABASE_URL='${{postgres-restored.DATABASE_URL}}' \
+     --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+     --environment staging --service @darts-platform/api
+   railway redeploy --yes --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+     --environment staging --service @darts-platform/api
+   # b2-probe.ts verify 10   → Health "ok", 10 Organisationen, nach-T1-Organisation fehlt
+   railway variable set DATABASE_URL='${{Postgres.DATABASE_URL}}' \
+     --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+     --environment staging --service @darts-platform/api
+   railway redeploy --yes --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+     --environment staging --service @darts-platform/api
+   # b2-probe.ts verify 11   → wieder 11 Organisationen, nach-T1-Organisation vorhanden
+   ```
+
+   Beide Umschaltungen bestätigt: Restore ohne Schreibvorgänge nach dem
+   Zielzeitpunkt, Zurückschalten auf die Original-Datenbank funktioniert.
+
+6. Aufräumen (Betreiberentscheid, destruktiv, nicht Teil der Probe selbst):
+
+   ```bash
+   railway service delete --project b72b141e-1685-44d7-960e-06c6b3998b34 \
+     --environment staging postgres-restored
+   ```
+
+   Der Service `postgres-restored` besteht zum Stand dieses Dokuments noch.
+
+Details und Messwerte: `docs/testing/protokolle/2026-09-18-block-b.md`,
+Abschnitt „B2 Restore-Probe auf Staging".
 
 ## Provider-Zuständigkeiten
 
