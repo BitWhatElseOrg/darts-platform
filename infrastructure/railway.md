@@ -77,7 +77,11 @@ Production unter derselben Site `dartbase.ch` liegen. Die generierten
 | CNAME | `api-staging` | `sq7xife8.up.railway.app` | DNS only |
 | TXT | `_railway-verify.api-staging` | `railway-verify=13a256c3ef813cf5997c9a84241f7722a11f5f7b1b203455e5621b2874f5cbad` | DNS only |
 
-Kontrolle nach dem Eintragen:
+Die vier Einträge sind seit dem 18.09.2026 gesetzt; Railway hat beide Domains
+verifiziert, die Zertifikate sind gültig, und der CORS-Preflight von
+`https://staging.dartbase.ch` auf die Staging-API antwortet mit 204.
+
+Kontrolle:
 
 ```bash
 railway domain list --project b72b141e-1685-44d7-960e-06c6b3998b34 \
