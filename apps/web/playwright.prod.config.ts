@@ -13,10 +13,13 @@ const apiOrigin = `http://localhost:${apiPort}`;
 // hier auf den tatsaechlichen Produktiv-API-Port zu setzen, statt den
 // Testfall anzufassen. `PLAYWRIGHT_WEB_PORT` liest aktuell kein Spec direkt
 // (siehe `grep -r PLAYWRIGHT_WEB_PORT tests/`), bleibt also unangetastet.
-// `??=` statt einer unbedingten Zuweisung: ist die Variable bereits gesetzt
-// (z. B. von aussen fuer einen anderen Lauf im selben Prozess), gilt sie als
-// Vorgabe und wird hier nicht ueberschrieben.
-process.env.PLAYWRIGHT_API_PORT ??= String(apiPort);
+// Unbedingte Zuweisung statt `??=`: diese Konfiguration startet den Server
+// selbst und ist damit fuer diesen Lauf die alleinige Quelle des Ports --
+// ein von aussen bereits gesetzter Wert (z. B. aus einem parallelen
+// Dev-E2E-Lauf im selben Prozess) darf nicht gewinnen, sonst faengt der
+// direkte `fetch` den Server auf dem falschen Port ab. Der tatsaechliche
+// Server-Port kommt ausschliesslich aus `PLAYWRIGHT_PROD_API_PORT`.
+process.env.PLAYWRIGHT_API_PORT = String(apiPort);
 
 /**
  * Eigenstaendige Konfiguration gegen den echten Produktivbuild statt
