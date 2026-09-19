@@ -12,6 +12,7 @@ import {
   slotOutcomeLabel,
   slotStatusLabel,
 } from "@/lib/league-format";
+import { liveDotClass } from "@/lib/live-status";
 import { connectEncounterRealtime, type RealtimeConnection } from "@/lib/realtime";
 import { calendarDate, clockTime } from "@/lib/tournament-format";
 
@@ -70,13 +71,7 @@ export function LiveEncounter({ publicId }: { readonly publicId: string }) {
         <div className="flex items-center gap-3 text-body">
           <span
             aria-hidden="true"
-            className={`h-3 w-3 rounded-full ${
-              query.isError
-                ? "bg-ring-red"
-                : encounter.status === "RUNNING"
-                  ? "bg-ring-green"
-                  : "bg-sisal-400"
-            }`}
+            className={`h-3 w-3 rounded-full ${liveDotClass({ isError: query.isError, connection })}`}
           />
           {/*
            * Wie `live-tournament.tsx` (Commit f8c8812): ein Farbwechsel allein
