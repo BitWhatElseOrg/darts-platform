@@ -13,6 +13,7 @@ import { ApiClientError } from "@/lib/api-error";
 import { buildBracketRounds, knockoutLeadsLiveView, type BracketNode, type BracketRound, type BracketSlot } from "@/lib/bracket-tree";
 import { recallDisplayKey, rememberDisplayKey } from "@/lib/display-key-storage";
 import { resolvePublicId } from "@/lib/live-address";
+import { liveDotClass } from "@/lib/live-status";
 import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
 
 interface LiveTournamentProps {
@@ -194,7 +195,7 @@ export function LiveTournament({ boardId, displayKeySecret, mode, publicId }: Li
         <div className="flex items-center gap-3 text-body">
           <span
             aria-hidden="true"
-            className={`h-3 w-3 rounded-full ${query.isError ? "bg-ring-red" : "bg-sisal-400"}`}
+            className={`h-3 w-3 rounded-full ${liveDotClass({ isError: query.isError, connection })}`}
           />
           {/*
            * Ein Farbwechsel allein reicht nicht (AGENTS.md §19): der Punkt
