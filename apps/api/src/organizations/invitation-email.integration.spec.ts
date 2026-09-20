@@ -259,7 +259,7 @@ describe("Einladungsvorschau", () => {
         url: `/api/v1/invitations/${created.id}/preview`,
         payload: { claimToken: created.claimToken },
       });
-      expect(response.statusCode).toBe(201);
+      expect(response.statusCode).toBe(200);
       const preview = invitationPreviewSchema.parse(response.json());
       expect(preview).toEqual({
         organizationName: "Mailverein",

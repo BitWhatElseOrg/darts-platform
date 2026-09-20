@@ -1,4 +1,4 @@
-import { Body, Controller, Inject, Param, ParseUUIDPipe, Post } from "@nestjs/common";
+import { Body, Controller, HttpCode, Inject, Param, ParseUUIDPipe, Post } from "@nestjs/common";
 
 import {
   previewInvitationInputSchema,
@@ -23,7 +23,11 @@ export class InvitationPreviewController {
     private readonly organizationsService: OrganizationsService,
   ) {}
 
+  // POST, weil der Code im Koerper steht und nicht in eine URL gehoert; die
+  // Antwort legt aber nichts an. Deshalb 200 statt der Nest-Vorgabe 201
+  // (Spec 2026-09-20-email-versand).
   @Post(":invitationId/preview")
+  @HttpCode(200)
   public async preview(
     @Param("invitationId", ParseUUIDPipe) invitationId: string,
     @Body() body: unknown,

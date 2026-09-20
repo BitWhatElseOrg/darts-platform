@@ -18,6 +18,7 @@ import {
   type OrganizationRole,
 } from "@darts-platform/domain";
 import {
+  invitationEmailPayloadSchema,
   organizationMemberSchema,
   type CreateInvitationInput,
   type CreateOrganizationInput,
@@ -80,6 +81,9 @@ interface ActorInput {
 type DatabaseTransaction = Parameters<
   Parameters<DatabaseService["database"]["transaction"]>[0]
 >[0];
+
+/** Gueltigkeit einer Einladung: 48 Stunden, beim erneuten Senden neu gerechnet. */
+const INVITATION_LIFETIME_MS = 1000 * 60 * 60 * 48;
 
 @Injectable()
 export class OrganizationsRepository {
@@ -346,7 +350,7 @@ export class OrganizationsRepository {
           role: input.role,
           claimTokenHash,
           invitedByUserId: input.userId,
-          expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 48),
+          expiresAt: new Date(Date.now() + INVITATION_LIFETIME_MS),
           ...(input.playerId !== undefined ? { playerId: input.playerId } : {}),
         })
         .returning();
@@ -425,22 +429,29 @@ export class OrganizationsRepository {
       throw new Error("Organization vanished while creating the invitation email.");
     }
 
+    const payload = {
+      organizationName: organization.name,
+      inviterName: inviter?.displayName ?? "",
+      role: input.role,
+      invitationUrl: buildInvitationUrl(input.webOrigin, input.invitationId, input.claimToken),
+      expiresAt: input.expiresAt.toISOString(),
+    };
+
+    // Nur zur Pruefung, das Ergebnis wird verworfen: ein Payload, den der
+    // Worker spaeter nicht rendern kann — leerer Organisationsname, unbekannte
+    // Rolle, kaputte URL —, soll hier scheitern und die Einladung mit
+    // zurueckrollen, statt still im Dead-Letter zu landen. Geschrieben wird
+    // das Original: `invitationEmailPayloadSchema` macht aus `expiresAt` per
+    // `z.coerce.date()` ein Date, in der Zeile muss aber der ISO-String
+    // stehen, weil der Worker den Payload wieder durch dasselbe Schema gibt.
+    invitationEmailPayloadSchema.parse(payload);
+
     await enqueueEmailDelivery(transaction, {
       kind: "INVITATION",
       recipient: input.recipient,
       organizationId: input.organizationId,
       invitationId: input.invitationId,
-      payload: {
-        organizationName: organization.name,
-        inviterName: inviter?.displayName ?? "",
-        role: input.role,
-        invitationUrl: buildInvitationUrl(
-          input.webOrigin,
-          input.invitationId,
-          input.claimToken,
-        ),
-        expiresAt: input.expiresAt.toISOString(),
-      },
+      payload,
     });
   }
 
@@ -624,7 +635,7 @@ export class OrganizationsRepository {
         .update(organizationInvitations)
         .set({
           claimTokenHash,
-          expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 48),
+          expiresAt: new Date(Date.now() + INVITATION_LIFETIME_MS),
           updatedAt: new Date(),
         })
         .where(
