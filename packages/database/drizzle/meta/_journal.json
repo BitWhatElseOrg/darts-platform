@@ -239,6 +239,13 @@
       "when": 1789493898071,
       "tag": "0033_player_avatars",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1789800000000,
+      "tag": "0034_email_deliveries",
+      "breakpoints": true
     }
   ]
 }

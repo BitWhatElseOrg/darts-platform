@@ -1337,6 +1337,55 @@ kurzen Moment des Index-Aufbaus ein `SHARE`-Lock auf `outbox_events`. Kein
 Bestandscheck nötig — alle acht Spalten sind entweder nullable oder tragen
 einen Default.
 
+## email_deliveries
+
+```text
+id uuid PK
+organization_id uuid FK organizations NULL ON DELETE CASCADE
+invitation_id uuid FK organization_invitations NULL ON DELETE CASCADE
+kind varchar(30) NOT NULL            -- INVITATION | PASSWORD_RESET
+recipient varchar(320) NOT NULL
+payload jsonb NULL                   -- Template-Eingaben inkl. Klartext-Link; null nach Versand/Dead-Letter
+created_at timestamptz NOT NULL DEFAULT now()
+sent_at timestamptz
+provider_message_id varchar(200)
+attempts integer NOT NULL DEFAULT 0
+not_before timestamptz
+dead_lettered_at timestamptz
+last_error text
+```
+
+Versandaufträge für ausgehende Mails (ADR 0017). Die API legt eine Zeile in
+derselben Transaktion an wie die fachliche Änderung (Einladung) oder im
+Better-Auth-Hook (Passwort-Reset). Der Worker pollt offene Zeilen
+(`sent_at is null and dead_lettered_at is null and (not_before is null or
+not_before <= now())`) mit `FOR UPDATE SKIP LOCKED`, Stapel 5, rendert das
+Template aus `kind` und `payload` und ruft Resend mit `id` als
+`Idempotency-Key` auf.
+
+Retry-Kurve wie `outbox_events`: 1 s · 2^(attempts−1), gedeckelt bei 5 min,
+Dead-Letter nach 8 Versuchen. Eine vom Provider endgültig abgelehnte Mail
+(4xx ausser 429/409) geht sofort ins Dead-Letter. In beiden Fällen und nach
+Erfolg wird `payload` geleert; der Klartext-Einladungscode liegt damit nur
+bis zum Versand in der Datenbank. Der Check-Constraint
+`email_deliveries_open_has_payload_check` sichert die Gegenrichtung.
+
+Aufräumregel im Worker: versendete und dead-geletterte Zeilen älter als
+30 Tage werden stündlich in Stapeln von 1000 gelöscht.
+
+Dead-Letter finden:
+
+```sql
+select id, kind, recipient, attempts, last_error, dead_lettered_at
+from email_deliveries
+where dead_lettered_at is not null
+order by dead_lettered_at desc;
+```
+
+Ein Dead-Letter lässt sich nicht erneut einreihen, weil der Payload geleert
+ist; stattdessen die Einladung in der Oberfläche «Erneut senden» oder den
+Passwort-Reset erneut anfordern.
+
 ## Dead Letter finden und erneut einreihen
 
 Nach acht Fehlversuchen mit exponentiellem Backoff (1 s, 2 s, 4 s, 8 s, 16 s,
