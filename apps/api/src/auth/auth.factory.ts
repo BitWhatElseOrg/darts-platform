@@ -52,16 +52,33 @@ export function createAuth(
       // zurueckgesetzt hat, will fremde Sitzungen los sein.
       revokeSessionsOnPasswordReset: true,
       // Kein direkter Versand: der Hook legt nur den Versandauftrag an, der
-      // Worker versendet (Spec 2026-09-20-email-versand). Better Auth hat
-      // das Token an dieser Stelle bereits persistiert; scheitert der
-      // Insert, antwortet Better Auth mit Fehler und die Person kann es
-      // erneut versuchen — das Token verfaellt nach einer Stunde von selbst.
+      // Worker versendet (Spec 2026-09-20-email-versand).
+      //
+      // Scheitert der Insert, faellt das still aus: Better Auth ruft den Hook
+      // ueber `runInBackgroundOrAwait` und faengt die Ausnahme dort ab
+      // (`create-context.mjs`), die Route antwortet danach unveraendert mit
+      // `200 { status: true }`. Die Person sieht also die neutrale
+      // Erfolgsmeldung, obwohl keine Versandzeile existiert und nie eine Mail
+      // kommt; die einzige Spur ist eine Fehlerzeile im Better-Auth-Log. Das
+      // bereits persistierte Token verfaellt nach einer Stunde, ein erneuter
+      // Versuch legt ein neues an.
       sendResetPassword: async ({ user, url }) => {
-        await enqueueEmailDelivery(database, {
-          kind: "PASSWORD_RESET",
-          recipient: user.email,
-          payload: { recipientName: user.name, resetUrl: url },
-        });
+        try {
+          await enqueueEmailDelivery(database, {
+            kind: "PASSWORD_RESET",
+            recipient: user.email,
+            payload: { recipientName: user.name, resetUrl: url },
+          });
+        } catch (error: unknown) {
+          // Nur die Meldung weiterreichen: Better Auth protokolliert das
+          // Fehlerobjekt, und postgres-js haengt `query` und `parameters` an —
+          // darin staende der Payload samt Reset-Link mit Token.
+          throw new Error(
+            `Versandauftrag fuer den Passwort-Reset konnte nicht angelegt werden: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
       },
     },
     // Ohne Zaehler skaliert Passwort-Raten mit der Zahl der Instanzen

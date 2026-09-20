@@ -61,7 +61,10 @@ describe("Passwort-Reset", () => {
     });
     expect(response.statusCode).toBe(200);
 
-    // Better Auth ruft den Hook ueber `runInBackgroundOrAwait`; kurz pollen.
+    // Ohne `advanced.backgroundTasks.handler` wartet
+    // `runInBackgroundOrAwait` den Hook heute noch innerhalb der Anfrage ab;
+    // die Zeile steht also bereits. Das Pollen deckt nur den Fall ab, dass
+    // spaeter ein Hintergrund-Handler gesetzt wird.
     await expect
       .poll(async () => (await resetDeliveriesFor(email)).length, { timeout: 5_000 })
       .toBe(1);
