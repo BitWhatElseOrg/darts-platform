@@ -233,6 +233,34 @@ describe("parseApplicationEnvironment", () => {
       }),
     ).toThrow(EnvironmentValidationError);
   });
+
+  it("waehlt ohne Angabe den Log-Provider und den Standardabsender", () => {
+    const environment = parseApplicationEnvironment(validEnvironment);
+    expect(environment.EMAIL_PROVIDER).toBe("log");
+    expect(environment.EMAIL_FROM).toBe("dartbase <noreply@dartbase.ch>");
+    expect(environment.RESEND_API_KEY).toBeUndefined();
+  });
+
+  it("verlangt bei Provider resend einen API-Key", () => {
+    expect(() =>
+      parseApplicationEnvironment({ ...validEnvironment, EMAIL_PROVIDER: "resend" }),
+    ).toThrow(/RESEND_API_KEY/u);
+
+    const environment = parseApplicationEnvironment({
+      ...validEnvironment,
+      EMAIL_PROVIDER: "resend",
+      RESEND_API_KEY: "re_test_123",
+      EMAIL_FROM: "Verein <mail@verein.example>",
+    });
+    expect(environment.EMAIL_PROVIDER).toBe("resend");
+    expect(environment.EMAIL_FROM).toBe("Verein <mail@verein.example>");
+  });
+
+  it("weist einen unbekannten Mail-Provider ab", () => {
+    expect(() =>
+      parseApplicationEnvironment({ ...validEnvironment, EMAIL_PROVIDER: "sendgrid" }),
+    ).toThrow(EnvironmentValidationError);
+  });
 });
 
 describe("parsePublicWebEnvironment", () => {
