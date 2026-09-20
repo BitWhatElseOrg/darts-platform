@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import {
   createDatabaseConnection,
   emailDeliveries,
+  emailDeliveryPending,
   enqueueEmailDelivery,
   markEmailDeliverySent,
   OUTBOX_MAX_ATTEMPTS,
@@ -48,10 +49,13 @@ class FakeSender implements EmailSender {
  * nur die `limit` aeltesten faelligen Zeilen — ohne Rueckdatierung
  * entscheidet der Zufall, ob die eigene Zeile darin liegt, und der Stapel
  * frisst fremde Auftraege mit. Zurueckdatiert plus passendes `limit` gilt:
- * eine faellige eigene Zeile wird immer zuerst beansprucht. Ist die eigene
- * Zeile nicht faellig — im Backoff-Fall der uebersprungene Lauf —, greift
- * der Lauf stattdessen die aelteste fremde faellige Zeile; die Zusicherung
- * lautet nur, dass eine faellige eigene Zeile nie uebersehen wird.
+ * eine faellige eigene Zeile wird immer zuerst beansprucht.
+ *
+ * Deshalb hat jeder Poller-Lauf in dieser Datei eigene faellige,
+ * zurueckdatierte Zeilen im Stapel und fasst nie fremde Auftraege an. Dass
+ * eine nicht faellige Zeile im Backoff uebersprungen wird, belegt der Test
+ * ohne Poller-Lauf: er prueft die Auswahlbedingung
+ * (`emailDeliveryPending`) direkt gegen die eigene Zeile.
  */
 const enqueuedAt = new Date("2020-01-01T00:00:00.000Z");
 
@@ -112,7 +116,7 @@ describe("processEmailDeliveries", () => {
     expect(row.payload).toBeNull();
   });
 
-  it("bucht retryable mit Backoff und ueberspringt die Zeile im naechsten Lauf", async () => {
+  it("bucht retryable mit Backoff, nimmt die Zeile aus der Auswahl und sendet erst danach", async () => {
     const { id } = await enqueue(`retry-${randomUUID()}@example.test`);
     const sender = new FakeSender(() => ({ kind: "retryable", reason: "503 service_unavailable" }));
 
@@ -122,10 +126,18 @@ describe("processEmailDeliveries", () => {
     expect(first.notBefore?.getTime()).toBe(now.getTime() + 1_000);
     expect(first.payload).toEqual(payload);
 
-    const second = new FakeSender(() => ({ kind: "sent", providerMessageId: "x" }));
-    await processEmailDeliveries({ database, sender: second, logger, now: () => now, limit: 1 });
-    expect(second.calls.some((entry) => entry.key === id)).toBe(false);
+    // Kein Poller-Lauf: die eigene Zeile ist jetzt nicht faellig, ein Lauf
+    // griffe deshalb die aelteste fremde faellige Zeile — in `pnpm test`
+    // einen Auftrag der API-Tests. Geprueft wird stattdessen genau das,
+    // woran der Poller seinen Stapel waehlt: die Zeile faellt aus
+    // `emailDeliveryPending` heraus.
+    const due = await database
+      .select({ id: emailDeliveries.id })
+      .from(emailDeliveries)
+      .where(and(eq(emailDeliveries.id, id), emailDeliveryPending(now)));
+    expect(due).toHaveLength(0);
 
+    const second = new FakeSender(() => ({ kind: "sent", providerMessageId: "x" }));
     await processEmailDeliveries({
       database,
       sender: second,

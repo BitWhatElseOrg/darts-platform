@@ -142,11 +142,19 @@ async function book(
     await transaction.transaction(async (savepoint) => {
       switch (result.kind) {
         case "sent": {
-          await context.markSent(savepoint, {
+          const booked = await context.markSent(savepoint, {
             id,
             providerMessageId: result.providerMessageId,
             now,
           });
+          if (!booked) {
+            // Die Zeile war schon erledigt — der Versand lief also ein
+            // zweites Mal. Das ist kein Fehler (der Idempotency-Key haelt
+            // den Provider ab), aber es gehoert sichtbar ins Log, statt
+            // als Erfolg durchzugehen.
+            logger.emit("log", { event: "email.sent_already_booked", deliveryId: id });
+            return;
+          }
           logger.emit("debug", {
             event: "email.sent",
             deliveryId: id,
