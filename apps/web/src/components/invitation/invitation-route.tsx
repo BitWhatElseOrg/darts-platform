@@ -24,7 +24,7 @@ const registrationSchema = z.object({
 type RegistrationData = z.infer<typeof registrationSchema>;
 
 const inputClassName =
-  "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30 disabled:text-slate-400";
+  "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
 const dateFormat = new Intl.DateTimeFormat("de-CH", { dateStyle: "medium", timeStyle: "short" });
 
 /**
@@ -60,10 +60,17 @@ export function InvitationRoute({ invitationId }: { readonly invitationId: strin
   const hash = useSyncExternalStore(subscribeToHash, readHash, readServerHash);
   const code: string | null | undefined = hash === null ? undefined : readInvitationCode(hash);
 
+  // Die Vorschau aendert sich fuer die Lebensdauer des Codes nicht. Sie darf
+  // deshalb nicht neu geladen werden, wenn das Fenster den Fokus
+  // zurueckbekommt (globale Voreinstellung in `providers.tsx`): wer beim
+  // Ausfuellen kurz ins Mailprogramm wechselt, verlöre sonst bei einem
+  // fehlgeschlagenen Neuladen das Formular samt Eingaben.
   const preview = useQuery({
     queryKey: ["invitation-preview", invitationId, code],
     enabled: typeof code === "string",
     retry: false,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
     queryFn: ({ signal }) =>
       apiRequest({
         path: `/invitations/${invitationId}/preview`,
@@ -99,7 +106,10 @@ export function InvitationRoute({ invitationId }: { readonly invitationId: strin
     );
   }
 
-  if (preview.isError || preview.data === undefined) {
+  // Nur eine fehlende Vorschau ersetzt die Seite. Ein Fehler bei einem
+  // spaeteren Neuladen laesst den bereits geladenen Stand — und damit ein
+  // ausgefuelltes Formular — stehen.
+  if (preview.data === undefined) {
     return (
       <Card title="Einladung ungültig">
         <p className="text-body text-slate-300" role="alert">
@@ -156,6 +166,9 @@ function InvitationActions({ code, invitationId, preview }: {
     await session.refetch();
     accept.mutate();
   });
+
+  const nameError = form.formState.errors.name?.message;
+  const passwordError = form.formState.errors.password?.message;
 
   const title = `Einladung zu ${preview.organizationName}`;
   const summary = (
@@ -217,24 +230,56 @@ function InvitationActions({ code, invitationId, preview }: {
     <Card title={title}>
       {summary}
       <form autoComplete="on" className="mt-6 space-y-4" onSubmit={(event) => void register(event)}>
-        <label className="block space-y-2 text-body text-slate-300">
-          <span>Name</span>
-          <input className={inputClassName} autoComplete="name" {...form.register("name")} />
-          {form.formState.errors.name ? (
-            <span className="block text-caption text-rose-300">{form.formState.errors.name.message}</span>
-          ) : null}
-        </label>
+        {/*
+          Die Feldmeldung steht ausserhalb des `<label>`: im Label waere sie
+          Teil des Feldnamens. Sie traegt `role="alert"` und haengt ueber
+          `aria-describedby` am Feld, damit sie angesagt wird.
+        */}
+        <div className="space-y-2">
+          <label className="block space-y-2 text-body text-slate-300">
+            <span>Name</span>
+            <input
+              aria-describedby={nameError === undefined ? undefined : "invitation-name-error"}
+              aria-invalid={nameError !== undefined}
+              autoComplete="name"
+              className={inputClassName}
+              {...form.register("name")}
+            />
+          </label>
+          {nameError === undefined ? null : (
+            <p className="text-caption text-rose-300" id="invitation-name-error" role="alert">
+              {nameError}
+            </p>
+          )}
+        </div>
         <label className="block space-y-2 text-body text-slate-300">
           <span>E-Mail</span>
-          <input className={inputClassName} autoComplete="username" disabled readOnly type="email" value={preview.email} />
+          <input
+            autoComplete="username"
+            className={`${inputClassName} text-slate-400`}
+            readOnly
+            type="email"
+            value={preview.email}
+          />
         </label>
-        <label className="block space-y-2 text-body text-slate-300">
-          <span>Passwort</span>
-          <input className={inputClassName} autoComplete="new-password" type="password" {...form.register("password")} />
-          {form.formState.errors.password ? (
-            <span className="block text-caption text-rose-300">{form.formState.errors.password.message}</span>
-          ) : null}
-        </label>
+        <div className="space-y-2">
+          <label className="block space-y-2 text-body text-slate-300">
+            <span>Passwort</span>
+            <input
+              aria-describedby={passwordError === undefined ? undefined : "invitation-password-error"}
+              aria-invalid={passwordError !== undefined}
+              autoComplete="new-password"
+              className={inputClassName}
+              type="password"
+              {...form.register("password")}
+            />
+          </label>
+          {passwordError === undefined ? null : (
+            <p className="text-caption text-rose-300" id="invitation-password-error" role="alert">
+              {passwordError}
+            </p>
+          )}
+        </div>
         {error !== null ? (
           <p className="rounded-lg bg-rose-400/10 p-3 text-body text-rose-200" role="alert">
             {error}
