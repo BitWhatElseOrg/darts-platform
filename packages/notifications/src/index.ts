@@ -7,7 +7,10 @@ export {
 } from "./email-message.js";
 export { createEmailSender, type EmailSenderOptions } from "./create-email-sender.js";
 export { escapeHtml } from "./html.js";
-export { LoggingEmailSender } from "./logging-email-sender.js";
+export {
+  LoggingEmailSender,
+  type LoggingEmailSenderOptions,
+} from "./logging-email-sender.js";
 export { renderEmailDelivery, type RenderEmailDeliveryResult } from "./render-email-delivery.js";
 export {
   RESEND_EMAILS_ENDPOINT,

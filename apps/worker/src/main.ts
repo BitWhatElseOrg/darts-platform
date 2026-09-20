@@ -37,10 +37,28 @@ const emailSender = createEmailSender(
     provider: environment.EMAIL_PROVIDER,
     apiKey: environment.RESEND_API_KEY,
     from: environment.EMAIL_FROM,
+    // In Production traegt die Textvariante den Klartext-Einladungscode
+    // beziehungsweise den Reset-Link; im Log hat beides nichts verloren.
+    redactBody: environment.NODE_ENV === "production",
   },
   outboxLogger,
 );
-logger.emit("log", { event: "email_sender_ready", provider: environment.EMAIL_PROVIDER });
+
+// Production auf `log` ist der erste Rollout-Schritt, kein Regelbetrieb:
+// es wird nichts versendet, obwohl jede Zeile als zugestellt gebucht wird.
+// Deshalb `warn` statt `log` — erst damit faellt der Zustand im
+// Fehler-Grep des CI-Rauchtests und im Better-Stack-Monitor auf.
+const emailSenderSilentInProduction =
+  environment.NODE_ENV === "production" && environment.EMAIL_PROVIDER === "log";
+if (emailSenderSilentInProduction) {
+  logger.emit("warn", {
+    event: "email_sender_ready",
+    provider: environment.EMAIL_PROVIDER,
+    warning: "EMAIL_PROVIDER=log: es werden keine Mails versendet",
+  });
+} else {
+  logger.emit("log", { event: "email_sender_ready", provider: environment.EMAIL_PROVIDER });
+}
 
 let deliveringEmails = false;
 

@@ -526,15 +526,20 @@ API validiert dieselbe Umgebung):
 | `EMAIL_FROM` | Vorgabe | Vorgabe |
 
 Rollout: zuerst Migration 0034 und Deploy mit `EMAIL_PROVIDER=log`
-(der Log-Adapter schreibt je Auftrag `email.logged` mit Empfänger, Betreff
-und Textvariante ins Worker-Log — deshalb nur kurz und bewusst), dann
+(der Log-Adapter schreibt je Auftrag `email.logged` mit Betreff und
+`redacted: true` ins Worker-Log; Empfänger und Textvariante bleiben in
+Production weg, und der Start meldet `email_sender_ready` auf Level `warn`),
+dann
 `EMAIL_PROVIDER=resend` plus Key setzen und den Worker neu starten. Die Vorgabe ist `log` — auch in Production; sie muss
 ausdrücklich auf `resend` gesetzt werden, sonst wird dauerhaft nichts
 versendet, sondern nur protokolliert. Es gibt bewusst keine Startprüfung,
 die in Production `resend` erzwingt. Startet API oder Worker dagegen mit
 `EMAIL_PROVIDER=resend` ohne Key, scheitert der Start mit einer klaren
-Meldung. Die Variablen setzt der Betreiber; für Agenten sind Produktions-
-Variablen gesperrt.
+Meldung. Solange Production auf `log` läuft, werden keine Einladungen und
+keine Passwort-Resets ausgelöst: sie werden nur (gekürzt) protokolliert, als
+zugestellt gebucht und lassen sich nicht nachträglich versenden. Die
+Variablen setzt der Betreiber; für Agenten sind Produktions-Variablen
+gesperrt.
 
 Betrieb: Dead-Letter erscheinen im Worker-Log als `email.dead_letter` auf
 Level `error`; offene und gescheiterte Aufträge siehe `DATABASE_SCHEMA.md`,
