@@ -41,17 +41,33 @@ class FakeSender implements EmailSender {
   }
 }
 
+/**
+ * Fester Zeitpunkt lange vor jeder echten Zeile: `pnpm test` laeuft api-,
+ * web- und worker-Paket gleichzeitig gegen dieselbe Datenbank, und die
+ * API-Tests legen dabei eigene Versandauftraege an. Der Poller nimmt je Lauf
+ * nur die `limit` aeltesten faelligen Zeilen — ohne Rueckdatierung
+ * entscheidet der Zufall, ob die eigene Zeile darin liegt, und der Stapel
+ * frisst fremde Auftraege mit. Zurueckdatiert plus passendes `limit` sieht
+ * jeder Lauf genau die eigenen Zeilen.
+ */
+const enqueuedAt = new Date("2020-01-01T00:00:00.000Z");
+
 async function enqueue(
   recipient: string,
   overrides: Partial<Parameters<typeof enqueueEmailDelivery>[1]> = {},
 ) {
-  return enqueueEmailDelivery(database, {
+  const row = await enqueueEmailDelivery(database, {
     kind: "INVITATION",
     recipient,
     organizationId,
     payload,
     ...overrides,
   });
+  await database
+    .update(emailDeliveries)
+    .set({ createdAt: enqueuedAt })
+    .where(eq(emailDeliveries.id, row.id));
+  return row;
 }
 
 async function readRow(id: string) {
@@ -81,7 +97,7 @@ describe("processEmailDeliveries", () => {
     const { id } = await enqueue(recipient);
     const sender = new FakeSender(() => ({ kind: "sent", providerMessageId: "msg_1" }));
 
-    const processed = await processEmailDeliveries({ database, sender, logger, now: () => now });
+    const processed = await processEmailDeliveries({ database, sender, logger, now: () => now, limit: 1 });
 
     expect(processed).toBeGreaterThanOrEqual(1);
     const call = sender.calls.find((entry) => entry.key === id);
@@ -97,14 +113,14 @@ describe("processEmailDeliveries", () => {
     const { id } = await enqueue(`retry-${randomUUID()}@example.test`);
     const sender = new FakeSender(() => ({ kind: "retryable", reason: "503 service_unavailable" }));
 
-    await processEmailDeliveries({ database, sender, logger, now: () => now });
+    await processEmailDeliveries({ database, sender, logger, now: () => now, limit: 1 });
     const first = await readRow(id);
     expect(first.attempts).toBe(1);
     expect(first.notBefore?.getTime()).toBe(now.getTime() + 1_000);
     expect(first.payload).toEqual(payload);
 
     const second = new FakeSender(() => ({ kind: "sent", providerMessageId: "x" }));
-    await processEmailDeliveries({ database, sender: second, logger, now: () => now });
+    await processEmailDeliveries({ database, sender: second, logger, now: () => now, limit: 1 });
     expect(second.calls.some((entry) => entry.key === id)).toBe(false);
 
     await processEmailDeliveries({
@@ -112,6 +128,7 @@ describe("processEmailDeliveries", () => {
       sender: second,
       logger,
       now: () => new Date(now.getTime() + 2_000),
+      limit: 1,
     });
     expect(second.calls.some((entry) => entry.key === id)).toBe(true);
   });
@@ -123,7 +140,7 @@ describe("processEmailDeliveries", () => {
       reason: "422 validation_error: Invalid `to` field",
     }));
 
-    await processEmailDeliveries({ database, sender, logger, now: () => now });
+    await processEmailDeliveries({ database, sender, logger, now: () => now, limit: 1 });
     const row = await readRow(id);
     expect(row.deadLetteredAt).not.toBeNull();
     expect(row.attempts).toBe(1);
@@ -142,7 +159,7 @@ describe("processEmailDeliveries", () => {
       .set({ attempts: OUTBOX_MAX_ATTEMPTS - 1 })
       .where(eq(emailDeliveries.id, id));
     const sender = new FakeSender(() => ({ kind: "retryable", reason: "500" }));
-    await processEmailDeliveries({ database, sender, logger, now: () => now });
+    await processEmailDeliveries({ database, sender, logger, now: () => now, limit: 1 });
     const row = await readRow(id);
     expect(row.deadLetteredAt).not.toBeNull();
     expect(row.payload).toBeNull();
@@ -153,7 +170,7 @@ describe("processEmailDeliveries", () => {
       payload: { organizationName: "nur das" },
     });
     const sender = new FakeSender(() => ({ kind: "sent", providerMessageId: "x" }));
-    await processEmailDeliveries({ database, sender, logger, now: () => now });
+    await processEmailDeliveries({ database, sender, logger, now: () => now, limit: 1 });
     expect(sender.calls.some((entry) => entry.key === id)).toBe(false);
     const row = await readRow(id);
     expect(row.deadLetteredAt).not.toBeNull();
@@ -165,7 +182,7 @@ describe("processEmailDeliveries", () => {
     const sender = new FakeSender(() => {
       throw new Error("kaputt");
     });
-    await processEmailDeliveries({ database, sender, logger, now: () => now });
+    await processEmailDeliveries({ database, sender, logger, now: () => now, limit: 1 });
     const row = await readRow(id);
     expect(row.attempts).toBe(1);
     expect(row.lastError).toBe("kaputt");
@@ -181,8 +198,8 @@ describe("processEmailDeliveries", () => {
       sender,
       logger,
       now: () => now,
-      // Nur die eine Zeile scheitert; ein fremder Auftrag im selben Stapel
-      // wird normal gebucht.
+      limit: 1,
+      // Nur die eine Zeile scheitert.
       markSent: async (executor, input) => {
         if (input.id === id) throw new Error("Buchung kaputt");
         return markEmailDeliverySent(executor, input);
