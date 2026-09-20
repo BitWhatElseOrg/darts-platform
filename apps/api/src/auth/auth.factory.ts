@@ -20,6 +20,24 @@ import {
   invitationClaimMatches,
 } from "./invitation-claim.js";
 
+/**
+ * Unverfaengliche Kennzeichnung eines Datenbankfehlers: der Fehlername und,
+ * falls vorhanden, der Postgres-Fehlercode der Ursache (etwa `23505`). Alles
+ * Uebrige bleibt draussen — Begruendung bei `sendResetPassword`.
+ */
+function describeWithoutParameters(error: unknown): string {
+  const name = error instanceof Error ? error.name : typeof error;
+  const cause: unknown = error instanceof Error ? error.cause : undefined;
+  const code =
+    typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    typeof cause.code === "string"
+      ? cause.code
+      : undefined;
+  return code === undefined ? name : `${name}/${code}`;
+}
+
 export function createAuth(
   database: Database,
   environment: ApplicationEnvironment,
@@ -70,13 +88,18 @@ export function createAuth(
             payload: { recipientName: user.name, resetUrl: url },
           });
         } catch (error: unknown) {
-          // Nur die Meldung weiterreichen: Better Auth protokolliert das
-          // Fehlerobjekt, und postgres-js haengt `query` und `parameters` an —
-          // darin staende der Payload samt Reset-Link mit Token.
+          // Better Auth protokolliert das geworfene Fehlerobjekt. Weder die
+          // Meldung noch die Ursache duerfen deshalb weitergereicht werden:
+          // Drizzle verpackt jede gescheiterte Abfrage in einen
+          // `DrizzleQueryError`, dessen eigene Meldung `Failed query: …
+          // params: …` samt Bind-Parametern traegt (`drizzle-orm/errors`),
+          // und der postgres-js-Fehler darunter haengt dieselben Werte als
+          // `query` und `parameters` an. Der jsonb-Payload wird vor dem
+          // Binden serialisiert — in beiden Faellen stuende also der
+          // Reset-Link mit gueltigem Token im Log. Konstante Meldung, dazu
+          // nur Fehlername und Postgres-Code zum Einordnen.
           throw new Error(
-            `Versandauftrag fuer den Passwort-Reset konnte nicht angelegt werden: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
+            `Versandauftrag fuer den Passwort-Reset konnte nicht angelegt werden (${describeWithoutParameters(error)}).`,
           );
         }
       },
