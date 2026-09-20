@@ -66,7 +66,8 @@ export const applicationEnvironmentSchema = z.object({
    */
   RATE_LIMIT_PUBLIC_MAX_PER_MINUTE: rateLimitMaxSchema.default(600),
   /**
-   * Obergrenze fuer Anmeldung, Registrierung und die Annahme einer Einladung.
+   * Obergrenze fuer Anmeldung, Registrierung, Annahme, Vorschau und erneutes
+   * Senden einer Einladung sowie `/auth/request-password-reset` (ADR 0017).
    * Das Ausstellen einer Einladung zaehlt seit Ruling B14 zur allgemeinen
    * Stufe (`RATE_LIMIT_MAX_PER_MINUTE`), nicht mehr hierher.
    */

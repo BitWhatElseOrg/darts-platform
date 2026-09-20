@@ -167,8 +167,9 @@ cd apps/api && npx dotenv -e ../../.env.staging -- npx vitest run \
   --config test/staging/vitest.config.mts test/staging/<datei>
 ```
 
-**Sign-in-Budget.** Die sensiblen Routen (Login, Registrierung,
-Einladungsannahme) sind serverseitig auf `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE`
+**Sign-in-Budget.** Die sensiblen Routen (Login, Registrierung, Annahme,
+Vorschau und erneutes Senden einer Einladung, `/auth/request-password-reset`)
+sind serverseitig auf `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE`
 (Vorgabe 10) je Client und Minute begrenzt. Staging-Testfälle, die sich
 mehrfach anmelden, müssen mit diesem Budget planen (z. B. eine Sitzung
 wiederverwenden statt pro Fall neu anzumelden). Ein voller Lauf von
@@ -459,11 +460,14 @@ Mindestens diese Shared beziehungsweise Service-Variablen werden benötigt:
 | `REDIS_URL` | Railway-Referenz auf Redis | Cache, Queue und Realtime |
 | `RATE_LIMIT_MAX_PER_MINUTE` | `300` | Obergrenze je IP und Minute für alle übrigen Routen (optional, Vorgabe 300) |
 | `RATE_LIMIT_PUBLIC_MAX_PER_MINUTE` | `600` | Obergrenze für `/api/v1/public/**` (optional, Vorgabe 600) |
-| `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE` | `10` | Obergrenze für Anmeldung, Registrierung und die Annahme einer Einladung (optional, Vorgabe 10) |
+| `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE` | `10` | Obergrenze für Anmeldung, Registrierung, Annahme, Vorschau und erneutes Senden einer Einladung sowie `/auth/request-password-reset` (optional, Vorgabe 10) |
 | `RATE_LIMIT_SOCKET_MAX_PER_MINUTE` | `60` | Obergrenze für Socket.IO-Handshakes je Client-Adresse und Minute (optional, Vorgabe 60) |
 | `TRUST_PROXY_HOPS` | `1` | **Pflicht.** Anzahl vertrauter Reverse-Proxy-Hops vor der Anwendung |
 | `ALLOW_SELF_SERVICE_ORGANIZATIONS` | nicht gesetzt (`false`) | öffnet `POST /organizations` für jede angemeldete Person; in Production bewusst aus |
 | `LOG_CLIENT_ADDRESS` | nicht gesetzt (`false`) | Diagnose: schreibt `request.ip` und die rohen Adress-Header ins Request-Log (Staging, Plan Task 3) |
+| `EMAIL_PROVIDER` | `resend` | Versandweg ausgehender Mails; Vorgabe `log` schreibt nur ins Log (Abschnitt E-Mail-Versand) |
+| `RESEND_API_KEY` | Key je Environment | Zugang zur Resend-API; Pflicht bei `EMAIL_PROVIDER=resend` (Abschnitt E-Mail-Versand) |
+| `EMAIL_FROM` | `dartbase <noreply@dartbase.ch>` | Absender ausgehender Mails (Abschnitt E-Mail-Versand) |
 
 `REDIS_URL` akzeptiert `redis://` und `rediss://`; für die verschlüsselte
 Verbindung wird die TLS-Variante der Railway-Referenz eingetragen.
@@ -534,8 +538,9 @@ Variablen gesperrt.
 
 Betrieb: Dead-Letter erscheinen im Worker-Log als `email.dead_letter` auf
 Level `error`; offene und gescheiterte Aufträge siehe `DATABASE_SCHEMA.md`,
-Abschnitt `email_deliveries`. Versandzeilen älter als 30 Tage räumt der
-Worker selbst weg (`email.pruned`).
+Abschnitt `email_deliveries`. Versendete und dead-geletterte Versandzeilen
+räumt der Worker 30 Tage nach ihrer Erledigung selbst weg (`email.pruned`);
+offene Aufträge bleiben immer stehen.
 
 ## Einmaliger Production-Owner-Bootstrap
 

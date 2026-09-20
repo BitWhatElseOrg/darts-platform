@@ -47,8 +47,11 @@ class FakeSender implements EmailSender {
  * API-Tests legen dabei eigene Versandauftraege an. Der Poller nimmt je Lauf
  * nur die `limit` aeltesten faelligen Zeilen — ohne Rueckdatierung
  * entscheidet der Zufall, ob die eigene Zeile darin liegt, und der Stapel
- * frisst fremde Auftraege mit. Zurueckdatiert plus passendes `limit` sieht
- * jeder Lauf genau die eigenen Zeilen.
+ * frisst fremde Auftraege mit. Zurueckdatiert plus passendes `limit` gilt:
+ * eine faellige eigene Zeile wird immer zuerst beansprucht. Ist die eigene
+ * Zeile nicht faellig — im Backoff-Fall der uebersprungene Lauf —, greift
+ * der Lauf stattdessen die aelteste fremde faellige Zeile; die Zusicherung
+ * lautet nur, dass eine faellige eigene Zeile nie uebersehen wird.
  */
 const enqueuedAt = new Date("2020-01-01T00:00:00.000Z");
 

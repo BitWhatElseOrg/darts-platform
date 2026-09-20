@@ -3,7 +3,9 @@ import type { EmailLogger, EmailMessage, EmailSender, EmailSendResult } from "./
 /**
  * Provider `log`: nichts verlaesst den Prozess. Empfaenger, Betreff und
  * Textvariante landen im strukturierten Log, damit Entwicklung und E2E den
- * Link nachlesen koennen. In Produktion nie aktiv.
+ * Link nachlesen koennen. Fuer Entwicklung, CI und E2E sowie den ersten
+ * Rollout-Schritt (`infrastructure/railway.md`); im Regelbetrieb in
+ * Produktion nicht aktiv.
  */
 export class LoggingEmailSender implements EmailSender {
   public constructor(private readonly logger: EmailLogger) {}
