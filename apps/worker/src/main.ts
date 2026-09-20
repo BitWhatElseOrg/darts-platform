@@ -7,6 +7,7 @@ import { pruneEmailDeliveries } from "./email/prune-email-deliveries.js";
 import { pruneProcessedOutboxEvents } from "./prune-outbox.js";
 import { processStatisticsOutbox } from "./statistics/process-statistics-outbox.js";
 import { rebuildPlayerStatistics } from "./statistics/rebuild-player-statistics.js";
+import { isUndefinedTableError } from "./undefined-table.js";
 
 const environment = parseApplicationEnvironment(process.env);
 const connection = createDatabaseConnection(environment.DATABASE_URL);
@@ -27,7 +28,23 @@ const outboxLogger: OutboxLogger = {
 // (der Tick laeuft im Sekundentakt gegen die Datenbank, ohne es waere er
 // laengst gescheitert) und der Fehler-Grep auf den Log-Level im CI-Rauchtest
 // (`.github/workflows/ci.yml`, Ruling E10).
+const startedAt = Date.now();
 logger.emit("log", { event: "worker_started" });
+
+/**
+ * Railway startet die Dienste eines Deploys nebeneinander: der Worker pollt
+ * los, bevor die API ihre Migration durchhat. Beim Staging-Deploy des
+ * Mailversands lief er rund 20 Sekunden vor der neuen Tabelle an und schrieb
+ * 23 Fehlerzeilen, bis die Migration sass — danach war es still. Eine
+ * fehlende Tabelle ist in diesem Fenster also die erwartete Reihenfolge und
+ * keine Stoerung; nach Ablauf bleibt sie ein Fehler, denn dann fehlt sie
+ * wirklich.
+ */
+const MIGRATION_GRACE_MS = 120_000;
+
+function isDeferredByMigration(error: unknown): boolean {
+  return isUndefinedTableError(error) && Date.now() - startedAt < MIGRATION_GRACE_MS;
+}
 
 // Der Adapter wird einmal beim Start gewaehlt, nicht je Runde: `resend` ohne
 // Schluessel wirft hier und laesst den Worker sofort scheitern, statt den
@@ -46,8 +63,10 @@ const emailSender = createEmailSender(
 
 // Production auf `log` ist der erste Rollout-Schritt, kein Regelbetrieb:
 // es wird nichts versendet, obwohl jede Zeile als zugestellt gebucht wird.
-// Deshalb `warn` statt `log` — erst damit faellt der Zustand im
-// Fehler-Grep des CI-Rauchtests und im Better-Stack-Monitor auf.
+// Deshalb `warn` statt `log` — die Zeile hebt sich damit im Railway-Log
+// sichtbar ab und `warn` ist die hoechste sinnvolle Stufe unterhalb von
+// `error`, auf die der CI-Rauchtest anspringt. Der Better-Stack-Monitor
+// haengt am Health-Endpunkt der API und sieht Worker-Logs ohnehin nicht.
 const emailSenderSilentInProduction =
   environment.NODE_ENV === "production" && environment.EMAIL_PROVIDER === "log";
 if (emailSenderSilentInProduction) {
@@ -75,8 +94,9 @@ async function deliverEmails(): Promise<void> {
     // Nur Fehler ausserhalb der Zeilenschleife, etwa eine abgerissene
     // Verbindung beim Beanspruchen des Stapels. Fehler einzelner Auftraege
     // bucht der Poller selbst.
-    logger.emit("error", {
-      event: "email.tick_failed",
+    const deferred = isDeferredByMigration(error);
+    logger.emit(deferred ? "warn" : "error", {
+      event: deferred ? "email.tick_deferred" : "email.tick_failed",
       message: error instanceof Error ? error.message : String(error),
     });
   } finally {
@@ -100,8 +120,9 @@ async function tick(): Promise<void> {
     // Hierher kommen nur Fehler ausserhalb der Ereignisschleife, etwa eine
     // abgerissene Verbindung beim Lesen des Stapels. Fehler einzelner
     // Ereignisse werden in der Schleife gebucht.
-    logger.emit("error", {
-      event: "statistics.tick_failed",
+    const deferred = isDeferredByMigration(error);
+    logger.emit(deferred ? "warn" : "error", {
+      event: deferred ? "statistics.tick_deferred" : "statistics.tick_failed",
       message: error instanceof Error ? error.message : String(error),
     });
   } finally {

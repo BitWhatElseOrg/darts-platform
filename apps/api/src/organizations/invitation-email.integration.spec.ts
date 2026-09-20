@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { desc, eq } from "drizzle-orm";
-import { NotFoundException } from "@nestjs/common";
+import { desc, eq, sql } from "drizzle-orm";
+import { ConflictException, NotFoundException } from "@nestjs/common";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import {
@@ -167,10 +167,23 @@ describe("Einladung erzeugt einen Versandauftrag", () => {
   });
 });
 
+/**
+ * Datiert `updated_at` zurueck, damit die 60-Sekunden-Sperre des erneuten
+ * Sendens nicht mehr greift — ein Test kann nicht eine Minute warten. Gerechnet
+ * wird wie im Repository mit der Datenbankuhr.
+ */
+async function backdateInvitation(invitationId: string, seconds: number): Promise<void> {
+  await databaseService.database
+    .update(organizationInvitations)
+    .set({ updatedAt: sql`now() - make_interval(secs => ${seconds})` })
+    .where(eq(organizationInvitations.id, invitationId));
+}
+
 describe("Einladung erneut senden", () => {
   it("rotiert den Code, verlaengert den Ablauf, legt eine zweite Zeile an und auditiert", async () => {
     const email = `resend-${randomUUID()}@example.test`;
     const created = await service.invite({ organizationId, data: { email, role: "MEMBER" }, auth: ownerAuth, audit });
+    await backdateInvitation(created.id, 61);
     const resendAt = Date.now();
 
     const resent = await service.resendInvitation({ organizationId, invitationId: created.id, auth: ownerAuth, audit });
@@ -200,6 +213,50 @@ describe("Einladung erneut senden", () => {
       .from(auditEvents)
       .where(eq(auditEvents.entityId, created.id));
     expect(audits.map((entry) => entry.action)).toContain("MEMBER_INVITATION_RESENT");
+  });
+
+  it("sperrt ein sofortiges erneutes Senden: 409, kein zweiter Auftrag, kein neuer Code", async () => {
+    const email = `cooldown-${randomUUID()}@example.test`;
+    const created = await service.invite({ organizationId, data: { email, role: "MEMBER" }, auth: ownerAuth, audit });
+
+    const caught: unknown = await service
+      .resendInvitation({ organizationId, invitationId: created.id, auth: ownerAuth, audit })
+      .then(() => undefined)
+      .catch((error: unknown) => error);
+
+    expect(caught).toBeInstanceOf(ConflictException);
+    const conflict = caught as ConflictException;
+    expect(conflict.getStatus()).toBe(409);
+    const response = conflict.getResponse() as {
+      readonly code?: unknown;
+      readonly details?: { readonly retryAfterSeconds?: unknown };
+    };
+    expect(response.code).toBe("INVITATION_RESEND_TOO_SOON");
+    const retryAfterSeconds = response.details?.retryAfterSeconds;
+    expect(typeof retryAfterSeconds).toBe("number");
+    expect(retryAfterSeconds as number).toBeGreaterThanOrEqual(1);
+    expect(retryAfterSeconds as number).toBeLessThanOrEqual(60);
+
+    const [row] = await databaseService.database
+      .select({ claimTokenHash: organizationInvitations.claimTokenHash })
+      .from(organizationInvitations)
+      .where(eq(organizationInvitations.id, created.id));
+    expect(row?.claimTokenHash).toBe(hashInvitationClaimToken(created.claimToken));
+    const blocked = await databaseService.database
+      .select({ id: emailDeliveries.id })
+      .from(emailDeliveries)
+      .where(eq(emailDeliveries.invitationId, created.id));
+    expect(blocked).toHaveLength(1);
+
+    // Nach Ablauf der Sperre geht dieselbe Anfrage durch.
+    await backdateInvitation(created.id, 61);
+    const resent = await service.resendInvitation({ organizationId, invitationId: created.id, auth: ownerAuth, audit });
+    expect(resent.claimToken).not.toBe(created.claimToken);
+    const deliveries = await databaseService.database
+      .select({ id: emailDeliveries.id })
+      .from(emailDeliveries)
+      .where(eq(emailDeliveries.invitationId, created.id));
+    expect(deliveries).toHaveLength(2);
   });
 
   it("weist eine zurueckgezogene Einladung mit 404 ab und legt keine Zeile an", async () => {

@@ -728,9 +728,11 @@ export const outboxEvents = pgTable(
  * wird nach Erfolg oder Dead-Letter geleert. Der Check-Constraint sichert
  * die Gegenrichtung: eine offene Zeile hat immer Inhalt.
  *
- * `last_error` traegt ausschliesslich `<status> <name>: <message>` aus dem
- * Adapter, nie Anfragedaten — der Link kaeme nur hinein, wenn ein Provider
- * den Anfragekoerper in seiner Fehlermeldung spiegelte.
+ * `last_error` traegt die Fehlerbegruendung des Pollers: die Statuszeile des
+ * Adapters, die Zod-Meldung eines ungueltigen Payloads oder die Meldung eines
+ * werfenden Senders beziehungsweise eines Buchungsfehlers — nie Anfragedaten
+ * und nie den Payload. Der Link kaeme nur hinein, wenn ein Provider den
+ * Anfragekoerper in seiner Fehlermeldung spiegelte.
  */
 export const emailDeliveries = pgTable(
   "email_deliveries",

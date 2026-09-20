@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { expect, test } from "./fixtures";
+import { backdateInvitationUpdatedAt } from "./invitation-clock";
 import { readLatestPasswordResetToken } from "./password-reset-token";
 import {
   createRegistrationInvitation,
@@ -48,6 +49,16 @@ test("eine eingeladene Person registriert sich ueber den (erneut gesendeten) Lin
   await page.goto(`/mitglieder?organisation=${organizationId}`);
   const row = page.getByRole("listitem").filter({ hasText: guestEmail });
   await expect(row).toContainText(/Mail: (ausstehend|versendet)/u);
+
+  // Direkt nach dem Einladen greift die 60-Sekunden-Sperre. Der Routen-Ansager
+  // von Next.js traegt ebenfalls `role="alert"`, deshalb die Textfilterung.
+  await row.getByRole("button", { name: "Erneut senden" }).click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "gerade erst erneut gesendet" }),
+  ).toBeVisible();
+
+  // Einladung kuenstlich altern lassen, statt eine Minute zu warten.
+  await backdateInvitationUpdatedAt(guestEmail, 61);
   await row.getByRole("button", { name: "Erneut senden" }).click();
   const secondLink = await row.getByLabel("Neuer Einladungslink").inputValue();
   expect(secondLink).not.toBe(firstLink);
