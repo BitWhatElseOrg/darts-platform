@@ -12,7 +12,11 @@ import {
   organizations,
   users,
 } from "@darts-platform/database";
-import { invitationEmailPayloadSchema } from "@darts-platform/schemas";
+import {
+  apiErrorSchema,
+  invitationEmailPayloadSchema,
+  invitationPreviewSchema,
+} from "@darts-platform/schemas";
 
 import type { AuthContext } from "../auth/auth.types.js";
 import { hashInvitationClaimToken } from "../auth/invitation-claim.js";
@@ -238,6 +242,65 @@ describe("Einladung erneut senden", () => {
       expect(first.statusCode).not.toBe(429);
       const second = await app.inject({ method: "POST", url });
       expect(second.statusCode).toBe(429);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe("Einladungsvorschau", () => {
+  it("liefert Organisation, Rolle, E-Mail und Ablauf bei gueltigem Code — ohne Sitzung", async () => {
+    const email = `preview-${randomUUID()}@example.test`;
+    const created = await service.invite({ organizationId, data: { email, role: "SCORER" }, auth: ownerAuth, audit });
+    const app = await createApiTestApplication();
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/v1/invitations/${created.id}/preview`,
+        payload: { claimToken: created.claimToken },
+      });
+      expect(response.statusCode).toBe(201);
+      const preview = invitationPreviewSchema.parse(response.json());
+      expect(preview).toEqual({
+        organizationName: "Mailverein",
+        role: "SCORER",
+        email,
+        expiresAt: created.expiresAt,
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("antwortet fuer falschen Code, fremde ID und abgelaufene Einladung identisch mit 404", async () => {
+    const email = `preview-404-${randomUUID()}@example.test`;
+    const created = await service.invite({ organizationId, data: { email, role: "MEMBER" }, auth: ownerAuth, audit });
+    const wrongCode = created.claimToken.slice(0, -1) + (created.claimToken.endsWith("A") ? "B" : "A");
+    const app = await createApiTestApplication();
+    try {
+      const wrong = await app.inject({ method: "POST", url: `/api/v1/invitations/${created.id}/preview`, payload: { claimToken: wrongCode } });
+      const unknown = await app.inject({ method: "POST", url: `/api/v1/invitations/${randomUUID()}/preview`, payload: { claimToken: created.claimToken } });
+      await databaseService.database
+        .update(organizationInvitations)
+        .set({ expiresAt: new Date(Date.now() - 1000) })
+        .where(eq(organizationInvitations.id, created.id));
+      const expired = await app.inject({ method: "POST", url: `/api/v1/invitations/${created.id}/preview`, payload: { claimToken: created.claimToken } });
+
+      for (const response of [wrong, unknown, expired]) {
+        expect(response.statusCode).toBe(404);
+        expect(apiErrorSchema.parse(response.json()).error.code).toBe("INVITATION_NOT_FOUND");
+      }
+      expect(wrong.json()).toMatchObject({ error: { code: "INVITATION_NOT_FOUND", message: expired.json().error.message } });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("weist einen Body ohne gueltiges Code-Format mit 400 ab", async () => {
+    const app = await createApiTestApplication();
+    try {
+      const response = await app.inject({ method: "POST", url: `/api/v1/invitations/${randomUUID()}/preview`, payload: { claimToken: "kurz" } });
+      expect(response.statusCode).toBe(400);
     } finally {
       await app.close();
     }

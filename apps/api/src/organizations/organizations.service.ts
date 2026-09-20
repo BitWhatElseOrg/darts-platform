@@ -12,6 +12,7 @@ import type { ApplicationEnvironment } from "@darts-platform/config";
 import {
   createdInvitationSchema,
   invitationListSchema,
+  invitationPreviewSchema,
   organizationListSchema,
   organizationMemberListSchema,
   organizationSummarySchema,
@@ -21,7 +22,9 @@ import {
   type LinkMemberPlayerInput,
   type CreatedInvitation,
   type Invitation,
+  type InvitationPreview,
   type OrganizationMember,
+  type PreviewInvitationInput,
   type OrganizationSummary,
   type UpdateMembershipInput,
   type UpdateOrganizationInput,
@@ -276,6 +279,24 @@ export class OrganizationsService {
         auth.user.email.toLowerCase(),
       );
     return invitationListSchema.parse(invitations);
+  }
+
+  /** Oeffentlich: keine Sitzung, keine Organisation im Pfad; die Antwort verraet nur bei passendem Code etwas. */
+  public async previewInvitation(input: {
+    readonly invitationId: string;
+    readonly data: PreviewInvitationInput;
+  }): Promise<InvitationPreview> {
+    const preview = await this.organizationsRepository.previewInvitation({
+      invitationId: input.invitationId,
+      claimToken: input.data.claimToken,
+    });
+    if (preview === null) {
+      throw new NotFoundException({
+        code: "INVITATION_NOT_FOUND",
+        message: "This invitation is invalid or has expired.",
+      });
+    }
+    return invitationPreviewSchema.parse(preview);
   }
 
   public async acceptInvitation(input: {

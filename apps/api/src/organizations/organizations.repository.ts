@@ -30,6 +30,7 @@ import { DatabaseService } from "../database/database.service.js";
 import {
   generateInvitationClaimToken,
   hashInvitationClaimToken,
+  invitationClaimMatches,
 } from "../auth/invitation-claim.js";
 import { describeInvitationDelivery } from "./invitation-delivery.js";
 import { buildInvitationUrl } from "./invitation-link.js";
@@ -692,6 +693,57 @@ export class OrganizationsRepository {
         ),
       )
       .orderBy(organizationInvitations.createdAt);
+  }
+
+  /**
+   * Vorschau fuer die Einladungsseite. Erst wird die offene, nicht
+   * abgelaufene Einladung geladen, dann der Code in konstanter Zeit gegen
+   * den Hash geprueft. Jede Abweichung ergibt `null` — der Aufrufer
+   * antwortet einheitlich, ohne die Ursache zu nennen.
+   */
+  public async previewInvitation(input: {
+    readonly invitationId: string;
+    readonly claimToken: string;
+  }): Promise<{
+    readonly organizationName: string;
+    readonly role: string;
+    readonly email: string;
+    readonly expiresAt: Date;
+  } | null> {
+    const [row] = await this.databaseService.database
+      .select({
+        organizationName: organizations.name,
+        role: organizationInvitations.role,
+        email: organizationInvitations.email,
+        expiresAt: organizationInvitations.expiresAt,
+        claimTokenHash: organizationInvitations.claimTokenHash,
+      })
+      .from(organizationInvitations)
+      .innerJoin(
+        organizations,
+        eq(organizationInvitations.organizationId, organizations.id),
+      )
+      .where(
+        and(
+          eq(organizationInvitations.id, input.invitationId),
+          eq(organizationInvitations.status, "PENDING"),
+          gt(organizationInvitations.expiresAt, new Date()),
+        ),
+      )
+      .limit(1);
+
+    if (row === undefined || !invitationClaimMatches(input.claimToken, row.claimTokenHash)) {
+      return null;
+    }
+    // Der Hash bleibt bewusst ausserhalb der Antwort — die Felder werden
+    // einzeln uebernommen statt per Rest-Destrukturierung, damit ein spaeter
+    // ergaenztes Feld nicht stillschweigend nach aussen gelangt.
+    return {
+      organizationName: row.organizationName,
+      role: row.role,
+      email: row.email,
+      expiresAt: row.expiresAt,
+    };
   }
 
   /**
