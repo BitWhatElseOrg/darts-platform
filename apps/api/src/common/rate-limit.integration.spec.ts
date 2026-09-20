@@ -158,6 +158,30 @@ describe("Stufenzuordnung je Route (Ruling B14)", () => {
     expect(response.headers["x-ratelimit-limit"]).toBe("7");
   }, 30_000);
 
+  // Je Stufe ein eigener Fall statt einer Schleife ueber mehrere Pfade: der
+  // Zaehler-Schluessel ist `<stufe>:<adresse>` ohne Pfad, mehrere sensible
+  // Pfade in einem Fall teilten sich also den Eimer und schoepften die Grenze
+  // aus, statt nur die Kopfzeile zu pruefen.
+  it("ordnet die Einladungsvorschau der sensiblen Stufe zu", async () => {
+    const response = await isolatedApp.inject({
+      method: "POST",
+      url: `/api/v1/invitations/${randomUUID()}/preview`,
+      payload: {},
+    });
+
+    expect(response.headers["x-ratelimit-limit"]).toBe("7");
+  }, 30_000);
+
+  it("ordnet das erneute Senden einer Einladung der sensiblen Stufe zu", async () => {
+    const response = await isolatedApp.inject({
+      method: "POST",
+      url: `/api/v1/organizations/${randomUUID()}/invitations/${randomUUID()}/resend`,
+      payload: {},
+    });
+
+    expect(response.headers["x-ratelimit-limit"]).toBe("7");
+  }, 30_000);
+
   it("belaesst Anmeldung und Registrierung auf der sensiblen Stufe", async () => {
     const signIn = await isolatedApp.inject({
       method: "POST",
@@ -172,5 +196,18 @@ describe("Stufenzuordnung je Route (Ruling B14)", () => {
       payload: {},
     });
     expect(signUp.headers["x-ratelimit-limit"]).toBe("7");
+  }, 30_000);
+
+  // Better Auth haengt unter der Platzhalter-Route des `AuthController`; die
+  // Fastify-Bremse sieht den vollen Pfad und greift dort genauso wie bei
+  // Anmeldung und Registrierung (Spec 2026-09-20-email-versand).
+  it("ordnet die Reset-Anforderung der sensiblen Stufe zu", async () => {
+    const response = await isolatedApp.inject({
+      method: "POST",
+      url: "/api/v1/auth/request-password-reset",
+      payload: {},
+    });
+
+    expect(response.headers["x-ratelimit-limit"]).toBe("7");
   }, 30_000);
 });

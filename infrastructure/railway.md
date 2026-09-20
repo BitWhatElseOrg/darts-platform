@@ -167,8 +167,9 @@ cd apps/api && npx dotenv -e ../../.env.staging -- npx vitest run \
   --config test/staging/vitest.config.mts test/staging/<datei>
 ```
 
-**Sign-in-Budget.** Die sensiblen Routen (Login, Registrierung,
-Einladungsannahme) sind serverseitig auf `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE`
+**Sign-in-Budget.** Die sensiblen Routen (Login, Registrierung, Annahme,
+Vorschau und erneutes Senden einer Einladung, `/auth/request-password-reset`)
+sind serverseitig auf `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE`
 (Vorgabe 10) je Client und Minute begrenzt. Staging-Testfälle, die sich
 mehrfach anmelden, müssen mit diesem Budget planen (z. B. eine Sitzung
 wiederverwenden statt pro Fall neu anzumelden). Ein voller Lauf von
@@ -401,10 +402,10 @@ verwendet. Die Slots eines separaten API-Service werden davon nicht verbraucht.
 
 ### E-Mail-DNS
 
-Die aktuelle Zone enthält keine dokumentierte Mailkonfiguration. Falls Adressen
-unter `@dartbase.ch` verwendet werden sollen, müssen MX, SPF, DKIM und DMARC vom
-gewählten Mailanbieter in Cloudflare ergänzt werden. Ohne Mailbetrieb werden
-keine erfundenen MX-Einträge angelegt.
+Seit dem 20.09.2026 versendet die Plattform Mails über Resend; SPF, DKIM und
+DMARC für `dartbase.ch` liegen in Cloudflare (Abschnitt E-Mail-Versand, ADR
+0017). Es gibt weiterhin keinen Posteingang unter `@dartbase.ch` und deshalb
+auch keine MX-Einträge — `noreply@dartbase.ch` ist reine Absenderadresse.
 
 ## Zielarchitektur und bekannte IaC-Abweichung
 
@@ -459,11 +460,14 @@ Mindestens diese Shared beziehungsweise Service-Variablen werden benötigt:
 | `REDIS_URL` | Railway-Referenz auf Redis | Cache, Queue und Realtime |
 | `RATE_LIMIT_MAX_PER_MINUTE` | `300` | Obergrenze je IP und Minute für alle übrigen Routen (optional, Vorgabe 300) |
 | `RATE_LIMIT_PUBLIC_MAX_PER_MINUTE` | `600` | Obergrenze für `/api/v1/public/**` (optional, Vorgabe 600) |
-| `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE` | `10` | Obergrenze für Anmeldung, Registrierung und die Annahme einer Einladung (optional, Vorgabe 10) |
+| `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE` | `10` | Obergrenze für Anmeldung, Registrierung, Annahme, Vorschau und erneutes Senden einer Einladung sowie `/auth/request-password-reset` (optional, Vorgabe 10) |
 | `RATE_LIMIT_SOCKET_MAX_PER_MINUTE` | `60` | Obergrenze für Socket.IO-Handshakes je Client-Adresse und Minute (optional, Vorgabe 60) |
 | `TRUST_PROXY_HOPS` | `1` | **Pflicht.** Anzahl vertrauter Reverse-Proxy-Hops vor der Anwendung |
 | `ALLOW_SELF_SERVICE_ORGANIZATIONS` | nicht gesetzt (`false`) | öffnet `POST /organizations` für jede angemeldete Person; in Production bewusst aus |
 | `LOG_CLIENT_ADDRESS` | nicht gesetzt (`false`) | Diagnose: schreibt `request.ip` und die rohen Adress-Header ins Request-Log (Staging, Plan Task 3) |
+| `EMAIL_PROVIDER` | `resend` | Versandweg ausgehender Mails; Vorgabe `log` schreibt nur ins Log (Abschnitt E-Mail-Versand) |
+| `RESEND_API_KEY` | Key je Environment | Zugang zur Resend-API; Pflicht bei `EMAIL_PROVIDER=resend` (Abschnitt E-Mail-Versand) |
+| `EMAIL_FROM` | `dartbase <noreply@dartbase.ch>` | Absender ausgehender Mails (Abschnitt E-Mail-Versand) |
 
 `REDIS_URL` akzeptiert `redis://` und `rediss://`; für die verschlüsselte
 Verbindung wird die TLS-Variante der Railway-Referenz eingetragen.
@@ -502,6 +506,46 @@ einen kurzzeitigen Test ohne Proxy davor), nur unbelegt ist unzulässig.
 `BETTER_AUTH_SECRET` kann beispielsweise mit `openssl rand -base64 32` erzeugt
 werden. Secret-Werte werden ausschließlich in Railway hinterlegt und weder im
 Repository noch in Tickets oder Logs kopiert.
+
+## E-Mail-Versand
+
+| Punkt | Wert |
+| --- | --- |
+| Provider | Resend, Region `eu-west-1` (Irland) |
+| Absenderdomain | `dartbase.ch`, verifiziert 20.09.2026 (SPF, DKIM, DMARC bei Cloudflare) |
+| Absender | `dartbase <noreply@dartbase.ch>` (`EMAIL_FROM`) |
+| Tracking | Öffnungs- und Klick-Tracking in Resend deaktiviert lassen |
+
+Variablen je Environment auf **API und Worker** (der Worker versendet, die
+API validiert dieselbe Umgebung):
+
+| Variable | production | staging |
+| --- | --- | --- |
+| `EMAIL_PROVIDER` | `resend` | `resend` |
+| `RESEND_API_KEY` | eigener Key «production» | eigener Key «staging» |
+| `EMAIL_FROM` | Vorgabe | Vorgabe |
+
+Rollout: zuerst Migration 0034 und Deploy mit `EMAIL_PROVIDER=log`
+(der Log-Adapter schreibt je Auftrag `email.logged` mit Betreff und
+`redacted: true` ins Worker-Log; Empfänger und Textvariante bleiben in
+Production weg, und der Start meldet `email_sender_ready` auf Level `warn`),
+dann
+`EMAIL_PROVIDER=resend` plus Key setzen und den Worker neu starten. Die Vorgabe ist `log` — auch in Production; sie muss
+ausdrücklich auf `resend` gesetzt werden, sonst wird dauerhaft nichts
+versendet, sondern nur protokolliert. Es gibt bewusst keine Startprüfung,
+die in Production `resend` erzwingt. Startet API oder Worker dagegen mit
+`EMAIL_PROVIDER=resend` ohne Key, scheitert der Start mit einer klaren
+Meldung. Solange Production auf `log` läuft, werden keine Einladungen und
+keine Passwort-Resets ausgelöst: sie werden nur (gekürzt) protokolliert, als
+zugestellt gebucht und lassen sich nicht nachträglich versenden. Die
+Variablen setzt der Betreiber; für Agenten sind Produktions-Variablen
+gesperrt.
+
+Betrieb: Dead-Letter erscheinen im Worker-Log als `email.dead_letter` auf
+Level `error`; offene und gescheiterte Aufträge siehe `DATABASE_SCHEMA.md`,
+Abschnitt `email_deliveries`. Versendete und dead-geletterte Versandzeilen
+räumt der Worker 30 Tage nach ihrer Erledigung selbst weg (`email.pruned`);
+offene Aufträge bleiben immer stehen.
 
 ## Einmaliger Production-Owner-Bootstrap
 

@@ -66,7 +66,8 @@ export const applicationEnvironmentSchema = z.object({
    */
   RATE_LIMIT_PUBLIC_MAX_PER_MINUTE: rateLimitMaxSchema.default(600),
   /**
-   * Obergrenze fuer Anmeldung, Registrierung und die Annahme einer Einladung.
+   * Obergrenze fuer Anmeldung, Registrierung, Annahme, Vorschau und erneutes
+   * Senden einer Einladung sowie `/auth/request-password-reset` (ADR 0017).
    * Das Ausstellen einer Einladung zaehlt seit Ruling B14 zur allgemeinen
    * Stufe (`RATE_LIMIT_MAX_PER_MINUTE`), nicht mehr hierher.
    */
@@ -100,6 +101,16 @@ export const applicationEnvironmentSchema = z.object({
    * entschieden ist.
    */
   LOG_CLIENT_ADDRESS: booleanFlagSchema,
+  /**
+   * Versandweg fuer ausgehende Mails (Spec 2026-09-20-email-versand).
+   * `log` schreibt Empfaenger, Betreff und Text nur ins Log — Vorgabe fuer
+   * Entwicklung, CI und E2E. `resend` verlangt `RESEND_API_KEY`, siehe
+   * `superRefine`.
+   */
+  EMAIL_PROVIDER: z.enum(["resend", "log"]).default("log"),
+  RESEND_API_KEY: z.string().min(1).optional(),
+  /** Absender im Format `Anzeigename <adresse>`; die Domain ist bei Resend verifiziert. */
+  EMAIL_FROM: z.string().min(3).default("dartbase <noreply@dartbase.ch>"),
 }).superRefine((data, ctx) => {
   // Ruling B12: ein unbelegtes `TRUST_PROXY_HOPS` waere in Production ein
   // stiller Fehlgriff — die Anwendung liefe mit `0` und der Reverse-Proxy
@@ -112,6 +123,14 @@ export const applicationEnvironmentSchema = z.object({
       path: ["TRUST_PROXY_HOPS"],
       message:
         "TRUST_PROXY_HOPS muss in Production explizit gesetzt sein (siehe infrastructure/railway.md).",
+    });
+  }
+
+  if (data.EMAIL_PROVIDER === "resend" && data.RESEND_API_KEY === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["RESEND_API_KEY"],
+      message: "RESEND_API_KEY muss gesetzt sein, wenn EMAIL_PROVIDER=resend ist.",
     });
   }
 }).transform((data) => ({

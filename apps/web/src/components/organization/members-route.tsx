@@ -5,10 +5,12 @@ import { useMemo, useState } from "react";
 
 import { hasOrganizationPermission, type OrganizationRole } from "@darts-platform/domain";
 import {
+  createdInvitationSchema,
   invitationListSchema,
   organizationMemberListSchema,
   organizationMemberSchema,
   playerListSchema,
+  type CreatedInvitation,
   type Invitation,
   type OrganizationMember,
   type OrganizationSummary,
@@ -28,10 +30,12 @@ import {
   filterMembers,
   type MemberFilter,
 } from "@/lib/list-filter";
+import { buildInvitationLink } from "@/lib/invitation-link";
 import { roleLabel } from "@/lib/roles";
 import { ListFilterBar } from "@/components/list-filter-bar";
 import { WorkspaceShell } from "@/components/workspace-shell";
 
+import { InvitationDeliveryBadge } from "./invitation-delivery-badge";
 import { MemberPlayerLink } from "./member-player-link";
 
 const cancelledSchema = z.object({ cancelled: z.literal(true) });
@@ -129,6 +133,21 @@ function Members({ currentUserId, organization }: {
         schema: cancelledSchema,
       }),
     onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["organization-invitations", organization.id] });
+    },
+  });
+  // Der neue Code wird genau einmal gezeigt — wie beim Erstellen. Er ist
+  // der Fallback, falls auch die zweite Mail nicht ankommt.
+  const [resent, setResent] = useState<CreatedInvitation | null>(null);
+  const resendInvitation = useMutation({
+    mutationFn: (invitationId: string) =>
+      apiRequest({
+        path: `/organizations/${organization.id}/invitations/${invitationId}/resend`,
+        method: "POST",
+        schema: createdInvitationSchema,
+      }),
+    onSuccess: async (invitation) => {
+      setResent(invitation);
       await queryClient.invalidateQueries({ queryKey: ["organization-invitations", organization.id] });
     },
   });
@@ -332,6 +351,9 @@ function Members({ currentUserId, organization }: {
         {cancelInvitation.error !== null ? (
           <p className="text-body text-rose-300" role="alert">{messageFrom(cancelInvitation.error)}</p>
         ) : null}
+        {resendInvitation.error !== null ? (
+          <p className="text-body text-rose-300" role="alert">{messageFrom(resendInvitation.error)}</p>
+        ) : null}
         {invitationsQuery.isPending ? (
           <p className="text-body text-slate-400">Einladungen werden geladen …</p>
         ) : invitationsQuery.isError ? (
@@ -342,23 +364,67 @@ function Members({ currentUserId, organization }: {
           <ul className="space-y-3">
             {(invitationsQuery.data ?? []).map((invitation: Invitation) => (
               <li
-                className="grid gap-3 rounded-xl border border-slate-800 bg-slate-950/50 p-4 sm:grid-cols-[1fr_auto] sm:items-center"
+                className="grid gap-3 rounded-xl border border-slate-800 bg-slate-950/50 p-4"
                 key={invitation.id}
               >
-                <div className="min-w-0">
-                  <p className="truncate text-body font-semibold text-white">{invitation.email}</p>
-                  <p className="text-caption text-slate-400">
-                    {roleLabel(invitation.role)} · gültig bis {dateFormat.format(invitation.expiresAt)}
-                  </p>
+                <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                  <div className="min-w-0">
+                    <p className="truncate text-body font-semibold text-white">{invitation.email}</p>
+                    <p className="text-caption text-slate-400">
+                      {roleLabel(invitation.role)} · gültig bis {dateFormat.format(invitation.expiresAt)}
+                    </p>
+                    <p className="mt-1"><InvitationDeliveryBadge delivery={invitation.lastDelivery} /></p>
+                  </div>
+                  <div className="grid gap-2 sm:w-64">
+                    <Button
+                      disabled={resendInvitation.isPending && resendInvitation.variables === invitation.id}
+                      onClick={() => resendInvitation.mutate(invitation.id)}
+                      type="button"
+                    >
+                      Erneut senden
+                    </Button>
+                    <Button
+                      disabled={cancelInvitation.isPending && cancelInvitation.variables === invitation.id}
+                      onClick={() => cancelInvitation.mutate(invitation.id)}
+                      type="button"
+                      variant="outline"
+                    >
+                      Einladung zurückziehen
+                    </Button>
+                  </div>
                 </div>
-                <Button
-                  disabled={cancelInvitation.isPending && cancelInvitation.variables === invitation.id}
-                  onClick={() => cancelInvitation.mutate(invitation.id)}
-                  type="button"
-                  variant="outline"
-                >
-                  Einladung zurückziehen
-                </Button>
+                {resent?.id === invitation.id ? (
+                  <div className="space-y-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4">
+                    <p className="text-body text-emerald-100">
+                      Neue Mail an {resent.email} ist unterwegs. Der bisherige Code ist damit ungültig. Falls die Mail
+                      nicht ankommt, kannst du diesen Link oder Code weitergeben.
+                    </p>
+                    <label
+                      className="block text-caption font-semibold tracking-[0.14em] text-slate-400 uppercase"
+                      htmlFor={`resent-link-${invitation.id}`}
+                    >
+                      Neuer Einladungslink
+                    </label>
+                    <input
+                      id={`resent-link-${invitation.id}`}
+                      className={`${selectClassName} font-mono`}
+                      readOnly
+                      value={buildInvitationLink(window.location.origin, resent.id, resent.claimToken)}
+                    />
+                    <label
+                      className="block text-caption font-semibold tracking-[0.14em] text-slate-400 uppercase"
+                      htmlFor={`resent-code-${invitation.id}`}
+                    >
+                      Neuer Einladungscode
+                    </label>
+                    <input
+                      id={`resent-code-${invitation.id}`}
+                      className={`${selectClassName} font-mono`}
+                      readOnly
+                      value={resent.claimToken}
+                    />
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>

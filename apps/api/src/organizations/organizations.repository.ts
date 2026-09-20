@@ -1,8 +1,10 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, gt, ne } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, ne } from "drizzle-orm";
 
 import {
   auditEvents,
+  emailDeliveries,
+  enqueueEmailDelivery,
   memberships,
   organizationInvitations,
   organizations,
@@ -16,6 +18,7 @@ import {
   type OrganizationRole,
 } from "@darts-platform/domain";
 import {
+  invitationEmailPayloadSchema,
   organizationMemberSchema,
   type CreateInvitationInput,
   type CreateOrganizationInput,
@@ -28,7 +31,10 @@ import { DatabaseService } from "../database/database.service.js";
 import {
   generateInvitationClaimToken,
   hashInvitationClaimToken,
+  invitationClaimMatches,
 } from "../auth/invitation-claim.js";
+import { describeInvitationDelivery } from "./invitation-delivery.js";
+import { buildInvitationUrl } from "./invitation-link.js";
 
 export type UpdateMembershipResult =
   | { readonly outcome: "updated"; readonly member: OrganizationMember }
@@ -63,6 +69,10 @@ export type CreateInvitationResult =
   | { readonly outcome: "created"; readonly invitation: InvitationRow }
   | { readonly outcome: "player-not-assignable" };
 
+export type ResendInvitationResult =
+  | { readonly outcome: "resent"; readonly invitation: InvitationRow }
+  | { readonly outcome: "not-found" };
+
 interface ActorInput {
   readonly userId: string;
   readonly audit: AuditContext;
@@ -71,6 +81,9 @@ interface ActorInput {
 type DatabaseTransaction = Parameters<
   Parameters<DatabaseService["database"]["transaction"]>[0]
 >[0];
+
+/** Gueltigkeit einer Einladung: 48 Stunden, beim erneuten Senden neu gerechnet. */
+const INVITATION_LIFETIME_MS = 1000 * 60 * 60 * 48;
 
 @Injectable()
 export class OrganizationsRepository {
@@ -283,7 +296,7 @@ export class OrganizationsRepository {
 
   public async createInvitation(
     input: CreateInvitationInput &
-      ActorInput & { readonly organizationId: string },
+      ActorInput & { readonly organizationId: string; readonly webOrigin: string },
   ): Promise<CreateInvitationResult> {
     const claimToken = generateInvitationClaimToken();
     const claimTokenHash = hashInvitationClaimToken(claimToken);
@@ -337,7 +350,7 @@ export class OrganizationsRepository {
           role: input.role,
           claimTokenHash,
           invitedByUserId: input.userId,
-          expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 48),
+          expiresAt: new Date(Date.now() + INVITATION_LIFETIME_MS),
           ...(input.playerId !== undefined ? { playerId: input.playerId } : {}),
         })
         .returning();
@@ -362,10 +375,83 @@ export class OrganizationsRepository {
         correlationId: input.audit.correlationId,
       });
 
+      // Versandauftrag in derselben Transaktion: Einladung und Mail
+      // entstehen gemeinsam oder gar nicht (Spec 2026-09-20-email-versand).
+      // Organisationsname und Name der einladenden Person werden hier
+      // gelesen, damit die Mail den Stand zum Zeitpunkt der Einladung traegt.
+      await this.enqueueInvitationEmail(transaction, {
+        organizationId: input.organizationId,
+        invitationId: invitation.id,
+        recipient: invitation.email,
+        role: invitation.role,
+        expiresAt: invitation.expiresAt,
+        inviterUserId: input.userId,
+        claimToken,
+        webOrigin: input.webOrigin,
+      });
+
       return {
         outcome: "created",
         invitation: { ...invitation, claimToken },
       } as const;
+    });
+  }
+
+  /**
+   * Legt den Versandauftrag einer Einladung an. `inviterName` ist der
+   * Anzeigename der handelnden Person; fehlt er, rendert das Template ohne
+   * Namen.
+   */
+  private async enqueueInvitationEmail(
+    transaction: DatabaseTransaction,
+    input: {
+      readonly organizationId: string;
+      readonly invitationId: string;
+      readonly recipient: string;
+      readonly role: string;
+      readonly expiresAt: Date;
+      readonly inviterUserId: string;
+      readonly claimToken: string;
+      readonly webOrigin: string;
+    },
+  ): Promise<void> {
+    const [organization] = await transaction
+      .select({ name: organizations.name })
+      .from(organizations)
+      .where(eq(organizations.id, input.organizationId))
+      .limit(1);
+    const [inviter] = await transaction
+      .select({ displayName: users.displayName })
+      .from(users)
+      .where(eq(users.id, input.inviterUserId))
+      .limit(1);
+    if (organization === undefined) {
+      throw new Error("Organization vanished while creating the invitation email.");
+    }
+
+    const payload = {
+      organizationName: organization.name,
+      inviterName: inviter?.displayName ?? "",
+      role: input.role,
+      invitationUrl: buildInvitationUrl(input.webOrigin, input.invitationId, input.claimToken),
+      expiresAt: input.expiresAt.toISOString(),
+    };
+
+    // Nur zur Pruefung, das Ergebnis wird verworfen: ein Payload, den der
+    // Worker spaeter nicht rendern kann — leerer Organisationsname, unbekannte
+    // Rolle, kaputte URL —, soll hier scheitern und die Einladung mit
+    // zurueckrollen, statt still im Dead-Letter zu landen. Geschrieben wird
+    // das Original: `invitationEmailPayloadSchema` macht aus `expiresAt` per
+    // `z.coerce.date()` ein Date, in der Zeile muss aber der ISO-String
+    // stehen, weil der Worker den Payload wieder durch dasselbe Schema gibt.
+    invitationEmailPayloadSchema.parse(payload);
+
+    await enqueueEmailDelivery(transaction, {
+      kind: "INVITATION",
+      recipient: input.recipient,
+      organizationId: input.organizationId,
+      invitationId: input.invitationId,
+      payload,
     });
   }
 
@@ -416,11 +502,16 @@ export class OrganizationsRepository {
    * Organisationen hinweg liest. Abgelaufene bleiben aussen vor: sie sind
    * nicht mehr annehmbar, und die Verwaltung soll nicht zum Zuruecknehmen von
    * etwas auffordern, das ohnehin nicht mehr gilt.
+   *
+   * Jede Einladung traegt den Zustand ihrer juengsten Zustellung. Zwei
+   * Abfragen statt einer `DISTINCT ON`-CTE: die Liste ist kurz, und die
+   * Reduktion auf die juengste Zeile je Einladung ist in TypeScript lesbarer
+   * als in SQL.
    */
   public async listInvitationsOfOrganization(input: {
     readonly organizationId: string;
   }) {
-    return this.databaseService.database
+    const invitations = await this.databaseService.database
       .select({
         id: organizationInvitations.id,
         organizationId: organizationInvitations.organizationId,
@@ -438,6 +529,38 @@ export class OrganizationsRepository {
         ),
       )
       .orderBy(organizationInvitations.createdAt);
+
+    if (invitations.length === 0) return [];
+
+    const deliveries = await this.databaseService.database
+      .select({
+        invitationId: emailDeliveries.invitationId,
+        sentAt: emailDeliveries.sentAt,
+        deadLetteredAt: emailDeliveries.deadLetteredAt,
+      })
+      .from(emailDeliveries)
+      .where(
+        and(
+          eq(emailDeliveries.organizationId, input.organizationId),
+          inArray(
+            emailDeliveries.invitationId,
+            invitations.map((invitation) => invitation.id),
+          ),
+        ),
+      )
+      .orderBy(desc(emailDeliveries.createdAt));
+
+    const latest = new Map<string, { sentAt: Date | null; deadLetteredAt: Date | null }>();
+    for (const delivery of deliveries) {
+      if (delivery.invitationId !== null && !latest.has(delivery.invitationId)) {
+        latest.set(delivery.invitationId, delivery);
+      }
+    }
+
+    return invitations.map((invitation) => ({
+      ...invitation,
+      lastDelivery: describeInvitationDelivery(latest.get(invitation.id)),
+    }));
   }
 
   /**
@@ -489,6 +612,74 @@ export class OrganizationsRepository {
     });
   }
 
+  /**
+   * Erzeugt einen neuen Code fuer eine offene Einladung und legt einen
+   * neuen Versandauftrag an. Weil nur der Hash gespeichert ist, laesst sich
+   * der alte Code nicht erneut versenden — er wird hier ungueltig. Der
+   * Ablauf beginnt neu bei 48 Stunden. Das `WHERE` verlangt `PENDING` und
+   * die Organisation: eine angenommene, zurueckgezogene oder fremde
+   * Einladung trifft keine Zeile.
+   */
+  public async resendInvitation(
+    input: {
+      readonly organizationId: string;
+      readonly invitationId: string;
+      readonly webOrigin: string;
+    } & ActorInput,
+  ): Promise<ResendInvitationResult> {
+    const claimToken = generateInvitationClaimToken();
+    const claimTokenHash = hashInvitationClaimToken(claimToken);
+
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [invitation] = await transaction
+        .update(organizationInvitations)
+        .set({
+          claimTokenHash,
+          expiresAt: new Date(Date.now() + INVITATION_LIFETIME_MS),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(organizationInvitations.id, input.invitationId),
+            eq(organizationInvitations.organizationId, input.organizationId),
+            eq(organizationInvitations.status, "PENDING"),
+          ),
+        )
+        .returning();
+
+      if (invitation === undefined) return { outcome: "not-found" } as const;
+
+      await this.enqueueInvitationEmail(transaction, {
+        organizationId: input.organizationId,
+        invitationId: invitation.id,
+        recipient: invitation.email,
+        role: invitation.role,
+        expiresAt: invitation.expiresAt,
+        inviterUserId: input.userId,
+        claimToken,
+        webOrigin: input.webOrigin,
+      });
+
+      await transaction.insert(auditEvents).values({
+        organizationId: input.organizationId,
+        actorUserId: input.userId,
+        action: "MEMBER_INVITATION_RESENT",
+        entityType: "OrganizationInvitation",
+        entityId: invitation.id,
+        newValue: {
+          email: invitation.email,
+          role: invitation.role,
+          expiresAt: invitation.expiresAt.toISOString(),
+        },
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+
+      return { outcome: "resent", invitation: { ...invitation, claimToken } } as const;
+    });
+  }
+
   public async listPendingInvitations(email: string) {
     return this.databaseService.database
       .select({
@@ -513,6 +704,57 @@ export class OrganizationsRepository {
         ),
       )
       .orderBy(organizationInvitations.createdAt);
+  }
+
+  /**
+   * Vorschau fuer die Einladungsseite. Erst wird die offene, nicht
+   * abgelaufene Einladung geladen, dann der Code in konstanter Zeit gegen
+   * den Hash geprueft. Jede Abweichung ergibt `null` — der Aufrufer
+   * antwortet einheitlich, ohne die Ursache zu nennen.
+   */
+  public async previewInvitation(input: {
+    readonly invitationId: string;
+    readonly claimToken: string;
+  }): Promise<{
+    readonly organizationName: string;
+    readonly role: string;
+    readonly email: string;
+    readonly expiresAt: Date;
+  } | null> {
+    const [row] = await this.databaseService.database
+      .select({
+        organizationName: organizations.name,
+        role: organizationInvitations.role,
+        email: organizationInvitations.email,
+        expiresAt: organizationInvitations.expiresAt,
+        claimTokenHash: organizationInvitations.claimTokenHash,
+      })
+      .from(organizationInvitations)
+      .innerJoin(
+        organizations,
+        eq(organizationInvitations.organizationId, organizations.id),
+      )
+      .where(
+        and(
+          eq(organizationInvitations.id, input.invitationId),
+          eq(organizationInvitations.status, "PENDING"),
+          gt(organizationInvitations.expiresAt, new Date()),
+        ),
+      )
+      .limit(1);
+
+    if (row === undefined || !invitationClaimMatches(input.claimToken, row.claimTokenHash)) {
+      return null;
+    }
+    // Der Hash bleibt bewusst ausserhalb der Antwort — die Felder werden
+    // einzeln uebernommen statt per Rest-Destrukturierung, damit ein spaeter
+    // ergaenztes Feld nicht stillschweigend nach aussen gelangt.
+    return {
+      organizationName: row.organizationName,
+      role: row.role,
+      email: row.email,
+      expiresAt: row.expiresAt,
+    };
   }
 
   /**
