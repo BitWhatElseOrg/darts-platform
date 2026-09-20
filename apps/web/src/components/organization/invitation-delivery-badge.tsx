@@ -23,7 +23,7 @@ export function InvitationDeliveryBadge({ delivery }: {
       );
     case "failed":
       return (
-        <span className="text-caption text-rose-300" role="alert">
+        <span className="text-caption text-rose-300">
           Mail: fehlgeschlagen am {dateFormat.format(delivery.failedAt)} – erneut senden oder Code weitergeben
         </span>
       );
