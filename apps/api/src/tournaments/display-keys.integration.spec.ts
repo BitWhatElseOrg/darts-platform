@@ -46,7 +46,12 @@ const viewerAuth: AuthContext = {
 };
 const audit = { correlationId: randomUUID(), ip: "127.0.0.1", userAgent: "vitest" } as const;
 
-const tournamentStartsAt = new Date("2026-09-20T18:00:00.000Z");
+// Relativ, nicht fest: der Dienst deckelt die Ablauf-Vorgabe gegen «jetzt plus
+// 48 Stunden», ein fest verdrahteter Beginn waere also eine Zeitbombe, sobald er
+// vergangen ist. Sekunden auf null, damit der Wert lesbar bleibt.
+const tournamentStartsAt = new Date(
+  Math.floor((Date.now() + 7 * 24 * 60 * 60 * 1000) / 60_000) * 60_000,
+);
 let tournamentId: string;
 let publicId: string;
 let otherPublicId: string;
