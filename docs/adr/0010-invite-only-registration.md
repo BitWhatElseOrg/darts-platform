@@ -38,3 +38,13 @@ Navigationsbuttons nicht als einzige Autorisierung dienen.
   Permission gewährt.
 - Integrationstests prüfen gültige und fehlende Einladungen; Browser-Tests
   prüfen den sichtbaren Zugang für Turnierleitung und Viewer.
+
+## Nachtrag 20.09.2026
+
+Der Einladungscode wird seit ADR 0017 per Mail zugestellt: Link
+`{WEB_ORIGIN}/einladung/{id}#code={claimToken}`, Code im Fragment. Die
+Oberfläche zeigt Link und Code weiterhin einmalig als Fallback. «Erneut
+senden» erzeugt einen neuen Code und ersetzt den Hash; der alte Code wird
+ungültig. Der Klartext liegt bis zum Versand im `payload` der Versandzeile
+und wird danach geleert. Ein öffentlicher Vorschau-Endpunkt liefert
+Organisation, Rolle und Adresse nur nach erfolgreichem Hash-Vergleich.

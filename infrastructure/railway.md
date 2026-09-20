@@ -401,10 +401,10 @@ verwendet. Die Slots eines separaten API-Service werden davon nicht verbraucht.
 
 ### E-Mail-DNS
 
-Die aktuelle Zone enthält keine dokumentierte Mailkonfiguration. Falls Adressen
-unter `@dartbase.ch` verwendet werden sollen, müssen MX, SPF, DKIM und DMARC vom
-gewählten Mailanbieter in Cloudflare ergänzt werden. Ohne Mailbetrieb werden
-keine erfundenen MX-Einträge angelegt.
+Seit dem 20.09.2026 versendet die Plattform Mails über Resend; SPF, DKIM und
+DMARC für `dartbase.ch` liegen in Cloudflare (Abschnitt E-Mail-Versand, ADR
+0017). Es gibt weiterhin keinen Posteingang unter `@dartbase.ch` und deshalb
+auch keine MX-Einträge — `noreply@dartbase.ch` ist reine Absenderadresse.
 
 ## Zielarchitektur und bekannte IaC-Abweichung
 
@@ -502,6 +502,40 @@ einen kurzzeitigen Test ohne Proxy davor), nur unbelegt ist unzulässig.
 `BETTER_AUTH_SECRET` kann beispielsweise mit `openssl rand -base64 32` erzeugt
 werden. Secret-Werte werden ausschließlich in Railway hinterlegt und weder im
 Repository noch in Tickets oder Logs kopiert.
+
+## E-Mail-Versand
+
+| Punkt | Wert |
+| --- | --- |
+| Provider | Resend, Region `eu-west-1` (Irland) |
+| Absenderdomain | `dartbase.ch`, verifiziert 20.09.2026 (SPF, DKIM, DMARC bei Cloudflare) |
+| Absender | `dartbase <noreply@dartbase.ch>` (`EMAIL_FROM`) |
+| Tracking | Öffnungs- und Klick-Tracking in Resend deaktiviert lassen |
+
+Variablen je Environment auf **API und Worker** (der Worker versendet, die
+API validiert dieselbe Umgebung):
+
+| Variable | production | staging |
+| --- | --- | --- |
+| `EMAIL_PROVIDER` | `resend` | `resend` |
+| `RESEND_API_KEY` | eigener Key «production» | eigener Key «staging» |
+| `EMAIL_FROM` | Vorgabe | Vorgabe |
+
+Rollout: zuerst Migration 0034 und Deploy mit `EMAIL_PROVIDER=log`
+(der Log-Adapter schreibt je Auftrag `email.logged` mit Empfänger, Betreff
+und Textvariante ins Worker-Log — deshalb nur kurz und bewusst), dann
+`EMAIL_PROVIDER=resend` plus Key setzen und den Worker neu starten. Die Vorgabe ist `log` — auch in Production; sie muss
+ausdrücklich auf `resend` gesetzt werden, sonst wird dauerhaft nichts
+versendet, sondern nur protokolliert. Es gibt bewusst keine Startprüfung,
+die in Production `resend` erzwingt. Startet API oder Worker dagegen mit
+`EMAIL_PROVIDER=resend` ohne Key, scheitert der Start mit einer klaren
+Meldung. Die Variablen setzt der Betreiber; für Agenten sind Produktions-
+Variablen gesperrt.
+
+Betrieb: Dead-Letter erscheinen im Worker-Log als `email.dead_letter` auf
+Level `error`; offene und gescheiterte Aufträge siehe `DATABASE_SCHEMA.md`,
+Abschnitt `email_deliveries`. Versandzeilen älter als 30 Tage räumt der
+Worker selbst weg (`email.pruned`).
 
 ## Einmaliger Production-Owner-Bootstrap
 
