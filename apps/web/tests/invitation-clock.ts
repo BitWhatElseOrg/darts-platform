@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import { createDatabaseConnection, organizationInvitations } from "@darts-platform/database";
@@ -9,7 +9,8 @@ import { createDatabaseConnection, organizationInvitations } from "@darts-platfo
  * Das erneute Senden ist erst 60 Sekunden nach der letzten Rotation erlaubt
  * (Sperre gegen Doppelklick und Retry). Ein Browsertest kann nicht so lange
  * warten, und die Uhr des Servers laesst sich von aussen nicht stellen —
- * also wird die Einladung selbst aelter gemacht.
+ * also wird die Einladung selbst aelter gemacht. Gerechnet wird wie im
+ * Repository mit `now()`, also der Datenbankuhr.
  */
 export async function backdateInvitationUpdatedAt(
   email: string,
@@ -20,7 +21,7 @@ export async function backdateInvitationUpdatedAt(
   try {
     const updated = await connection.database
       .update(organizationInvitations)
-      .set({ updatedAt: new Date(Date.now() - seconds * 1_000) })
+      .set({ updatedAt: sql`now() - make_interval(secs => ${seconds})` })
       .where(
         and(
           eq(organizationInvitations.email, email.trim().toLowerCase()),

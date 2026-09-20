@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gt, inArray, lt, ne } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
 
 import {
   auditEvents,
@@ -91,7 +91,7 @@ const INVITATION_LIFETIME_MS = 1000 * 60 * 60 * 48;
  * den zuvor verschickten Code ungueltig; ein Doppelklick oder ein Retry nach
  * Timeout wuerde also zwei Mails erzeugen, von denen nur die zweite noch
  * funktioniert. Massstab ist `updated_at` — die Spalte wird beim Erstellen
- * wie bei jeder Rotation gesetzt.
+ * wie bei jeder Rotation gesetzt, beide Male von der Datenbankuhr.
  */
 export const INVITATION_RESEND_COOLDOWN_MS = 60_000;
 
@@ -632,6 +632,12 @@ export class OrganizationsRepository {
    * trifft keine Zeile. Welcher der Faelle vorliegt, klaert erst der
    * anschliessende SELECT — die Bedingungen sitzen bewusst im UPDATE, damit
    * zwei gleichzeitige Anfragen nicht beide durchkommen.
+   *
+   * Gerechnet wird durchgehend mit `now()`, also der Datenbankuhr: `updated_at`
+   * schreibt beim Erstellen die Vorgabe der Spalte, und API und PostgreSQL
+   * laufen in getrennten Containern — ein Vergleich gegen die Prozessuhr
+   * verschoebe die Sperrfrist um deren Gangunterschied. `now()` ist zudem der
+   * Transaktionszeitpunkt, UPDATE und SELECT sehen hier also dieselbe Uhrzeit.
    */
   public async resendInvitation(
     input: {
@@ -642,34 +648,41 @@ export class OrganizationsRepository {
   ): Promise<ResendInvitationResult> {
     const claimToken = generateInvitationClaimToken();
     const claimTokenHash = hashInvitationClaimToken(claimToken);
-    const now = Date.now();
+    const cooldownSeconds = INVITATION_RESEND_COOLDOWN_MS / 1000;
+    const lifetimeSeconds = INVITATION_LIFETIME_MS / 1000;
 
     return this.databaseService.database.transaction(async (transaction) => {
       const [invitation] = await transaction
         .update(organizationInvitations)
         .set({
           claimTokenHash,
-          expiresAt: new Date(now + INVITATION_LIFETIME_MS),
-          updatedAt: new Date(now),
+          expiresAt: sql`now() + make_interval(secs => ${lifetimeSeconds})`,
+          updatedAt: sql`now()`,
         })
         .where(
           and(
             eq(organizationInvitations.id, input.invitationId),
             eq(organizationInvitations.organizationId, input.organizationId),
             eq(organizationInvitations.status, "PENDING"),
-            lt(
-              organizationInvitations.updatedAt,
-              new Date(now - INVITATION_RESEND_COOLDOWN_MS),
-            ),
+            sql`${organizationInvitations.updatedAt} < now() - make_interval(secs => ${cooldownSeconds})`,
           ),
         )
         .returning();
 
       if (invitation === undefined) {
         // Offen, aber eben erst rotiert: Sperrfrist. Sonst gibt es die
-        // Einladung in dieser Organisation nicht (mehr).
+        // Einladung in dieser Organisation nicht (mehr). `now()` kommt als
+        // Spalte mit: `updated_at` setzt die Datenbank, also muss auch die
+        // Restzeit gegen die Datenbankuhr gerechnet werden — API und
+        // PostgreSQL laufen in getrennten Containern.
         const [open] = await transaction
-          .select({ updatedAt: organizationInvitations.updatedAt })
+          .select({
+            updatedAt: organizationInvitations.updatedAt,
+            // `mapWith` ist noetig: ein blosser Ausdruck hat keinen
+            // Spaltentyp, den postgres-js kennt — `now()` kaeme sonst als
+            // Zeichenkette zurueck.
+            serverNow: sql<Date>`now()`.mapWith(organizationInvitations.updatedAt),
+          })
           .from(organizationInvitations)
           .where(
             and(
@@ -679,7 +692,8 @@ export class OrganizationsRepository {
             ),
           );
         if (open === undefined) return { outcome: "not-found" } as const;
-        const remainingMs = open.updatedAt.getTime() + INVITATION_RESEND_COOLDOWN_MS - now;
+        const remainingMs =
+          open.updatedAt.getTime() + INVITATION_RESEND_COOLDOWN_MS - open.serverNow.getTime();
         return {
           outcome: "too-soon",
           retryAfterSeconds: Math.max(1, Math.ceil(remainingMs / 1000)),

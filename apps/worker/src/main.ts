@@ -64,8 +64,8 @@ const emailSender = createEmailSender(
 // Production auf `log` ist der erste Rollout-Schritt, kein Regelbetrieb:
 // es wird nichts versendet, obwohl jede Zeile als zugestellt gebucht wird.
 // Deshalb `warn` statt `log` — die Zeile hebt sich damit im Railway-Log
-// sichtbar ab und `warn` ist die hoechste Stufe, die den CI-Rauchtest nicht
-// bricht (der grept nur auf `"level":"error"`). Der Better-Stack-Monitor
+// sichtbar ab und `warn` ist die hoechste sinnvolle Stufe unterhalb von
+// `error`, auf die der CI-Rauchtest anspringt. Der Better-Stack-Monitor
 // haengt am Health-Endpunkt der API und sieht Worker-Logs ohnehin nicht.
 const emailSenderSilentInProduction =
   environment.NODE_ENV === "production" && environment.EMAIL_PROVIDER === "log";

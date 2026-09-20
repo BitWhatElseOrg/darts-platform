@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { ConflictException, NotFoundException } from "@nestjs/common";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
@@ -169,12 +169,13 @@ describe("Einladung erzeugt einen Versandauftrag", () => {
 
 /**
  * Datiert `updated_at` zurueck, damit die 60-Sekunden-Sperre des erneuten
- * Sendens nicht mehr greift — ein Test kann nicht eine Minute warten.
+ * Sendens nicht mehr greift — ein Test kann nicht eine Minute warten. Gerechnet
+ * wird wie im Repository mit der Datenbankuhr.
  */
 async function backdateInvitation(invitationId: string, seconds: number): Promise<void> {
   await databaseService.database
     .update(organizationInvitations)
-    .set({ updatedAt: new Date(Date.now() - seconds * 1000) })
+    .set({ updatedAt: sql`now() - make_interval(secs => ${seconds})` })
     .where(eq(organizationInvitations.id, invitationId));
 }
 
