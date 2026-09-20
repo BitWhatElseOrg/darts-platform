@@ -1,8 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, gt, ne } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, ne } from "drizzle-orm";
 
 import {
   auditEvents,
+  emailDeliveries,
   enqueueEmailDelivery,
   memberships,
   organizationInvitations,
@@ -30,6 +31,7 @@ import {
   generateInvitationClaimToken,
   hashInvitationClaimToken,
 } from "../auth/invitation-claim.js";
+import { describeInvitationDelivery } from "./invitation-delivery.js";
 import { buildInvitationUrl } from "./invitation-link.js";
 
 export type UpdateMembershipResult =
@@ -484,11 +486,16 @@ export class OrganizationsRepository {
    * Organisationen hinweg liest. Abgelaufene bleiben aussen vor: sie sind
    * nicht mehr annehmbar, und die Verwaltung soll nicht zum Zuruecknehmen von
    * etwas auffordern, das ohnehin nicht mehr gilt.
+   *
+   * Jede Einladung traegt den Zustand ihrer juengsten Zustellung. Zwei
+   * Abfragen statt einer `DISTINCT ON`-CTE: die Liste ist kurz, und die
+   * Reduktion auf die juengste Zeile je Einladung ist in TypeScript lesbarer
+   * als in SQL.
    */
   public async listInvitationsOfOrganization(input: {
     readonly organizationId: string;
   }) {
-    return this.databaseService.database
+    const invitations = await this.databaseService.database
       .select({
         id: organizationInvitations.id,
         organizationId: organizationInvitations.organizationId,
@@ -506,6 +513,38 @@ export class OrganizationsRepository {
         ),
       )
       .orderBy(organizationInvitations.createdAt);
+
+    if (invitations.length === 0) return [];
+
+    const deliveries = await this.databaseService.database
+      .select({
+        invitationId: emailDeliveries.invitationId,
+        sentAt: emailDeliveries.sentAt,
+        deadLetteredAt: emailDeliveries.deadLetteredAt,
+      })
+      .from(emailDeliveries)
+      .where(
+        and(
+          eq(emailDeliveries.organizationId, input.organizationId),
+          inArray(
+            emailDeliveries.invitationId,
+            invitations.map((invitation) => invitation.id),
+          ),
+        ),
+      )
+      .orderBy(desc(emailDeliveries.createdAt));
+
+    const latest = new Map<string, { sentAt: Date | null; deadLetteredAt: Date | null }>();
+    for (const delivery of deliveries) {
+      if (delivery.invitationId !== null && !latest.has(delivery.invitationId)) {
+        latest.set(delivery.invitationId, delivery);
+      }
+    }
+
+    return invitations.map((invitation) => ({
+      ...invitation,
+      lastDelivery: describeInvitationDelivery(latest.get(invitation.id)),
+    }));
   }
 
   /**

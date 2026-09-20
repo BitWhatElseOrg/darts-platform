@@ -126,4 +126,34 @@ describe("Einladung erzeugt einen Versandauftrag", () => {
       .where(eq(emailDeliveries.organizationId, organizationId));
     expect(after.length).toBe(before.length);
   });
+
+  it("liefert in der Einladungsliste den Zustand der juengsten Zustellung", async () => {
+    const email = `status-${randomUUID()}@example.test`;
+    const created = await service.invite({ organizationId, data: { email, role: "MEMBER" }, auth: ownerAuth, audit });
+
+    let list = await service.listOrganizationInvitations({ organizationId, auth: ownerAuth });
+    expect(list.find((entry) => entry.id === created.id)?.lastDelivery).toEqual({ status: "pending" });
+
+    const sentAt = new Date("2026-09-20T10:00:00.000Z");
+    await databaseService.database
+      .update(emailDeliveries)
+      .set({ sentAt, providerMessageId: "msg", payload: null })
+      .where(eq(emailDeliveries.invitationId, created.id));
+    list = await service.listOrganizationInvitations({ organizationId, auth: ownerAuth });
+    expect(list.find((entry) => entry.id === created.id)?.lastDelivery).toEqual({ status: "sent", sentAt });
+
+    // Eine zweite, juengere Zeile (wie nach «Erneut senden») bestimmt den Status.
+    await databaseService.database.insert(emailDeliveries).values({
+      kind: "INVITATION",
+      recipient: email,
+      organizationId,
+      invitationId: created.id,
+      payload: null,
+      deadLetteredAt: new Date("2026-09-20T11:00:00.000Z"),
+      attempts: 8,
+      lastError: "test",
+    });
+    list = await service.listOrganizationInvitations({ organizationId, auth: ownerAuth });
+    expect(list.find((entry) => entry.id === created.id)?.lastDelivery?.status).toBe("failed");
+  });
 });
