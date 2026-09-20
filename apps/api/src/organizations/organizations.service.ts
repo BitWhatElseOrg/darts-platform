@@ -155,6 +155,7 @@ export class OrganizationsService {
       organizationId: input.organizationId,
       userId: input.auth.user.id,
       audit: input.audit,
+      webOrigin: this.environment.WEB_ORIGIN,
     });
 
     if (result.outcome === "player-not-assignable") {

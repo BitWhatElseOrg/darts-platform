@@ -3,6 +3,7 @@ import { and, eq, gt, ne } from "drizzle-orm";
 
 import {
   auditEvents,
+  enqueueEmailDelivery,
   memberships,
   organizationInvitations,
   organizations,
@@ -29,6 +30,7 @@ import {
   generateInvitationClaimToken,
   hashInvitationClaimToken,
 } from "../auth/invitation-claim.js";
+import { buildInvitationUrl } from "./invitation-link.js";
 
 export type UpdateMembershipResult =
   | { readonly outcome: "updated"; readonly member: OrganizationMember }
@@ -283,7 +285,7 @@ export class OrganizationsRepository {
 
   public async createInvitation(
     input: CreateInvitationInput &
-      ActorInput & { readonly organizationId: string },
+      ActorInput & { readonly organizationId: string; readonly webOrigin: string },
   ): Promise<CreateInvitationResult> {
     const claimToken = generateInvitationClaimToken();
     const claimTokenHash = hashInvitationClaimToken(claimToken);
@@ -362,10 +364,76 @@ export class OrganizationsRepository {
         correlationId: input.audit.correlationId,
       });
 
+      // Versandauftrag in derselben Transaktion: Einladung und Mail
+      // entstehen gemeinsam oder gar nicht (Spec 2026-09-20-email-versand).
+      // Organisationsname und Name der einladenden Person werden hier
+      // gelesen, damit die Mail den Stand zum Zeitpunkt der Einladung traegt.
+      await this.enqueueInvitationEmail(transaction, {
+        organizationId: input.organizationId,
+        invitationId: invitation.id,
+        recipient: invitation.email,
+        role: invitation.role,
+        expiresAt: invitation.expiresAt,
+        inviterUserId: input.userId,
+        claimToken,
+        webOrigin: input.webOrigin,
+      });
+
       return {
         outcome: "created",
         invitation: { ...invitation, claimToken },
       } as const;
+    });
+  }
+
+  /**
+   * Legt den Versandauftrag einer Einladung an. `inviterName` ist der
+   * Anzeigename der handelnden Person; fehlt er, rendert das Template ohne
+   * Namen.
+   */
+  private async enqueueInvitationEmail(
+    transaction: DatabaseTransaction,
+    input: {
+      readonly organizationId: string;
+      readonly invitationId: string;
+      readonly recipient: string;
+      readonly role: string;
+      readonly expiresAt: Date;
+      readonly inviterUserId: string;
+      readonly claimToken: string;
+      readonly webOrigin: string;
+    },
+  ): Promise<void> {
+    const [organization] = await transaction
+      .select({ name: organizations.name })
+      .from(organizations)
+      .where(eq(organizations.id, input.organizationId))
+      .limit(1);
+    const [inviter] = await transaction
+      .select({ displayName: users.displayName })
+      .from(users)
+      .where(eq(users.id, input.inviterUserId))
+      .limit(1);
+    if (organization === undefined) {
+      throw new Error("Organization vanished while creating the invitation email.");
+    }
+
+    await enqueueEmailDelivery(transaction, {
+      kind: "INVITATION",
+      recipient: input.recipient,
+      organizationId: input.organizationId,
+      invitationId: input.invitationId,
+      payload: {
+        organizationName: organization.name,
+        inviterName: inviter?.displayName ?? "",
+        role: input.role,
+        invitationUrl: buildInvitationUrl(
+          input.webOrigin,
+          input.invitationId,
+          input.claimToken,
+        ),
+        expiresAt: input.expiresAt.toISOString(),
+      },
     });
   }
 
