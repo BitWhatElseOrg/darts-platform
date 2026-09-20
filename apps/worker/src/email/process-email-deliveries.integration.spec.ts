@@ -7,6 +7,7 @@ import {
   createDatabaseConnection,
   emailDeliveries,
   enqueueEmailDelivery,
+  markEmailDeliverySent,
   OUTBOX_MAX_ATTEMPTS,
   organizations,
 } from "@darts-platform/database";
@@ -169,6 +170,36 @@ describe("processEmailDeliveries", () => {
     expect(row.attempts).toBe(1);
     expect(row.lastError).toBe("kaputt");
     expect(row.deadLetteredAt).toBeNull();
+  });
+
+  it("bucht einen Fehlversuch nach, wenn die Erfolgsbuchung scheitert", async () => {
+    const { id } = await enqueue(`booking-${randomUUID()}@example.test`);
+    const sender = new FakeSender(() => ({ kind: "sent", providerMessageId: "msg_2" }));
+
+    await processEmailDeliveries({
+      database,
+      sender,
+      logger,
+      now: () => now,
+      // Nur die eine Zeile scheitert; ein fremder Auftrag im selben Stapel
+      // wird normal gebucht.
+      markSent: async (executor, input) => {
+        if (input.id === id) throw new Error("Buchung kaputt");
+        return markEmailDeliverySent(executor, input);
+      },
+    });
+
+    expect(sender.calls.filter((entry) => entry.key === id)).toHaveLength(1);
+    const row = await readRow(id);
+    expect(row.sentAt).toBeNull();
+    expect(row.attempts).toBe(1);
+    expect(row.notBefore?.getTime()).toBe(now.getTime() + 1_000);
+    expect(row.payload).toEqual(payload);
+    expect(row.lastError).toBe("Buchung kaputt");
+    expect(logger.emit).toHaveBeenCalledWith(
+      "error",
+      expect.objectContaining({ event: "email.booking_failed", deliveryId: id }),
+    );
   });
 
   it("verteilt einen Stapel auf zwei gleichzeitige Laeufe ohne Doppelversand", async () => {

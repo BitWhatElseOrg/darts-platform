@@ -39,8 +39,11 @@ describe("pruneEmailDeliveries", () => {
         { ...base, payload: null, sentAt: old },
         // 1: alt, dead-gelettet -> weg
         { ...base, payload: null, deadLetteredAt: old, attempts: 8 },
-        // 2: alt, aber offen -> bleibt
-        { ...base, payload: {} },
+        // 2: alt, aber offen -> bleibt. `notBefore` weit in der Zukunft, damit
+        // der Mail-Poller aus der Parallel-Suite diese Zeile nicht als
+        // faellig sieht und einen Platz seines Stapels daran verliert; fuer
+        // die Aufraeumregel ist das Feld ohne Belang.
+        { ...base, payload: {}, notBefore: new Date(now.getTime() + 24 * 60 * 60 * 1000) },
         // 3: frisch versendet -> bleibt
         { ...base, payload: null, sentAt: recent, createdAt: recent },
       ])

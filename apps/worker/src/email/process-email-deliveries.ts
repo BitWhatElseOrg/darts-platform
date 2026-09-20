@@ -24,6 +24,24 @@ export interface ProcessEmailDeliveriesOptions {
   readonly limit?: number;
   readonly maxAttempts?: number;
   readonly now?: () => Date;
+  /**
+   * Nur fuer Tests: die beiden Buchungsschritte sind austauschbar, damit ein
+   * Test eine scheiternde Buchung herstellen kann. Es gibt keine
+   * Datenbankbedingung, die `markEmailDeliverySent` von aussen scheitern
+   * liesse, und ohne diesen Fall bliebe die Nachbuchung unbelegt.
+   */
+  readonly markSent?: typeof markEmailDeliverySent;
+  readonly recordFailure?: typeof recordEmailDeliveryFailure;
+}
+
+/** Was `book` je Zeile braucht; buendelt die Parameterliste. */
+interface BookingContext {
+  readonly transaction: DatabaseTransaction;
+  readonly logger: OutboxLogger;
+  readonly now: Date;
+  readonly maxAttempts: number;
+  readonly markSent: typeof markEmailDeliverySent;
+  readonly recordFailure: typeof recordEmailDeliveryFailure;
 }
 
 /**
@@ -42,6 +60,13 @@ export interface ProcessEmailDeliveriesOptions {
  * zum Schema passt, geht ohne Versand ins Dead-Letter. Jede Buchung laeuft
  * im eigenen Savepoint: ein Postgres-Fehler kostet nur diese Zeile.
  *
+ * Scheitert die Buchung selbst, wird der Fehlversuch in einem frischen
+ * Savepoint nachgebucht. Ohne diese Nachbuchung bliebe die Zeile unveraendert
+ * offen, und der naechste Tick — eine Sekunde spaeter — riefe den Provider
+ * erneut auf: bei einem dauerhaften Buchungsfehler tausende Aufrufe pro
+ * Stunde, gegen die der Idempotency-Key nur innerhalb des Provider-Fensters
+ * schuetzt. Mit der Nachbuchung greifen Backoff und Hoechstzahl Versuche.
+ *
  * Die eigenen Log-Zeilen tragen weder Empfaenger noch Link, nur
  * `deliveryId`, `kind`, `attempts`, `lastError` und `providerMessageId`
  * (Spec "Log-Hygiene"). Der Grund eines Fehlversuchs stammt immer vom
@@ -55,6 +80,15 @@ export async function processEmailDeliveries(
   const maxAttempts = options.maxAttempts ?? OUTBOX_MAX_ATTEMPTS;
 
   return database.transaction(async (transaction) => {
+    const context: BookingContext = {
+      transaction,
+      logger,
+      now: currentTime,
+      maxAttempts,
+      markSent: options.markSent ?? markEmailDeliverySent,
+      recordFailure: options.recordFailure ?? recordEmailDeliveryFailure,
+    };
+
     const rows = await transaction
       .select()
       .from(emailDeliveries)
@@ -66,14 +100,7 @@ export async function processEmailDeliveries(
     for (const row of rows) {
       const rendered = renderEmailDelivery(row.kind, row.payload);
       if (!rendered.ok) {
-        await book(
-          transaction,
-          row.id,
-          { kind: "rejected", reason: rendered.reason },
-          currentTime,
-          maxAttempts,
-          logger,
-        );
+        await book(context, row.id, { kind: "rejected", reason: rendered.reason });
         continue;
       }
 
@@ -81,13 +108,10 @@ export async function processEmailDeliveries(
       try {
         result = await sender.send({ to: row.recipient, ...rendered.email }, row.id);
       } catch (error: unknown) {
-        result = {
-          kind: "retryable",
-          reason: error instanceof Error ? error.message : String(error),
-        };
+        result = { kind: "retryable", reason: describeError(error) };
       }
 
-      await book(transaction, row.id, result, currentTime, maxAttempts, logger);
+      await book(context, row.id, result);
     }
 
     return rows.length;
@@ -98,20 +122,27 @@ export async function processEmailDeliveries(
  * Bucht ein Versandergebnis in einem eigenen Savepoint. Scheitert die
  * Buchung mit einem Postgres-Fehler, waere sonst die ganze beanspruchende
  * Transaktion beendet und der Stapel verloren.
+ *
+ * Scheitert die Buchung, bleibt die Zeile unveraendert offen — und damit
+ * sofort wieder faellig. Deshalb wird der Fehlversuch anschliessend in einem
+ * frischen Savepoint nachgebucht: erst damit tragen Zaehler und Backoff, und
+ * ein dauerhaft scheiternder Auftrag landet nach `maxAttempts` im
+ * Dead-Letter, statt den Provider im Sekundentakt zu beschaeftigen.
+ * Scheitert auch die Nachbuchung, ist die Transaktion oder die Verbindung
+ * selbst kaputt; dann bleibt nur die Meldung, und der Tick in `main.ts`
+ * faengt den Rest.
  */
 async function book(
-  transaction: DatabaseTransaction,
+  context: BookingContext,
   id: string,
   result: EmailSendResult,
-  now: Date,
-  maxAttempts: number,
-  logger: OutboxLogger,
 ): Promise<void> {
+  const { transaction, logger, now, maxAttempts } = context;
   try {
     await transaction.transaction(async (savepoint) => {
       switch (result.kind) {
         case "sent": {
-          await markEmailDeliverySent(savepoint, {
+          await context.markSent(savepoint, {
             id,
             providerMessageId: result.providerMessageId,
             now,
@@ -125,7 +156,7 @@ async function book(
         }
         case "retryable":
         case "rejected": {
-          await recordEmailDeliveryFailure({
+          await context.recordFailure({
             executor: savepoint,
             id,
             reason: result.reason,
@@ -142,11 +173,36 @@ async function book(
         }
       }
     });
+    return;
   } catch (bookingError: unknown) {
-    logger.emit("error", {
-      event: "email.booking_failed",
-      deliveryId: id,
-      error: bookingError instanceof Error ? bookingError.message : String(bookingError),
-    });
+    const message = describeError(bookingError);
+    logger.emit("error", { event: "email.booking_failed", deliveryId: id, error: message });
+
+    try {
+      await transaction.transaction(async (savepoint) => {
+        // Nie `permanent`: ein Buchungsfehler sagt nichts darueber, ob der
+        // Auftrag zustellbar ist. Der Backoff haelt den Provider fern, die
+        // Hoechstzahl Versuche beendet den Fall.
+        await context.recordFailure({
+          executor: savepoint,
+          id,
+          reason: message,
+          now,
+          maxAttempts,
+          permanent: false,
+          logger,
+        });
+      });
+    } catch (fallbackError: unknown) {
+      logger.emit("error", {
+        event: "email.booking_fallback_failed",
+        deliveryId: id,
+        error: describeError(fallbackError),
+      });
+    }
   }
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

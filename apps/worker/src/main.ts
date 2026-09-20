@@ -100,32 +100,37 @@ let pruning = false;
 async function prune(): Promise<void> {
   if (pruning) return;
   pruning = true;
+  // Die Wache faellt in einem aeusseren `finally`: wirft einer der beiden
+  // Fehlerzweige selbst (ein kaputter Logger etwa), bliebe sie sonst fuer
+  // immer gesetzt und die Aufraeumregel liefe nie wieder.
   try {
-    const removed = await pruneProcessedOutboxEvents(connection.database, new Date());
-    if (removed > 0) {
-      logger.emit("log", { event: "outbox.pruned", removed });
+    try {
+      const removed = await pruneProcessedOutboxEvents(connection.database, new Date());
+      if (removed > 0) {
+        logger.emit("log", { event: "outbox.pruned", removed });
+      }
+    } catch (error) {
+      logger.emit("error", {
+        event: "outbox.prune_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
-  } catch (error) {
-    logger.emit("error", {
-      event: "outbox.prune_failed",
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
 
-  // Eigener Fehlerzweig, nicht derselbe wie oben: sonst zeigte eine
-  // gescheiterte Mail-Aufraeumung als `outbox.prune_failed` auf die falsche
-  // Tabelle, und eine gescheiterte Outbox-Aufraeumung liesse die Mail-Zeilen
-  // fuer eine ganze Stunde ungeraeumt liegen.
-  try {
-    const removedEmails = await pruneEmailDeliveries(connection.database, new Date());
-    if (removedEmails > 0) {
-      logger.emit("log", { event: "email.pruned", removed: removedEmails });
+    // Eigener Fehlerzweig, nicht derselbe wie oben: sonst zeigte eine
+    // gescheiterte Mail-Aufraeumung als `outbox.prune_failed` auf die falsche
+    // Tabelle, und eine gescheiterte Outbox-Aufraeumung liesse die Mail-Zeilen
+    // fuer eine ganze Stunde ungeraeumt liegen.
+    try {
+      const removedEmails = await pruneEmailDeliveries(connection.database, new Date());
+      if (removedEmails > 0) {
+        logger.emit("log", { event: "email.pruned", removed: removedEmails });
+      }
+    } catch (error) {
+      logger.emit("error", {
+        event: "email.prune_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
-  } catch (error) {
-    logger.emit("error", {
-      event: "email.prune_failed",
-      message: error instanceof Error ? error.message : String(error),
-    });
   } finally {
     pruning = false;
   }
