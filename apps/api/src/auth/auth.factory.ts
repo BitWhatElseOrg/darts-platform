@@ -12,6 +12,7 @@ import {
   verifications,
   type Database,
 } from "@darts-platform/database";
+import { passwordResetEmailPayloadSchema } from "@darts-platform/schemas";
 
 import type { RateLimitStorage } from "./auth-rate-limit-storage.js";
 import { CLIENT_IP_HEADER } from "./client-ip.js";
@@ -82,10 +83,19 @@ export function createAuth(
       // Versuch legt ein neues an.
       sendResetPassword: async ({ user, url }) => {
         try {
+          // Gleiche Symmetrie wie beim Einladungs-Payload: der Payload wird
+          // vor dem Schreiben geprueft, damit eine unvollstaendige Zeile gar
+          // nicht erst entsteht — der Poller wuerde sie sonst erst beim
+          // Versand als ungueltig verwerfen. Der Zod-Fehler faellt in
+          // denselben `catch` und wird zur konstanten Meldung.
+          const payload = passwordResetEmailPayloadSchema.parse({
+            recipientName: user.name,
+            resetUrl: url,
+          });
           await enqueueEmailDelivery(database, {
             kind: "PASSWORD_RESET",
             recipient: user.email,
-            payload: { recipientName: user.name, resetUrl: url },
+            payload,
           });
         } catch (error: unknown) {
           // Better Auth protokolliert das geworfene Fehlerobjekt. Weder die
