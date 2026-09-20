@@ -158,6 +158,20 @@ describe("Stufenzuordnung je Route (Ruling B14)", () => {
     expect(response.headers["x-ratelimit-limit"]).toBe("7");
   }, 30_000);
 
+  // Die Vorschau (`POST /api/v1/invitations/:id/preview`) traegt dasselbe
+  // Muster, bekommt ihren eigenen Fall aber erst mit der Route: `global: true`
+  // haengt den Limiter je registrierter Route ein, ein noch unbekannter Pfad
+  // laeuft an ihm vorbei und traegt daher gar keine Zaehler-Kopfzeile.
+  it("ordnet das erneute Senden einer Einladung der sensiblen Stufe zu", async () => {
+    const response = await isolatedApp.inject({
+      method: "POST",
+      url: `/api/v1/organizations/${randomUUID()}/invitations/${randomUUID()}/resend`,
+      payload: {},
+    });
+
+    expect(response.headers["x-ratelimit-limit"]).toBe("7");
+  }, 30_000);
+
   it("belaesst Anmeldung und Registrierung auf der sensiblen Stufe", async () => {
     const signIn = await isolatedApp.inject({
       method: "POST",

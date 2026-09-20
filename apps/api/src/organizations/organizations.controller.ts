@@ -150,6 +150,21 @@ export class OrganizationsController {
     });
   }
 
+  @Post(":organizationId/invitations/:invitationId/resend")
+  public async resendInvitation(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("invitationId", ParseUUIDPipe) invitationId: string,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<CreatedInvitation> {
+    return this.organizationsService.resendInvitation({
+      organizationId,
+      invitationId,
+      auth,
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
+    });
+  }
+
   @Patch(":organizationId/members/:userId")
   public async updateMember(
     @Param("organizationId", ParseUUIDPipe) organizationId: string,

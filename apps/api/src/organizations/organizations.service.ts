@@ -240,6 +240,36 @@ export class OrganizationsService {
     return { cancelled: true };
   }
 
+  /** Neuer Code und neue Mail fuer eine offene Einladung; der alte Code verfaellt. */
+  public async resendInvitation(input: {
+    readonly organizationId: string;
+    readonly invitationId: string;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<CreatedInvitation> {
+    await this.organizationAccessService.requirePermission({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      permission: "organization:manage_members",
+    });
+
+    const result = await this.organizationsRepository.resendInvitation({
+      organizationId: input.organizationId,
+      invitationId: input.invitationId,
+      userId: input.auth.user.id,
+      audit: input.audit,
+      webOrigin: this.environment.WEB_ORIGIN,
+    });
+
+    if (result.outcome === "not-found") {
+      throw new NotFoundException({
+        code: "INVITATION_NOT_OPEN",
+        message: "This invitation does not exist or is no longer open.",
+      });
+    }
+    return createdInvitationSchema.parse(result.invitation);
+  }
+
   public async listInvitations(auth: AuthContext): Promise<Invitation[]> {
     const invitations =
       await this.organizationsRepository.listPendingInvitations(

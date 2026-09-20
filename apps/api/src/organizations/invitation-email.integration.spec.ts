@@ -1,18 +1,23 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { desc, eq } from "drizzle-orm";
+import { NotFoundException } from "@nestjs/common";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import {
+  auditEvents,
   emailDeliveries,
   memberships,
+  organizationInvitations,
   organizations,
   users,
 } from "@darts-platform/database";
 import { invitationEmailPayloadSchema } from "@darts-platform/schemas";
 
 import type { AuthContext } from "../auth/auth.types.js";
+import { hashInvitationClaimToken } from "../auth/invitation-claim.js";
 import { DatabaseService } from "../database/database.service.js";
+import { createApiTestApplication } from "../testing/api-harness.js";
 import { OrganizationAccessService } from "./organization-access.service.js";
 import { OrganizationsRepository } from "./organizations.repository.js";
 import { OrganizationsService } from "./organizations.service.js";
@@ -155,5 +160,86 @@ describe("Einladung erzeugt einen Versandauftrag", () => {
     });
     list = await service.listOrganizationInvitations({ organizationId, auth: ownerAuth });
     expect(list.find((entry) => entry.id === created.id)?.lastDelivery?.status).toBe("failed");
+  });
+});
+
+describe("Einladung erneut senden", () => {
+  it("rotiert den Code, verlaengert den Ablauf, legt eine zweite Zeile an und auditiert", async () => {
+    const email = `resend-${randomUUID()}@example.test`;
+    const created = await service.invite({ organizationId, data: { email, role: "MEMBER" }, auth: ownerAuth, audit });
+    const resendAt = Date.now();
+
+    const resent = await service.resendInvitation({ organizationId, invitationId: created.id, auth: ownerAuth, audit });
+
+    expect(resent.id).toBe(created.id);
+    expect(resent.claimToken).not.toBe(created.claimToken);
+    expect(resent.expiresAt.getTime()).toBeGreaterThanOrEqual(resendAt + 47 * 60 * 60 * 1000);
+
+    const [row] = await databaseService.database
+      .select({ claimTokenHash: organizationInvitations.claimTokenHash, status: organizationInvitations.status })
+      .from(organizationInvitations)
+      .where(eq(organizationInvitations.id, created.id));
+    expect(row?.status).toBe("PENDING");
+    expect(row?.claimTokenHash).toBe(hashInvitationClaimToken(resent.claimToken));
+    expect(row?.claimTokenHash).not.toBe(hashInvitationClaimToken(created.claimToken));
+
+    const deliveries = await databaseService.database
+      .select({ payload: emailDeliveries.payload })
+      .from(emailDeliveries)
+      .where(eq(emailDeliveries.invitationId, created.id))
+      .orderBy(desc(emailDeliveries.createdAt));
+    expect(deliveries).toHaveLength(2);
+    expect(invitationEmailPayloadSchema.parse(deliveries[0]!.payload).invitationUrl).toContain(`#code=${resent.claimToken}`);
+
+    const audits = await databaseService.database
+      .select({ action: auditEvents.action })
+      .from(auditEvents)
+      .where(eq(auditEvents.entityId, created.id));
+    expect(audits.map((entry) => entry.action)).toContain("MEMBER_INVITATION_RESENT");
+  });
+
+  it("weist eine zurueckgezogene Einladung mit 404 ab und legt keine Zeile an", async () => {
+    const email = `closed-${randomUUID()}@example.test`;
+    const created = await service.invite({ organizationId, data: { email, role: "MEMBER" }, auth: ownerAuth, audit });
+    await service.cancelInvitation({ organizationId, invitationId: created.id, auth: ownerAuth, audit });
+
+    await expect(
+      service.resendInvitation({ organizationId, invitationId: created.id, auth: ownerAuth, audit }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    const deliveries = await databaseService.database
+      .select({ id: emailDeliveries.id })
+      .from(emailDeliveries)
+      .where(eq(emailDeliveries.invitationId, created.id));
+    expect(deliveries).toHaveLength(1);
+  });
+
+  it("findet eine Einladung einer fremden Organisation nicht", async () => {
+    const email = `foreign-${randomUUID()}@example.test`;
+    const created = await service.invite({ organizationId, data: { email, role: "MEMBER" }, auth: ownerAuth, audit });
+    const foreignOrganizationId = randomUUID();
+    await databaseService.database.insert(organizations).values({
+      id: foreignOrganizationId, name: "Fremd", slug: `fremd-${foreignOrganizationId}`, timezone: "Europe/Zurich", locale: "de-CH",
+    });
+    await databaseService.database.insert(memberships).values({ organizationId: foreignOrganizationId, userId: ownerUserId, role: "OWNER", status: "ACTIVE" });
+    try {
+      await expect(
+        service.resendInvitation({ organizationId: foreignOrganizationId, invitationId: created.id, auth: ownerAuth, audit }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    } finally {
+      await databaseService.database.delete(organizations).where(eq(organizations.id, foreignOrganizationId));
+    }
+  });
+
+  it("antwortet ueber HTTP mit dem neuen Code und liegt unter der sensiblen Stufe", async () => {
+    const app = await createApiTestApplication({ RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: 1 });
+    try {
+      const url = `/api/v1/organizations/${organizationId}/invitations/${randomUUID()}/resend`;
+      const first = await app.inject({ method: "POST", url });
+      expect(first.statusCode).not.toBe(429);
+      const second = await app.inject({ method: "POST", url });
+      expect(second.statusCode).toBe(429);
+    } finally {
+      await app.close();
+    }
   });
 });

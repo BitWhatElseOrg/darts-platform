@@ -67,6 +67,10 @@ export type CreateInvitationResult =
   | { readonly outcome: "created"; readonly invitation: InvitationRow }
   | { readonly outcome: "player-not-assignable" };
 
+export type ResendInvitationResult =
+  | { readonly outcome: "resent"; readonly invitation: InvitationRow }
+  | { readonly outcome: "not-found" };
+
 interface ActorInput {
   readonly userId: string;
   readonly audit: AuditContext;
@@ -593,6 +597,74 @@ export class OrganizationsRepository {
       });
 
       return "cancelled";
+    });
+  }
+
+  /**
+   * Erzeugt einen neuen Code fuer eine offene Einladung und legt einen
+   * neuen Versandauftrag an. Weil nur der Hash gespeichert ist, laesst sich
+   * der alte Code nicht erneut versenden — er wird hier ungueltig. Der
+   * Ablauf beginnt neu bei 48 Stunden. Das `WHERE` verlangt `PENDING` und
+   * die Organisation: eine angenommene, zurueckgezogene oder fremde
+   * Einladung trifft keine Zeile.
+   */
+  public async resendInvitation(
+    input: {
+      readonly organizationId: string;
+      readonly invitationId: string;
+      readonly webOrigin: string;
+    } & ActorInput,
+  ): Promise<ResendInvitationResult> {
+    const claimToken = generateInvitationClaimToken();
+    const claimTokenHash = hashInvitationClaimToken(claimToken);
+
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [invitation] = await transaction
+        .update(organizationInvitations)
+        .set({
+          claimTokenHash,
+          expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 48),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(organizationInvitations.id, input.invitationId),
+            eq(organizationInvitations.organizationId, input.organizationId),
+            eq(organizationInvitations.status, "PENDING"),
+          ),
+        )
+        .returning();
+
+      if (invitation === undefined) return { outcome: "not-found" } as const;
+
+      await this.enqueueInvitationEmail(transaction, {
+        organizationId: input.organizationId,
+        invitationId: invitation.id,
+        recipient: invitation.email,
+        role: invitation.role,
+        expiresAt: invitation.expiresAt,
+        inviterUserId: input.userId,
+        claimToken,
+        webOrigin: input.webOrigin,
+      });
+
+      await transaction.insert(auditEvents).values({
+        organizationId: input.organizationId,
+        actorUserId: input.userId,
+        action: "MEMBER_INVITATION_RESENT",
+        entityType: "OrganizationInvitation",
+        entityId: invitation.id,
+        newValue: {
+          email: invitation.email,
+          role: invitation.role,
+          expiresAt: invitation.expiresAt.toISOString(),
+        },
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+
+      return { outcome: "resent", invitation: { ...invitation, claimToken } } as const;
     });
   }
 

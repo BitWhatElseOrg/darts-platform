@@ -75,6 +75,8 @@ function localizedMessage(code: string): string {
       "Die eigene Mitgliedschaft ändert eine andere verwaltende Person.",
     AVATAR_INVALID_IMAGE: "Diese Datei liess sich nicht als Bild lesen. Wähle ein JPEG, PNG oder WebP.",
     AVATAR_TOO_LARGE: "Das Bild ist zu gross. Wähle ein kleineres Bild.",
+    INVITATION_NOT_OPEN: "Diese Einladung ist nicht mehr offen. Erstelle bei Bedarf eine neue.",
+    INVITATION_NOT_FOUND: "Diese Einladung ist ungültig oder abgelaufen.",
   };
   const translated = messages[code];
   if (translated !== undefined) return translated;

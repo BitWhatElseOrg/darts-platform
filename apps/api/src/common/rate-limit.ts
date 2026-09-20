@@ -29,8 +29,13 @@ const CSP_REPORT_PATH = "/api/v1/csp-reports";
  */
 const SENSITIVE_PATH_PATTERNS: readonly RegExp[] = [
   /^\/api\/v1\/invitations\/[^/]+\/accept$/u,
+  // Vorschau prueft den Code, erneutes Senden erzeugt Mails an Dritte — beide
+  // gehoeren hinter die enge Grenze (Spec 2026-09-20-email-versand).
+  /^\/api\/v1\/invitations\/[^/]+\/preview$/u,
+  /^\/api\/v1\/organizations\/[^/]+\/invitations\/[^/]+\/resend$/u,
   /^\/api\/v1\/auth\/sign-in\//u,
   /^\/api\/v1\/auth\/sign-up\//u,
+  /^\/api\/v1\/auth\/request-password-reset$/u,
 ];
 
 type RateLimitTier = "general" | "public" | "sensitive";
