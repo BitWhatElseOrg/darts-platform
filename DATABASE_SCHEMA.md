@@ -1370,9 +1370,11 @@ Erfolg wird `payload` geleert; der Klartext-Einladungscode liegt damit nur
 bis zum Versand in der Datenbank. Der Check-Constraint
 `email_deliveries_open_has_payload_check` sichert die Gegenrichtung.
 
-`last_error` trägt ausschliesslich `<status> <name>: <message>` aus dem
-Adapter, nie Anfragedaten — der Link käme nur hinein, wenn ein Provider den
-Anfragekörper in seiner Fehlermeldung spiegelte.
+`last_error` trägt die Fehlerbegründung des Pollers: die Statuszeile des
+Adapters, die Zod-Meldung eines ungültigen Payloads oder die Meldung eines
+werfenden Senders beziehungsweise eines Buchungsfehlers — nie Anfragedaten und
+nie den Payload. Der Link käme nur hinein, wenn ein Provider den Anfragekörper
+in seiner Fehlermeldung spiegelte.
 
 Aufräumregel im Worker: versendete und dead-geletterte Zeilen älter als
 30 Tage werden stündlich in Stapeln von 1000 gelöscht.
