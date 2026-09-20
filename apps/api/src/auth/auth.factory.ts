@@ -5,6 +5,7 @@ import { and, eq, gt } from "drizzle-orm";
 import type { ApplicationEnvironment } from "@darts-platform/config";
 import {
   accounts,
+  enqueueEmailDelivery,
   organizationInvitations,
   sessions,
   users,
@@ -47,6 +48,21 @@ export function createAuth(
       enabled: true,
       minPasswordLength: 10,
       maxPasswordLength: 128,
+      // Nach einem Reset enden alle bestehenden Sitzungen: wer das Passwort
+      // zurueckgesetzt hat, will fremde Sitzungen los sein.
+      revokeSessionsOnPasswordReset: true,
+      // Kein direkter Versand: der Hook legt nur den Versandauftrag an, der
+      // Worker versendet (Spec 2026-09-20-email-versand). Better Auth hat
+      // das Token an dieser Stelle bereits persistiert; scheitert der
+      // Insert, antwortet Better Auth mit Fehler und die Person kann es
+      // erneut versuchen — das Token verfaellt nach einer Stunde von selbst.
+      sendResetPassword: async ({ user, url }) => {
+        await enqueueEmailDelivery(database, {
+          kind: "PASSWORD_RESET",
+          recipient: user.email,
+          payload: { recipientName: user.name, resetUrl: url },
+        });
+      },
     },
     // Ohne Zaehler skaliert Passwort-Raten mit der Zahl der Instanzen
     // (Audit B, I-6). `customStorage` legt den Zaehler nach Redis, ohne
@@ -61,6 +77,10 @@ export function createAuth(
           max: environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE,
         },
         "/sign-up/email": {
+          window: 60,
+          max: environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE,
+        },
+        "/request-password-reset": {
           window: 60,
           max: environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE,
         },
@@ -114,6 +134,12 @@ export function createAuth(
       database: {
         generateId: "uuid",
       },
+      // Ohne diese Angabe schaltet Better Auth die Ursprungspruefung unter
+      // `NODE_ENV=test` selbst ab (`create-context.ts`: `isTest() ? true :
+      // false`). In Produktion galt sie ohnehin; explizit gesetzt gilt sie
+      // auch in den Tests, sodass ein `redirectTo` auf eine fremde Domain
+      // dort tatsaechlich abgelehnt wird statt still durchzugehen.
+      disableOriginCheck: false,
       // Nur dieser eine Header gilt als Adressquelle; `X-Forwarded-For`
       // wertet Better Auth damit nicht mehr selbst aus (siehe
       // `client-ip.ts`).

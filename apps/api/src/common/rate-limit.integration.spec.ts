@@ -197,4 +197,17 @@ describe("Stufenzuordnung je Route (Ruling B14)", () => {
     });
     expect(signUp.headers["x-ratelimit-limit"]).toBe("7");
   }, 30_000);
+
+  // Better Auth haengt unter der Platzhalter-Route des `AuthController`; die
+  // Fastify-Bremse sieht den vollen Pfad und greift dort genauso wie bei
+  // Anmeldung und Registrierung (Spec 2026-09-20-email-versand).
+  it("ordnet die Reset-Anforderung der sensiblen Stufe zu", async () => {
+    const response = await isolatedApp.inject({
+      method: "POST",
+      url: "/api/v1/auth/request-password-reset",
+      payload: {},
+    });
+
+    expect(response.headers["x-ratelimit-limit"]).toBe("7");
+  }, 30_000);
 });
