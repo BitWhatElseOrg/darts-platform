@@ -9,6 +9,7 @@ import {
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import { getAuditContext } from "./audit-context.js";
+import { sanitizeErrorStack } from "./sanitize-error-stack.js";
 
 const errorCodes: Readonly<Record<number, string>> = {
   [HttpStatus.BAD_REQUEST]: "VALIDATION_ERROR",
@@ -78,9 +79,11 @@ export class ApiExceptionFilter implements ExceptionFilter {
     const metadata = exception instanceof HttpException ? getErrorMetadata(exception) : {};
 
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      // Der Stack laeuft durch den Schnitt: ein `DrizzleQueryError` traegt
+      // seine Bind-Parameter in der Meldung, und die steht im Stack.
       this.logger.error(
         `Unhandled API error (${correlationId})`,
-        exception instanceof Error ? exception.stack : undefined,
+        exception instanceof Error ? sanitizeErrorStack(exception.stack) : undefined,
       );
     }
 

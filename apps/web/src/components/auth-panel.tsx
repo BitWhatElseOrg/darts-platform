@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -138,6 +139,14 @@ export function AuthPanel({ onAuthenticated }: AuthPanelProps) {
               : "Konto erstellen"}
         </Button>
       </form>
+
+      {mode === "sign-in" ? (
+        <p className="mt-4 text-center">
+          <Link className="text-body text-slate-400 underline hover:text-slate-200" href="/passwort/vergessen">
+            Passwort vergessen?
+          </Link>
+        </p>
+      ) : null}
 
       <button
         className="mt-5 min-h-11 w-full text-body font-medium text-emerald-300 hover:text-emerald-200"

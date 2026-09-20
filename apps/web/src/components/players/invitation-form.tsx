@@ -10,6 +10,7 @@ import {
 import { Button } from "@darts-platform/ui";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
+import { buildInvitationLink } from "@/lib/invitation-link";
 
 import { inputClassName, labelClassName } from "./form-styles";
 
@@ -117,8 +118,16 @@ export function InvitationForm({
       {inviteMember.isSuccess ? (
         <div className="space-y-2 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-4 sm:col-span-3">
           <p className="text-body text-emerald-100">
-            Einladung erstellt. Teile diesen einmal angezeigten Code sicher mit der eingeladenen Person.
+            Einladung erstellt, eine E-Mail an {inviteMember.data.email} ist unterwegs. Falls sie nicht ankommt,
+            kannst du diesen Link oder Code auf einem anderen Weg weitergeben. Beides wird nur einmal angezeigt.
           </p>
+          <label className={labelClassName} htmlFor="created-invitation-link">Einladungslink</label>
+          <input
+            id="created-invitation-link"
+            className={`${inputClassName} font-mono`}
+            readOnly
+            value={buildInvitationLink(window.location.origin, inviteMember.data.id, inviteMember.data.claimToken)}
+          />
           <label className={labelClassName} htmlFor="created-invitation-claim">Einladungscode</label>
           <input
             id="created-invitation-claim"

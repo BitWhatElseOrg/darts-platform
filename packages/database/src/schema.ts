@@ -714,6 +714,72 @@ export const outboxEvents = pgTable(
   ],
 );
 
+/**
+ * Versandauftraege fuer ausgehende Mails (Spec 2026-09-20-email-versand,
+ * ADR 0017). Eine Zeile je Mail; die API legt sie in derselben Transaktion
+ * an wie die fachliche Aenderung, der Worker versendet und bucht.
+ *
+ * Bewusst KEIN dritter Konsument an `outbox_events`: ein Mailauftrag ist
+ * kein Domaenenereignis, sondern ein Auftrag mit eigenem Empfaenger,
+ * eigenem Inhalt und eigenem Lebenszyklus.
+ *
+ * `payload` traegt bis zum Versand den Klartext-Link (beim
+ * Einladungscode: das einzige Vorkommen des Klartexts in der Datenbank) und
+ * wird nach Erfolg oder Dead-Letter geleert. Der Check-Constraint sichert
+ * die Gegenrichtung: eine offene Zeile hat immer Inhalt.
+ *
+ * `last_error` traegt die Fehlerbegruendung des Pollers: die Statuszeile des
+ * Adapters, die Zod-Meldung eines ungueltigen Payloads oder die Meldung eines
+ * werfenden Senders beziehungsweise eines Buchungsfehlers — nie Anfragedaten
+ * und nie den Payload. Der Link kaeme nur hinein, wenn ein Provider den
+ * Anfragekoerper in seiner Fehlermeldung spiegelte.
+ */
+export const emailDeliveries = pgTable(
+  "email_deliveries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    // Nullable: der Passwort-Reset gehoert zu keiner Organisation.
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    // Verbindet die Zustellung mit der Einladung, auch nachdem der Payload
+    // geleert ist; traegt den Zustellstatus in der Einladungsliste.
+    invitationId: uuid("invitation_id").references(() => organizationInvitations.id, {
+      onDelete: "cascade",
+    }),
+    kind: varchar("kind", { length: 30 }).notNull(),
+    recipient: varchar("recipient", { length: 320 }).notNull(),
+    payload: jsonb("payload"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    providerMessageId: varchar("provider_message_id", { length: 200 }),
+    attempts: integer("attempts").default(0).notNull(),
+    notBefore: timestamp("not_before", { withTimezone: true }),
+    deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
+    lastError: text("last_error"),
+  },
+  (table) => [
+    // Der Poller liest nur offene Zeilen in Reihenfolge ihres Entstehens.
+    index("email_deliveries_pending_idx")
+      .on(table.createdAt)
+      .where(sql`${table.sentAt} is null and ${table.deadLetteredAt} is null`),
+    // Aufraeumregel.
+    index("email_deliveries_sent_at_idx").on(table.sentAt),
+    index("email_deliveries_dead_lettered_at_idx").on(table.deadLetteredAt),
+    // Zustellstatus je Einladung (juengste Zeile).
+    index("email_deliveries_invitation_created_idx").on(table.invitationId, table.createdAt),
+    index("email_deliveries_organization_created_idx").on(table.organizationId, table.createdAt),
+    check("email_deliveries_kind_check", sql`${table.kind} in ('INVITATION', 'PASSWORD_RESET')`),
+    check(
+      "email_deliveries_open_has_payload_check",
+      sql`${table.payload} is not null or ${table.sentAt} is not null or ${table.deadLetteredAt} is not null`,
+    ),
+  ],
+);
+
+export type EmailDelivery = typeof emailDeliveries.$inferSelect;
+export type NewEmailDelivery = typeof emailDeliveries.$inferInsert;
+
 export const playerStatisticAggregates = pgTable(
   "player_statistic_aggregates",
   {

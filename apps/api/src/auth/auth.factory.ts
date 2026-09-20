@@ -5,12 +5,14 @@ import { and, eq, gt } from "drizzle-orm";
 import type { ApplicationEnvironment } from "@darts-platform/config";
 import {
   accounts,
+  enqueueEmailDelivery,
   organizationInvitations,
   sessions,
   users,
   verifications,
   type Database,
 } from "@darts-platform/database";
+import { passwordResetEmailPayloadSchema } from "@darts-platform/schemas";
 
 import type { RateLimitStorage } from "./auth-rate-limit-storage.js";
 import { CLIENT_IP_HEADER } from "./client-ip.js";
@@ -18,6 +20,24 @@ import {
   INVITATION_CLAIM_HEADER,
   invitationClaimMatches,
 } from "./invitation-claim.js";
+
+/**
+ * Unverfaengliche Kennzeichnung eines Datenbankfehlers: der Fehlername und,
+ * falls vorhanden, der Postgres-Fehlercode der Ursache (etwa `23505`). Alles
+ * Uebrige bleibt draussen — Begruendung bei `sendResetPassword`.
+ */
+function describeWithoutParameters(error: unknown): string {
+  const name = error instanceof Error ? error.name : typeof error;
+  const cause: unknown = error instanceof Error ? error.cause : undefined;
+  const code =
+    typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    typeof cause.code === "string"
+      ? cause.code
+      : undefined;
+  return code === undefined ? name : `${name}/${code}`;
+}
 
 export function createAuth(
   database: Database,
@@ -47,6 +67,52 @@ export function createAuth(
       enabled: true,
       minPasswordLength: 10,
       maxPasswordLength: 128,
+      // Nach einem Reset enden alle bestehenden Sitzungen: wer das Passwort
+      // zurueckgesetzt hat, will fremde Sitzungen los sein.
+      revokeSessionsOnPasswordReset: true,
+      // Kein direkter Versand: der Hook legt nur den Versandauftrag an, der
+      // Worker versendet (Spec 2026-09-20-email-versand).
+      //
+      // Scheitert der Insert, faellt das still aus: Better Auth ruft den Hook
+      // ueber `runInBackgroundOrAwait` und faengt die Ausnahme dort ab
+      // (`create-context.mjs`), die Route antwortet danach unveraendert mit
+      // `200 { status: true }`. Die Person sieht also die neutrale
+      // Erfolgsmeldung, obwohl keine Versandzeile existiert und nie eine Mail
+      // kommt; die einzige Spur ist eine Fehlerzeile im Better-Auth-Log. Das
+      // bereits persistierte Token verfaellt nach einer Stunde, ein erneuter
+      // Versuch legt ein neues an.
+      sendResetPassword: async ({ user, url }) => {
+        try {
+          // Gleiche Symmetrie wie beim Einladungs-Payload: der Payload wird
+          // vor dem Schreiben geprueft, damit eine unvollstaendige Zeile gar
+          // nicht erst entsteht — der Poller wuerde sie sonst erst beim
+          // Versand als ungueltig verwerfen. Der Zod-Fehler faellt in
+          // denselben `catch` und wird zur konstanten Meldung.
+          const payload = passwordResetEmailPayloadSchema.parse({
+            recipientName: user.name,
+            resetUrl: url,
+          });
+          await enqueueEmailDelivery(database, {
+            kind: "PASSWORD_RESET",
+            recipient: user.email,
+            payload,
+          });
+        } catch (error: unknown) {
+          // Better Auth protokolliert das geworfene Fehlerobjekt. Weder die
+          // Meldung noch die Ursache duerfen deshalb weitergereicht werden:
+          // Drizzle verpackt jede gescheiterte Abfrage in einen
+          // `DrizzleQueryError`, dessen eigene Meldung `Failed query: …
+          // params: …` samt Bind-Parametern traegt (`drizzle-orm/errors`),
+          // und der postgres-js-Fehler darunter haengt dieselben Werte als
+          // `query` und `parameters` an. Der jsonb-Payload wird vor dem
+          // Binden serialisiert — in beiden Faellen stuende also der
+          // Reset-Link mit gueltigem Token im Log. Konstante Meldung, dazu
+          // nur Fehlername und Postgres-Code zum Einordnen.
+          throw new Error(
+            `Versandauftrag fuer den Passwort-Reset konnte nicht angelegt werden (${describeWithoutParameters(error)}).`,
+          );
+        }
+      },
     },
     // Ohne Zaehler skaliert Passwort-Raten mit der Zahl der Instanzen
     // (Audit B, I-6). `customStorage` legt den Zaehler nach Redis, ohne
@@ -61,6 +127,10 @@ export function createAuth(
           max: environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE,
         },
         "/sign-up/email": {
+          window: 60,
+          max: environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE,
+        },
+        "/request-password-reset": {
           window: 60,
           max: environment.RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE,
         },
@@ -114,6 +184,12 @@ export function createAuth(
       database: {
         generateId: "uuid",
       },
+      // Ohne diese Angabe schaltet Better Auth die Ursprungspruefung unter
+      // `NODE_ENV=test` selbst ab (`create-context.ts`: `isTest() ? true :
+      // false`). In Produktion galt sie ohnehin; explizit gesetzt gilt sie
+      // auch in den Tests, sodass ein `redirectTo` auf eine fremde Domain
+      // dort tatsaechlich abgelehnt wird statt still durchzugehen.
+      disableOriginCheck: false,
       // Nur dieser eine Header gilt als Adressquelle; `X-Forwarded-For`
       // wertet Better Auth damit nicht mehr selbst aus (siehe
       // `client-ip.ts`).

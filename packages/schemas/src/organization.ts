@@ -86,6 +86,17 @@ export const invitationClaimTokenSchema = z
   .trim()
   .regex(/^[A-Za-z0-9_-]{43}$/);
 
+/**
+ * Zustand der juengsten Zustellung einer Einladung. `pending`: Auftrag
+ * liegt beim Worker; `sent`: Provider hat angenommen; `failed`: Dead-Letter
+ * nach erschoepften Versuchen oder endgueltiger Ablehnung.
+ */
+export const invitationDeliveryStatusSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("pending") }),
+  z.object({ status: z.literal("sent"), sentAt: z.coerce.date() }),
+  z.object({ status: z.literal("failed"), failedAt: z.coerce.date() }),
+]);
+
 export const invitationSchema = z.object({
   id: z.uuid(),
   organizationId: z.uuid(),
@@ -94,6 +105,12 @@ export const invitationSchema = z.object({
   role: organizationRoleSchema,
   status: z.enum(["PENDING", "ACCEPTED", "CANCELLED", "EXPIRED"]),
   expiresAt: z.coerce.date(),
+  /**
+   * Juengste Zustellung, nur in der Organisationsliste gefuellt. `null`:
+   * Einladung aus der Zeit vor dem Mailversand; fehlt: Antwort eines
+   * Endpunkts, der den Status nicht liefert.
+   */
+  lastDelivery: invitationDeliveryStatusSchema.nullable().optional(),
 });
 
 export const invitationListSchema = z.array(invitationSchema);
@@ -104,6 +121,23 @@ export const createdInvitationSchema = invitationSchema.extend({
 
 export const acceptInvitationSchema = z.object({
   claimToken: invitationClaimTokenSchema,
+});
+
+/** Body des oeffentlichen Vorschau-Endpunkts: nur der Code. */
+export const previewInvitationInputSchema = z.object({
+  claimToken: invitationClaimTokenSchema,
+});
+
+/**
+ * Was die Einladungsseite vor der Registrierung anzeigen darf. Nur nach
+ * erfolgreichem Hash-Vergleich; sonst antwortet der Server mit 404, ohne
+ * die Ursache zu nennen.
+ */
+export const invitationPreviewSchema = z.object({
+  organizationName: z.string(),
+  role: organizationRoleSchema,
+  email: z.email(),
+  expiresAt: z.coerce.date(),
 });
 
 export const linkedPlayerSchema = z.object({
@@ -156,3 +190,6 @@ export type OrganizationMember = z.infer<typeof organizationMemberSchema>;
 export type UpdateMembershipInput = z.infer<typeof updateMembershipSchema>;
 export type LinkedPlayer = z.infer<typeof linkedPlayerSchema>;
 export type LinkMemberPlayerInput = z.infer<typeof linkMemberPlayerSchema>;
+export type InvitationDeliveryStatus = z.infer<typeof invitationDeliveryStatusSchema>;
+export type PreviewInvitationInput = z.infer<typeof previewInvitationInputSchema>;
+export type InvitationPreview = z.infer<typeof invitationPreviewSchema>;

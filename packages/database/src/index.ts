@@ -5,12 +5,24 @@ export {
   type DatabaseExecutor,
   type DatabaseTransaction,
 } from "./client.js";
+export {
+  EMAIL_DELIVERY_BATCH_SIZE,
+  emailDeliveryPending,
+  enqueueEmailDelivery,
+  markEmailDeliverySent,
+  recordEmailDeliveryFailure,
+  type EmailDeliveryFailureInput,
+  type EmailDeliveryFailureResult,
+  type EmailDeliveryKindValue,
+  type EnqueueEmailDeliveryInput,
+} from "./email-deliveries.js";
 export { migrateDatabase } from "./migration-runner.js";
 export {
   OUTBOX_BACKOFF_BASE_MS,
   OUTBOX_BACKOFF_CAP_MS,
   OUTBOX_MAX_ATTEMPTS,
   STATISTICS_OUTBOX_EVENT_TYPE,
+  outboxBackoffMillisSql,
   outboxPending,
   outboxRetryDelayMs,
   recordOutboxFailure,
@@ -26,6 +38,7 @@ export {
   bytea,
   competitions,
   competitionSlots,
+  emailDeliveries,
   legs,
   encounterCommands,
   encounterLineupEntries,
@@ -66,6 +79,7 @@ export {
   type BoardControllerLease,
   type Competition,
   type CompetitionSlot,
+  type EmailDelivery,
   type Leg,
   type Encounter,
   type EncounterCommand,
@@ -79,6 +93,7 @@ export {
   type NewAccount,
   type NewCompetition,
   type NewCompetitionSlot,
+  type NewEmailDelivery,
   type NewEncounter,
   type NewEncounterLineupEntry,
   type NewEncounterNomination,

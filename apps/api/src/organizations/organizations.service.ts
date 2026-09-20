@@ -12,6 +12,7 @@ import type { ApplicationEnvironment } from "@darts-platform/config";
 import {
   createdInvitationSchema,
   invitationListSchema,
+  invitationPreviewSchema,
   organizationListSchema,
   organizationMemberListSchema,
   organizationSummarySchema,
@@ -21,7 +22,9 @@ import {
   type LinkMemberPlayerInput,
   type CreatedInvitation,
   type Invitation,
+  type InvitationPreview,
   type OrganizationMember,
+  type PreviewInvitationInput,
   type OrganizationSummary,
   type UpdateMembershipInput,
   type UpdateOrganizationInput,
@@ -155,6 +158,7 @@ export class OrganizationsService {
       organizationId: input.organizationId,
       userId: input.auth.user.id,
       audit: input.audit,
+      webOrigin: this.environment.WEB_ORIGIN,
     });
 
     if (result.outcome === "player-not-assignable") {
@@ -239,12 +243,71 @@ export class OrganizationsService {
     return { cancelled: true };
   }
 
+  /** Neuer Code und neue Mail fuer eine offene Einladung; der alte Code verfaellt. */
+  public async resendInvitation(input: {
+    readonly organizationId: string;
+    readonly invitationId: string;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<CreatedInvitation> {
+    await this.organizationAccessService.requirePermission({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      permission: "organization:manage_members",
+    });
+
+    const result = await this.organizationsRepository.resendInvitation({
+      organizationId: input.organizationId,
+      invitationId: input.invitationId,
+      userId: input.auth.user.id,
+      audit: input.audit,
+      webOrigin: this.environment.WEB_ORIGIN,
+    });
+
+    if (result.outcome === "not-found") {
+      throw new NotFoundException({
+        code: "INVITATION_NOT_OPEN",
+        message: "This invitation does not exist or is no longer open.",
+      });
+    }
+    if (result.outcome === "too-soon") {
+      // Kein `Retry-After`-Header: eine Nest-Ausnahme setzt keine Header. Die
+      // Wartezeit steht deshalb im Koerper, wo der Fehlerfilter `details`
+      // ohnehin durchreicht.
+      throw new ConflictException({
+        code: "INVITATION_RESEND_TOO_SOON",
+        message:
+          "This invitation was resent moments ago. Wait a minute before resending again.",
+        details: { retryAfterSeconds: result.retryAfterSeconds },
+      });
+    }
+    return createdInvitationSchema.parse(result.invitation);
+  }
+
   public async listInvitations(auth: AuthContext): Promise<Invitation[]> {
     const invitations =
       await this.organizationsRepository.listPendingInvitations(
         auth.user.email.toLowerCase(),
       );
     return invitationListSchema.parse(invitations);
+  }
+
+  /** Oeffentlich: keine Sitzung, keine Organisation im Pfad; die Antwort verraet nur bei passendem Code etwas. */
+  public async previewInvitation(input: {
+    readonly invitationId: string;
+    readonly data: PreviewInvitationInput;
+  }): Promise<InvitationPreview> {
+    const preview = await this.organizationsRepository.previewInvitation({
+      invitationId: input.invitationId,
+      claimToken: input.data.claimToken,
+    });
+    if (preview === null) {
+      throw new NotFoundException({
+        code: "INVITATION_NOT_FOUND",
+        message: "This invitation is invalid or has expired.",
+      });
+    }
+    return invitationPreviewSchema.parse(preview);
   }
 
   public async acceptInvitation(input: {

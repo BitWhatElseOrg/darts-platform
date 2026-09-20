@@ -112,8 +112,10 @@ interface OutboxFailureUpdateResult {
  * ist die Anzahl Versuche NACH dieser Buchung; `outboxRetryDelayMs` erwartet
  * genau diese Zahl, ihr Exponent ist `max(0, attempts - 1)`, was sich hier zu
  * `attemptsColumn` selbst vereinfacht, weil die Spalte nie negativ ist.
+ *
+ * Exportiert, weil `email-deliveries.ts` dieselbe Kurve faehrt.
  */
-function backoffMillisSql(attemptsColumn: SQLWrapper) {
+export function outboxBackoffMillisSql(attemptsColumn: SQLWrapper) {
   return sql`least(${OUTBOX_BACKOFF_BASE_MS}::numeric * power(2, greatest(0, ${attemptsColumn})), ${OUTBOX_BACKOFF_CAP_MS}::numeric)`;
 }
 
@@ -165,7 +167,7 @@ export async function recordOutboxFailure(
           publishLastError: lastError,
           publishNotBefore: sql`case
             when ${outboxEvents.publishAttempts} + 1 >= ${maxAttempts}::integer then null
-            else ${nowIso}::timestamptz + (${backoffMillisSql(outboxEvents.publishAttempts)} * interval '1 millisecond')
+            else ${nowIso}::timestamptz + (${outboxBackoffMillisSql(outboxEvents.publishAttempts)} * interval '1 millisecond')
           end`,
           publishDeadLetteredAt: sql`case
             when ${outboxEvents.publishAttempts} + 1 >= ${maxAttempts}::integer then coalesce(${outboxEvents.publishDeadLetteredAt}, ${nowIso}::timestamptz)
@@ -190,7 +192,7 @@ export async function recordOutboxFailure(
           statisticsLastError: lastError,
           statisticsNotBefore: sql`case
             when ${outboxEvents.statisticsAttempts} + 1 >= ${maxAttempts}::integer then null
-            else ${nowIso}::timestamptz + (${backoffMillisSql(outboxEvents.statisticsAttempts)} * interval '1 millisecond')
+            else ${nowIso}::timestamptz + (${outboxBackoffMillisSql(outboxEvents.statisticsAttempts)} * interval '1 millisecond')
           end`,
           statisticsDeadLetteredAt: sql`case
             when ${outboxEvents.statisticsAttempts} + 1 >= ${maxAttempts}::integer then coalesce(${outboxEvents.statisticsDeadLetteredAt}, ${nowIso}::timestamptz)
