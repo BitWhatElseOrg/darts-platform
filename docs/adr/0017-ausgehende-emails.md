@@ -76,3 +76,18 @@ bestehende Worker pollt.
   wirft deshalb eine konstante Meldung ohne Bind-Parameter — eine
   durchgereichte Drizzle-Fehlermeldung trüge den Reset-Link im Klartext ins
   Log.
+- Der Einladungslink trägt den Code im Fragment, der Reset-Link dagegen im
+  Query-String. Diese Asymmetrie ist bewusst hingenommen: die Reset-URL baut
+  Better Auth selbst als `/reset-password/:token?callbackURL=…` und leitet von
+  dort auf die eigene Seite um — das Token muss den Umweg über den Server
+  überstehen und kann deshalb nicht im Fragment liegen, das der Browser nie
+  sendet. Es steht damit in Server-Logs, Proxy-Logs und dem `Referer`
+  fremder Ziele. Getragen wird das von der kurzen Gültigkeit: eine Stunde,
+  danach ist das Token wertlos; der Einladungscode gilt 48 Stunden und
+  bleibt deshalb im Fragment.
+- Gerendert wird erst beim Versand, der `Idempotency-Key` ist aber die
+  Zeilen-ID: wird eine Template-Änderung deployt, während eine Zeile zwischen
+  zwei Versuchen liegt, trägt der nächste Versuch einen anderen Inhalt unter
+  demselben Schlüssel — Resend antwortet dann mit 409 (bei uns `retryable`),
+  und die Zeile kann ins Dead-Letter laufen, obwohl die erste Mail zugestellt
+  wurde.

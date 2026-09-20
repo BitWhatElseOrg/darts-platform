@@ -727,6 +727,10 @@ export const outboxEvents = pgTable(
  * Einladungscode: das einzige Vorkommen des Klartexts in der Datenbank) und
  * wird nach Erfolg oder Dead-Letter geleert. Der Check-Constraint sichert
  * die Gegenrichtung: eine offene Zeile hat immer Inhalt.
+ *
+ * `last_error` traegt ausschliesslich `<status> <name>: <message>` aus dem
+ * Adapter, nie Anfragedaten — der Link kaeme nur hinein, wenn ein Provider
+ * den Anfragekoerper in seiner Fehlermeldung spiegelte.
  */
 export const emailDeliveries = pgTable(
   "email_deliveries",
