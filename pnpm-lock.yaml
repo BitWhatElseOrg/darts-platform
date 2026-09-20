@@ -271,6 +271,9 @@ importers:
       '@darts-platform/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@darts-platform/notifications':
+        specifier: workspace:*
+        version: link:../../packages/notifications
       '@darts-platform/statistics':
         specifier: workspace:*
         version: link:../../packages/statistics
