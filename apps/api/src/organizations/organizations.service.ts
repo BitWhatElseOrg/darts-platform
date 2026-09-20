@@ -270,6 +270,17 @@ export class OrganizationsService {
         message: "This invitation does not exist or is no longer open.",
       });
     }
+    if (result.outcome === "too-soon") {
+      // Kein `Retry-After`-Header: eine Nest-Ausnahme setzt keine Header. Die
+      // Wartezeit steht deshalb im Koerper, wo der Fehlerfilter `details`
+      // ohnehin durchreicht.
+      throw new ConflictException({
+        code: "INVITATION_RESEND_TOO_SOON",
+        message:
+          "This invitation was resent moments ago. Wait a minute before resending again.",
+        details: { retryAfterSeconds: result.retryAfterSeconds },
+      });
+    }
     return createdInvitationSchema.parse(result.invitation);
   }
 

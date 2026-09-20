@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gt, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, lt, ne } from "drizzle-orm";
 
 import {
   auditEvents,
@@ -71,6 +71,7 @@ export type CreateInvitationResult =
 
 export type ResendInvitationResult =
   | { readonly outcome: "resent"; readonly invitation: InvitationRow }
+  | { readonly outcome: "too-soon"; readonly retryAfterSeconds: number }
   | { readonly outcome: "not-found" };
 
 interface ActorInput {
@@ -84,6 +85,15 @@ type DatabaseTransaction = Parameters<
 
 /** Gueltigkeit einer Einladung: 48 Stunden, beim erneuten Senden neu gerechnet. */
 const INVITATION_LIFETIME_MS = 1000 * 60 * 60 * 48;
+
+/**
+ * Sperre zwischen zwei Rotationen: 60 Sekunden. Jedes erneute Senden macht
+ * den zuvor verschickten Code ungueltig; ein Doppelklick oder ein Retry nach
+ * Timeout wuerde also zwei Mails erzeugen, von denen nur die zweite noch
+ * funktioniert. Massstab ist `updated_at` — die Spalte wird beim Erstellen
+ * wie bei jeder Rotation gesetzt.
+ */
+export const INVITATION_RESEND_COOLDOWN_MS = 60_000;
 
 @Injectable()
 export class OrganizationsRepository {
@@ -616,9 +626,12 @@ export class OrganizationsRepository {
    * Erzeugt einen neuen Code fuer eine offene Einladung und legt einen
    * neuen Versandauftrag an. Weil nur der Hash gespeichert ist, laesst sich
    * der alte Code nicht erneut versenden — er wird hier ungueltig. Der
-   * Ablauf beginnt neu bei 48 Stunden. Das `WHERE` verlangt `PENDING` und
-   * die Organisation: eine angenommene, zurueckgezogene oder fremde
-   * Einladung trifft keine Zeile.
+   * Ablauf beginnt neu bei 48 Stunden. Das `WHERE` verlangt `PENDING`, die
+   * Organisation und eine `updated_at` ausserhalb der Sperrfrist: eine
+   * angenommene, zurueckgezogene, fremde oder eben erst rotierte Einladung
+   * trifft keine Zeile. Welcher der Faelle vorliegt, klaert erst der
+   * anschliessende SELECT — die Bedingungen sitzen bewusst im UPDATE, damit
+   * zwei gleichzeitige Anfragen nicht beide durchkommen.
    */
   public async resendInvitation(
     input: {
@@ -629,25 +642,49 @@ export class OrganizationsRepository {
   ): Promise<ResendInvitationResult> {
     const claimToken = generateInvitationClaimToken();
     const claimTokenHash = hashInvitationClaimToken(claimToken);
+    const now = Date.now();
 
     return this.databaseService.database.transaction(async (transaction) => {
       const [invitation] = await transaction
         .update(organizationInvitations)
         .set({
           claimTokenHash,
-          expiresAt: new Date(Date.now() + INVITATION_LIFETIME_MS),
-          updatedAt: new Date(),
+          expiresAt: new Date(now + INVITATION_LIFETIME_MS),
+          updatedAt: new Date(now),
         })
         .where(
           and(
             eq(organizationInvitations.id, input.invitationId),
             eq(organizationInvitations.organizationId, input.organizationId),
             eq(organizationInvitations.status, "PENDING"),
+            lt(
+              organizationInvitations.updatedAt,
+              new Date(now - INVITATION_RESEND_COOLDOWN_MS),
+            ),
           ),
         )
         .returning();
 
-      if (invitation === undefined) return { outcome: "not-found" } as const;
+      if (invitation === undefined) {
+        // Offen, aber eben erst rotiert: Sperrfrist. Sonst gibt es die
+        // Einladung in dieser Organisation nicht (mehr).
+        const [open] = await transaction
+          .select({ updatedAt: organizationInvitations.updatedAt })
+          .from(organizationInvitations)
+          .where(
+            and(
+              eq(organizationInvitations.id, input.invitationId),
+              eq(organizationInvitations.organizationId, input.organizationId),
+              eq(organizationInvitations.status, "PENDING"),
+            ),
+          );
+        if (open === undefined) return { outcome: "not-found" } as const;
+        const remainingMs = open.updatedAt.getTime() + INVITATION_RESEND_COOLDOWN_MS - now;
+        return {
+          outcome: "too-soon",
+          retryAfterSeconds: Math.max(1, Math.ceil(remainingMs / 1000)),
+        } as const;
+      }
 
       await this.enqueueInvitationEmail(transaction, {
         organizationId: input.organizationId,

@@ -76,6 +76,13 @@ bestehende Worker pollt.
   wirft deshalb eine konstante Meldung ohne Bind-Parameter — eine
   durchgereichte Drizzle-Fehlermeldung trüge den Reset-Link im Klartext ins
   Log.
+- «Erneut senden» ist erst 60 Sekunden nach der letzten Rotation wieder
+  erlaubt (409 `INVITATION_RESEND_TOO_SOON`, Wartezeit in `details`). Jede
+  Rotation macht den zuvor verschickten Code ungültig; ohne Sperre erzeugten
+  ein Doppelklick oder ein Retry nach Timeout zwei Mails, von denen nur die
+  zweite noch funktioniert. Bewusst keine `commandId` wie beim Scoring: das
+  ist kein Client-Kommando mit eigenem Zustand, sondern eine Verwaltungs-
+  aktion, und die Sperre auf `updated_at` deckt Doppelklick und Retry ab.
 - Der Einladungslink trägt den Code im Fragment, der Reset-Link dagegen im
   Query-String. Diese Asymmetrie ist bewusst hingenommen: die Reset-URL baut
   Better Auth selbst als `/reset-password/:token?callbackURL=…` und leitet von
