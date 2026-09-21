@@ -27,22 +27,33 @@ const organization = {
 // gibt und ob die Selbstbedienung offensteht.
 const server = vi.hoisted(() => ({
   selfServiceEnabled: true,
+  capabilitiesFail: false,
+  createRejection: null as unknown,
   organizations: [] as unknown[],
 }));
 
 const client = vi.hoisted(() => ({
-  apiRequest: vi.fn(({ path }: { readonly path: string }) => {
-    if (path === "/organizations/capabilities")
-      return Promise.resolve({ selfServiceEnabled: server.selfServiceEnabled });
-    if (path === "/organizations") return Promise.resolve(server.organizations);
-    if (path === "/invitations") return Promise.resolve([]);
-    if (path.endsWith("/matches")) return Promise.resolve([]);
-    return Promise.reject(new Error(`Unerwarteter Pfad: ${path}`));
-  }),
+  apiRequest: vi.fn(
+    ({ path, method }: { readonly path: string; readonly method?: string }) => {
+      if (path === "/organizations/capabilities")
+        return server.capabilitiesFail
+          ? Promise.reject(new Error("Netz weg"))
+          : Promise.resolve({ selfServiceEnabled: server.selfServiceEnabled });
+      if (path === "/organizations" && method === "POST")
+        return server.createRejection === null
+          ? Promise.resolve(organization)
+          : Promise.reject(server.createRejection);
+      if (path === "/organizations") return Promise.resolve(server.organizations);
+      if (path === "/invitations") return Promise.resolve([]);
+      if (path.endsWith("/matches")) return Promise.resolve([]);
+      return Promise.reject(new Error(`Unerwarteter Pfad: ${path}`));
+    },
+  ),
   userFacingErrorMessage: vi.fn(() => "Fehler"),
 }));
 vi.mock("@/lib/api-client", () => client);
 
+import { ApiClientError } from "@/lib/api-error";
 import { TenantDashboard } from "./tenant-dashboard";
 
 function renderDashboard() {
@@ -64,6 +75,8 @@ function renderDashboard() {
 
 beforeEach(() => {
   server.selfServiceEnabled = true;
+  server.capabilitiesFail = false;
+  server.createRejection = null;
   server.organizations = [organization];
 });
 
@@ -109,6 +122,57 @@ describe("Organisationen anlegen", () => {
     expect(
       await screen.findByText(/wende dich an die Plattformverwaltung/u),
     ).not.toBeNull();
+  });
+
+  it("unterscheidet eine gescheiterte Abfrage von einer gesperrten Selbstbedienung", async () => {
+    // Eine Stoerung darf nicht wie ein Bescheid aussehen: bliebe sie stumm,
+    // waere der Weg fuer diese Sitzung verschwunden, ohne dass jemand
+    // erfaehrt warum.
+    server.capabilitiesFail = true;
+    server.organizations = [];
+    renderDashboard();
+
+    const retry = await screen.findByRole("button", {
+      name: "Erneut versuchen",
+    });
+    expect(screen.queryByRole("button", { name: "Neue Organisation" })).toBeNull();
+    expect(screen.queryByText(/wende dich an die Plattformverwaltung/u)).toBeNull();
+
+    server.capabilitiesFail = false;
+    fireEvent.click(retry);
+
+    expect(
+      await screen.findByRole("button", { name: "Neue Organisation" }),
+    ).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Erneut versuchen" })).toBeNull();
+  });
+
+  it("ersetzt das Formular durch den Bescheid des Servers, wenn der Betrieb inzwischen gesperrt hat", async () => {
+    // Zwischen dem Holen der Faehigkeiten und dem Absenden kann der Betrieb
+    // den Weg schliessen. Dann zaehlt die Antwort auf `POST`, nicht der
+    // zuvor geholte Bescheid.
+    server.createRejection = new ApiClientError(
+      "self service disabled",
+      "SELF_SERVICE_ORGANIZATIONS_DISABLED",
+      null,
+      undefined,
+      403,
+    );
+    renderDashboard();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Neue Organisation" }),
+    );
+    fireEvent.change(screen.getByLabelText("Organisationsname"), {
+      target: { value: "Neuer Verein" },
+    });
+    fireEvent.change(screen.getByLabelText("Organisationskürzel"), {
+      target: { value: "neuer-verein" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Erstellen" }));
+
+    expect(await screen.findByRole("status")).not.toBeNull();
+    expect(screen.queryByLabelText("Organisationsname")).toBeNull();
   });
 
   it("laedt ohne Mitgliedschaft, aber mit offener Selbstbedienung zur Anlage ein", async () => {
