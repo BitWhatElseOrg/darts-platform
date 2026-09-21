@@ -104,6 +104,11 @@ describe("Organisationen anlegen", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByLabelText("Organisationsname")).not.toBeNull();
     expect(screen.getByLabelText("Organisationskürzel")).not.toBeNull();
+    // Der Fokus bleibt beim Ausloeser: zoege er ins Feld, faehrt auf dem
+    // Telefon die Tastatur hoch und verdeckt die Liste darueber.
+    expect(document.activeElement).not.toBe(
+      screen.getByLabelText("Organisationsname"),
+    );
   });
 
   it("bietet den Weg gar nicht an, wenn der Server die Selbstbedienung sperrt", async () => {
