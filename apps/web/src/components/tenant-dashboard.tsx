@@ -48,6 +48,15 @@ function messageFrom(error: unknown): string {
   return userFacingErrorMessage(error);
 }
 
+/**
+ * Was ueber den Weg zur Neuanlage bekannt ist. `pending` und `unknown`
+ * bleiben getrennt: beim Warten gibt es nichts zu melden, bei einer
+ * gescheiterten Abfrage dagegen sehr wohl — sonst verschwindet der Weg
+ * stillschweigend und die Uebersicht rät zu einem Anruf beim Betrieb, den
+ * niemand verlangt hat.
+ */
+type SelfServiceState = "pending" | "unknown" | "open" | "closed";
+
 interface TenantDashboardProps {
   readonly userName: string;
   readonly userEmail: string;
@@ -79,7 +88,9 @@ export function TenantDashboard({
   // Ob es den Weg zur Neuanlage ueberhaupt gibt, entscheidet der Server
   // (`ALLOW_SELF_SERVICE_ORGANIZATIONS`). Solange die Antwort aussteht, gilt
   // «gesperrt»: ein Bedienelement, das gleich wieder verschwindet, ist
-  // schlimmer als eines, das kurz spaeter erscheint.
+  // schlimmer als eines, das kurz spaeter erscheint. Scheitert die Abfrage,
+  // ist das kein Bescheid: dann sagt die Oberflaeche, dass sie es nicht
+  // weiss, statt eine Sperre zu behaupten, die niemand verhaengt hat.
   const capabilitiesQuery = useQuery({
     queryKey: ["organization-capabilities"],
     queryFn: ({ signal }) =>
@@ -90,7 +101,13 @@ export function TenantDashboard({
       }),
     staleTime: 5 * 60_000,
   });
-  const selfServiceEnabled = capabilitiesQuery.data?.selfServiceEnabled ?? false;
+  const selfService: SelfServiceState = capabilitiesQuery.isError
+    ? "unknown"
+    : capabilitiesQuery.data === undefined
+      ? "pending"
+      : capabilitiesQuery.data.selfServiceEnabled
+        ? "open"
+        : "closed";
 
   // Dieselbe gemerkte Auswahl wie auf den Arbeitsflächen
   // (`use-tournament-organization.ts`). Vorher hielt die Startseite sie nur
@@ -215,14 +232,23 @@ export function TenantDashboard({
           activeOrganizationId={resolvedActiveOrganizationId}
           organizations={organizationsQuery.data ?? []}
           onSelect={setActiveOrganizationId}
-          selfServiceEnabled={selfServiceEnabled}
+          selfService={selfService}
+          onRetryCapabilities={() => {
+            void capabilitiesQuery.refetch();
+          }}
         />
 
         {activeOrganization === null ? (
           <section className="rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">
-            {selfServiceEnabled
+            {/* Nur ein Bescheid des Servers darf den Weg zur
+                Plattformverwaltung schicken. Solange die Abfrage laeuft
+                (`pending`) oder gescheitert ist (`unknown`), bleibt der
+                Satz neutral. */}
+            {selfService === "open"
               ? "Erstelle eine Organisation, um Spieler und Matches zu verwalten."
-              : "Du gehörst noch keiner Organisation an. Nimm eine Einladung an oder wende dich an die Plattformverwaltung."}
+              : selfService === "closed"
+                ? "Du gehörst noch keiner Organisation an. Nimm eine Einladung an oder wende dich an die Plattformverwaltung."
+                : "Du gehörst noch keiner Organisation an. Nimm eine Einladung an."}
           </section>
         ) : (
           <OrganizationOverview organization={activeOrganization} />
@@ -236,12 +262,14 @@ function OrganizationsPanel({
   organizations,
   activeOrganizationId,
   onSelect,
-  selfServiceEnabled,
+  selfService,
+  onRetryCapabilities,
 }: {
   readonly organizations: readonly OrganizationSummary[];
   readonly activeOrganizationId: string | null;
   readonly onSelect: (id: string) => void;
-  readonly selfServiceEnabled: boolean;
+  readonly selfService: SelfServiceState;
+  readonly onRetryCapabilities: () => void;
 }) {
   const queryClient = useQueryClient();
   // Eine Organisation legt man einmal an, nicht bei jedem Besuch. Das
@@ -296,7 +324,21 @@ function OrganizationsPanel({
         ))}
       </div>
 
-      {selfServiceEnabled ? (
+      {selfService === "unknown" ? (
+        <div className="mt-4 border-t border-slate-800 pt-4">
+          <p className="text-body text-slate-400" role="alert">
+            Ob du eine Organisation anlegen kannst, liess sich nicht laden.
+          </p>
+          <Button
+            className="mt-3 w-full"
+            onClick={onRetryCapabilities}
+            type="button"
+            variant="outline"
+          >
+            Erneut versuchen
+          </Button>
+        </div>
+      ) : selfService === "open" ? (
         <div className="mt-4 border-t border-slate-800 pt-4">
           <button
             aria-controls="organization-create"
