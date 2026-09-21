@@ -28,6 +28,7 @@ const organization = {
 const server = vi.hoisted(() => ({
   selfServiceEnabled: true,
   capabilitiesFail: false,
+  capabilitiesPending: false,
   createRejection: null as unknown,
   organizations: [] as unknown[],
 }));
@@ -35,10 +36,12 @@ const server = vi.hoisted(() => ({
 const client = vi.hoisted(() => ({
   apiRequest: vi.fn(
     ({ path, method }: { readonly path: string; readonly method?: string }) => {
-      if (path === "/organizations/capabilities")
+      if (path === "/organizations/capabilities") {
+        if (server.capabilitiesPending) return new Promise(() => undefined);
         return server.capabilitiesFail
           ? Promise.reject(new Error("Netz weg"))
           : Promise.resolve({ selfServiceEnabled: server.selfServiceEnabled });
+      }
       if (path === "/organizations" && method === "POST")
         return server.createRejection === null
           ? Promise.resolve(organization)
@@ -76,6 +79,7 @@ function renderDashboard() {
 beforeEach(() => {
   server.selfServiceEnabled = true;
   server.capabilitiesFail = false;
+  server.capabilitiesPending = false;
   server.createRejection = null;
   server.organizations = [organization];
 });
@@ -144,6 +148,22 @@ describe("Organisationen anlegen", () => {
     expect(
       await screen.findByRole("button", { name: "Neue Organisation" }),
     ).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Erneut versuchen" })).toBeNull();
+  });
+
+  it("behauptet keine Sperre, solange die Abfrage noch laeuft", async () => {
+    // Waehrend der Abfrage ist nichts entschieden: weder ein Bedienelement
+    // noch der Rat, sich an den Betrieb zu wenden.
+    server.capabilitiesPending = true;
+    server.organizations = [];
+    renderDashboard();
+
+    expect(
+      await screen.findByText(
+        "Du gehörst noch keiner Organisation an. Nimm eine Einladung an.",
+      ),
+    ).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Neue Organisation" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Erneut versuchen" })).toBeNull();
   });
 

@@ -240,11 +240,15 @@ export function TenantDashboard({
 
         {activeOrganization === null ? (
           <section className="rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">
+            {/* Nur ein Bescheid des Servers darf den Weg zur
+                Plattformverwaltung schicken. Solange die Abfrage laeuft
+                (`pending`) oder gescheitert ist (`unknown`), bleibt der
+                Satz neutral. */}
             {selfService === "open"
               ? "Erstelle eine Organisation, um Spieler und Matches zu verwalten."
-              : selfService === "unknown"
-                ? "Du gehörst noch keiner Organisation an. Nimm eine Einladung an."
-                : "Du gehörst noch keiner Organisation an. Nimm eine Einladung an oder wende dich an die Plattformverwaltung."}
+              : selfService === "closed"
+                ? "Du gehörst noch keiner Organisation an. Nimm eine Einladung an oder wende dich an die Plattformverwaltung."
+                : "Du gehörst noch keiner Organisation an. Nimm eine Einladung an."}
           </section>
         ) : (
           <OrganizationOverview organization={activeOrganization} />
