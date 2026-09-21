@@ -99,11 +99,18 @@ describe("Organisationen anlegen", () => {
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByLabelText("Organisationsname")).toBeNull();
 
+    // Wie beim Antippen oder Auswaehlen per Tastatur: der Ausloeser hat den
+    // Fokus, bevor er das Formular oeffnet.
+    trigger.focus();
     fireEvent.click(trigger);
 
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByLabelText("Organisationsname")).not.toBeNull();
     expect(screen.getByLabelText("Organisationskürzel")).not.toBeNull();
+    // Der Fokus bleibt genau beim Ausloeser: zoege ihn irgendein Feld an
+    // sich, faehrt auf dem Telefon die Tastatur hoch und verdeckt die Liste
+    // darueber.
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("bietet den Weg gar nicht an, wenn der Server die Selbstbedienung sperrt", async () => {

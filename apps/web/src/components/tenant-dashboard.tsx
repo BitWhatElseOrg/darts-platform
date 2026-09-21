@@ -86,9 +86,17 @@ export function TenantDashboard({
       apiRequest({ path: "/invitations", schema: invitationListSchema, signal }),
   });
   // Ob es den Weg zur Neuanlage ueberhaupt gibt, entscheidet der Server
-  // (`ALLOW_SELF_SERVICE_ORGANIZATIONS`). Solange die Antwort aussteht, gilt
-  // «gesperrt»: ein Bedienelement, das gleich wieder verschwindet, ist
-  // schlimmer als eines, das kurz spaeter erscheint. Scheitert die Abfrage,
+  // (`ALLOW_SELF_SERVICE_ORGANIZATIONS`). Das kostet eine eigene Abfrage je
+  // Seitenaufruf, und das bleibt so: Der Schalter steht in der Umgebung der
+  // API. Ihn zusaetzlich als `NEXT_PUBLIC_...` zu fuehren, hiesse denselben
+  // Betriebszustand an zwei Orten zu pflegen, und die Startseite rendert
+  // statisch (ADR 0014), kann ihn also nicht beim Rendern holen. Die
+  // Abfrage laeuft parallel zu den beiden anderen und bleibt fuenf Minuten
+  // gueltig.
+  //
+  // Solange die Antwort aussteht, gilt «gesperrt»: ein Bedienelement, das
+  // gleich wieder verschwindet, ist schlimmer als eines, das kurz spaeter
+  // erscheint. Scheitert die Abfrage,
   // ist das kein Bescheid: dann sagt die Oberflaeche, dass sie es nicht
   // weiss, statt eine Sperre zu behaupten, die niemand verhaengt hat.
   const capabilitiesQuery = useQuery({
@@ -365,7 +373,11 @@ function OrganizationsPanel({
               <form className="space-y-3 pt-2" onSubmit={(event) => void submit(event)}>
                 <div className="space-y-2">
                   <label className={labelClassName} htmlFor="organization-name">Organisationsname</label>
-                  <input autoFocus id="organization-name" className={inputClassName} placeholder="Vereinsname" {...form.register("name")} />
+                  {/* Kein `autoFocus`: anders als in einem Dialog bleibt der
+                      Ausloeser sichtbar, der Fokus gehoert also dorthin. Auf
+                      dem Telefon fuhr sonst beim Aufklappen die Tastatur
+                      hoch und verdeckte die halbe Liste. */}
+                  <input id="organization-name" className={inputClassName} placeholder="Vereinsname" {...form.register("name")} />
                 </div>
                 <div className="space-y-2">
                   <label className={labelClassName} htmlFor="organization-slug">Organisationskürzel</label>
