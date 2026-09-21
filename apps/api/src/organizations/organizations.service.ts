@@ -13,6 +13,7 @@ import {
   createdInvitationSchema,
   invitationListSchema,
   invitationPreviewSchema,
+  organizationCapabilitiesSchema,
   organizationListSchema,
   organizationMemberListSchema,
   organizationSummarySchema,
@@ -23,6 +24,7 @@ import {
   type CreatedInvitation,
   type Invitation,
   type InvitationPreview,
+  type OrganizationCapabilities,
   type OrganizationMember,
   type PreviewInvitationInput,
   type OrganizationSummary,
@@ -55,6 +57,17 @@ export class OrganizationsService {
     @Inject(APPLICATION_ENVIRONMENT)
     private readonly environment: ApplicationEnvironment,
   ) {}
+
+  /**
+   * Plattformweite Auskunft, kein Mandantenbezug: sie verraet nur, ob
+   * `create` ueberhaupt offensteht. Die Oberflaeche blendet den Weg danach
+   * ein oder aus — die Sperre selbst bleibt in `create`.
+   */
+  public capabilities(): OrganizationCapabilities {
+    return organizationCapabilitiesSchema.parse({
+      selfServiceEnabled: this.environment.ALLOW_SELF_SERVICE_ORGANIZATIONS,
+    });
+  }
 
   public async list(auth: AuthContext): Promise<OrganizationSummary[]> {
     const organizations = await this.organizationsRepository.listForUser(

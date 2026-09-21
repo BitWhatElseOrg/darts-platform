@@ -228,9 +228,13 @@ test("a club can complete a match and start a generated tournament match", async
   await page.getByLabel("Einladungscode").fill(invitation.claimToken);
   await page.getByRole("button", { name: "Annehmen" }).click();
   await expect(page.getByRole("link", { name: "Turnierleitung" })).toBeVisible();
-  const organizationForm = page.locator("form").filter({
-    has: page.getByRole("heading", { name: "Organisation erstellen" }),
-  });
+  // Erst ausklappen: das Panel zeigt nur noch den Ausloeser, weil eine
+  // Organisation einmal entsteht und nicht bei jedem Besuch.
+  const createTrigger = page.getByRole("button", { name: "Neue Organisation" });
+  await expect(createTrigger).toHaveAttribute("aria-expanded", "false");
+  await createTrigger.click();
+  await expect(createTrigger).toHaveAttribute("aria-expanded", "true");
+  const organizationForm = page.locator("#organization-create form");
   await (await visibleLabeledControl(organizationForm, "Organisationsname")).fill(organizationName);
   await (await visibleLabeledControl(organizationForm, "Organisationskürzel")).fill(organizationSlug);
   await page.getByRole("button", { name: "Erstellen", exact: true }).click();

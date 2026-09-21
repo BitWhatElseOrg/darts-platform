@@ -70,6 +70,15 @@ export const organizationSummarySchema = z.object({
 
 export const organizationListSchema = z.array(organizationSummarySchema);
 
+/**
+ * Was die Plattform an Wegen ueberhaupt offen haelt — unabhaengig von einer
+ * einzelnen Organisation. Die Oberflaeche fragt das ab, statt ein Formular
+ * anzubieten, das der Server anschliessend mit 403 abweist.
+ */
+export const organizationCapabilitiesSchema = z.object({
+  selfServiceEnabled: z.boolean(),
+});
+
 export const createInvitationSchema = z.object({
   email: z.email().trim().toLowerCase(),
   role: invitableOrganizationRoleSchema,
@@ -180,6 +189,9 @@ export const updateMembershipSchema = z
 
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
+export type OrganizationCapabilities = z.infer<
+  typeof organizationCapabilitiesSchema
+>;
 export type OrganizationSummary = z.infer<typeof organizationSummarySchema>;
 export type CreateInvitationInput = z.infer<typeof createInvitationSchema>;
 export type Invitation = z.infer<typeof invitationSchema>;

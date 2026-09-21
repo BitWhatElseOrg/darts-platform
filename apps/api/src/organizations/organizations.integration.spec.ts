@@ -62,6 +62,20 @@ afterAll(async () => {
   await databaseService.onApplicationShutdown();
 });
 
+describe("Faehigkeiten der Mandantenanlage", () => {
+  it("meldet den offenen Weg, wenn das Flag gesetzt ist", () => {
+    expect(serviceWithFlag(true).capabilities()).toEqual({
+      selfServiceEnabled: true,
+    });
+  });
+
+  it("meldet den gesperrten Weg, solange das Flag aus ist", () => {
+    expect(serviceWithFlag(false).capabilities()).toEqual({
+      selfServiceEnabled: false,
+    });
+  });
+});
+
 describe("Mandantenanlage", () => {
   it("weist die Selbstbedienung ab, solange das Flag aus ist", async () => {
     const slug = `denied-${randomUUID()}`;

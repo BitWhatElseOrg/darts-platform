@@ -12,6 +12,7 @@ import {
   createOrganizationSchema,
   invitationListSchema,
   matchListSchema,
+  organizationCapabilitiesSchema,
   organizationListSchema,
   organizationSummarySchema,
   type OrganizationSummary,
@@ -75,6 +76,21 @@ export function TenantDashboard({
     queryFn: ({ signal }) =>
       apiRequest({ path: "/invitations", schema: invitationListSchema, signal }),
   });
+  // Ob es den Weg zur Neuanlage ueberhaupt gibt, entscheidet der Server
+  // (`ALLOW_SELF_SERVICE_ORGANIZATIONS`). Solange die Antwort aussteht, gilt
+  // «gesperrt»: ein Bedienelement, das gleich wieder verschwindet, ist
+  // schlimmer als eines, das kurz spaeter erscheint.
+  const capabilitiesQuery = useQuery({
+    queryKey: ["organization-capabilities"],
+    queryFn: ({ signal }) =>
+      apiRequest({
+        path: "/organizations/capabilities",
+        schema: organizationCapabilitiesSchema,
+        signal,
+      }),
+    staleTime: 5 * 60_000,
+  });
+  const selfServiceEnabled = capabilitiesQuery.data?.selfServiceEnabled ?? false;
 
   // Dieselbe gemerkte Auswahl wie auf den Arbeitsflächen
   // (`use-tournament-organization.ts`). Vorher hielt die Startseite sie nur
@@ -199,11 +215,14 @@ export function TenantDashboard({
           activeOrganizationId={resolvedActiveOrganizationId}
           organizations={organizationsQuery.data ?? []}
           onSelect={setActiveOrganizationId}
+          selfServiceEnabled={selfServiceEnabled}
         />
 
         {activeOrganization === null ? (
           <section className="rounded-2xl border border-dashed border-slate-700 p-8 text-center text-slate-400">
-            Erstelle eine Organisation, um Spieler und Matches zu verwalten.
+            {selfServiceEnabled
+              ? "Erstelle eine Organisation, um Spieler und Matches zu verwalten."
+              : "Du gehörst noch keiner Organisation an. Nimm eine Einladung an oder wende dich an die Plattformverwaltung."}
           </section>
         ) : (
           <OrganizationOverview organization={activeOrganization} />
@@ -217,12 +236,18 @@ function OrganizationsPanel({
   organizations,
   activeOrganizationId,
   onSelect,
+  selfServiceEnabled,
 }: {
   readonly organizations: readonly OrganizationSummary[];
   readonly activeOrganizationId: string | null;
   readonly onSelect: (id: string) => void;
+  readonly selfServiceEnabled: boolean;
 }) {
   const queryClient = useQueryClient();
+  // Eine Organisation legt man einmal an, nicht bei jedem Besuch. Das
+  // Formular bleibt darum eingeklappt und gibt den Platz der Liste, die
+  // taeglich gebraucht wird.
+  const [formOpen, setFormOpen] = useState(false);
   const form = useForm<OrganizationFormData>({
     resolver: zodResolver(organizationFormSchema),
     defaultValues: { name: "", slug: "" },
@@ -237,6 +262,7 @@ function OrganizationsPanel({
       }),
     onSuccess: async (organization) => {
       form.reset();
+      setFormOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["organizations"] });
       onSelect(organization.id);
     },
@@ -270,34 +296,52 @@ function OrganizationsPanel({
         ))}
       </div>
 
-      {selfServiceDisabled ? (
-        <div className="mt-6 space-y-2 border-t border-slate-800 pt-5">
-          <h3 className="text-body font-semibold text-slate-200">Organisation erstellen</h3>
-          <p className="text-body text-slate-400" role="status">
-            {messageFrom(createOrganization.error)}
-          </p>
+      {selfServiceEnabled ? (
+        <div className="mt-4 border-t border-slate-800 pt-4">
+          <button
+            aria-controls="organization-create"
+            aria-expanded={formOpen}
+            className="flex min-h-11 w-full items-center gap-2 rounded-xl text-left text-body font-medium text-slate-400 transition hover:text-emerald-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+            onClick={() => setFormOpen((open) => !open)}
+            type="button"
+          >
+            <span aria-hidden="true" className="text-title-sm leading-none">
+              {formOpen ? "−" : "+"}
+            </span>
+            Neue Organisation
+          </button>
+
+          <div id="organization-create">
+            {!formOpen ? null : selfServiceDisabled ? (
+              // Zwischen Laden der Faehigkeiten und Absenden kann der
+              // Betrieb den Weg geschlossen haben. Dann zaehlt die Antwort
+              // des Servers, nicht der zuvor geholte Bescheid.
+              <p className="pb-2 text-body text-slate-400" role="status">
+                {messageFrom(createOrganization.error)}
+              </p>
+            ) : (
+              <form className="space-y-3 pt-2" onSubmit={(event) => void submit(event)}>
+                <div className="space-y-2">
+                  <label className={labelClassName} htmlFor="organization-name">Organisationsname</label>
+                  <input autoFocus id="organization-name" className={inputClassName} placeholder="Vereinsname" {...form.register("name")} />
+                </div>
+                <div className="space-y-2">
+                  <label className={labelClassName} htmlFor="organization-slug">Organisationskürzel</label>
+                  <input id="organization-slug" className={inputClassName} placeholder="club-slug" {...form.register("slug")} />
+                </div>
+                {createOrganization.isError ? (
+                  <p role="alert" className="text-body text-rose-300">
+                    {messageFrom(createOrganization.error)}
+                  </p>
+                ) : null}
+                <Button className="w-full" disabled={createOrganization.isPending} type="submit">
+                  Erstellen
+                </Button>
+              </form>
+            )}
+          </div>
         </div>
-      ) : (
-        <form className="mt-6 space-y-3 border-t border-slate-800 pt-5" onSubmit={(event) => void submit(event)}>
-          <h3 className="text-body font-semibold text-slate-200">Organisation erstellen</h3>
-          <div className="space-y-2">
-            <label className={labelClassName} htmlFor="organization-name">Organisationsname</label>
-            <input id="organization-name" className={inputClassName} placeholder="Vereinsname" {...form.register("name")} />
-          </div>
-          <div className="space-y-2">
-            <label className={labelClassName} htmlFor="organization-slug">Organisationskürzel</label>
-            <input id="organization-slug" className={inputClassName} placeholder="club-slug" {...form.register("slug")} />
-          </div>
-          {createOrganization.isError ? (
-            <p role="alert" className="text-body text-rose-300">
-              {messageFrom(createOrganization.error)}
-            </p>
-          ) : null}
-          <Button className="w-full" disabled={createOrganization.isPending} type="submit">
-            Erstellen
-          </Button>
-        </form>
-      )}
+      ) : null}
     </section>
   );
 }

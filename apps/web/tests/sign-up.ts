@@ -10,7 +10,8 @@ export interface SignUpResult {
  * ein Test braucht sie, um Seiten unabhängig von der Auswahl anzuspringen.
  *
  * `foundation.spec.ts` führt denselben Ablauf weiterhin selbst, weil er dort
- * zusätzlich die Label-Zuordnung des Organisationsformulars zusichert.
+ * zusätzlich das Ausklappen und die Label-Zuordnung des Organisations-
+ * formulars zusichert.
  */
 export async function signUpWithOrganization(
   page: Page,
@@ -35,9 +36,10 @@ export async function signUpWithOrganization(
   await page.getByRole("button", { name: "Annehmen" }).click();
   await expect(page.getByRole("link", { name: "Turnierleitung" })).toBeVisible();
 
-  const organizationForm = page.locator("form").filter({
-    has: page.getByRole("heading", { name: "Organisation erstellen" }),
-  });
+  // Das Formular ist eingeklappt: die Neuanlage ist ein seltener
+  // Betriebsvorgang und belegt im Panel keinen Dauerplatz mehr.
+  await page.getByRole("button", { name: "Neue Organisation" }).click();
+  const organizationForm = page.locator("#organization-create form");
   await organizationForm.getByLabel("Organisationsname").fill(input.organizationName);
   await organizationForm.getByLabel("Organisationskürzel").fill(input.organizationSlug);
   await page.getByRole("button", { name: "Erstellen", exact: true }).click();
