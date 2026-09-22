@@ -82,4 +82,27 @@ describe("PlayerForm", () => {
     expect(alert.textContent).toBe("Bitte einen Anzeigenamen angeben.");
     expect(apiRequest).not.toHaveBeenCalled();
   });
+
+  it("unterscheidet einen zu langen Anzeigenamen vom fehlenden", async () => {
+    renderForm();
+
+    fireEvent.change(screen.getByLabelText("Anzeigename"), { target: { value: "x".repeat(256) } });
+    fireEvent.submit(screen.getByRole("button", { name: "Spieler hinzufügen" }).closest("form")!);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("Der Anzeigename darf höchstens 255 Zeichen lang sein.");
+    expect(apiRequest).not.toHaveBeenCalled();
+  });
+
+  it("nennt einen zu langen Spitznamen beim Namen", async () => {
+    renderForm();
+
+    fireEvent.change(screen.getByLabelText("Anzeigename"), { target: { value: "Anna Beispiel" } });
+    fireEvent.change(screen.getByLabelText("Spitzname (optional)"), { target: { value: "x".repeat(101) } });
+    fireEvent.submit(screen.getByRole("button", { name: "Spieler hinzufügen" }).closest("form")!);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("Der Spitzname darf höchstens 100 Zeichen lang sein.");
+    expect(apiRequest).not.toHaveBeenCalled();
+  });
 });

@@ -37,6 +37,14 @@ export function PlayerForm({ organizationId }: { readonly organizationId: string
   });
 
   const { displayName: displayNameError, nickname: nicknameError } = form.formState.errors;
+  // `type` traegt den Zod-Fehlercode: zu lang ist etwas anderes als gar nicht
+  // angegeben, und die Meldung soll nicht das Falsche behaupten.
+  const displayNameMessage =
+    displayNameError === undefined
+      ? null
+      : displayNameError.type === "too_big"
+        ? "Der Anzeigename darf höchstens 255 Zeichen lang sein."
+        : "Bitte einen Anzeigenamen angeben.";
 
   return (
     <>
@@ -50,13 +58,13 @@ export function PlayerForm({ organizationId }: { readonly organizationId: string
             id="player-display-name"
             className={inputClassName}
             placeholder="Anzeigename"
-            aria-invalid={displayNameError ? true : undefined}
-            aria-describedby={displayNameError ? "player-display-name-error" : undefined}
+            aria-invalid={displayNameMessage ? true : undefined}
+            aria-describedby={displayNameMessage ? "player-display-name-error" : undefined}
             {...form.register("displayName")}
           />
-          {displayNameError ? (
+          {displayNameMessage ? (
             <p id="player-display-name-error" role="alert" className="text-body text-rose-300">
-              Bitte einen Anzeigenamen angeben.
+              {displayNameMessage}
             </p>
           ) : null}
         </div>
