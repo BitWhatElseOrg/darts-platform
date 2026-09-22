@@ -57,9 +57,17 @@ Papierhilfen durchzuführen. Der Vollausbau umfasst:
 
 - Registrierung ausschliesslich mit gültiger, zeitlich begrenzter Einladung,
   Login, Logout und persistente HttpOnly-Sessions über Better Auth
-- Organisationserstellung mit transaktionaler OWNER-Mitgliedschaft
+- Einladung und Passwort-Reset per E-Mail: Versandauftrag in derselben
+  Transaktion wie die Mutation, Zustellung durch den Worker, Zustellzustand je
+  Einladung sichtbar, erneutes Senden rotiert den Code
+- Einladungsseite mit Vorschau auf Organisation und Rolle; Konto und
+  Mitgliedschaft entstehen in einem Schritt
+- Organisationserstellung mit transaktionaler OWNER-Mitgliedschaft, wahlweise
+  als Selbstbedienung freigeschaltet
 - serverseitige Rollen und Permissions für jeden Tenant-Zugriff
 - Spieler und Teams anlegen, lesen, bearbeiten und revisionssicher archivieren
+- Spielerprofilbilder in Postgres, serverseitig normalisiert
+- Verknüpfung eines Mitgliedskontos mit einem Spieler der Organisation
 - Audit-Einträge innerhalb derselben Transaktion wie die jeweilige Mutation
 
 **Scoring**
@@ -77,11 +85,14 @@ Papierhilfen durchzuführen. Der Vollausbau umfasst:
 - Team-Begegnungen als Ligamodus nach [VFC-Reglement](./LIGA-REGLEMENT.md):
   Teams mit Kader, Begegnungsvorlage, beidseitige Aufstellung, 18 beziehungsweise
   19 Spiele auf mehreren Boards, automatische Wertung und Ligatabelle
+- Einzelrangliste je Wettbewerb nach Reglement A1.6–A1.9
 - tenant-sichere Board- und Matchverwaltung mit granularen Permissions
 
 **Ansichten und Betrieb**
 
 - öffentliche Live-, Board- und TV-Ansichten mit Socket.IO und HTTP-Fallback
+- Anzeige-Schlüssel für die Board-Ansicht nicht freigegebener Turniere
+- Staging-Environment auf Railway, das `develop` folgt
 - installierbare PWA mit persistenter Offline-Queue und Board-Controller-Lock
 - Spielerprofile mit Matchverlauf, Average, Checkout-Quote, Head-to-Head und
   Rankingverlauf
@@ -141,7 +152,7 @@ Weitere Details stehen in der [Zielarchitektur](./ARCHITECTURE.md) und im
 ├── apps/
 │   ├── web/                  # Next.js Web-App und PWA
 │   ├── api/                  # NestJS/Fastify API und Realtime Gateway
-│   └── worker/               # asynchrone Statistikverarbeitung
+│   └── worker/               # asynchrone Statistik- und Mailverarbeitung
 ├── packages/
 │   ├── domain/               # Gemeinsame Domain-Bausteine
 │   ├── scoring-engine/       # Deterministische X01-Regeln und Command-Replay
@@ -149,6 +160,7 @@ Weitere Details stehen in der [Zielarchitektur](./ARCHITECTURE.md) und im
 │   ├── league-engine/        # Team-Begegnungen: Vorlage, Aufstellung, Wertung
 │   ├── scheduling-engine/    # nachvollziehbare Matchbereitschaft
 │   ├── statistics/           # reproduzierbare Statistikberechnung
+│   ├── notifications/        # Mailvorlagen und Versandadapter
 │   ├── database/             # Drizzle-Schema, Migrationen und DB-Client
 │   ├── ui/                   # Gemeinsame UI-Komponenten
 │   ├── schemas/              # Geteilte Zod-Schemas
@@ -318,6 +330,7 @@ Verbindliche Architektur- und Arbeitsregeln stehen in [AGENTS.md](./AGENTS.md).
 | [PRODUCT.md](./PRODUCT.md) | Produktnutzen, Nutzergruppen und aktueller Funktionsumfang |
 | [DESIGN.md](./DESIGN.md) | Marken-, Farb-, Typografie- und Komponentenregeln |
 | [LIGA-REGLEMENT.md](./LIGA-REGLEMENT.md) | VFC-Liga-Reglement im E-Dart als fachliche Grundlage der Team-Begegnungen |
+| [DRA-REGELWERK.md](./DRA-REGELWERK.md) | Deutsche Arbeitsübersetzung des DRA Rule Book 2026; verbindlich ist die englische Fassung |
 | [AGENTS.md](./AGENTS.md) | Verbindliche Regeln für Entwicklung und Coding Agents |
 | [ADR 0001](./docs/adr/0001-foundation-architecture.md) | Foundation als modularer Monolith |
 | [ADR 0002](./docs/adr/0002-identity-tenancy.md) | Identität, Tenant-Kontext, Permissions und Audit |
@@ -331,6 +344,11 @@ Verbindliche Architektur- und Arbeitsregeln stehen in [AGENTS.md](./AGENTS.md).
 | [ADR 0010](./docs/adr/0010-invite-only-registration.md) | Einladungsgebundene Registrierung und rollenbasierter Verwaltungszugang |
 | [ADR 0011](./docs/adr/0011-preview-database-strategy.md) | Neon für Development/Preview und Railway PostgreSQL für Production/Staging |
 | [ADR 0012](./docs/adr/0012-production-owner-bootstrap.md) | Einmaliger Production-Owner-Bootstrap über eine interne OWNER-Einladung |
+| [ADR 0013](./docs/adr/0013-oeffentliche-turnier-adressen.md) | Öffentliche Turnier-Adressen, Anzeige-Schlüssel und Kanal-Autorisierung |
+| [ADR 0014](./docs/adr/0014-csp-nonce-static-rendering.md) | CSP-Nonce zwingt fünf Routen auf dynamisches Rendering |
+| [ADR 0015](./docs/adr/0015-spieler-konto-verknuepfung.md) | Konto und Spieler bleiben getrennt und werden optional verknüpft |
+| [ADR 0016](./docs/adr/0016-profilbilder-in-postgres.md) | Profilbilder liegen als Bytes in Postgres, nicht in einem Bucket |
+| [ADR 0017](./docs/adr/0017-ausgehende-emails.md) | Ausgehende E-Mails über eine Versandtabelle und den Worker |
 | [Team-Begegnung als Ligamodus](./docs/superpowers/specs/2026-09-02-team-encounter-league-design.md) | Fachliche Umsetzung des VFC-Reglements in Vorlage, Aufstellung und Wertung |
 | [Bedienungsanleitung](./apps/web/public/bedienungsanleitung.html) | Öffentlich zugängliche deutsche Anleitung für Administration, Turnierleitung und Scoring |
 | [Railway-Runbook](./infrastructure/railway.md) | Deployment, Variablen, Smoke-Test, Diagnose und Rollback |
