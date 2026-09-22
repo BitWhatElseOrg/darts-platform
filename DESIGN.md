@@ -374,6 +374,12 @@ The signature component. A circular plate carrying a stencilled numeral: slate w
 ### Name (`Name`)
 A person, pair or team, wherever one is named: Archivo 600 at the field step (`0.9375rem`). Tones `ink`, `chalk`, `dim`, `quiet`. Active and inactive differ by **tone, never by size** — the field step is the one place a name may not shrink, so a board wedge's inactive participant sits at the same size as the active one and only its colour recedes. Pair it with `title={…}` wherever it can truncate.
 
+### Score (`Score`)
+Enamel numerals off the number ring, always `tabular` so columns of scores align. Three sizes — `display` (the remaining score of the player at the oche, the largest thing on the page), `lead`, `quiet` — and four tones (`chalk`, `ink`, `dim`, `finish`). A score is the one figure that may be read from across a hall, so it never shares its size step with anything that is not a score.
+
+### Marks (`MarkDisc`, `MarkBar`, `MarkDoubleRing`, `MarkHatch`, `MarkCross`, `MarkClock`, `MarkFlight`, `MarkCheck`, `MarkChevron`)
+The drawn half of the Never-Only-Colour Rule: nine inline SVG marks, each tied to a meaning rather than to a component — disc for free, bar for running, double ring for a finish or a qualifying place, hatch for blocked, cross for an error, clock for waiting, flight for starting, check for done, chevron for a select. They carry no colour of their own; they take the colour of the text they sit in, and they are `aria-hidden` wherever a word already says the same thing.
+
 ### State Tag (`StateTag`)
 Colour, drawn mark and word in one row — the enforcement mechanism for the Never-Only-Colour Rule. Six tones (`free`, `live`, `finish`, `blocked`, `conflict`, `waiting`), each with its own mark, and an `on` prop (`ink` | `sisal`) that selects the contrast-correct rendition for the ground it sits on.
 
