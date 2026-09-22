@@ -29,7 +29,7 @@ Deployment-Stand `main` 051ddbf, `https://dartbase.ch` antwortet mit HTTP
 
 ## Staging-Environment
 
-Stand: 18.09.2026
+Stand: 21.09.2026
 
 Neben `production` existiert im Projekt `dartbase` das Environment
 `staging` (ID `ade64d16-d5ff-4be6-bd80-39e582335a20`). Es ist eine
@@ -37,10 +37,15 @@ Duplikation von `production` mit eigenen, leeren Postgres- und Redis-Instanzen
 samt eigenen Volumes und Zugangsdaten. Staging enthält keine Production-Daten.
 
 Am 18.09.2026 hat der Betreiber die erste Staging-Organisation gemäss diesem
-Runbook bootstrapped: «Staging Testverein» (Slug `staging-testverein`). Das
-fiktive Testkonto `test-runner@example.test` (Rolle MEMBER) ist darin
-registriert; seine Zugangsdaten liegen in der git-ignorierten `.env.staging`
-(siehe [Staging-Tests und Lastläufe](#staging-tests-und-lastläufe)).
+Runbook bootstrapped: «Staging Testverein» (Slug `staging-testverein`). Diese
+Organisation wurde am 21.09.2026 gelöscht; seither ist «Dart Demo» (Slug
+`dartdemo`, ID `3fccf16e-7599-468e-ba23-74c8b61970d2`) die Arbeitsorganisation
+auf Staging. Inhaber sind das Betreiberkonto und das fiktive Testkonto
+`test-runner-2@example.test`, dessen Zugangsdaten in der git-ignorierten
+`.env.staging` liegen (siehe
+[Staging-Tests und Lastläufe](#staging-tests-und-lastläufe)). Die Staging-Specs
+legen sich ihre Organisationen selbst an; die Lasttest-Organisationen vom
+18.09.2026 stehen noch in der Datenbank.
 
 | Bereich | production | staging |
 | --- | --- | --- |
@@ -148,9 +153,9 @@ damit verloren, sobald der Worktree gelöscht wird.
 | --- | --- |
 | `STAGING_API_URL` | Basis-URL der Staging-API |
 | `STAGING_WEB_ORIGIN` | erlaubter Origin des Staging-Web-Frontends |
-| `STAGING_EMAIL` | Anmeldeadresse des Testkontos `test-runner@example.test` |
+| `STAGING_EMAIL` | Anmeldeadresse des Testkontos `test-runner-2@example.test` |
 | `STAGING_PASSWORD` | Passwort des Testkontos |
-| `STAGING_ORGANIZATION_ID` | ID der Organisation «Staging Testverein» |
+| `STAGING_ORGANIZATION_ID` | ID der Organisation «Dart Demo» (von den Specs nicht gelesen, nur für manuelle Abfragen) |
 | `STAGING_LOAD_BOARDS` | Anzahl Boards für Fall A3 (Vorgabe 20; kleinere Werte für einen Smoke-Lauf) |
 | `STAGING_LOAD_SECONDS` | Laufzeit von Fall A3 in Sekunden (Vorgabe 120) |
 
