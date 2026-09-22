@@ -322,9 +322,9 @@
           <h1>Bedienungsanleitung</h1>
           <p class="lead">
             DartBase – Turnier Plattform: von der Einladung über Spieler und Boards
-            bis zum Live-Turnier, Scoring und zur Ergebniskorrektur.
+            bis zu Turnier, Liga, Scoring und Ergebniskorrektur.
           </p>
-          <p class="meta">Ausgabe 1.1 · Stand 1. September 2026 · Produktsprache de-CH</p>
+          <p class="meta">Ausgabe 1.2 · Stand 22. September 2026 · Produktsprache de-CH</p>
         </div>
         <img
           class="brand-logo"
@@ -350,6 +350,7 @@
           <li><a href="#scoring">Score erfassen</a></li>
           <li><a href="#turnier">Turnier anlegen</a></li>
           <li><a href="#turnierleitung">Turnier leiten</a></li>
+          <li><a href="#liga">Liga und Begegnungen</a></li>
           <li><a href="#live">Live- und TV-Ansicht</a></li>
           <li><a href="#statistik">Spielerstatistik</a></li>
           <li><a href="#offline">Offline und Konflikte</a></li>
@@ -376,8 +377,8 @@
             </article>
             <article class="card">
               <span class="number">B</span>
-              <h3>Turnierleitung</h3>
-              <p>Turnier erzeugen, Matches Boards zuweisen, Fortschritt und Resultate überwachen.</p>
+              <h3>Turnier und Liga</h3>
+              <p>Turnier oder Ligabegegnung führen, Boards zuweisen, Fortschritt und Resultate überwachen.</p>
             </article>
             <article class="card">
               <span class="number">C</span>
@@ -408,14 +409,23 @@
             <li>Nach erfolgreicher Anmeldung erscheint der Organisationsbereich.</li>
           </ol>
 
-          <h3>Neues Konto auf Einladung</h3>
+          <h3>Neues Konto über den Einladungslink</h3>
+          <p>
+            Eine Einladung wird als E-Mail zugestellt. Der Link darin führt direkt auf eine
+            Seite, die Organisation und vorgesehene Rolle anzeigt, bevor irgendetwas
+            ausgefüllt wird.
+          </p>
           <ol class="steps">
-            <li>Owner oder Admin erstellen eine Einladung und teilen den einmal angezeigten Einladungscode über einen sicheren Kanal.</li>
-            <li>Auf der Einstiegsseite <strong>Eingeladen? Konto erstellen</strong> wählen.</li>
-            <li>Name, die exakt eingeladene E-Mail-Adresse, ein Passwort mit mindestens zehn Zeichen und den Einladungscode eingeben.</li>
-            <li><strong>Konto erstellen</strong> wählen.</li>
-            <li>Unter <strong>Offene Einladungen</strong> denselben Einladungscode eingeben und mit <strong>Annehmen</strong> bestätigen.</li>
+            <li>Den Link aus der Einladungsmail öffnen.</li>
+            <li>Die angezeigte Organisation und Rolle prüfen.</li>
+            <li>Namen und ein Passwort mit mindestens zehn Zeichen eingeben.</li>
+            <li><strong>Konto erstellen und Einladung annehmen</strong> wählen.</li>
           </ol>
+          <p>
+            Konto und Mitgliedschaft entstehen in einem Schritt; ein getrenntes Einlösen des
+            Codes entfällt. Wer bereits ein Konto hat, meldet sich stattdessen an und nimmt
+            die Einladung unter <strong>Offene Einladungen</strong> an.
+          </p>
           <div class="callout warning">
             <strong>Keine offene Selbstregistrierung</strong>
             Ohne offene, noch nicht abgelaufene Einladung lehnt der Server die
@@ -423,9 +433,22 @@
             inhaltlich trotzdem der Einladung entsprechen.
           </div>
           <p>
-            Einladungen werden aktuell nicht automatisch per E-Mail verschickt. Die
-            einladende Person informiert den neuen Benutzer deshalb über einen vereinbarten
-            Kanal, dass die Registrierung bereitsteht.
+            Kommt die Mail nicht an, hilft die einladende Person weiter: sie kann die
+            Einladung erneut senden oder den Einladungslink von Hand weitergeben
+            (siehe <a href="#organisation">Organisation und Mitglieder verwalten</a>).
+          </p>
+
+          <h3>Passwort vergessen</h3>
+          <ol class="steps">
+            <li>Auf der Einstiegsseite <strong>Passwort vergessen</strong> wählen.</li>
+            <li>Die E-Mail-Adresse des Kontos eingeben und <strong>Link anfordern</strong> wählen.</li>
+            <li>Den Link aus der Mail öffnen, das neue Passwort zweimal eingeben und <strong>Passwort setzen</strong> wählen.</li>
+          </ol>
+          <p>
+            Die Bestätigung fällt bewusst gleich aus, ob es das Konto gibt oder nicht — so
+            verrät die Seite niemandem, welche Adressen registriert sind. Mit dem neuen
+            Passwort werden alle bestehenden Sitzungen des Kontos beendet; angemeldete
+            Geräte müssen sich neu anmelden.
           </p>
         </section>
 
@@ -466,22 +489,60 @@
           <h3>Organisation auswählen oder erstellen</h3>
           <p>
             Links im Bereich <strong>Organisationen</strong> eine bestehende Organisation
-            wählen. Für eine neue Organisation Vereinsname und einen eindeutigen, kurzen
-            Slug wie <code>dc-muster</code> eingeben und <strong>Erstellen</strong> wählen.
-            Die erstellende Person wird Owner dieser Organisation.
+            wählen. Darunter öffnet <strong>Neue Organisation</strong> ein Formular für
+            Vereinsname und ein eindeutiges, kurzes Kürzel wie <code>dc-muster</code>. Nach
+            <strong>Erstellen</strong> wird die erstellende Person Owner dieser Organisation.
           </p>
+          <div class="callout">
+            <strong>Nicht überall vorhanden</strong>
+            Ob sich eine Organisation selbst anlegen lässt, entscheidet der Betrieb. Fehlt
+            <strong>Neue Organisation</strong>, ist dieser Weg auf dieser Installation
+            geschlossen und eine Organisation entsteht nur durch den Betrieb. Lässt sich
+            nicht ermitteln, ob der Weg offen ist, erscheint statt des Formulars ein Hinweis
+            mit <strong>Erneut versuchen</strong>.
+          </div>
           <h3>Mitglied einladen</h3>
           <ol class="steps">
             <li>Die gewünschte Organisation öffnen.</li>
             <li>Im Einladungsbereich die E-Mail-Adresse eintragen.</li>
             <li>Admin, Turnierleitung, Scorer, Mitglied oder Zuschauer als Rolle wählen.</li>
-            <li><strong>Einladen</strong> wählen und der Person die Registrierung mitteilen.</li>
+            <li><strong>Einladen</strong> wählen. Die Einladung geht als Mail hinaus.</li>
           </ol>
           <div class="callout warning">
             <strong>Rolle vor dem Absenden prüfen</strong>
             Owner kann nicht als Einladungsrolle vergeben werden. Die Rolle
             Turnierleitung sollte nur erhalten, wer tatsächlich Turniere ändern muss.
           </div>
+
+          <h3>Zustellung verfolgen und nachfassen</h3>
+          <p>
+            Jede offene Einladung trägt den Zustand ihrer jüngsten Mail — als Text, nicht nur
+            als Farbe:
+          </p>
+          <div class="table-wrap">
+            <table>
+              <caption>Zustellzustände einer Einladung</caption>
+              <thead>
+                <tr><th scope="col">Anzeige</th><th scope="col">Bedeutung</th></tr>
+              </thead>
+              <tbody>
+                <tr><th scope="row">Mail: ausstehend</th><td>Der Versandauftrag liegt vor und wird abgearbeitet.</td></tr>
+                <tr><th scope="row">Mail: versendet am …</th><td>Der Versanddienst hat die Mail angenommen.</td></tr>
+                <tr><th scope="row">Mail: fehlgeschlagen am …</th><td>Der Versand ist gescheitert. Erneut senden oder den Code weitergeben.</td></tr>
+                <tr><th scope="row">Mail: ohne Versand</th><td>Einladung aus der Zeit vor dem Mailversand; der Code wurde von Hand weitergegeben.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            <strong>Erneut senden</strong> verschickt eine neue Mail und rotiert dabei den
+            Code: <em>der bisherige Einladungscode wird damit ungültig</em>. Anschliessend
+            zeigt die Liste einmalig den neuen Einladungslink und den neuen Code an — der
+            Rückfallweg, wenn Mail nicht ankommt. Zwischen zwei Sendungen derselben Einladung
+            liegt eine Sperre von 60 Sekunden.
+          </p>
+          <p>
+            <strong>Einladung zurückziehen</strong> macht eine offene Einladung ungültig.
+          </p>
         </section>
 
         <section id="spieler">
@@ -490,13 +551,38 @@
           <h3>Spieler anlegen</h3>
           <ol class="steps">
             <li>In der Organisation unter Spieler den Anzeigenamen erfassen.</li>
-            <li>Optional einen Spitznamen ergänzen.</li>
+            <li>Wahlweise einen Spitznamen ergänzen — das Feld darf leer bleiben.</li>
             <li><strong>Spieler hinzufügen</strong> wählen.</li>
           </ol>
+          <p>
+            Pflicht ist allein der Anzeigename. Fehlt er, erscheint der Hinweis direkt unter
+            dem Feld.
+          </p>
           <p>
             Berechtigte Rollen können Spieler bearbeiten. Owner und Admin können Spieler
             archivieren. Archivierte Spieler bleiben für historische Matches erhalten, stehen
             aber nicht mehr für neue Matches oder Turniere zur Verfügung.
+          </p>
+
+          <h3>Profilbild hinterlegen</h3>
+          <ol class="steps">
+            <li>Das Spielerprofil öffnen.</li>
+            <li><strong>Bild auswählen</strong> wählen und eine Datei als JPEG, PNG oder WebP wählen.</li>
+            <li>Die Vorschau prüfen und <strong>Bild speichern</strong> wählen.</li>
+          </ol>
+          <p>
+            Der grösste mittige quadratische Ausschnitt wird automatisch genommen und das
+            Bild vor dem Hochladen verkleinert — ein Handyfoto geht damit auch bei schwachem
+            Empfang durch. <strong>Bild entfernen</strong> nimmt es wieder weg; dann stehen
+            wieder die Initialen dort. Das Bild erscheint im Profil und in der Spielerliste.
+          </p>
+
+          <h3>Spieler mit einem Konto verbinden</h3>
+          <p>
+            In der Mitgliederliste lässt sich einem Mitglied ein Spieler der Organisation
+            zuordnen. Erst dadurch sieht die Person ihre eigenen Spiele und Auswertungen als
+            die ihren. Ohne Zuordnung steht dort <strong>Nicht zugeordnet</strong>. Ein
+            Spieler gehört zu höchstens einem Konto.
           </p>
           <h3>Board anlegen</h3>
           <p>
@@ -572,6 +658,7 @@
             <li><strong>Boards:</strong> mindestens ein vorbereitetes Board auswählen.</li>
             <li>Die Vorschau auf Gruppen, Matchanzahl, Freilose und Warnungen prüfen.</li>
             <li>Erst bei stimmiger Vorschau <strong>Turnier starten</strong> wählen.</li>
+            <li>Fehlt eine Angabe, erscheint unter dem Knopf <strong>Eingaben prüfen</strong> mit der Liste dessen, was noch fehlt.</li>
           </ol>
           <div class="table-wrap">
             <table>
@@ -633,13 +720,107 @@
           </div>
         </section>
 
-        <section id="live">
-          <p class="eyebrow">10 · Publikum</p>
-          <h2>Live-, Board- und TV-Ansicht</h2>
+        <section id="liga">
+          <p class="eyebrow">10 · Mannschaftsbetrieb</p>
+          <h2>Liga und Begegnungen</h2>
           <p>
-            In der Kommandozentrale führt <strong>Öffentliche Live-Ansicht</strong> zur
-            schreibgeschützten Turnierdarstellung. Sie zeigt Boards, Gruppenranglisten und
-            das K.-o.-Tableau. Der Verbindungsindikator zeigt, ob Echtzeit aktiv ist.
+            Neben Turnieren führt die Plattform den Ligabetrieb: Mannschaften treten an
+            einem Spieltag in einer <strong>Begegnung</strong> gegeneinander an, die aus
+            mehreren Einzeln und Doppeln besteht. Fachliche Grundlage ist das
+            VFC-Liga-Reglement; die Oberfläche benennt die einschlägige Ziffer dort, wo eine
+            Regel greift.
+          </p>
+
+          <h3>Wettbewerb anlegen</h3>
+          <ol class="steps">
+            <li>Unter <strong>Liga</strong> einen neuen Wettbewerb beginnen.</li>
+            <li>Name und Kurzname vergeben — der Kurzname erscheint in Adressen und Tabellen.</li>
+            <li>Die Begegnungsvorlage wählen: Reglement 1.1 kennt vier Varianten.</li>
+            <li>Aufstellungspositionen, reguläre Doppel und Distanz je Spiel festlegen.</li>
+            <li>Startscore für Einzel und Doppel sowie In- und Out-Regel setzen.</li>
+            <li>Punkte für Sieg, Unentschieden und Niederlage festlegen.</li>
+            <li>Entscheidungsdoppel und allfälligen Zusatzpunkt bestimmen.</li>
+          </ol>
+          <p>
+            Die Vorlage legt ein für alle Mal fest, welche Spiele in welcher Reihenfolge
+            gespielt werden. Sie ist im Wettbewerb als Tabelle
+            <strong>Begegnungsvorlage: alle Spiele in Reihenfolge</strong> einsehbar, mit
+            Paarung, Variante und Distanz je Spiel. Weitere Angaben:
+          </p>
+          <ul>
+            <li><strong>Mindestmeldung:</strong> Ausnahme mit weniger Personen nach Reglement 2.2.5.</li>
+            <li><strong>Auswechslungen je Begegnung:</strong> Obergrenze; im Entscheidungsdoppel gilt sie nicht.</li>
+            <li><strong>Rundenbegrenzung:</strong> Automatenlimit nach Anhang 2 — leer lassen, wenn keines gilt.</li>
+          </ul>
+
+          <h3>Mannschaften und Kader</h3>
+          <p>
+            Unter <strong>Teams</strong> entstehen die Mannschaften der Organisation. Jeder
+            Kader führt Personen als Kadermitglied oder als Aushilfe nach Reglement 1.2.3;
+            eine Person je Mannschaft kann als <strong>Captain</strong> geführt werden. Der
+            Kader ist datiert: massgebend ist, wer am Tag der Begegnung gemeldet war, nicht
+            wer heute im Kader steht.
+          </p>
+
+          <h3>Begegnung ansetzen</h3>
+          <ol class="steps">
+            <li>Im Wettbewerb den <strong>Spieltag</strong> als Zahl ab 1 eintragen.</li>
+            <li>Heim- und Gastmannschaft wählen; sie müssen verschieden sein.</li>
+            <li>Datum und Zeit des Spielabends setzen.</li>
+          </ol>
+
+          <h3>Aufstellung und Doppel melden</h3>
+          <p>
+            Beide Seiten melden vor dem Start ihre Aufstellung: je Position eine Person, jede
+            Person nur einmal. Für die regulären Doppel werden anschliessend die Paarungen
+            gemeldet — zwei verschiedene Personen je Doppel. Erst wenn beide Seiten
+            vollständig gemeldet haben, lässt sich die Begegnung starten.
+          </p>
+          <div class="callout">
+            <strong>Das Entscheidungsdoppel wird später gemeldet</strong>
+            Es wird erst gebraucht, wenn nach allen regulären Spielen Gleichstand herrscht.
+            Dort darf nach Reglement 2.2.1 jede gemeldete Person erneut antreten.
+          </div>
+
+          <h3>Begegnung führen</h3>
+          <p>
+            Nach dem Start zeigt die Begegnungsleitung jedes Spiel der Vorlage mit seinem
+            Zustand. Ein Spiel bekommt ein freies Board zugewiesen und wird dann wie jedes
+            andere Match am Scoreboard gespielt. Ist eine Zuweisung nicht möglich, steht der
+            Grund dabei — etwa dass das Spiel bereits läuft, entschieden ist, eine Seite die
+            Position nicht besetzt hat oder die Person gerade in einem anderen Spiel steht.
+          </p>
+          <ul>
+            <li><strong>Auswechslung:</strong> Position und einwechselnde Person wählen. Die Begründung gehört nach Reglement 2.2.6 auf den Spielrapport und wird auditiert.</li>
+            <li><strong>Nicht erschienen:</strong> Ein Spiel lässt sich als kampflos gewonnen werten, wenn eine Person nicht an der Abwurflinie erscheint.</li>
+            <li><strong>Forfait:</strong> Eine ganze Begegnung kann kampflos gewertet werden.</li>
+            <li><strong>Abbruch:</strong> Eine Begegnung lässt sich abbrechen; sie zählt dann nicht als gespielt.</li>
+          </ul>
+
+          <h3>Tabelle und Einzelrangliste</h3>
+          <p>
+            Der Wettbewerb führt die <strong>Tabelle</strong> mit Spielen, Punkten und
+            Differenz je Mannschaft. Daneben steht die <strong>Einzelrangliste</strong>,
+            geordnet nach Ranglistenpunkten, dann Spiel-, dann Satzquotient
+            (Reglement A1.6–A1.9). Es zählen ausschliesslich Einzel; Doppel fliessen nicht
+            ein. Sie füllt sich, sobald das erste Einzel abgeschlossen ist.
+          </p>
+        </section>
+
+        <section id="live">
+          <p class="eyebrow">11 · Publikum</p>
+          <h2>Live-, Board- und TV-Ansicht</h2>
+          <h3>Turnier freigeben</h3>
+          <p>
+            Ein Turnier ist zunächst <strong>nicht freigegeben</strong>: nur angemeldete
+            Mitglieder sehen es. Der Bereich <strong>Öffentliche Freigabe</strong> in der
+            Kommandozentrale schaltet es auf <strong>Freigegeben</strong> — wer den Link hat,
+            sieht zu, und das Turnier steht in keinem Verzeichnis. Erst mit der Freigabe
+            erscheint der Link zur öffentlichen Live-Ansicht.
+          </p>
+          <p>
+            Die Live-Ansicht ist schreibgeschützt und zeigt Boards, Gruppenranglisten und das
+            K.-o.-Tableau. Der Verbindungspunkt zeigt, ob die Echtzeitverbindung steht.
           </p>
           <ul>
             <li><strong>TV-Modus:</strong> Für einen grossen Bildschirm oder Beamer.</li>
@@ -647,10 +828,25 @@
             <li><strong>Reconnect:</strong> Bei unterbrochener Socket-Verbindung synchronisiert die Seite periodisch per HTTP.</li>
           </ul>
           <p>Öffentliche Ansichten erlauben keine Score- oder Turnieränderungen.</p>
+
+          <h3>Anzeige-Schlüssel für ein nicht freigegebenes Turnier</h3>
+          <p>
+            Soll ein Bildschirm in der Halle die Boardansicht zeigen, ohne dass das Turnier
+            öffentlich wird, stellt der Bereich <strong>Anzeige-Schlüssel</strong> einen
+            Schlüssel aus. Er öffnet die Board-Ansicht dieses einen Turniers, ohne Anmeldung
+            und ohne Schreibrechte.
+          </p>
+          <div class="callout warning">
+            <strong>Der Schlüssel wird nur einmal angezeigt</strong>
+            Gleich nach dem Ausstellen übertragen oder auf dem Anzeigegerät öffnen. Danach
+            lässt er sich nicht erneut anzeigen — es bleibt nur, einen neuen auszustellen.
+            Ein Schlüssel ist <em>gültig</em>, <em>abgelaufen</em> oder <em>widerrufen</em>;
+            ein widerrufener Schlüssel öffnet nichts mehr.
+          </div>
         </section>
 
         <section id="statistik">
-          <p class="eyebrow">11 · Auswertung</p>
+          <p class="eyebrow">12 · Auswertung</p>
           <h2>Spielerprofile und Statistik</h2>
           <p>
             Über den Spielerlink wird das organisationsgebundene Profil geöffnet. Es zeigt
@@ -667,7 +863,7 @@
         </section>
 
         <section id="offline">
-          <p class="eyebrow">12 · Zuverlässigkeit</p>
+          <p class="eyebrow">13 · Zuverlässigkeit</p>
           <h2>Offline-Queue und Versionskonflikte</h2>
           <h3>Kurzer Netzausfall beim Scoring</h3>
           <p>
@@ -695,7 +891,7 @@
         </section>
 
         <section id="hilfe">
-          <p class="eyebrow">13 · Hilfe</p>
+          <p class="eyebrow">14 · Hilfe</p>
           <h2>Häufige Probleme lösen</h2>
           <div class="table-wrap">
             <table>
@@ -721,7 +917,7 @@
         </section>
 
         <section id="checkliste">
-          <p class="eyebrow">14 · Turniertag</p>
+          <p class="eyebrow">15 · Turniertag</p>
           <h2>Kurzcheck vor dem ersten Match</h2>
           <ul class="checklist">
             <li>Turnierleitung und mindestens ein Ersatzgerät können sich anmelden.</li>
@@ -737,7 +933,7 @@
         </section>
 
         <section id="begriffe">
-          <p class="eyebrow">15 · Glossar</p>
+          <p class="eyebrow">16 · Glossar</p>
           <h2>Wichtige Dart- und Plattformbegriffe</h2>
           <dl class="glossary">
             <dt>Aufnahme / Visit</dt><dd>Bis zu drei Darts eines Spielers in einem Zug.</dd>
@@ -751,6 +947,14 @@
             <dt>Board-Controller</dt><dd>Das Gerät, das aktuell Score-Befehle für ein Match senden darf.</dd>
             <dt>Command-ID</dt><dd>Eindeutige Kennung, die wiederholte Befehle idempotent macht.</dd>
             <dt>Versionskonflikt</dt><dd>Der Serverzustand ist neuer als der Zustand, auf dem eine Aktion basierte.</dd>
+            <dt>Begegnung</dt><dd>Ein Mannschaftsvergleich an einem Spieltag, bestehend aus mehreren Einzeln und Doppeln.</dd>
+            <dt>Begegnungsvorlage</dt><dd>Die feste Reihenfolge aller Spiele einer Begegnung, aus dem Reglement abgeleitet.</dd>
+            <dt>Aufstellung</dt><dd>Die vor dem Start gemeldeten Personen je Position einer Mannschaft.</dd>
+            <dt>Entscheidungsdoppel</dt><dd>Zusätzliches Doppel, das bei Gleichstand nach allen regulären Spielen entscheidet.</dd>
+            <dt>Aushilfe</dt><dd>Person, die nach Reglement 1.2.3 ausserhalb des Stammkaders für eine Mannschaft antritt.</dd>
+            <dt>Forfait</dt><dd>Kampflose Wertung eines Spiels oder einer ganzen Begegnung.</dd>
+            <dt>Ranglistenpunkte</dt><dd>Wertung der Einzel für die Einzelrangliste nach Reglement A1.6–A1.9; Doppel zählen nicht.</dd>
+            <dt>Anzeige-Schlüssel</dt><dd>Einmalig angezeigter Schlüssel, der die Board-Ansicht eines nicht freigegebenen Turniers ohne Anmeldung öffnet.</dd>
           </dl>
         </section>
       </main>
