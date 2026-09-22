@@ -51,14 +51,23 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
 
 ## Capabilities and Constraints
 
-**Heute nutzbar (Phase 0–6 sowie Team-Begegnungen als Ligamodus, Stand 05.09.2026)**
+**Heute nutzbar (Phase 0–6 sowie Team-Begegnungen als Ligamodus, Stand 22.09.2026)**
 
 - Registrierung ausschliesslich für gültig eingeladene E-Mail-Adressen, Login,
   Logout und persistente HttpOnly-Sessions (Better Auth)
+- Einladung und Passwort-Reset per E-Mail: Der Versandauftrag entsteht in
+  derselben Transaktion wie die Mutation, der Worker versendet, und die
+  Mitgliederliste zeigt je Einladung den Zustand der jüngsten Mail. Erneutes
+  Senden rotiert den Code und zeigt einmalig Link und Code als Rückfallweg.
+- Einladungsseite mit Vorschau auf Organisation und Rolle; Konto und
+  Mitgliedschaft entstehen in einem Schritt über den Link aus der Mail
 - Organisation erstellen, Mitgliedschaften, zeitlich begrenzte Einladungen mit
-  sicherem Einladungscode
+  sicherem Einladungscode. Ob sich eine Organisation selbst anlegen lässt,
+  entscheidet der Betrieb je Installation.
 - serverseitige Rollen und Permissions je Tenant
-- Spielerverwaltung inklusive revisionssicherer Archivierung
+- Spielerverwaltung inklusive revisionssicherer Archivierung, Profilbildern
+  (serverseitig normalisiert, in Postgres) und optionaler Verknüpfung eines
+  Mitgliedskontos mit einem Spieler
 - Board- und Matchverwaltung, tenant-sicher
 - vollständiges 501-Double-Out-Match: Legs, Bust, Checkout, Dart Count, Best of Legs, Undo
 - Vollbild-Scoreboard für Smartphone und Tablet mit zwei umschaltbaren
@@ -88,8 +97,12 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
   Boards, automatische Wertung der Begegnung und Ligatabelle nach Punkten,
   Spiel- und Legdifferenz (das Reglement und die Ligaoberfläche nennen ein Leg
   „Satz"; Sets im Sinne von Best of Sets gibt es in der Begegnung nicht)
+- Einzelrangliste je Ligawettbewerb nach Reglement A1.6–A1.9: Ranglistenpunkte,
+  dann Spiel-, dann Satzquotient. Nur Einzel zählen, Doppel fliessen nicht ein.
+- Anzeige-Schlüssel für die Board-Ansicht eines nicht freigegebenen Turniers:
+  öffnet ohne Anmeldung genau dieses Turnier, ohne Schreibrecht, widerrufbar
 
-**Geplant, Reihenfolge festgelegt** (siehe [ROADMAP.md](ROADMAP.md)): Multi-Tenant-SaaS-Ausbau (7) → Autoscoring-Adapter (8) → Liga-Vollausbau (9: Saison, Divisionen, Spielplangenerierung, Auf- und Abstieg, Transfers) → Turnierserie (10) → Benachrichtigungen (11) → Public API (12).
+**Geplant, Reihenfolge festgelegt** (siehe [ROADMAP.md](ROADMAP.md)): Multi-Tenant-SaaS-Ausbau (7) → Autoscoring-Adapter (8) → Liga-Vollausbau (9: Saison, Divisionen, Spielplangenerierung, Auf- und Abstieg, Transfers) → Turnierserie (10) → Benachrichtigungen im Vollausbau (11; ausgehende E-Mails für Einladung und Passwort-Reset sind seit 20.09.2026 in Betrieb) → Public API (12).
 
 **Harte Constraints, die jede Fläche einhält** (verbindlich in [AGENTS.md](AGENTS.md))
 
