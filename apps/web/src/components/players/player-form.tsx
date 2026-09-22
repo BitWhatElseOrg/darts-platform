@@ -36,6 +36,8 @@ export function PlayerForm({ organizationId }: { readonly organizationId: string
     },
   });
 
+  const { displayName: displayNameError, nickname: nicknameError } = form.formState.errors;
+
   return (
     <>
       <form
@@ -44,11 +46,35 @@ export function PlayerForm({ organizationId }: { readonly organizationId: string
       >
         <div className="space-y-2">
           <label className={labelClassName} htmlFor="player-display-name">Anzeigename</label>
-          <input id="player-display-name" className={inputClassName} placeholder="Anzeigename" {...form.register("displayName")} />
+          <input
+            id="player-display-name"
+            className={inputClassName}
+            placeholder="Anzeigename"
+            aria-invalid={displayNameError ? true : undefined}
+            aria-describedby={displayNameError ? "player-display-name-error" : undefined}
+            {...form.register("displayName")}
+          />
+          {displayNameError ? (
+            <p id="player-display-name-error" role="alert" className="text-body text-rose-300">
+              Bitte einen Anzeigenamen angeben.
+            </p>
+          ) : null}
         </div>
         <div className="space-y-2">
           <label className={labelClassName} htmlFor="player-nickname">Spitzname (optional)</label>
-          <input id="player-nickname" className={inputClassName} placeholder="Spitzname (optional)" {...form.register("nickname")} />
+          <input
+            id="player-nickname"
+            className={inputClassName}
+            placeholder="Spitzname (optional)"
+            aria-invalid={nicknameError ? true : undefined}
+            aria-describedby={nicknameError ? "player-nickname-error" : undefined}
+            {...form.register("nickname")}
+          />
+          {nicknameError ? (
+            <p id="player-nickname-error" role="alert" className="text-body text-rose-300">
+              Der Spitzname darf höchstens 100 Zeichen lang sein.
+            </p>
+          ) : null}
         </div>
         <Button disabled={createPlayer.isPending} type="submit">Spieler hinzufügen</Button>
       </form>
