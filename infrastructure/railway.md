@@ -811,6 +811,20 @@ nach einer künftigen Aktivierung einer Merge Queue funktioniert.
    railway config apply
    ```
 
+   **Die Zeile `x to destroy` ist die wichtigste des Plans.** Alles, was in
+   Railway existiert, aber nicht in `.railway/railway.ts` steht, schlägt der
+   Plan zum Löschen vor — auch das, was Railway selbst angelegt hat oder was
+   von Hand gesetzt wurde. Am 23.09.2026 stand dort `5 to destroy`: die
+   Variablen `EMAIL_PROVIDER` und `RESEND_API_KEY` beider Dienste, seit dem
+   21.09.2026 von Hand gesetzt, und der Bucket, den Railway beim Einschalten
+   der Point-in-Time-Recovery angelegt hatte. Ein Apply hätte den Mailversand
+   stillgelegt und die WAL-Archive gelöscht, aus denen ein Restore überhaupt
+   erst möglich ist. Beides steht seither in der Datei; der Plan meldet
+   `0 to destroy`.
+
+   Wer eine Variable von Hand in Production setzt, trägt sie mit `preserve()`
+   nach — sonst ist sie beim nächsten Apply weg.
+
 7. Web, API und Worker deployen und die Deployment-Logs prüfen.
 8. Smoke-Tests durchführen und erst danach Production freigeben.
 
