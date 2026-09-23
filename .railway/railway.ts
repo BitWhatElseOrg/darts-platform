@@ -1,4 +1,5 @@
 import {
+  bucket,
   defineRailway,
   github,
   postgres,
@@ -27,6 +28,13 @@ export default defineRailway(() => {
     region,
     sizeMB: 5000,
   });
+  // Railway hat diesen Bucket beim Einschalten der Point-in-Time-Recovery am
+  // 18.09.2026 selbst angelegt; PITR meldet ihn als `bucketWired: true`. Er
+  // stand bis zum 23.09.2026 nicht in dieser Datei, weshalb `config plan`
+  // seine Loeschung vorschlug — und damit die Loeschung der WAL-Archive, aus
+  // denen ein Restore ueberhaupt erst moeglich ist.
+  const backupBucket = bucket("expandable-folder-m9A6", { region: "ams" });
+
   const cacheVolume = volume("redis-volume", {
     alerts: { usage: { "80": {}, "95": {}, "100": {} } },
     allowOnlineResize: true,
@@ -71,10 +79,15 @@ export default defineRailway(() => {
       BETTER_AUTH_SECRET: preserve(),
       BETTER_AUTH_URL: preserve(),
       DATABASE_URL: preserve(),
+      // Seit dem 21.09.2026 in Production gesetzt (Rollout auf resend). Ohne
+      // Eintrag hier wuerde `config apply` sie loeschen und den Mailversand
+      // stilllegen.
+      EMAIL_PROVIDER: preserve(),
       LOG_LEVEL: preserve(),
       NODE_ENV: preserve(),
       PORT: preserve(),
       REDIS_URL: preserve(),
+      RESEND_API_KEY: preserve(),
       // Pflicht in Produktion seit Tier 2 (Rate-Limit-Schluessel je Client
       // hinter Railways Edge-Proxy); Wert 1 = ein vertrauter Hop.
       TRUST_PROXY_HOPS: preserve(),
@@ -93,6 +106,10 @@ export default defineRailway(() => {
         "/apps/worker/**",
         "/packages/config/**",
         "/packages/database/**",
+        "/packages/notifications/**",
+        // Ueber `notifications` erreicht, nicht direkt genannt: die Mailtypen
+        // liegen in `schemas`.
+        "/packages/schemas/**",
         "/packages/statistics/**",
         "/package.json",
         "/pnpm-lock.yaml",
@@ -109,9 +126,14 @@ export default defineRailway(() => {
       BETTER_AUTH_SECRET: preserve(),
       BETTER_AUTH_URL: preserve(),
       DATABASE_URL: preserve(),
+      // Seit dem 21.09.2026 in Production gesetzt (Rollout auf resend). Ohne
+      // Eintrag hier wuerde `config apply` sie loeschen und den Mailversand
+      // stilllegen.
+      EMAIL_PROVIDER: preserve(),
       LOG_LEVEL: preserve(),
       NODE_ENV: preserve(),
       REDIS_URL: preserve(),
+      RESEND_API_KEY: preserve(),
       // Der Worker parst dieselbe Umgebung; ohne den Wert startet er in
       // Produktion nicht.
       TRUST_PROXY_HOPS: preserve(),
@@ -130,7 +152,9 @@ export default defineRailway(() => {
         "/packages/config/**",
         "/packages/database/**",
         "/packages/domain/**",
+        "/packages/league-engine/**",
         "/packages/schemas/**",
+        "/packages/scoring-engine/**",
         "/packages/ui/**",
         "/package.json",
         "/pnpm-lock.yaml",
@@ -155,6 +179,6 @@ export default defineRailway(() => {
   });
 
   return project("dartbase", {
-    resources: [api, worker, web, cache, database, databaseVolume, cacheVolume],
+    resources: [api, worker, web, cache, database, databaseVolume, cacheVolume, backupBucket],
   });
 });

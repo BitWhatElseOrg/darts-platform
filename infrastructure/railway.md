@@ -2,7 +2,28 @@
 
 ## Aktueller Stand
 
-Stand: 18.09.2026
+Dieses Runbook beschreibt den Aufbau, nicht den Tagesstand. Was gerade auf
+Production läuft, steht nicht hier, sondern an den Stellen, die es von selbst
+mitführen:
+
+| Frage | Wo die Antwort steht |
+| --- | --- |
+| Welcher Commit läuft auf Production? | Railway, Deployment-Liste je Service im Environment `production`: der Quell-Commit des jüngsten Deployments mit Status `SUCCESS`. Je Service einzeln — sie können auseinanderlaufen. |
+| Welcher Commit *sollte* laufen? | `git log origin/main -1` |
+| Welche Releases gab es? | [geschlossene Release-PRs nach `main`](https://github.com/BitWhatElseOrg/darts-platform/pulls?q=is%3Apr+base%3Amain+is%3Aclosed) — jeder trägt Problem, Lösung, Migrationen, Tests und Security-Auswirkungen |
+| Läuft alles? | `curl --fail https://api.dartbase.ch/api/v1/health` und `curl --fail https://dartbase.ch/` |
+
+Die ersten beiden Zeilen sind bewusst getrennt: der jüngste Merge auf `main`
+ist das, was laufen soll, nicht zwangsläufig das, was läuft. Zwischen beiden
+liegen ein fehlgeschlagenes, ein noch laufendes und ein zu Unrecht
+übergangenes Deployment (siehe
+[Übersprungene Deployments](#übersprungene-deployments)). Wer den tatsächlichen
+Stand braucht, liest ihn bei Railway ab, nicht in Git.
+
+Eine hier gepflegte Commit-Angabe war nach jedem Release wieder falsch; die
+vier Quellen oben sind es nie.
+
+### Aufbau
 
 | Bereich | Wert |
 | --- | --- |
@@ -15,17 +36,28 @@ Stand: 18.09.2026
 | Registrar | Cyon |
 | Autoritatives DNS | Cloudflare Free |
 | Plattformdomains am Web-Service | `dartbase.ch`, `*.dartbase.ch` |
-| Release-Stand Production | `main` 051ddbf (Release-PR #49, `develop` → `main`, 51 Commits, PRs #45–#48, grüne CI, Merge-Commit 051ddbf, 18.09.2026 16:29) |
 
 Cloudflare meldet die Zone als aktiv. Die Zertifikate für `dartbase.ch` und
 `*.dartbase.ch` sowie `api.dartbase.ch` sind gültig. Web, API, Worker,
-PostgreSQL und Redis sind erfolgreich deployt und die internen Healthchecks
-bestehen. Die öffentlichen Web- und API-Smoke-Tests bestehen ebenfalls.
+PostgreSQL und Redis sind deployt, die internen Healthchecks bestehen, und die
+öffentlichen Web- und API-Smoke-Tests bestehen ebenfalls.
 
-Release-PR #49 wurde am 18.09.2026 nach `main` gemergt und ist seither auf
-Production deployt: API, Web und Worker liefen ab ca. 16:40 mit
-Deployment-Stand `main` 051ddbf, `https://dartbase.ch` antwortet mit HTTP
-200, `GET /api/v1/health` meldet `ok`.
+### Übersprungene Deployments
+
+Railway deployt einen Service nur, wenn der Commit eine seiner
+`watchPatterns` aus [`../.railway/railway.ts`](../.railway/railway.ts)
+berührt; sonst erscheint das Deployment mit Status `SKIPPED`. Das ist der
+Normalfall und kein Fehler — ein Release, das nur den Web-Code ändert,
+übergeht API und Worker mit Absicht.
+
+Gefährlich wird es, wenn ein Service ein Paket importiert, das nicht in seinen
+`watchPatterns` steht: dann bleibt er still auf dem alten Stand. Genau das war
+zweimal der Fall — `packages/notifications` fehlte dem Worker, seit es am
+20.09.2026 dazukam, und `scoring-engine` und `league-engine` fehlten dem
+Web-Service von Beginn an. `packages/config/src/railway-watch-patterns.spec.ts`
+prüft seither bei jedem Testlauf, dass jedes Paket aus der `package.json` eines
+Dienstes auch in dessen `watchPatterns` steht. Wer ein Paket hinzufügt, trägt
+es dort nach; der Test sagt, wo.
 
 ## Staging-Environment
 
@@ -778,6 +810,20 @@ nach einer künftigen Aktivierung einer Merge Queue funktioniert.
    ```bash
    railway config apply
    ```
+
+   **Die Zeile `x to destroy` ist die wichtigste des Plans.** Alles, was in
+   Railway existiert, aber nicht in `.railway/railway.ts` steht, schlägt der
+   Plan zum Löschen vor — auch das, was Railway selbst angelegt hat oder was
+   von Hand gesetzt wurde. Am 23.09.2026 stand dort `5 to destroy`: die
+   Variablen `EMAIL_PROVIDER` und `RESEND_API_KEY` beider Dienste, seit dem
+   21.09.2026 von Hand gesetzt, und der Bucket, den Railway beim Einschalten
+   der Point-in-Time-Recovery angelegt hatte. Ein Apply hätte den Mailversand
+   stillgelegt und die WAL-Archive gelöscht, aus denen ein Restore überhaupt
+   erst möglich ist. Beides steht seither in der Datei; der Plan meldet
+   `0 to destroy`.
+
+   Wer eine Variable von Hand in Production setzt, trägt sie mit `preserve()`
+   nach — sonst ist sie beim nächsten Apply weg.
 
 7. Web, API und Worker deployen und die Deployment-Logs prüfen.
 8. Smoke-Tests durchführen und erst danach Production freigeben.
