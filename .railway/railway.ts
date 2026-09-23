@@ -93,6 +93,10 @@ export default defineRailway(() => {
         "/apps/worker/**",
         "/packages/config/**",
         "/packages/database/**",
+        "/packages/notifications/**",
+        // Ueber `notifications` erreicht, nicht direkt genannt: die Mailtypen
+        // liegen in `schemas`.
+        "/packages/schemas/**",
         "/packages/statistics/**",
         "/package.json",
         "/pnpm-lock.yaml",
@@ -130,7 +134,9 @@ export default defineRailway(() => {
         "/packages/config/**",
         "/packages/database/**",
         "/packages/domain/**",
+        "/packages/league-engine/**",
         "/packages/schemas/**",
+        "/packages/scoring-engine/**",
         "/packages/ui/**",
         "/package.json",
         "/pnpm-lock.yaml",
