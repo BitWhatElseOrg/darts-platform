@@ -56,13 +56,24 @@ function serviceBlock(serviceName: string): string {
   return next === -1 ? railwayIac.slice(start) : railwayIac.slice(start, next);
 }
 
-/** Der Inhalt der `watchPatterns` eines Dienstes, als Text. */
+/**
+ * Entfernt Zeilen- und Blockkommentare. Ein auskommentiertes Muster ist fuer
+ * Railway keines — ohne diesen Schritt haette `// "/packages/notifications/**",`
+ * den Abgleich befriedigt, waehrend der Dienst das Paket nicht mehr beobachtet.
+ * In den Mustern selbst kommt keine Zeichenfolge `//` vor, sie sind einfache
+ * Pfade mit genau einem fuehrenden Schraegstrich.
+ */
+function withoutComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/\/\/.*$/gmu, "");
+}
+
+/** Der Inhalt der `watchPatterns` eines Dienstes, als Text ohne Kommentare. */
 function watchPatternsOf(serviceName: string): string {
   const patterns = /watchPatterns: \[([\s\S]*?)\]/u.exec(serviceBlock(serviceName));
   if (patterns === null) {
     throw new Error(`Keine watchPatterns fuer ${serviceName} in .railway/railway.ts gefunden.`);
   }
-  return patterns[1] ?? "";
+  return withoutComments(patterns[1] ?? "");
 }
 
 /** Die Pakete, die die `watchPatterns` eines Dienstes beobachten. */
