@@ -41,16 +41,33 @@ function read(relativePath: string): string {
 
 const railwayIac = read(".railway/railway.ts");
 
-/** Die `watchPatterns` eines Dienstes, so wie sie in der IaC stehen. */
-function watchedPackages(serviceName: string): readonly string[] {
-  const block = new RegExp(
-    `service\\("${serviceName}"[\\s\\S]*?watchPatterns: \\[([\\s\\S]*?)\\]`,
-    "u",
-  ).exec(railwayIac);
-  if (block === null) {
+/**
+ * Der Abschnitt der IaC, der zu genau einem Dienst gehoert: von seiner
+ * `service(`-Deklaration bis zur naechsten. Die Grenze ist wichtig — ohne sie
+ * liefe die Suche nach `watchPatterns` bei einem Dienst, der keine hat,
+ * einfach in den naechsten Dienst weiter und pruefte dessen Muster.
+ */
+function serviceBlock(serviceName: string): string {
+  const start = railwayIac.indexOf(`service("${serviceName}"`);
+  if (start === -1) {
+    throw new Error(`Dienst ${serviceName} steht nicht in .railway/railway.ts.`);
+  }
+  const next = railwayIac.indexOf('service("', start + 1);
+  return next === -1 ? railwayIac.slice(start) : railwayIac.slice(start, next);
+}
+
+/** Der Inhalt der `watchPatterns` eines Dienstes, als Text. */
+function watchPatternsOf(serviceName: string): string {
+  const patterns = /watchPatterns: \[([\s\S]*?)\]/u.exec(serviceBlock(serviceName));
+  if (patterns === null) {
     throw new Error(`Keine watchPatterns fuer ${serviceName} in .railway/railway.ts gefunden.`);
   }
-  return [...(block[1] ?? "").matchAll(/"\/packages\/([a-z-]+)\/\*\*"/gu)].map(
+  return patterns[1] ?? "";
+}
+
+/** Die Pakete, die die `watchPatterns` eines Dienstes beobachten. */
+function watchedPackages(serviceName: string): readonly string[] {
+  return [...watchPatternsOf(serviceName).matchAll(/"\/packages\/([a-z-]+)\/\*\*"/gu)].map(
     (match) => match[1] ?? "",
   );
 }
@@ -104,13 +121,18 @@ describe("Railway watchPatterns", () => {
   );
 
   it.each(services)("$application beobachtet die gemeinsamen Wurzeldateien", ({ serviceName }) => {
-    const block = new RegExp(
-      `service\\("${serviceName}"[\\s\\S]*?watchPatterns: \\[([\\s\\S]*?)\\]`,
-      "u",
-    ).exec(railwayIac)?.[1];
+    const patterns = watchPatternsOf(serviceName);
 
     for (const shared of ["/package.json", "/pnpm-lock.yaml", "/pnpm-workspace.yaml", "/turbo.json"]) {
-      expect(block).toContain(`"${shared}"`);
+      expect(patterns).toContain(`"${shared}"`);
+    }
+  });
+
+  it("findet die Muster jedes Dienstes in dessen eigenem Abschnitt", () => {
+    // Ohne diese Schranke koennte ein Dienst ohne eigene `watchPatterns`
+    // unbemerkt die des naechsten erben und der Abgleich grundlos gruen sein.
+    for (const { serviceName } of services) {
+      expect(serviceBlock(serviceName)).toContain("watchPatterns: [");
     }
   });
 });
