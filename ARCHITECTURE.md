@@ -231,6 +231,16 @@ dart-tournament-platform/
 └── DATABASE_SCHEMA.md
 ```
 
+Das ist das Zielbild. Heute angelegt sind `apps/web`, `apps/api`,
+`apps/worker` sowie `packages/domain`, `database`, `scoring-engine`,
+`tournament-engine`, `league-engine`, `scheduling-engine`, `statistics`,
+`notifications`, `ui`, `schemas` und `config`. Das Realtime-Gateway läuft
+innerhalb von `apps/api`, Authentifizierung über Better Auth in `apps/api`
+statt in einem eigenen `packages/auth`, und die Ranglisten liegen in
+`league-engine` und `statistics`. `packages/notifications` — Mailvorlagen und
+Versandadapter — kam mit dem Mailversand dazu und fehlt in der Zielskizze
+oben; `integrations` und `ranking-engine` gibt es noch nicht.
+
 ---
 
 ## 6. Multi-Tenancy
@@ -965,7 +975,7 @@ zweite Replik greift die Zeile nicht ohne Wartezeit erneut.
 
 ## 26. Background Jobs
 
-BullMQ + Redis.
+Zielbild: BullMQ + Redis.
 
 Jobs:
 
@@ -978,6 +988,38 @@ ProcessImport
 GenerateExport
 GenerateReport
 ```
+
+### Heutiger Stand
+
+`apps/worker` arbeitet bislang ohne Queue-Server: er pollt zwei Tabellen in
+festem Takt und hält so die Zahl beweglicher Teile klein.
+
+```text
+outbox_events      → process-statistics-outbox → Spieleraggregate
+email_deliveries   → process-email-deliveries  → EmailSender (Resend oder Log)
+```
+
+Beide Schleifen nehmen eine begrenzte Menge fälliger Zeilen, arbeiten sie ab
+und buchen Erfolg oder Fehlversuch zurück. Ein Auftrag trägt einen
+Idempotency-Key, sodass ein wiederholter Lauf keine zweite Mail erzeugt;
+nach `OUTBOX_MAX_ATTEMPTS` gescheiterten Versuchen bleibt er als Dead Letter
+liegen und wird nicht weiter versucht. Zwei Aufräumschleifen entfernen
+erledigte Zeilen aus beiden Tabellen.
+
+Der Versandweg für E-Mails (ADR 0017):
+
+```text
+HTTP Command
+→ Transaktion: Mutation + Versandauftrag in email_deliveries
+→ COMMIT
+→ Worker pollt und versendet
+→ Zustand zurück auf die Zeile (sent / failed)
+```
+
+Der Auftrag entsteht in derselben Transaktion wie die Mutation, die ihn
+auslöst. Eine Einladung ohne Versandauftrag oder ein Versandauftrag ohne
+Einladung kann es damit nicht geben. Welcher Adapter versendet, entscheidet
+die Umgebung: `log` schreibt nur ins Protokoll, `resend` verschickt wirklich.
 
 ---
 

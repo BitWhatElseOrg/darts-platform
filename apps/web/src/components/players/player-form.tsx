@@ -36,6 +36,16 @@ export function PlayerForm({ organizationId }: { readonly organizationId: string
     },
   });
 
+  const { displayName: displayNameError, nickname: nicknameError } = form.formState.errors;
+  // `type` traegt den Zod-Fehlercode: zu lang ist etwas anderes als gar nicht
+  // angegeben, und die Meldung soll nicht das Falsche behaupten.
+  const displayNameMessage =
+    displayNameError === undefined
+      ? null
+      : displayNameError.type === "too_big"
+        ? "Der Anzeigename darf höchstens 255 Zeichen lang sein."
+        : "Bitte einen Anzeigenamen angeben.";
+
   return (
     <>
       <form
@@ -44,11 +54,35 @@ export function PlayerForm({ organizationId }: { readonly organizationId: string
       >
         <div className="space-y-2">
           <label className={labelClassName} htmlFor="player-display-name">Anzeigename</label>
-          <input id="player-display-name" className={inputClassName} placeholder="Anzeigename" {...form.register("displayName")} />
+          <input
+            id="player-display-name"
+            className={inputClassName}
+            placeholder="Anzeigename"
+            aria-invalid={displayNameMessage ? true : undefined}
+            aria-describedby={displayNameMessage ? "player-display-name-error" : undefined}
+            {...form.register("displayName")}
+          />
+          {displayNameMessage ? (
+            <p id="player-display-name-error" role="alert" className="text-body text-rose-300">
+              {displayNameMessage}
+            </p>
+          ) : null}
         </div>
         <div className="space-y-2">
           <label className={labelClassName} htmlFor="player-nickname">Spitzname (optional)</label>
-          <input id="player-nickname" className={inputClassName} placeholder="Spitzname (optional)" {...form.register("nickname")} />
+          <input
+            id="player-nickname"
+            className={inputClassName}
+            placeholder="Spitzname (optional)"
+            aria-invalid={nicknameError ? true : undefined}
+            aria-describedby={nicknameError ? "player-nickname-error" : undefined}
+            {...form.register("nickname")}
+          />
+          {nicknameError ? (
+            <p id="player-nickname-error" role="alert" className="text-body text-rose-300">
+              Der Spitzname darf höchstens 100 Zeichen lang sein.
+            </p>
+          ) : null}
         </div>
         <Button disabled={createPlayer.isPending} type="submit">Spieler hinzufügen</Button>
       </form>

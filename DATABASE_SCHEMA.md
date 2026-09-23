@@ -13,11 +13,12 @@ Phase 6 implementierten Ausschnitt. Verbindliche technische Quelle sind
 `packages/database/src/schema.ts` und die versionierten Migrationen unter
 `packages/database/drizzle`.
 
-## Implementierter Stand Phase 0–6
+## Implementierter Stand
 
-Die Migrationen `0000` bis `0009` enthalten heute Identity und Tenancy,
-Scoring, den Tournament-MVP, erweiterte Matchregeln, Offline-/Controller-Daten
-und Statistikaggregate. Dazu gehören insbesondere:
+Stand 22.09.2026 reichen die Migrationen von `0000` bis `0034`. Die frühen
+Migrationen `0000` bis `0009` enthalten Identity und Tenancy, Scoring, den
+Tournament-MVP, erweiterte Matchregeln, Offline-/Controller-Daten und
+Statistikaggregate. Dazu gehören insbesondere:
 
 - `organization_invitations`: E-Mail-gebundene, befristete Voraussetzung für
   Kontoerstellung und spätere Organisationsmitgliedschaft
@@ -34,6 +35,19 @@ und Statistikaggregate. Dazu gehören insbesondere:
 - `matches.double_out`: Spielregel des erzeugten Scoring-Aggregats
 - `outbox_events`: getrennte Publikationszeitpunkte für Realtime und Statistik
 - persistente Spieleraggregate und Rankingverlauf für Phase 6
+
+Später kamen hinzu:
+
+- `competitions`, `competition_slots`, `encounters`, `encounter_slots`,
+  `encounter_nominations`, `encounter_lineup_entries`,
+  `encounter_substitutions` und `encounter_commands`: der Ligabetrieb nach
+  VFC-Reglement
+- `tournament_display_keys` (`0027`): Board-Ansicht nicht freigegebener
+  Turniere ohne Anmeldung
+- `players.user_id` (`0030`): optionale Verknüpfung von Konto und Spieler
+- `player_avatars` (`0033`): Profilbilder als normalisierte Bytes
+- `email_deliveries` (`0034`): Versandaufträge für Einladungs- und
+  Passwort-Mails, vom Worker abgearbeitet
 
 Unique-, Check- und Foreign-Key-Constraints sichern unter anderem doppelte
 Teilnehmer/Boards, Setzungen, Statuswerte, aktive Board-Belegung und
@@ -69,6 +83,40 @@ updated_at timestamptz NOT NULL
 ```
 
 Authentifizierungsdetails werden soweit möglich über Better Auth verwaltet.
+
+---
+
+## sessions, accounts, verifications
+
+Diese drei Tabellen gehören Better Auth. Die Anwendung liest und schreibt sie
+nicht selbst; sie stehen hier, weil sie im selben Schema liegen und in
+Migrationen und Backups auftauchen.
+
+```text
+sessions       id uuid PK, user_id uuid FK users ON DELETE CASCADE,
+               token varchar(255) UNIQUE, expires_at timestamptz NOT NULL,
+               ip_address varchar(45), user_agent text
+accounts       id uuid PK, user_id uuid FK users ON DELETE CASCADE,
+               issuer varchar(255), account_id varchar(255),
+               provider_id varchar(255), password text, Token-Spalten
+verifications  id uuid PK, identifier varchar(320) NOT NULL,
+               value text NOT NULL, expires_at timestamptz NOT NULL
+```
+
+Indizes:
+
+```text
+UNIQUE (token)                      -- sessions_token_unique
+user_id, expires_at                 -- sessions_user_id_idx, sessions_expires_at_idx
+UNIQUE (issuer, account_id)         -- accounts_issuer_account_unique
+user_id                             -- accounts_user_id_idx
+identifier                          -- verifications_identifier_idx
+```
+
+`verifications` trägt unter anderem die Einmal-Tokens des Passwort-Resets. Sie
+sind befristet; abgelaufene Einträge räumt Better Auth ab. Die Tabellen kennen
+kein `organization_id` — eine Sitzung gehört zu einem Konto, nicht zu einem
+Mandanten. Der Mandantenbezug entsteht erst über `memberships`.
 
 ---
 
@@ -392,6 +440,38 @@ Mindestens `player_id` oder `team_id` gesetzt.
 
 ---
 
+## tournament_display_keys
+
+Schlüssel, mit denen ein Anzeigegerät die Board-Ansicht eines nicht
+freigegebenen Turniers ohne Anmeldung öffnet (ADR 0013).
+
+```text
+id uuid PK
+organization_id uuid FK organizations NOT NULL
+tournament_id uuid FK tournaments NOT NULL
+secret_hash char(64) NOT NULL
+label varchar(80) NOT NULL
+expires_at timestamptz NOT NULL
+revoked_at timestamptz
+created_by uuid FK users
+created_at timestamptz NOT NULL
+```
+
+Indizes:
+
+```text
+UNIQUE (secret_hash)   -- tournament_display_keys_secret_hash_unique
+tournament_id          -- tournament_display_keys_tournament_idx
+```
+
+Gespeichert wird ausschliesslich der Hash, nie der Schlüssel selbst — er wird
+einmal bei der Ausstellung angezeigt und ist danach nicht wiederherstellbar.
+Ein Schlüssel gilt bis `expires_at` und lässt sich über `revoked_at` sofort
+entwerten; beides wird beim Einlösen geprüft. Der Schlüssel öffnet genau dieses
+eine Turnier und gewährt keinerlei Schreibrecht.
+
+---
+
 # 6. Tournament Stages
 
 ## tournament_stages
@@ -700,6 +780,36 @@ LOSER
 GROUP_1ST
 GROUP_2ND
 ```
+
+---
+
+## match_participant_players
+
+Welche Personen hinter einer Matchseite stehen. Bei einem Einzel eine Zeile je
+Seite, bei einem Doppel zwei.
+
+```text
+id uuid PK
+organization_id uuid FK organizations NOT NULL
+match_id uuid FK matches NOT NULL
+participant_id uuid FK match_participants NOT NULL
+player_id uuid FK players NOT NULL
+position integer NOT NULL                        -- 1 | 2
+```
+
+Indizes und Checks:
+
+```text
+UNIQUE (participant_id, position)  -- match_participant_players_participant_position_unique
+UNIQUE (match_id, player_id)       -- match_participant_players_match_player_unique
+organization_id, player_id         -- match_participant_players_organization_player_idx
+CHECK position in (1, 2)
+```
+
+`match_participant_players_match_player_unique` hält fest, dass niemand in
+demselben Match auf beiden Seiten steht. Über diese Tabelle finden die
+Statistiken die Spiele einer Person, unabhängig davon, ob sie einzeln oder im
+Doppel angetreten ist.
 
 ---
 
@@ -1462,6 +1572,116 @@ team_rosters
 league_tables
 transfers
 ```
+
+---
+
+## competition_slots
+
+Die Begegnungsvorlage eines Ligawettbewerbs: jede Zeile ist ein Spiel, das in
+jeder Begegnung dieses Wettbewerbs in derselben Reihenfolge gespielt wird.
+
+```text
+id uuid PK
+organization_id uuid FK organizations NOT NULL
+competition_id uuid FK competitions NOT NULL
+sequence integer NOT NULL
+role varchar(20) NOT NULL DEFAULT 'REGULAR'      -- REGULAR | DECIDER
+discipline varchar(20) NOT NULL                  -- SINGLES | DOUBLES
+label varchar(60) NOT NULL
+home_position integer
+away_position integer
+starting_score integer NOT NULL
+in_rule varchar(10) NOT NULL DEFAULT 'STRAIGHT'
+out_rule varchar(10) NOT NULL DEFAULT 'DOUBLE'
+max_rounds integer
+best_of_legs integer NOT NULL
+legs_to_win_set integer NOT NULL DEFAULT 2
+sets_to_win integer NOT NULL DEFAULT 1
+```
+
+Indizes:
+
+```text
+UNIQUE (competition_id, sequence)  -- competition_slots_competition_sequence_unique
+UNIQUE (competition_id) WHERE role = 'DECIDER'
+                                   -- competition_slots_competition_decider_unique
+UNIQUE (competition_id, home_position, away_position) WHERE discipline = 'SINGLES'
+                                   -- competition_slots_singles_pairing_unique
+organization_id, competition_id    -- competition_slots_organization_idx
+```
+
+Die Vorlage liegt in der Datenbank und nicht im Code, weil Reglement 1.1 vier
+Varianten kennt und ein laufender Wettbewerb seine Vorlage behalten muss, auch
+wenn später eine fünfte dazukommt. Der Teil-Unique-Index auf `DECIDER` hält
+fest, dass es höchstens ein Entscheidungsdoppel je Wettbewerb gibt.
+
+---
+
+## encounter_lineup_entries
+
+Die gemeldete Besetzung eines einzelnen Spiels: bei einem Einzel eine Zeile je
+Seite, bei einem Doppel zwei.
+
+```text
+id uuid PK
+organization_id uuid FK organizations NOT NULL
+encounter_id uuid FK encounters NOT NULL
+slot_id uuid FK encounter_slots NOT NULL
+side varchar(10) NOT NULL                        -- HOME | AWAY
+position integer NOT NULL                        -- 1 | 2
+player_id uuid FK players NOT NULL
+```
+
+Indizes und Checks:
+
+```text
+UNIQUE (slot_id, side, position)  -- encounter_lineup_entries_slot_side_position_unique
+UNIQUE (slot_id, side, player_id) -- encounter_lineup_entries_slot_side_player_unique
+organization_id, encounter_id     -- encounter_lineup_entries_organization_encounter_idx
+encounter_id, player_id           -- encounter_lineup_entries_encounter_player_idx
+CHECK side in ('HOME', 'AWAY')
+CHECK position in (1, 2)
+```
+
+`encounter_lineup_entries_slot_side_player_unique` verhindert, dass dieselbe
+Person beide Hälften eines Doppels besetzt. Die Trennung von
+`encounter_nominations` ist Absicht: die Nominierung sagt, wer überhaupt
+antritt, die Aufstellung sagt, wo.
+
+---
+
+## encounter_substitutions
+
+Protokoll der Auswechslungen einer Begegnung (Reglement 2.2.6).
+
+```text
+id uuid PK
+organization_id uuid FK organizations NOT NULL
+encounter_id uuid FK encounters NOT NULL
+side varchar(10) NOT NULL                        -- HOME | AWAY
+position integer NOT NULL
+out_player_id uuid FK players NOT NULL
+in_player_id uuid FK players NOT NULL
+effective_from_sequence integer NOT NULL
+reason varchar(200)
+created_at timestamptz NOT NULL
+```
+
+Indizes und Checks:
+
+```text
+UNIQUE (encounter_id, side, position, effective_from_sequence)
+                                  -- encounter_substitutions_side_position_sequence_unique
+organization_id, encounter_id     -- encounter_substitutions_organization_encounter_idx
+CHECK side in ('HOME', 'AWAY')
+CHECK position > 0
+CHECK effective_from_sequence > 0
+```
+
+Die Tabelle wird nur angehängt, nie geändert: `effective_from_sequence` sagt,
+ab welchem Spiel der Vorlage die Auswechslung gilt. Die Aufstellung zu einem
+beliebigen Spiel ergibt sich damit aus der Meldung plus allen bis dahin
+wirksamen Auswechslungen — der Spielrapport bleibt rekonstruierbar.
 
 ---
 

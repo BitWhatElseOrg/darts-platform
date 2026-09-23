@@ -65,10 +65,11 @@ Neue Frameworks oder größere Dependencies nur hinzufügen, wenn ein klarer tec
 
 ## 3. Monorepo-Grenzen
 
+Vorhanden:
+
 ```text
 apps/web
 apps/api
-apps/realtime
 apps/worker
 
 packages/domain
@@ -77,13 +78,24 @@ packages/scoring-engine
 packages/tournament-engine
 packages/league-engine
 packages/scheduling-engine
-packages/ranking-engine
 packages/statistics
-packages/integrations
+packages/notifications
 packages/ui
 packages/schemas
 packages/config
 ```
+
+Vorgesehen, aber noch nicht angelegt:
+
+```text
+apps/realtime
+packages/ranking-engine
+packages/integrations
+```
+
+Das Realtime-Gateway läuft bis auf Weiteres in `apps/api`, die Ranglisten
+stecken in `packages/league-engine` und `packages/statistics`. Wer eines dieser
+Pakete anlegt, trägt es hier nach oben.
 
 Keine zyklischen Dependencies.
 

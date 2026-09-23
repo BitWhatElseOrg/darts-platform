@@ -2,8 +2,20 @@ import { z } from "zod";
 
 export const playerStatusSchema = z.enum(["ACTIVE", "INACTIVE"]);
 
+/**
+ * Ein wirklich optionales Textfeld: fehlend, `null` und der Leerstring
+ * bedeuten dasselbe. Formulare schicken fuer ein angetipptes und wieder
+ * geleertes Feld `""`; das darf das Anlegen nicht blockieren, sondern
+ * heisst "nicht angegeben".
+ */
 const optionalTrimmedString = (maximumLength: number) =>
-  z.string().trim().min(1).max(maximumLength).nullable().optional();
+  z
+    .string()
+    .trim()
+    .max(maximumLength)
+    .transform((value) => (value.length === 0 ? null : value))
+    .nullable()
+    .optional();
 
 export const createPlayerSchema = z.object({
   firstName: optionalTrimmedString(100),

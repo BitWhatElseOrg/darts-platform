@@ -1,14 +1,19 @@
 # Railway Infrastructure as Code
 
-Die Datei [`railway.ts`](./railway.ts) beschreibt die produktive Phase-0-Infrastruktur:
+Die Datei [`railway.ts`](./railway.ts) beschreibt die produktive
+Infrastruktur:
 
 - Web-Service
 - API-Service mit Readiness-Healthcheck
-- Statistik-Worker
+- Worker (Statistikaggregate und ausgehende Mails)
 - PostgreSQL
 - Redis
 - persistente Daten-Volumes
 - Custom Domains, Build-/Start-Kommandos und service-spezifische Variablen
+
+Beschrieben wird ausschliesslich das Environment `production`. `plan` und
+`apply` dürfen nur mit verlinktem `production` laufen; gegen `staging` würden
+sie Branch und Domains überschreiben.
 
 Railway Config as Code (`railway.json` / `railway.toml`) wird bewusst nicht
 verwendet, da es für neue Services abgekündigt ist.
@@ -34,8 +39,9 @@ railway config plan
 railway config apply
 ```
 
-Der kontrollierte Production-Abgleich vom 31. August 2026 meldete
-`No changes.`.
+Der letzte kontrollierte Production-Abgleich vom 31. August 2026 meldete
+`No changes.`. Seither sind Variablen für den Mailversand dazugekommen; sie
+werden wie die übrigen Secrets mit `preserve()` geführt.
 
 ## Erster Production-Owner
 

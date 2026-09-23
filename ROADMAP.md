@@ -76,7 +76,12 @@ Saubere technische Basis schaffen.
 - [x] Die öffentlichen Web- und API-Smoke-Tests bestehen.
 - [x] Die beiden stabilen GitHub-Checks sind definiert und werden vor Releases
   verifiziert. Ein verpflichtendes Ruleset bleibt dokumentiert ausstehend,
-  solange das private Repository GitHub Free verwendet.
+  solange das Repository GitHub Free verwendet.
+- [x] Das Environment `staging` folgt `develop`, mit eigenen Datenservices und
+  eigenen Zugangsdaten; Production und Staging laufen mit aktivierter
+  Point-in-Time-Recovery.
+- [x] Ausgehende E-Mails laufen seit dem 21.09.2026 über einen echten
+  Versanddienst; davor schrieb der Log-Adapter nur ins Protokoll.
 
 Einrichtung, Diagnose, IaC-Abgleich und die GitHub-Tarifgrenze stehen im
 [Railway-Runbook](./infrastructure/railway.md).
@@ -473,10 +478,19 @@ Mehrere Turniere als Serie zusammenfassen.
 
 # Phase 11 – Notifications
 
+## Vorgezogen und in Betrieb
+
+Transaktionale E-Mails für Einladung und Passwort-Reset sind seit dem
+20.09.2026 umgesetzt und laufen seit dem 21.09.2026 über einen echten
+Versanddienst (ADR 0017). Der Weg — Versandauftrag in derselben Transaktion,
+Zustellung durch den Worker, Zustand sichtbar je Einladung — steht damit für
+weitere Mailarten bereit.
+
 ## Scope
 
 - Web Push
-- Email
+- Email für Spielbetrieb und Turnierverlauf (die transaktionalen Mails oben
+  sind bereits da)
 - In-App Notifications
 
 Beispiele:
