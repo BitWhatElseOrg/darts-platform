@@ -8,10 +8,17 @@ mitführen:
 
 | Frage | Wo die Antwort steht |
 | --- | --- |
-| Welcher Commit läuft auf Production? | `git log origin/main -1` — der jüngste Merge-Commit ist der Release |
+| Welcher Commit läuft auf Production? | Railway, Deployment-Liste je Service im Environment `production`: der Quell-Commit des jüngsten Deployments mit Status `SUCCESS`. Je Service einzeln — sie können auseinanderlaufen. |
+| Welcher Commit *sollte* laufen? | `git log origin/main -1` |
 | Welche Releases gab es? | [geschlossene Release-PRs nach `main`](https://github.com/BitWhatElseOrg/darts-platform/pulls?q=is%3Apr+base%3Amain+is%3Aclosed) — jeder trägt Problem, Lösung, Migrationen, Tests und Security-Auswirkungen |
-| Welcher Commit wurde je Service deployt? | Railway, Deployment-Liste je Service im Environment `production` |
 | Läuft alles? | `curl --fail https://api.dartbase.ch/api/v1/health` und `curl --fail https://dartbase.ch/` |
+
+Die ersten beiden Zeilen sind bewusst getrennt: der jüngste Merge auf `main`
+ist das, was laufen soll, nicht zwangsläufig das, was läuft. Zwischen beiden
+liegen ein fehlgeschlagenes, ein noch laufendes und ein zu Unrecht
+übergangenes Deployment (siehe
+[Übersprungene Deployments](#übersprungene-deployments)). Wer den tatsächlichen
+Stand braucht, liest ihn bei Railway ab, nicht in Git.
 
 Eine hier gepflegte Commit-Angabe war nach jedem Release wieder falsch; die
 vier Quellen oben sind es nie.

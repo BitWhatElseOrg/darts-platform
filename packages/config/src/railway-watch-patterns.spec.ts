@@ -55,15 +55,35 @@ function watchedPackages(serviceName: string): readonly string[] {
   );
 }
 
-/** Die Workspace-Pakete, von denen eine Anwendung laut ihrer package.json abhaengt. */
-function declaredPackages(application: string): readonly string[] {
-  const manifest = JSON.parse(read(`apps/${application}/package.json`)) as {
+const scope = "@darts-platform/";
+
+/** Die direkten Workspace-Abhaengigkeiten aus einer package.json. */
+function directDependencies(manifestPath: string): readonly string[] {
+  const manifest = JSON.parse(read(manifestPath)) as {
     readonly dependencies?: Readonly<Record<string, string>>;
   };
   return Object.keys(manifest.dependencies ?? {})
-    .filter((name) => name.startsWith("@darts-platform/"))
-    .map((name) => name.slice("@darts-platform/".length))
-    .sort();
+    .filter((name) => name.startsWith(scope))
+    .map((name) => name.slice(scope.length));
+}
+
+/**
+ * Alle Workspace-Pakete, auf denen eine Anwendung aufbaut — auch die, die sie
+ * nur ueber ein anderes Paket erreicht. Eine Aenderung an einem transitiv
+ * erreichten Paket geht genauso in den Build ein wie eine an einem direkten:
+ * `notifications` zieht `schemas` nach, also braucht auch der Worker, der nur
+ * `notifications` nennt, ein Muster auf `schemas`.
+ */
+function requiredPackages(application: string): readonly string[] {
+  const reached = new Set<string>();
+  const queue = [...directDependencies(`apps/${application}/package.json`)];
+  while (queue.length > 0) {
+    const name = queue.pop();
+    if (name === undefined || reached.has(name)) continue;
+    reached.add(name);
+    queue.push(...directDependencies(`packages/${name}/package.json`));
+  }
+  return [...reached].sort();
 }
 
 const services = [
@@ -74,10 +94,10 @@ const services = [
 
 describe("Railway watchPatterns", () => {
   it.each(services)(
-    "$application beobachtet jedes Paket, von dem es abhaengt",
+    "$application beobachtet jedes Paket, auf dem es aufbaut",
     ({ application, serviceName }) => {
       const watched = watchedPackages(serviceName);
-      const missing = declaredPackages(application).filter((name) => !watched.includes(name));
+      const missing = requiredPackages(application).filter((name) => !watched.includes(name));
 
       expect(missing).toEqual([]);
     },

@@ -94,6 +94,9 @@ export default defineRailway(() => {
         "/packages/config/**",
         "/packages/database/**",
         "/packages/notifications/**",
+        // Ueber `notifications` erreicht, nicht direkt genannt: die Mailtypen
+        // liegen in `schemas`.
+        "/packages/schemas/**",
         "/packages/statistics/**",
         "/package.json",
         "/pnpm-lock.yaml",
