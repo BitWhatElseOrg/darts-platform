@@ -100,4 +100,11 @@ describe("tournament:share", () => {
       expect(hasOrganizationPermission(role, "player:delete")).toBe(false);
     }
   });
+
+  it("reserves deleting the organization for owners", () => {
+    expect(hasOrganizationPermission("OWNER", "organization:delete")).toBe(true);
+    for (const role of ["ADMIN", "TOURNAMENT_DIRECTOR", "SCORER", "MEMBER", "VIEWER"] as const) {
+      expect(hasOrganizationPermission(role, "organization:delete")).toBe(false);
+    }
+  });
 });

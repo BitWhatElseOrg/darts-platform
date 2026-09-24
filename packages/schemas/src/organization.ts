@@ -187,7 +187,13 @@ export const updateMembershipSchema = z
     message: "either role or status must be given",
   });
 
+/** Bestaetigung beim Loeschen: der Name muss eingetippt werden (Spec 2026-09-24). */
+export const deleteOrganizationSchema = z.object({
+  confirmName: z.string().trim().min(1).max(255),
+});
+
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
+export type DeleteOrganizationInput = z.infer<typeof deleteOrganizationSchema>;
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
 export type OrganizationCapabilities = z.infer<
   typeof organizationCapabilitiesSchema

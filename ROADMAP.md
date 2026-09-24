@@ -9,11 +9,13 @@ und laufen in Production; das Go-Live-Testprogramm ist seit dem 18.09.2026
 abgeschlossen. Vorgezogen und in Betrieb sind der Ligabetrieb mit
 Team-Begegnungen, Ligatabelle und Einzelrangliste nach VFC-Reglement (Phase 9
 teilweise) sowie E-Mails für Einladung und Passwort-Reset (Phase 11
-teilweise). Von Phase 7 steht die Basis mit Organisationen, Rollen,
-Permissions und Einladungen; Settings, Limits, Branding, eigene Domains und
-Billing sind der nächste geplante Produktabschnitt. Registrierung neuer Konten
-ist einladungsgebunden; Turnierverwaltung wird nur Rollen mit der
-entsprechenden Permission angeboten.
+teilweise). Von Phase 7 stehen die Basis mit Organisationen, Rollen,
+Permissions und Einladungen sowie erste Einstellungen (Stammdaten, Löschen);
+Spieler, Mitglieder und Organisationen lassen sich bearbeiten und löschen.
+Limits, Branding, eigene Domains und Billing sind der nächste geplante
+Produktabschnitt. Registrierung neuer Konten ist einladungsgebunden;
+Turnierverwaltung wird nur Rollen mit der entsprechenden Permission
+angeboten.
 
 ---
 
@@ -354,8 +356,9 @@ bestehenden Spielerprofile werten bisher nur Aufnahme- und Leg-Ebene aus.
 # Phase 7 – Multi-Tenant SaaS
 
 **Status:** Basis vorhanden – Organisationen, Mitgliedschaften, Rollen,
-Permissions und Einladungen sind umgesetzt; Settings, Limits, Branding,
-kundeneigene Organisationsdomains und Billing bleiben offen. Die technische
+Permissions und Einladungen sind umgesetzt; Settings sind teilweise
+umgesetzt (Name, Zeitzone, Sprache, Löschen), Limits, Branding, kundeneigene
+Organisationsdomains und Billing bleiben offen. Die technische
 Plattformdomain `dartbase.ch` ist davon unabhängig bereits eingerichtet.
 
 ## Ziel

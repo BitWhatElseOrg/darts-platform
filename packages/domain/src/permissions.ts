@@ -5,6 +5,7 @@ export const organizationPermissions = [
   "organization:update",
   "organization:manage_members",
   "organization:manage_roles",
+  "organization:delete",
   "player:read",
   "player:create",
   "player:update",
@@ -39,7 +40,12 @@ const allPermissions = new Set<OrganizationPermission>(organizationPermissions);
 
 const rolePermissions = {
   OWNER: allPermissions,
-  ADMIN: new Set<OrganizationPermission>(organizationPermissions),
+  // Die Organisation zu loeschen bleibt der Inhaberschaft vorbehalten
+  // (Spec 2026-09-24-bearbeiten-loeschen): ADMIN erhaelt sonst jede
+  // Permission, diese eine nicht.
+  ADMIN: new Set<OrganizationPermission>(
+    organizationPermissions.filter((permission) => permission !== "organization:delete"),
+  ),
   TOURNAMENT_DIRECTOR: new Set<OrganizationPermission>([
     "organization:read",
     "player:read",

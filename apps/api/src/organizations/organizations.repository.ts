@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
 
 import {
   auditEvents,
@@ -9,6 +9,7 @@ import {
   organizationInvitations,
   organizations,
   players,
+  tournaments,
   users,
 } from "@darts-platform/database";
 import {
@@ -243,6 +244,112 @@ export class OrganizationsRepository {
         { organizationId: input.organizationId, userId: input.userId },
         transaction,
       );
+    });
+  }
+
+  /**
+   * Loescht eine Organisation mit allen Daten (Spec 2026-09-24). Der
+   * Audit-Eintrag traegt die Identitaet selbst, weil
+   * `audit_events.organization_id` beim Loeschen auf NULL faellt.
+   *
+   * Kaskade: ein einfaches `delete(organizations)` reicht, weil jede
+   * tenant-bezogene Fremdschluesselspalte in `schema.ts` `onDelete: "cascade"`
+   * trägt (Ausnahme `audit_events`, dort `set null`). Belegt durch
+   * `organization-deletion.integration.spec.ts`: eine vollstaendig befuellte
+   * Organisation — Spieler mit Avatar, Board, Match mit Aufnahme, Turnier mit
+   * Gruppen und KO-Matches, Team mit Kader, Wettbewerb, Begegnung mit
+   * Aufstellung, offene Einladung und Statistik-Aggregat — verschwindet
+   * restlos, ohne dass eine Tabelle vorher explizit geleert werden muss.
+   *
+   * Undokumentierte Voraussetzung, die dieses einfache `delete` erst
+   * erlaubt (ADR 0018): Tabellen, die eine RESTRICT- oder
+   * NO-ACTION-Fremdschluesselspalte auf eine ANDERE Mandantentabelle halten
+   * — etwa `match_participant_players.player_id`,
+   * `visits.thrower_player_id`, `tournament_matches.winner_player_id`,
+   * `encounters.home_team_id` — muessen selbst ebenfalls eine
+   * `organization_id`-Spalte mit direktem `ON DELETE CASCADE` auf
+   * `organizations` tragen. Ohne diese zweite, direkte Kaskade wuerde
+   * Postgres beim Loeschen der Organisation an genau der RESTRICT-Klammer
+   * scheitern, die einen Spieler mit Historie vor dem einzelnen Loeschen
+   * schuetzt (`player:delete`, 409 `PLAYER_HAS_HISTORY`) — die geschuetzte
+   * Zeile darf beim Organisations-Loeschen nicht darauf warten, erst ueber
+   * die referenzierte Tabelle zu verschwinden. Diese Invariante wird nicht
+   * nur hier behauptet, sondern durch einen Datenbanktest gegen
+   * `pg_constraint` erzwungen: `packages/database/src/client.integration.spec.ts`
+   * („kaskadiert jede RESTRICT-geschützte Mandantentabelle direkt aus
+   * organizations"). Eine neue Tabelle mit einer solchen RESTRICT-Spalte
+   * ohne eigene direkte `organization_id`-Kaskade laesst diesen Test rot
+   * werden, nicht erst `deleteOrganization` in Produktion.
+   */
+  public async deleteOrganization(input: {
+    readonly organizationId: string;
+    readonly actorUserId: string;
+    readonly confirmName: string;
+    readonly audit: AuditContext;
+  }): Promise<"deleted" | "not-found" | "actor-not-owner" | "name-mismatch"> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [current] = await transaction
+        .select()
+        .from(organizations)
+        .where(eq(organizations.id, input.organizationId))
+        .limit(1)
+        .for("update");
+      if (current === undefined) return "not-found";
+
+      const [actor] = await transaction
+        .select({ role: memberships.role, status: memberships.status })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.organizationId, input.organizationId),
+            eq(memberships.userId, input.actorUserId),
+          ),
+        )
+        .limit(1)
+        .for("update");
+      if (actor === undefined || actor.status !== "ACTIVE" || actor.role !== "OWNER") {
+        return "actor-not-owner";
+      }
+
+      if (current.name !== input.confirmName) return "name-mismatch";
+
+      const [memberCount] = await transaction
+        .select({ value: count() })
+        .from(memberships)
+        .where(eq(memberships.organizationId, input.organizationId));
+      const [playerCount] = await transaction
+        .select({ value: count() })
+        .from(players)
+        .where(eq(players.organizationId, input.organizationId));
+      const [tournamentCount] = await transaction
+        .select({ value: count() })
+        .from(tournaments)
+        .where(eq(tournaments.organizationId, input.organizationId));
+
+      await transaction.insert(auditEvents).values({
+        organizationId: null,
+        actorUserId: input.actorUserId,
+        action: "ORGANIZATION_DELETED",
+        entityType: "Organization",
+        entityId: current.id,
+        oldValue: {
+          id: current.id,
+          name: current.name,
+          slug: current.slug,
+          timezone: current.timezone,
+          locale: current.locale,
+          members: memberCount?.value ?? 0,
+          players: playerCount?.value ?? 0,
+          tournaments: tournamentCount?.value ?? 0,
+        },
+        newValue: null,
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+
+      await transaction.delete(organizations).where(eq(organizations.id, input.organizationId));
+      return "deleted";
     });
   }
 

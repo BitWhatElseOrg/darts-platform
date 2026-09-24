@@ -249,7 +249,12 @@ function PlayerRow({
             <Button
               variant="outline"
               onClick={() => {
+                // Beide Mutationen zuruecksetzen, nicht nur deleteMutation:
+                // ein vorheriger Archivieren-Fehlversuch (derselbe Spieler,
+                // andere Aktion) darf im Loeschen-Dialog nicht als stille
+                // Karteikarte wieder auftauchen.
                 deleteMutation.reset();
+                archiveMutation.reset();
                 setDeleteConfirmOpen(true);
               }}
             >

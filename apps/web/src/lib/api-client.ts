@@ -81,6 +81,7 @@ function localizedMessage(code: string): string {
       "Diese Einladung wurde gerade erst erneut gesendet. Warte eine Minute, bevor du es nochmals versuchst.",
     PLAYER_HAS_HISTORY:
       "Dieser Spieler hat bereits gespielt oder steht in einem Turnier, Team oder einer Begegnung. Er lässt sich nur archivieren.",
+    ORGANIZATION_NAME_MISMATCH: "Der eingegebene Name stimmt nicht mit dem Namen der Organisation überein.",
   };
   const translated = messages[code];
   if (translated !== undefined) return translated;

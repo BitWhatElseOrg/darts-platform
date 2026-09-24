@@ -150,7 +150,13 @@ export function PlayerEditDialog({
       aria-modal="true"
       className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-ring-red-deep/50 bg-slate-950 p-5 text-white shadow-2xl sm:p-6"
       onCancel={(event) => {
+        // Escape loest den nativen `cancel` immer aus, auch waehrend die
+        // Speicher-Anfrage laeuft. Ohne diese Sperre wuerde der Dialog
+        // optisch verschwinden, waehrend die Mutation im Hintergrund
+        // weiterlaeuft — ein Fehlschlag danach faellt dann nirgendwo mehr
+        // auf (wie im gleichgelagerten Fund bei `confirm-dialog.tsx`).
         event.preventDefault();
+        if (updatePlayer.isPending) return;
         setDialogOpen(false);
       }}
       ref={dialogRef}

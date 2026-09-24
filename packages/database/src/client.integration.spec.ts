@@ -348,6 +348,77 @@ describe("database connection", () => {
     }
   });
 
+  it("kaskadiert jede RESTRICT-geschuetzte Mandantentabelle direkt aus organizations", async () => {
+    // ADR 0018 haelt fest: `deleteOrganization` (apps/api/.../organizations.repository.ts)
+    // fuehrt nur ein einfaches `delete(organizations)` aus. Das funktioniert
+    // ausschliesslich, weil jede Tabelle mit einer RESTRICT- oder
+    // NO ACTION-Fremdschluesselspalte auf eine andere Mandantentabelle
+    // (z. B. `players`, `boards`, `teams`) selbst eine `organization_id`-
+    // Spalte mit direktem `ON DELETE CASCADE` auf `organizations` trägt.
+    // Ohne diese Invariante würde Postgres beim Löschen der Organisation auf
+    // die RESTRICT-Klammer laufen, sobald die geschützte Zeile nicht
+    // gleichzeitig ueber ihre eigene Kaskade verschwindet (verifiziert: eine
+    // temporaere Tabelle mit RESTRICT-FK auf `players`, aber ohne eigene
+    // `organization_id`-Kaskade, laesst `delete(organizations)` mit einer
+    // Fremdschluesselverletzung scheitern statt mit den zwoelf bestehenden
+    // Zeilen zu verschwinden).
+    //
+    // Ausnahmen ausserhalb dieser Pruefung: `audit_events.organization_id`
+    // ist bewusst `SET NULL` (der Audit-Eintrag ueber die Loeschung selbst
+    // soll die Loeschung ueberleben, ADR 0018) und wird oben bereits von der
+    // Spaltenabfrage ausgeschlossen. RESTRICT-Fremdschluessel auf `users`
+    // (z. B. `organization_invitations.invited_by_user_id`,
+    // `tournament_display_keys.created_by`) faellt automatisch heraus, weil
+    // `users` keine `organization_id`-Spalte trägt — das Konto gehoert der
+    // Person, nicht der Organisation (ADR 0018, Abschnitt „Mitglied
+    // entfernen").
+    const violations = await connection.database.execute<{
+      readonly referencing_table: string;
+      readonly referenced_table: string;
+    }>(sql`
+      with restrict_fks as (
+        select
+          con.conrelid::regclass::text as referencing_table,
+          con.confrelid::regclass::text as referenced_table
+        from pg_constraint con
+        where con.contype = 'f'
+          and con.confdeltype in ('r', 'a')
+      ),
+      restrict_fks_to_tenant_tables as (
+        select distinct rf.referencing_table, rf.referenced_table
+        from restrict_fks rf
+        where exists (
+          select 1 from information_schema.columns c
+          where c.table_schema = 'public'
+            and c.table_name = rf.referenced_table
+            and c.column_name = 'organization_id'
+        )
+      ),
+      tables_cascading_directly_from_organizations as (
+        select con.conrelid::regclass::text as table_name
+        from pg_constraint con
+        where con.contype = 'f'
+          and con.confrelid = 'organizations'::regclass
+          and con.confdeltype = 'c'
+      )
+      select referencing_table, referenced_table
+      from restrict_fks_to_tenant_tables
+      where referencing_table not in (
+        select table_name from tables_cascading_directly_from_organizations
+      )
+      order by referencing_table
+    `);
+
+    expect(
+      violations,
+      "Diese Tabellen haben eine RESTRICT/NO-ACTION-Fremdschluesselspalte auf " +
+        "eine Mandantentabelle, aber keine eigene organization_id mit ON DELETE " +
+        "CASCADE auf organizations — deleteOrganization() würde für sie an der " +
+        "Fremdschluesselklammer scheitern:\n" +
+        violations.map((row) => `${row.referencing_table} -> ${row.referenced_table}`).join("\n"),
+    ).toEqual([]);
+  });
+
   it("ordnet und findet unverarbeitete Outbox-Zeilen ueber eine eigene Sequenz", async () => {
     const organizationId = randomUUID();
     try {
