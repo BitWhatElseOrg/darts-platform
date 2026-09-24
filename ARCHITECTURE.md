@@ -331,11 +331,26 @@ board:control
 
 organization:manage_members
 organization:manage_roles
+organization:delete
 ```
 
 `player:delete` erlaubt nur die endgültige Löschung eines Spielers ohne
 Historie (keine Matches, keine Turnier-, Kader- oder Begegnungseinträge) und
 ist auf `OWNER` und `ADMIN` beschränkt.
+
+`organization:delete` erlaubt das endgültige Löschen der gesamten
+Organisation (`DELETE /organizations/:id`, Body `{ confirmName }`) und ist
+ausschliesslich `OWNER` vorbehalten — ADMIN erhält jede andere Permission,
+diese eine nicht. Der eingetippte Name muss exakt mit dem Organisationsnamen
+übereinstimmen, sonst antwortet der Server mit 400
+`ORGANIZATION_NAME_MISMATCH`, ohne etwas zu löschen. Bei Erfolg (204)
+verschwinden alle Daten der Organisation restlos (Spieler, Turniere,
+Matches, Teams, Wettbewerbe, Begegnungen, Einladungen, Mitgliedschaften);
+der Audit-Eintrag `ORGANIZATION_DELETED` bleibt ausserhalb des Mandanten
+erhalten (`organization_id = NULL`, siehe
+[ADR 0018](./docs/adr/0018-loeschkonzept.md)). Die Löschung ist
+irreversibel; einzige Rückholmöglichkeit ist eine Point-in-Time-Recovery
+durch den Betrieb.
 
 Jede Mutation muss serverseitig autorisiert werden.
 

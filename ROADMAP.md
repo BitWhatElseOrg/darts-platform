@@ -354,8 +354,9 @@ bestehenden Spielerprofile werten bisher nur Aufnahme- und Leg-Ebene aus.
 # Phase 7 – Multi-Tenant SaaS
 
 **Status:** Basis vorhanden – Organisationen, Mitgliedschaften, Rollen,
-Permissions und Einladungen sind umgesetzt; Settings, Limits, Branding,
-kundeneigene Organisationsdomains und Billing bleiben offen. Die technische
+Permissions und Einladungen sind umgesetzt; Settings sind teilweise
+umgesetzt (Name, Zeitzone, Sprache, Löschen), Limits, Branding, kundeneigene
+Organisationsdomains und Billing bleiben offen. Die technische
 Plattformdomain `dartbase.ch` ist davon unabhängig bereits eingerichtet.
 
 ## Ziel
