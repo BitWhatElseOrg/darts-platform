@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
 
 import {
   auditEvents,
@@ -9,6 +9,7 @@ import {
   organizationInvitations,
   organizations,
   players,
+  tournaments,
   users,
 } from "@darts-platform/database";
 import {
@@ -243,6 +244,92 @@ export class OrganizationsRepository {
         { organizationId: input.organizationId, userId: input.userId },
         transaction,
       );
+    });
+  }
+
+  /**
+   * Loescht eine Organisation mit allen Daten (Spec 2026-09-24). Der
+   * Audit-Eintrag traegt die Identitaet selbst, weil
+   * `audit_events.organization_id` beim Loeschen auf NULL faellt.
+   *
+   * Kaskade: ein einfaches `delete(organizations)` reicht, weil jede
+   * tenant-bezogene Fremdschluesselspalte in `schema.ts` `onDelete: "cascade"`
+   * trägt (Ausnahme `audit_events`, dort `set null`). Belegt durch
+   * `organization-deletion.integration.spec.ts`: eine vollstaendig befuellte
+   * Organisation — Spieler mit Avatar, Board, Match mit Aufnahme, Turnier mit
+   * Gruppen und KO-Matches, Team mit Kader, Wettbewerb, Begegnung mit
+   * Aufstellung, offene Einladung und Statistik-Aggregat — verschwindet
+   * restlos, ohne dass eine Tabelle vorher explizit geleert werden muss.
+   */
+  public async deleteOrganization(input: {
+    readonly organizationId: string;
+    readonly actorUserId: string;
+    readonly confirmName: string;
+    readonly audit: AuditContext;
+  }): Promise<"deleted" | "not-found" | "actor-not-owner" | "name-mismatch"> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [current] = await transaction
+        .select()
+        .from(organizations)
+        .where(eq(organizations.id, input.organizationId))
+        .limit(1)
+        .for("update");
+      if (current === undefined) return "not-found";
+
+      const [actor] = await transaction
+        .select({ role: memberships.role, status: memberships.status })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.organizationId, input.organizationId),
+            eq(memberships.userId, input.actorUserId),
+          ),
+        )
+        .limit(1)
+        .for("update");
+      if (actor === undefined || actor.status !== "ACTIVE" || actor.role !== "OWNER") {
+        return "actor-not-owner";
+      }
+
+      if (current.name !== input.confirmName) return "name-mismatch";
+
+      const [memberCount] = await transaction
+        .select({ value: count() })
+        .from(memberships)
+        .where(eq(memberships.organizationId, input.organizationId));
+      const [playerCount] = await transaction
+        .select({ value: count() })
+        .from(players)
+        .where(eq(players.organizationId, input.organizationId));
+      const [tournamentCount] = await transaction
+        .select({ value: count() })
+        .from(tournaments)
+        .where(eq(tournaments.organizationId, input.organizationId));
+
+      await transaction.insert(auditEvents).values({
+        organizationId: null,
+        actorUserId: input.actorUserId,
+        action: "ORGANIZATION_DELETED",
+        entityType: "Organization",
+        entityId: current.id,
+        oldValue: {
+          id: current.id,
+          name: current.name,
+          slug: current.slug,
+          timezone: current.timezone,
+          locale: current.locale,
+          members: memberCount?.value ?? 0,
+          players: playerCount?.value ?? 0,
+          tournaments: tournamentCount?.value ?? 0,
+        },
+        newValue: null,
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+
+      await transaction.delete(organizations).where(eq(organizations.id, input.organizationId));
+      return "deleted";
     });
   }
 

@@ -64,6 +64,14 @@ const probes: Record<OrganizationPermission, Probe> = {
     url: `/api/v1/organizations/${organizationId}/members/${randomUUID()}`,
     payload: { role: "MEMBER" },
   },
+  // Der falsche Name fuehrt nach der Berechtigungspruefung zu 400
+  // `ORGANIZATION_NAME_MISMATCH` (zaehlt als "autorisiert"); die Probe
+  // loescht also nie die Matrix-Organisation.
+  "organization:delete": {
+    method: "DELETE",
+    url: `/api/v1/organizations/${organizationId}`,
+    payload: { confirmName: "falscher Name" },
+  },
   "player:read": {
     method: "GET",
     url: `/api/v1/organizations/${organizationId}/players`,

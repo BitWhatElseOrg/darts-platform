@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Inject,
@@ -20,6 +21,7 @@ import {
   type AcceptInvitationInput,
   type CreateInvitationInput,
   type CreateOrganizationInput,
+  type DeleteOrganizationInput,
   type LinkMemberPlayerInput,
   type CreatedInvitation,
   type Invitation,
@@ -151,6 +153,53 @@ export class OrganizationsService {
         throw new ConflictException("This organization slug is already used.");
       }
       throw error;
+    }
+  }
+
+  /**
+   * Loescht die Organisation mit allen Daten endgueltig. Nur ein aktiver
+   * OWNER darf das, und nur mit dem exakten (getrimmten) Namen als
+   * Bestaetigung — beides prueft das Repository unter der Sperre, weil sich
+   * Rolle und Name zwischen der Berechtigungspruefung hier und dem
+   * Schreibvorgang aendern koennten.
+   */
+  public async deleteOrganization(input: {
+    readonly organizationId: string;
+    readonly data: DeleteOrganizationInput;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<void> {
+    await this.organizationAccessService.requirePermission({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      permission: "organization:delete",
+    });
+
+    const outcome = await this.organizationsRepository.deleteOrganization({
+      organizationId: input.organizationId,
+      actorUserId: input.auth.user.id,
+      confirmName: input.data.confirmName,
+      audit: input.audit,
+    });
+
+    switch (outcome) {
+      case "not-found":
+        throw new NotFoundException("This organization does not exist.");
+      case "actor-not-owner":
+        // Wie bei `updateMembership`/`removeMembership`: die Mitgliedschaft
+        // der handelnden Person wurde zwischen der Berechtigungspruefung und
+        // der Sperre entzogen oder herabgestuft. Antwort wie bei
+        // `requirePermission`: 403 `PERMISSION_DENIED`.
+        throw new ForbiddenException(
+          "You do not have permission to access this organization resource.",
+        );
+      case "name-mismatch":
+        throw new BadRequestException({
+          code: "ORGANIZATION_NAME_MISMATCH",
+          message: "The confirmation does not match the organization name.",
+        });
+      case "deleted":
+        return;
     }
   }
 
