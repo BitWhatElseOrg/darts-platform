@@ -76,6 +76,18 @@ export function PlayerList({
 
   const invalidatePlayers = () => queryClient.invalidateQueries({ queryKey: ["players", organizationId] });
 
+  // Kein globales `onSuccess` mehr auf der Mutation selbst (Fix-Runde 1,
+  // Review-Befund 1): `archiveMutation` ist jetzt fuer die ganze Liste
+  // geteilt. Ein globales `onSuccess`/`onError` haette bei jeder Antwort
+  // bedingungslos das GERADE offene Dialog angefasst -- auch dann, wenn der
+  // Aufruf, der diese Antwort ausgeloest hat, laengst zu einer anderen
+  // Person gehoerte (z. B. ein "Stattdessen archivieren" fuer X, dessen
+  // Antwort erst eintrifft, nachdem der Loeschen-Dialog fuer Y schon offen
+  // ist). Stattdessen bekommt jeder `mutate()`-Aufruf sein eigenes,
+  // aufrufgebundenes `onSuccess` (siehe `runArchive`/`onConfirm` unten), das
+  // den Zielspieler dieses konkreten Aufrufs geschlossen haelt und nur dann
+  // wirkt, wenn das aktuell offene Dialog noch zu genau diesem Spieler
+  // gehoert.
   const archiveMutation = useMutation({
     mutationFn: (playerId: string) =>
       apiRequest({
@@ -83,10 +95,6 @@ export function PlayerList({
         method: "DELETE",
         schema: playerSchema,
       }),
-    onSuccess: async () => {
-      await invalidatePlayers();
-      setDialog(null);
-    },
   });
 
   const deleteMutation = useMutation({
@@ -96,13 +104,30 @@ export function PlayerList({
         method: "DELETE",
         schema: z.undefined(),
       }),
-    onSuccess: async () => {
-      const deletedName = dialog !== null && dialog.kind === "delete" ? dialog.player.displayName : "Der Spieler";
-      await invalidatePlayers();
-      setDialog(null);
-      setDeletedAnnouncement(`${deletedName} wurde gelöscht.`);
-    },
   });
+
+  const runArchive = (target: PlayerResponse) => {
+    archiveMutation.mutate(target.id, {
+      onSuccess: async () => {
+        await invalidatePlayers();
+        // Nur schliessen, wenn das offene Dialog noch dieser Person gehoert
+        // -- waehrend der Anfrage kann sich das Dialog dank der Sperre unten
+        // zwar nicht mehr aendern, die Pruefung bleibt aber die
+        // eigentliche, vom Timing unabhaengige Garantie.
+        setDialog((current) => (current !== null && current.player.id === target.id ? null : current));
+      },
+    });
+  };
+
+  const runDelete = (target: PlayerResponse) => {
+    deleteMutation.mutate(target.id, {
+      onSuccess: async () => {
+        await invalidatePlayers();
+        setDialog((current) => (current !== null && current.player.id === target.id ? null : current));
+        setDeletedAnnouncement(`${target.displayName} wurde gelöscht.`);
+      },
+    });
+  };
 
   const reactivateMutation = useMutation({
     mutationFn: (playerId: string) =>
@@ -135,14 +160,31 @@ export function PlayerList({
     setDialog({ kind: "delete", player });
   };
 
+  // Beide Mutationen sind fuer die ganze Liste geteilt: `variables` haelt
+  // die zuletzt aufgerufene Spieler-ID fest. Ein Abgleich mit dem aktuell
+  // offenen Dialog verhindert, dass eine verspaetet eintreffende Antwort
+  // (z. B. ein "Stattdessen archivieren" fuer eine laengst geschlossene
+  // Person) sich faelschlich einem inzwischen geoeffneten, fremden Dialog
+  // zuordnet (Fix-Runde 1, Review-Befund 1).
+  const archiveMatchesDialog = dialog !== null && archiveMutation.variables === dialog.player.id;
+  const deleteMatchesDialog = dialog !== null && deleteMutation.variables === dialog.player.id;
+
   const canOfferArchiveInstead =
     dialog !== null &&
     dialog.kind === "delete" &&
+    deleteMatchesDialog &&
     deleteMutation.isError &&
     deleteMutation.error instanceof ApiClientError &&
     deleteMutation.error.code === "PLAYER_HAS_HISTORY" &&
     dialog.player.status === "ACTIVE" &&
     canArchive;
+
+  // Das Loeschen-Dialog darf sich nicht schliessen lassen, waehrend eine
+  // vom "Stattdessen archivieren"-Knopf ausgeloeste `archiveMutation` fuer
+  // GENAU diese Person noch laeuft -- vorher war `pending` hier nur an
+  // `deleteMutation.isPending` gebunden, sodass Abbrechen/Escape mitten in
+  // dieser Anfrage funktionierten (Fix-Runde 1, Review-Befund 1).
+  const deleteDialogPending = deleteMutation.isPending || (archiveMutation.isPending && archiveMatchesDialog);
 
   const archiveDescription =
     dialog !== null
@@ -275,11 +317,11 @@ export function PlayerList({
         description={dialog?.kind === "archive" ? archiveDescription : deleteDescription}
         error={
           dialog?.kind === "archive"
-            ? archiveMutation.isError
+            ? archiveMutation.isError && archiveMatchesDialog
               ? userFacingErrorMessage(archiveMutation.error)
               : null
             : dialog?.kind === "delete"
-              ? deleteMutation.isError
+              ? deleteMutation.isError && deleteMatchesDialog
                 ? userFacingErrorMessage(deleteMutation.error)
                 : null
               : null
@@ -287,11 +329,11 @@ export function PlayerList({
         onCancel={() => setDialog(null)}
         onConfirm={() => {
           if (dialog === null) return;
-          if (dialog.kind === "archive") archiveMutation.mutate(dialog.player.id);
-          else if (dialog.kind === "delete") deleteMutation.mutate(dialog.player.id);
+          if (dialog.kind === "archive") runArchive(dialog.player);
+          else if (dialog.kind === "delete") runDelete(dialog.player);
         }}
         open={dialog?.kind === "archive" || dialog?.kind === "delete"}
-        pending={dialog?.kind === "archive" ? archiveMutation.isPending : deleteMutation.isPending}
+        pending={dialog?.kind === "archive" ? archiveMutation.isPending : deleteDialogPending}
         title={dialog?.kind === "archive" ? "Spieler archivieren" : "Spieler endgültig löschen"}
       >
         {canOfferArchiveInstead ? (
@@ -299,14 +341,14 @@ export function PlayerList({
             <Button
               disabled={archiveMutation.isPending}
               onClick={() => {
-                if (dialog !== null) archiveMutation.mutate(dialog.player.id);
+                if (dialog !== null) runArchive(dialog.player);
               }}
               type="button"
               variant="outline"
             >
               Stattdessen archivieren
             </Button>
-            {archiveMutation.isError ? (
+            {archiveMutation.isError && archiveMatchesDialog ? (
               <p className="text-body text-rose-300" role="alert">
                 {userFacingErrorMessage(archiveMutation.error)}
               </p>

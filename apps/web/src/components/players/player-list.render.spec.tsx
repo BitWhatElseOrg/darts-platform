@@ -398,6 +398,60 @@ describe("PlayerList", () => {
     expect(archiveInstead.disabled).toBe(false);
   });
 
+  it("'Abbrechen' im Loeschen-Dialog bleibt gesperrt, waehrend 'Stattdessen archivieren' noch laeuft (Fix-Runde 1, Task-Review-Befund 1)", async () => {
+    // `archiveMutation` ist jetzt fuer die ganze Liste geteilt. Vor diesem
+    // Fix band das Loeschen-Dialog sein `pending` nur an
+    // `deleteMutation.isPending`: waehrend die vom "Stattdessen
+    // archivieren"-Knopf ausgeloeste `archiveMutation` noch lief, liessen
+    // sich Abbrechen und Escape trotzdem benutzen. Ein danach fuer eine
+    // ANDERE Person geoeffnetes Dialog haette die verspaetet eintreffende
+    // Antwort (Erfolg ODER Fehlschlag) faelschlich uebernommen. Mit
+    // gesperrtem Abbrechen kann dieses zweite Dialog gar nicht erst
+    // aufgehen, bevor die Antwort da ist.
+    client.apiRequest.mockRejectedValueOnce(
+      new client.ApiClientError(
+        "Dieser Spieler hat bereits gespielt oder steht in einem Turnier, Team oder einer Begegnung. Er lässt sich nur archivieren.",
+        "PLAYER_HAS_HISTORY",
+        null,
+        undefined,
+        409,
+      ),
+    );
+    renderList([anna], new Map(), { canArchive: true, canDelete: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Löschen" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Endgültig löschen" }));
+
+    const archiveInstead = await waitFor(() =>
+      within(dialog).getByRole("button", { name: "Stattdessen archivieren" }),
+    );
+
+    let resolveArchive: (value: unknown) => void = () => {};
+    client.apiRequest.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveArchive = resolve;
+        }),
+    );
+    fireEvent.click(archiveInstead);
+
+    const abbrechen = (await waitFor(() =>
+      within(dialog).getByRole("button", { name: "Abbrechen" }),
+    )) as HTMLButtonElement;
+    expect(abbrechen.disabled).toBe(true);
+
+    // Der native `cancel`-Event (Escape) muss ebenso wirkungslos bleiben --
+    // `confirm-dialog.tsx` prueft dafuer selbst `pending`.
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    expect(screen.getByRole("dialog")).toBe(dialog);
+
+    resolveArchive({ ...anna, status: "INACTIVE" });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+  });
+
   it("zeigt beim erneuten Oeffnen des Loesch-Dialogs keinen veralteten Archivieren-Fehlschlag mehr (Whole-Branch-Review, Befund 4)", async () => {
     // Ablauf: 1) Loeschen -> 409 PLAYER_HAS_HISTORY -> "Stattdessen
     // archivieren" erscheint. 2) Dieser Archivierungsversuch schlaegt
