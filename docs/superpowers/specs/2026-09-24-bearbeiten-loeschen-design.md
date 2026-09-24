@@ -160,9 +160,12 @@ Bestehendes bleibt: `DELETE :playerId` archiviert, `PATCH` mit
      RESTRICT-Fremdschlüssel (Spieler ↔ Matches/Turniere/Teams/Begegnungen,
      `tournament_boards.board_id`, `encounters.home_team_id` /
      `away_team_id`). Ob `DELETE FROM organizations` mit der Kaskade allein
-     durchläuft, ist nicht belegt. Deshalb löscht das Repository die
-     abhängigen Tabellen in einer festen, getesteten Reihenfolge und zuletzt
-     die Organisation. Alle Statements tragen `organization_id = $1`.
+     durchläuft, ist nicht belegt; die bestehenden Integrationstests räumen
+     Organisationen mit Turnieren und Begegnungen allerdings bereits so ab.
+     Ein Integrationstest mit vollständig gefüllter Organisation entscheidet:
+     läuft die Kaskade durch, bleibt es beim einfachen `DELETE`; sonst löscht
+     das Repository die blockierenden Tabellen vorher in fester Reihenfolge,
+     jeweils mit `organization_id = $1`.
 - Antwort: **204**.
 - Kein Realtime-Broadcast nötig: Clients anderer Mitglieder erhalten beim
   nächsten Zugriff 403/404 und die Auswahl fällt zurück.
