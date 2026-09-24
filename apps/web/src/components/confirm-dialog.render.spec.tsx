@@ -99,4 +99,17 @@ describe("ConfirmDialog", () => {
 
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
+
+  it("ignoriert Escape, waehrend eine Anfrage laeuft (pending)", () => {
+    // Regression: Escape rief bisher immer onCancel, auch waehrend `pending`
+    // — der Dialog verschwand optisch, obwohl die Mutation im Hintergrund
+    // weiterlief, und ein Fehlschlag danach fiel nirgendwo mehr auf.
+    const { onCancel } = renderDialog({ pending: true });
+
+    const dialog = screen.getByRole("dialog");
+    fireEvent(dialog, new Event("cancel", { cancelable: true }));
+
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
 });
