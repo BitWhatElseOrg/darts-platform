@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Inject,
   Param,
   ParseUUIDPipe,
@@ -98,6 +99,26 @@ export class PlayersController {
     @Req() request: FastifyRequest,
   ): Promise<PlayerResponse> {
     return this.playersService.archive({
+      organizationId,
+      playerId,
+      auth,
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
+    });
+  }
+
+  /**
+   * Endgueltiges Loeschen, nur ohne Historie. Die Route darunter
+   * (`DELETE :playerId`) archiviert und bleibt der Normalfall.
+   */
+  @Delete(":playerId/permanent")
+  @HttpCode(204)
+  public async deletePermanently(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("playerId", ParseUUIDPipe) playerId: string,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<void> {
+    await this.playersService.deletePermanently({
       organizationId,
       playerId,
       auth,

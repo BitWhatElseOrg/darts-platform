@@ -82,10 +82,9 @@ const probes: Record<OrganizationPermission, Probe> = {
     method: "DELETE",
     url: `/api/v1/organizations/${organizationId}/players/${randomUUID()}`,
   },
-  // Task 2 switches this to: `/api/v1/organizations/${organizationId}/players/${randomUUID()}/permanent`
   "player:delete": {
     method: "DELETE",
-    url: `/api/v1/organizations/${organizationId}/players/${randomUUID()}`,
+    url: `/api/v1/organizations/${organizationId}/players/${randomUUID()}/permanent`,
   },
   "board:read": {
     method: "GET",
