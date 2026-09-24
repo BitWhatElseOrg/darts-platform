@@ -32,6 +32,7 @@ import {
 } from "@/lib/list-filter";
 import { buildInvitationLink } from "@/lib/invitation-link";
 import { roleLabel } from "@/lib/roles";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ListFilterBar } from "@/components/list-filter-bar";
 import { WorkspaceShell } from "@/components/workspace-shell";
 
@@ -125,6 +126,18 @@ function Members({ currentUserId, organization }: {
       }),
     onSuccess: invalidateMembers,
   });
+  const removeMember = useMutation({
+    mutationFn: (userId: string) =>
+      apiRequest({
+        path: `/organizations/${organization.id}/members/${userId}`,
+        method: "DELETE",
+        schema: z.undefined(),
+      }),
+    onSuccess: async () => {
+      await invalidateMembers();
+      setRemoveTarget(null);
+    },
+  });
   const cancelInvitation = useMutation({
     mutationFn: (invitationId: string) =>
       apiRequest({
@@ -156,6 +169,7 @@ function Members({ currentUserId, organization }: {
   // erledigt: Sie nimmt der handelnden Person die höchste Rolle und lässt
   // sich nur von der neuen Inhaberschaft rückgängig machen.
   const [ownerTransfer, setOwnerTransfer] = useState<OrganizationMember | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<OrganizationMember | null>(null);
   const [filter, setFilter] = useState<MemberFilter>(defaultMemberFilter);
   // Vor dem Frühausstieg, damit die Hook-Reihenfolge stabil bleibt.
   const visibleMembers = useMemo(
@@ -282,59 +296,65 @@ function Members({ currentUserId, organization }: {
                         : `Spielerprofil: ${member.player.displayName}`}
                     </p>
                   </div>
-                  {actions.canChangeRole || actions.canChangeStatus ? (
-                    <div className="grid gap-2 sm:w-64">
-                      <label className="block space-y-1">
-                        <span className="text-caption font-semibold tracking-[0.14em] text-slate-500 uppercase">
-                          Rolle
-                        </span>
-                        <select
-                          className={selectClassName}
-                          disabled={!actions.canChangeRole || pending}
-                          onChange={(event) => {
-                            const role = event.target.value as OrganizationRole;
-                            if (role === member.role) return;
-                            if (role === "OWNER") {
-                              setOwnerTransfer(member);
-                              return;
-                            }
-                            updateMember.mutate({ userId: member.userId, data: { role } });
-                          }}
-                          value={member.role}
+                  <div className="grid gap-2 sm:w-64">
+                    {actions.canChangeRole || actions.canChangeStatus ? (
+                      <>
+                        <label className="block space-y-1">
+                          <span className="text-caption font-semibold tracking-[0.14em] text-slate-500 uppercase">
+                            Rolle
+                          </span>
+                          <select
+                            className={selectClassName}
+                            disabled={!actions.canChangeRole || pending}
+                            onChange={(event) => {
+                              const role = event.target.value as OrganizationRole;
+                              if (role === member.role) return;
+                              if (role === "OWNER") {
+                                setOwnerTransfer(member);
+                                return;
+                              }
+                              updateMember.mutate({ userId: member.userId, data: { role } });
+                            }}
+                            value={member.role}
+                          >
+                            {assignableRoles(organization.role).map((role) => (
+                              <option key={role} value={role}>{roleLabel(role)}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <Button
+                          disabled={!actions.canChangeStatus || pending}
+                          onClick={() =>
+                            updateMember.mutate({
+                              userId: member.userId,
+                              data: { status: member.status === "SUSPENDED" ? "ACTIVE" : "SUSPENDED" },
+                            })
+                          }
+                          type="button"
+                          variant="outline"
                         >
-                          {assignableRoles(organization.role).map((role) => (
-                            <option key={role} value={role}>{roleLabel(role)}</option>
-                          ))}
-                        </select>
-                      </label>
+                          {member.status === "SUSPENDED" ? "Zugang reaktivieren" : "Zugang deaktivieren"}
+                        </Button>
+                      </>
+                    ) : null}
+                    <MemberPlayerLink
+                      member={member}
+                      organizationId={organization.id}
+                      players={playersQuery.data ?? []}
+                    />
+                    {actions.canRemove ? (
                       <Button
-                        disabled={!actions.canChangeStatus || pending}
-                        onClick={() =>
-                          updateMember.mutate({
-                            userId: member.userId,
-                            data: { status: member.status === "SUSPENDED" ? "ACTIVE" : "SUSPENDED" },
-                          })
-                        }
+                        onClick={() => {
+                          removeMember.reset();
+                          setRemoveTarget(member);
+                        }}
                         type="button"
                         variant="outline"
                       >
-                        {member.status === "SUSPENDED" ? "Zugang reaktivieren" : "Zugang deaktivieren"}
+                        Entfernen
                       </Button>
-                      <MemberPlayerLink
-                        member={member}
-                        organizationId={organization.id}
-                        players={playersQuery.data ?? []}
-                      />
-                    </div>
-                  ) : (
-                    <div className="grid gap-2 sm:w-64">
-                      <MemberPlayerLink
-                        member={member}
-                        organizationId={organization.id}
-                        players={playersQuery.data ?? []}
-                      />
-                    </div>
-                  )}
+                    ) : null}
+                  </div>
                 </li>
               );
             })}
@@ -440,6 +460,25 @@ function Members({ currentUserId, organization }: {
           setOwnerTransfer(null);
         }}
         pending={updateMember.isPending}
+      />
+
+      <ConfirmDialog
+        confirmLabel="Entfernen"
+        confirmVariant="danger"
+        description={
+          removeTarget === null
+            ? ""
+            : `${removeTarget.displayName} verliert den Zugang zu dieser Organisation. Eine Spieler-Verknüpfung wird gelöst. Das Konto bleibt bestehen, und du kannst die Person später wieder einladen. Wenn du den Zugang nur vorübergehend sperren willst, nutze «Zugang deaktivieren».`
+        }
+        error={removeMember.isError ? userFacingErrorMessage(removeMember.error) : null}
+        onCancel={() => setRemoveTarget(null)}
+        onConfirm={() => {
+          if (removeTarget === null) return;
+          removeMember.mutate(removeTarget.userId);
+        }}
+        open={removeTarget !== null}
+        pending={removeMember.isPending}
+        title="Mitglied entfernen"
       />
     </div>
   );

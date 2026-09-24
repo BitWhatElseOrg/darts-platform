@@ -450,6 +450,70 @@ export class OrganizationsService {
   }
 
   /**
+   * Entfernt eine Mitgliedschaft vollstaendig. Verlangt
+   * `organization:manage_members` — dieselbe Berechtigung wie Einladen und
+   * die Mitgliederliste; das Aufloesen von Eigentum bleibt trotzdem
+   * `updateMembership` bzw. dem Repository vorbehalten (siehe unten).
+   *
+   * Die eigene Mitgliedschaft bleibt aussen vor, aus demselben Grund wie in
+   * `updateMembership`: es bleibt immer ein aktiver OWNER, der die Aenderung
+   * vornehmen kann.
+   */
+  public async removeMember(input: {
+    readonly organizationId: string;
+    readonly targetUserId: string;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<void> {
+    await this.organizationAccessService.requirePermission({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      permission: "organization:manage_members",
+    });
+
+    if (input.targetUserId === input.auth.user.id) {
+      throw new ForbiddenException({
+        code: "SELF_MEMBERSHIP_CHANGE_FORBIDDEN",
+        message: "Your own membership is changed by another administrator.",
+      });
+    }
+
+    const result = await this.organizationsRepository.removeMembership({
+      organizationId: input.organizationId,
+      targetUserId: input.targetUserId,
+      actorUserId: input.auth.user.id,
+      audit: input.audit,
+    });
+
+    switch (result.outcome) {
+      case "not-found":
+        throw new NotFoundException(
+          "This membership does not exist in this organization.",
+        );
+      case "actor-not-active":
+        // Wie bei `updateMembership`: die Mitgliedschaft der handelnden
+        // Person wurde zwischen der Berechtigungspruefung und der Sperre
+        // entzogen oder herabgestuft. Antwort wie bei `requirePermission`:
+        // 403 `PERMISSION_DENIED`.
+        throw new ForbiddenException(
+          "You do not have permission to access this organization resource.",
+        );
+      case "owner-change-requires-owner":
+        throw new ForbiddenException({
+          code: "OWNER_CHANGE_REQUIRES_OWNER",
+          message: "Only an active owner can change an owner membership.",
+        });
+      case "last-owner":
+        throw new ConflictException({
+          code: "LAST_OWNER_PROTECTED",
+          message: "The last active owner cannot be removed.",
+        });
+      case "removed":
+        return;
+    }
+  }
+
+  /**
    * Ordnet einem Mitglied ein Spielerprofil zu. Verlangt
    * `organization:manage_members` — dieselbe Berechtigung wie Einladen und
    * Mitgliederliste. Die Zuordnung gewaehrt keine Rechte, sie beantwortet eine

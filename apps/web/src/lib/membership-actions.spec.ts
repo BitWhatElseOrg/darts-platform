@@ -31,6 +31,7 @@ describe("membershipRowActions", () => {
     expect(membershipRowActions({ ...base, member: member() })).toEqual({
       canChangeRole: true,
       canChangeStatus: true,
+      canRemove: true,
       blockedReason: null,
     });
   });
@@ -38,6 +39,7 @@ describe("membershipRowActions", () => {
   it("sperrt die eigene Zeile mit Begruendung", () => {
     const actions = membershipRowActions({ ...base, member: member({ userId: "actor" }) });
     expect(actions.canChangeRole).toBe(false);
+    expect(actions.canRemove).toBe(false);
     expect(actions.blockedReason).toBe("Die eigene Mitgliedschaft ändert eine andere Person.");
   });
 
@@ -48,6 +50,7 @@ describe("membershipRowActions", () => {
       member: member({ userId: "owner-2", role: "OWNER" }),
     });
     expect(actions.canChangeStatus).toBe(false);
+    expect(actions.canRemove).toBe(false);
     expect(actions.blockedReason).toBe("Eine Inhaber-Mitgliedschaft ändert nur ein anderer Inhaber.");
   });
 
@@ -58,6 +61,7 @@ describe("membershipRowActions", () => {
       member: member({ userId: "owner-2", role: "OWNER" }),
     });
     expect(actions.canChangeRole).toBe(false);
+    expect(actions.canRemove).toBe(false);
     expect(actions.blockedReason).toBe("Der letzte aktive Inhaber bleibt bestehen.");
   });
 
@@ -70,12 +74,51 @@ describe("membershipRowActions", () => {
       member: member({ userId: "owner-2", role: "OWNER", status: "SUSPENDED" }),
     });
     expect(actions.canChangeStatus).toBe(true);
+    expect(actions.canRemove).toBe(true);
   });
 
   it("sperrt alles ohne Rollenberechtigung", () => {
     const actions = membershipRowActions({ ...base, actorRole: "SCORER", member: member() });
-    expect(actions).toMatchObject({ canChangeRole: false, canChangeStatus: false });
+    expect(actions).toMatchObject({ canChangeRole: false, canChangeStatus: false, canRemove: false });
     expect(actions.blockedReason).toBe("Für Rollen und Status fehlt dir die Berechtigung.");
+  });
+
+  describe("canRemove", () => {
+    // `canRemove` haengt an `organization:manage_members`, nicht an
+    // `manage_roles` — beide Rollen (OWNER, ADMIN) tragen heute beide
+    // Berechtigungen, die Regel bleibt trotzdem eigenstaendig berechnet.
+    it("fehlt ohne organization:manage_members", () => {
+      const actions = membershipRowActions({ ...base, actorRole: "SCORER", member: member() });
+      expect(actions.canRemove).toBe(false);
+    });
+
+    it("verweigert die eigene Zeile", () => {
+      const actions = membershipRowActions({ ...base, member: member({ userId: "actor" }) });
+      expect(actions.canRemove).toBe(false);
+    });
+
+    it("verweigert eine Inhaberzeile fuer eine nicht-Inhaber-Administration", () => {
+      const actions = membershipRowActions({
+        ...base,
+        actorRole: "ADMIN",
+        member: member({ userId: "owner-2", role: "OWNER" }),
+      });
+      expect(actions.canRemove).toBe(false);
+    });
+
+    it("schuetzt den letzten aktiven Inhaber vor dem Entfernen", () => {
+      const actions = membershipRowActions({
+        ...base,
+        activeOwnerCount: 1,
+        member: member({ userId: "owner-2", role: "OWNER" }),
+      });
+      expect(actions.canRemove).toBe(false);
+    });
+
+    it("erlaubt das Entfernen einer gewoehnlichen Zeile", () => {
+      const actions = membershipRowActions({ ...base, member: member({ userId: "member-2" }) });
+      expect(actions.canRemove).toBe(true);
+    });
   });
 });
 

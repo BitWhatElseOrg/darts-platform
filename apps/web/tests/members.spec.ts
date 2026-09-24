@@ -69,3 +69,66 @@ test("the members page lists the own membership and withdraws an open invitation
   await expect(page.getByText(invitedEmail)).toHaveCount(0);
   await expect(page.getByText("Keine offene Einladung.")).toBeVisible();
 });
+
+test("der Inhaber entfernt ein Mitglied, das die Einladung angenommen hat", async ({ page, browser }) => {
+  const suffix = randomUUID();
+  const short = suffix.slice(0, 8);
+  const email = `e2e-entfernen-owner-${suffix}@example.test`;
+  const guestEmail = `e2e-entfernen-gast-${suffix}@example.test`;
+  const ownerName = `E2E Entfernen Leitung ${short}`;
+  const organizationName = `E2E Entfernen Club ${short}`;
+
+  const invitation = await createRegistrationInvitation(email);
+  registrationSeeds.push(invitation);
+
+  const { organizationId } = await signUpWithOrganization(page, {
+    claimToken: invitation.claimToken,
+    email,
+    organizationName,
+    organizationSlug: `e2e-entfernen-club-${suffix}`,
+    ownerName,
+  });
+
+  // Einladen ueber die Spielerseite; der Link ist der Fallback, den auch
+  // `email-flows.spec.ts` fuer die Annahme verwendet.
+  await page.goto(`/spieler?organisation=${organizationId}`);
+  await page.getByLabel("E-Mail-Adresse für Einladung").fill(guestEmail);
+  await page.getByRole("button", { name: "Einladen" }).click();
+  const invitationLink = await page.getByLabel("Einladungslink").inputValue();
+
+  // Zweiter Kontext: das Mitglied nimmt die Einladung mit einem eigenen
+  // Konto an.
+  const guestContext = await browser.newContext();
+  const guest = await guestContext.newPage();
+  try {
+    await guest.goto(invitationLink);
+    await expect(guest.getByRole("heading", { name: `Einladung zu ${organizationName}` })).toBeVisible();
+    await guest.getByLabel("Name").fill(`E2E Entfernen Gast ${short}`);
+    await guest.getByLabel("Passwort").fill("E2eGastPasswort123!");
+    await guest.getByRole("button", { name: "Konto erstellen und Einladung annehmen" }).click();
+    await expect(guest).toHaveURL(/\/$/u);
+    await expect(guest.getByText(guestEmail)).toBeVisible();
+    await expect(guest.getByText(organizationName).first()).toBeVisible();
+  } finally {
+    await guestContext.close();
+  }
+
+  await page.goto(`/mitglieder?organisation=${organizationId}`);
+  const guestRow = page.getByRole("listitem").filter({ hasText: guestEmail });
+  await expect(guestRow).toBeVisible();
+  await guestRow.getByRole("button", { name: "Entfernen" }).click();
+
+  const confirmDialog = page.getByRole("dialog", { name: "Mitglied entfernen" });
+  await expect(confirmDialog).toBeVisible();
+  await expect(confirmDialog).toContainText("verliert den Zugang zu dieser Organisation");
+  await confirmDialog.getByRole("button", { name: "Entfernen" }).click();
+
+  await expect(page.getByRole("listitem").filter({ hasText: guestEmail })).toHaveCount(0);
+
+  // Dieselbe Adresse laesst sich erneut einladen — das Konto besteht weiter,
+  // nur die Mitgliedschaft ist geloescht.
+  await page.goto(`/spieler?organisation=${organizationId}`);
+  await page.getByLabel("E-Mail-Adresse für Einladung").fill(guestEmail);
+  await page.getByRole("button", { name: "Einladen" }).click();
+  await expect(page.getByLabel("Einladungscode")).toBeVisible();
+});
