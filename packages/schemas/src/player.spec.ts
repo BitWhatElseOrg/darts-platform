@@ -78,4 +78,23 @@ describe("updatePlayerSchema", () => {
       expect(result[field]).toBeNull();
     });
   });
+
+  it("erzwingt keinen Status, wenn keiner angegeben wird", () => {
+    // Regression: `createPlayerSchema.partial()` liess den `.default("ACTIVE")`
+    // aus dem Basisschema wirken, sodass jedes Update ohne Statusfeld einen
+    // archivierten Spieler stillschweigend reaktivierte.
+    const result = updatePlayerSchema.parse({ displayName: "Anna Beispiel" });
+
+    expect(result).not.toHaveProperty("status");
+  });
+
+  it("verlangt weiterhin mindestens ein Feld, auch ohne Status", () => {
+    expect(() => updatePlayerSchema.parse({})).toThrow();
+  });
+
+  it("nimmt einen ausdruecklich angegebenen Status weiterhin an", () => {
+    const result = updatePlayerSchema.parse({ status: "ACTIVE" });
+
+    expect(result.status).toBe("ACTIVE");
+  });
 });
