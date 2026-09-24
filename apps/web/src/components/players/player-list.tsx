@@ -294,9 +294,21 @@ function PlayerRow({
         title="Spieler endgültig löschen"
       >
         {canOfferArchiveInstead ? (
-          <Button onClick={() => archiveMutation.mutate()} type="button" variant="outline">
-            Stattdessen archivieren
-          </Button>
+          <>
+            <Button
+              disabled={archiveMutation.isPending}
+              onClick={() => archiveMutation.mutate()}
+              type="button"
+              variant="outline"
+            >
+              Stattdessen archivieren
+            </Button>
+            {archiveMutation.isError ? (
+              <p className="text-body text-rose-300" role="alert">
+                {userFacingErrorMessage(archiveMutation.error)}
+              </p>
+            ) : null}
+          </>
         ) : null}
       </ConfirmDialog>
     </div>

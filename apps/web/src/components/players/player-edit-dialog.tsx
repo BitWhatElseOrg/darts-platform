@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -96,27 +96,51 @@ export function PlayerEditDialog({
     },
   });
 
-  // Bei jedem Oeffnen mit dem aktuellen Serverstand vorbelegen -- nicht nur
-  // beim ersten Mount: der Dialog bleibt dauerhaft im DOM (siehe
-  // `confirm-dialog.tsx`), und zwischen zwei Oeffnungen kann sich `player`
-  // durch eine andere Mutation geaendert haben. Ein fehlgeschlagener
-  // Speicherversuch aus einer vorherigen Oeffnung darf beim naechsten
-  // Oeffnen nicht sofort wieder als Fehler aufblitzen.
+  // Nur beim UEBERGANG geschlossen->offen vorbelegen, nicht bei jeder
+  // Aenderung von `player` waehrend der Dialog offen ist: die Spielerliste
+  // steht in TanStack Query (`staleTime` 5000, `refetchOnWindowFocus`), ein
+  // Hintergrund-Refetch kann waehrend der Eingabe ein neues, aber
+  // inhaltlich gleiches `player`-Objekt liefern. Ein Reset auf jede
+  // `player`-Referenzaenderung wuerde dann unbemerkt ungespeicherte
+  // Eingaben verwerfen (AGENTS.md §18, "kein versteckter Datenverlust").
+  // `player` bewusst NICHT in den Dependencies: der Effekt soll nur auf den
+  // Uebergang reagieren, dabei aber den `player`-Stand des Renders lesen, in
+  // dem `open` gerade wahr wurde.
+  const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (open) {
+    const justOpened = open && !wasOpenRef.current;
+    wasOpenRef.current = open;
+    if (justOpened) {
       form.reset(defaultsFrom(player));
       updatePlayer.reset();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `updatePlayer` ist ein neues Objekt je Render; nur `open`/`player` sollen den Effekt erneut ausloesen.
-  }, [open, player]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- absichtlich nur `open`: siehe Kommentar oben.
+  }, [open]);
 
   const displayNameError = form.formState.errors.displayName;
   const emailError = form.formState.errors.email;
 
+  // Eindeutig je Zeile: `PlayerRow` mountet pro Spieler dauerhaft eine
+  // eigene Instanz (siehe `confirm-dialog.tsx`), statische IDs wuerden bei
+  // mehr als einem Spieler dupliziert und `aria-labelledby`/
+  // `aria-describedby`/`<label htmlFor>` liessen sich dann nicht mehr
+  // zuverlaessig der tatsaechlich offenen Instanz zuordnen.
+  const baseId = useId();
+  const titleId = `${baseId}-title`;
+  const descriptionId = `${baseId}-description`;
+  const firstNameId = `${baseId}-first-name`;
+  const lastNameId = `${baseId}-last-name`;
+  const displayNameId = `${baseId}-display-name`;
+  const displayNameErrorId = `${baseId}-display-name-error`;
+  const nicknameId = `${baseId}-nickname`;
+  const emailId = `${baseId}-email`;
+  const emailErrorId = `${baseId}-email-error`;
+  const externalReferenceId = `${baseId}-external-reference`;
+
   return (
     <dialog
-      aria-describedby="player-edit-description"
-      aria-labelledby="player-edit-title"
+      aria-describedby={descriptionId}
+      aria-labelledby={titleId}
       aria-modal="true"
       className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-ring-red-deep/50 bg-slate-950 p-5 text-white shadow-2xl sm:p-6"
       onCancel={(event) => {
@@ -130,63 +154,63 @@ export function PlayerEditDialog({
         onSubmit={(event) => void form.handleSubmit((data) => updatePlayer.mutate(data))(event)}
       >
         <div>
-          <h3 className="font-numerals text-title font-bold" id="player-edit-title">
+          <h3 className="font-numerals text-title font-bold" id={titleId}>
             Spieler bearbeiten
           </h3>
-          <p className="mt-2 text-body text-slate-300" id="player-edit-description">
+          <p className="mt-2 text-body text-slate-300" id={descriptionId}>
             Änderungen gelten sofort für alle Ansichten dieser Organisation.
           </p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <label className={labelClassName} htmlFor="player-edit-first-name">Vorname</label>
-            <input className={inputClassName} id="player-edit-first-name" {...form.register("firstName")} />
+            <label className={labelClassName} htmlFor={firstNameId}>Vorname</label>
+            <input className={inputClassName} id={firstNameId} {...form.register("firstName")} />
           </div>
           <div className="space-y-2">
-            <label className={labelClassName} htmlFor="player-edit-last-name">Nachname</label>
-            <input className={inputClassName} id="player-edit-last-name" {...form.register("lastName")} />
+            <label className={labelClassName} htmlFor={lastNameId}>Nachname</label>
+            <input className={inputClassName} id={lastNameId} {...form.register("lastName")} />
           </div>
           <div className="space-y-2">
-            <label className={labelClassName} htmlFor="player-edit-display-name">Anzeigename</label>
+            <label className={labelClassName} htmlFor={displayNameId}>Anzeigename</label>
             <input
-              aria-describedby={displayNameError ? "player-edit-display-name-error" : undefined}
+              aria-describedby={displayNameError ? displayNameErrorId : undefined}
               aria-invalid={displayNameError ? true : undefined}
               className={inputClassName}
-              id="player-edit-display-name"
+              id={displayNameId}
               {...form.register("displayName")}
             />
             {displayNameError ? (
-              <p className="text-body text-rose-300" id="player-edit-display-name-error" role="alert">
+              <p className="text-body text-rose-300" id={displayNameErrorId} role="alert">
                 Bitte einen Anzeigenamen angeben.
               </p>
             ) : null}
           </div>
           <div className="space-y-2">
-            <label className={labelClassName} htmlFor="player-edit-nickname">Spitzname</label>
-            <input className={inputClassName} id="player-edit-nickname" {...form.register("nickname")} />
+            <label className={labelClassName} htmlFor={nicknameId}>Spitzname</label>
+            <input className={inputClassName} id={nicknameId} {...form.register("nickname")} />
           </div>
           <div className="space-y-2">
-            <label className={labelClassName} htmlFor="player-edit-email">E-Mail</label>
+            <label className={labelClassName} htmlFor={emailId}>E-Mail</label>
             <input
-              aria-describedby={emailError ? "player-edit-email-error" : undefined}
+              aria-describedby={emailError ? emailErrorId : undefined}
               aria-invalid={emailError ? true : undefined}
               className={inputClassName}
-              id="player-edit-email"
+              id={emailId}
               type="email"
               {...form.register("email")}
             />
             {emailError ? (
-              <p className="text-body text-rose-300" id="player-edit-email-error" role="alert">
+              <p className="text-body text-rose-300" id={emailErrorId} role="alert">
                 Bitte eine gültige E-Mail-Adresse angeben.
               </p>
             ) : null}
           </div>
           <div className="space-y-2">
-            <label className={labelClassName} htmlFor="player-edit-external-reference">Externe Referenz</label>
+            <label className={labelClassName} htmlFor={externalReferenceId}>Externe Referenz</label>
             <input
               className={inputClassName}
-              id="player-edit-external-reference"
+              id={externalReferenceId}
               {...form.register("externalReference")}
             />
           </div>

@@ -277,4 +277,113 @@ describe("PlayerList", () => {
     expect((within(dialog).getByLabelText("E-Mail") as HTMLInputElement).value).toBe("carla@example.com");
     expect((within(dialog).getByLabelText("Externe Referenz") as HTMLInputElement).value).toBe("EXT-1");
   });
+
+  it("verwendet je Zeile eindeutige IDs, damit aria-/Label-Referenzen bei mehreren Spielern auf die offene Instanz zeigen (Fix-Runde 1, Befund 1)", () => {
+    const carla = player({ id: "c", displayName: "Carla Muster", firstName: "Carla" });
+    renderList([anna, carla], new Map(), { canEdit: true });
+
+    // Zwei Zeilen, zwei dauerhaft gemountete `PlayerEditDialog`-Instanzen
+    // (siehe `player-list.tsx`) -- vor dem Fix teilten sich beide dieselben
+    // statischen IDs. `within(dialog).getByLabelText(...)` allein deckt das
+    // NICHT auf: @testing-library/dom loest `<label for>` ueber
+    // `container.querySelector('[id="..."]')` auf, also bereits gescopet auf
+    // die offene Instanz. Der eigentliche Fehler zeigt sich erst bei der
+    // ungescopten Aufloesung ueber `document.getElementById`, wie sie
+    // `aria-labelledby`/`aria-describedby` und ein `<label for>` auch im
+    // echten Browser durchlaufen (IDs sind dokumentweit eindeutig gemeint).
+    const [, secondEditButton] = screen.getAllByRole("button", { name: "Bearbeiten" });
+    if (secondEditButton === undefined) throw new Error("Erwartete zwei 'Bearbeiten'-Buttons.");
+    fireEvent.click(secondEditButton);
+
+    const dialog = screen.getByRole("dialog");
+    const labelledBy = dialog.getAttribute("aria-labelledby");
+    const describedBy = dialog.getAttribute("aria-describedby");
+    expect(labelledBy).not.toBeNull();
+    expect(describedBy).not.toBeNull();
+    expect(dialog.contains(document.getElementById(labelledBy ?? ""))).toBe(true);
+    expect(dialog.contains(document.getElementById(describedBy ?? ""))).toBe(true);
+
+    const firstNameLabel = within(dialog).getByText("Vorname");
+    const firstNameInputId = firstNameLabel.getAttribute("for");
+    const firstNameInput = document.getElementById(firstNameInputId ?? "") as HTMLInputElement | null;
+    expect(dialog.contains(firstNameInput)).toBe(true);
+    expect(firstNameInput?.value).toBe("Carla");
+  });
+
+  it("PlayerEditDialog behaelt ungespeicherte Eingaben bei einem Hintergrund-Refetch (gleiche Werte, neue player-Referenz) (Fix-Runde 1, Befund 2)", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const buildTree = (players: readonly PlayerResponse[]) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(PlayerList, {
+          canArchive: false,
+          canDelete: false,
+          canEdit: true,
+          isPending: false,
+          organizationId: "organisation-1",
+          players,
+          teamsByPlayer: new Map(),
+        }),
+      );
+
+    const { rerender } = render(buildTree([anna]));
+
+    fireEvent.click(screen.getByRole("button", { name: "Bearbeiten" }));
+    const dialog = screen.getByRole("dialog");
+    const nicknameInput = within(dialog).getByLabelText("Spitzname") as HTMLInputElement;
+    fireEvent.change(nicknameInput, { target: { value: "Getippt" } });
+    expect(nicknameInput.value).toBe("Getippt");
+
+    // Simuliert einen Hintergrund-Refetch von ["players", organizationId]:
+    // ein neues Objekt mit denselben Werten, wie TanStack Query es nach
+    // `staleTime`/Fokuswechsel liefert -- keine Nutzeraktion.
+    rerender(buildTree([{ ...anna }]));
+
+    expect(
+      (within(screen.getByRole("dialog")).getByLabelText("Spitzname") as HTMLInputElement).value,
+    ).toBe("Getippt");
+  });
+
+  it("'Stattdessen archivieren' deaktiviert sich waehrend pending und zeigt einen Fehlschlag im offenen Loesch-Dialog (Fix-Runde 1, Befund 3)", async () => {
+    client.apiRequest.mockRejectedValueOnce(
+      new client.ApiClientError(
+        "Dieser Spieler hat bereits gespielt oder steht in einem Team. Er lässt sich nur archivieren.",
+        "PLAYER_HAS_HISTORY",
+        null,
+        undefined,
+        409,
+      ),
+    );
+    renderList([anna], new Map(), { canArchive: true, canDelete: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Löschen" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Endgültig löschen" }));
+
+    const archiveInstead = (await waitFor(() =>
+      within(dialog).getByRole("button", { name: "Stattdessen archivieren" }),
+    )) as HTMLButtonElement;
+
+    let rejectArchive: (reason: unknown) => void = () => {};
+    client.apiRequest.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectArchive = reject;
+        }),
+    );
+    fireEvent.click(archiveInstead);
+
+    await waitFor(() => {
+      expect(archiveInstead.disabled).toBe(true);
+    });
+
+    rejectArchive(new Error("kaputt"));
+
+    await waitFor(() => {
+      const alerts = within(dialog).getAllByRole("alert").map((element) => element.textContent);
+      expect(alerts).toContain("Fehler");
+    });
+    expect(archiveInstead.disabled).toBe(false);
+  });
 });
