@@ -12,6 +12,12 @@ import type { OrganizationMember } from "@darts-platform/schemas";
 export interface MembershipRowActions {
   readonly canChangeRole: boolean;
   readonly canChangeStatus: boolean;
+  /**
+   * Haengt an `organization:manage_members`, nicht an `manage_roles` —
+   * unabhaengig berechnet, auch wenn beide Rollen (OWNER, ADMIN) heute
+   * dieselben Berechtigungen tragen.
+   */
+  readonly canRemove: boolean;
   /** Warum nichts geht — null, wenn etwas geht. */
   readonly blockedReason: string | null;
 }
@@ -39,9 +45,27 @@ export function membershipRowActions(input: {
   /** Wie viele aktive OWNER die Organisation insgesamt hat. */
   readonly activeOwnerCount: number;
 }): MembershipRowActions {
+  // Dieselben Zeilenregeln wie fuer Rolle/Status — Selbstaussperrung, fremde
+  // Inhaberschaft, letzter aktiver Inhaber — gelten auch fuer das Entfernen
+  // (server: `SELF_MEMBERSHIP_CHANGE_FORBIDDEN`, `OWNER_CHANGE_REQUIRES_OWNER`,
+  // `LAST_OWNER_PROTECTED`). `canRemove` haengt an `manage_members` und wird
+  // unabhaengig von `manage_roles` berechnet, auch wenn ein frueher Rueckgabe
+  // dort nichts mehr aendern wuerde.
+  const isSelf = input.member.userId === input.actorUserId;
+  const targetIsOwnerButActorIsNot = input.member.role === "OWNER" && input.actorRole !== "OWNER";
+  const targetIsLastActiveOwner =
+    input.member.role === "OWNER" && input.member.status === "ACTIVE" && input.activeOwnerCount <= 1;
+
+  const canRemove =
+    hasOrganizationPermission(input.actorRole, "organization:manage_members") &&
+    !isSelf &&
+    !targetIsOwnerButActorIsNot &&
+    !targetIsLastActiveOwner;
+
   const blocked = (blockedReason: string): MembershipRowActions => ({
     canChangeRole: false,
     canChangeStatus: false,
+    canRemove,
     blockedReason,
   });
 
@@ -50,16 +74,16 @@ export function membershipRowActions(input: {
   }
   // Die eigene Zeile bleibt aussen vor — das schliesst die Selbstaussperrung
   // vollständig aus (`SELF_MEMBERSHIP_CHANGE_FORBIDDEN`).
-  if (input.member.userId === input.actorUserId) {
+  if (isSelf) {
     return blocked("Die eigene Mitgliedschaft ändert eine andere Person.");
   }
-  if (input.member.role === "OWNER" && input.actorRole !== "OWNER") {
+  if (targetIsOwnerButActorIsNot) {
     return blocked("Eine Inhaber-Mitgliedschaft ändert nur ein anderer Inhaber.");
   }
-  if (input.member.role === "OWNER" && input.member.status === "ACTIVE" && input.activeOwnerCount <= 1) {
+  if (targetIsLastActiveOwner) {
     return blocked("Der letzte aktive Inhaber bleibt bestehen.");
   }
-  return { canChangeRole: true, canChangeStatus: true, blockedReason: null };
+  return { canChangeRole: true, canChangeStatus: true, canRemove, blockedReason: null };
 }
 
 /** Zählt die aktiven Inhaber einer Mitgliederliste. */

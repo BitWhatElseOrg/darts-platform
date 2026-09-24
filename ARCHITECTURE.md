@@ -385,6 +385,18 @@ angenommene oder zurückgezogene Einladung meldet 404. Alle drei verlangen
 `organization:manage_members`, der Rollen- und Statuswechsel darüber hinaus
 `organization:manage_roles`.
 
+`DELETE /organizations/:id/members/:userId` entfernt eine Mitgliedschaft
+vollständig statt sie nur zu sperren: Sie verlangt ebenfalls
+`organization:manage_members`, löst eine bestehende Spieler-Verknüpfung und
+protokolliert `MEMBER_REMOVED` im Audit-Log. Das Konto selbst bleibt bestehen
+und lässt sich später erneut einladen. Dieselben drei Schutzregeln wie beim
+Rollen- und Statuswechsel gelten auch hier: die eigene Mitgliedschaft (403
+`SELF_MEMBERSHIP_CHANGE_FORBIDDEN`), eine fremde Inhaber-Mitgliedschaft ohne
+eigene OWNER-Rolle (403 `OWNER_CHANGE_REQUIRES_OWNER`) und der letzte aktive
+OWNER (409 `LAST_OWNER_PROTECTED`) bleiben geschützt. Fehlt die Berechtigung
+`organization:manage_members`, antwortet der Endpoint mit 403; eine
+unbekannte Mitgliedschaft mit 404.
+
 ### Einmaliger Production-Owner-Bootstrap
 
 Für eine leere Production-Datenbank gibt es einen separaten, kompilierten
