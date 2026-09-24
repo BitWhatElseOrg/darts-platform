@@ -54,6 +54,7 @@ function Roster({ organization }: { readonly organization: OrganizationSummary }
   const canCreatePlayers = hasOrganizationPermission(organization.role, "player:create");
   const canEditPlayers = hasOrganizationPermission(organization.role, "player:update");
   const canArchivePlayers = hasOrganizationPermission(organization.role, "player:archive");
+  const canDeletePlayers = hasOrganizationPermission(organization.role, "player:delete");
 
   return (
     <div className="space-y-10">
@@ -64,6 +65,7 @@ function Roster({ organization }: { readonly organization: OrganizationSummary }
 
         <PlayerList
           canArchive={canArchivePlayers}
+          canDelete={canDeletePlayers}
           canEdit={canEditPlayers}
           isPending={playersQuery.isPending}
           organizationId={organization.id}

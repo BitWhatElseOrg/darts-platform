@@ -79,6 +79,8 @@ function localizedMessage(code: string): string {
     INVITATION_NOT_FOUND: "Diese Einladung ist ungültig oder abgelaufen.",
     INVITATION_RESEND_TOO_SOON:
       "Diese Einladung wurde gerade erst erneut gesendet. Warte eine Minute, bevor du es nochmals versuchst.",
+    PLAYER_HAS_HISTORY:
+      "Dieser Spieler hat bereits gespielt oder steht in einem Team. Er lässt sich nur archivieren.",
   };
   const translated = messages[code];
   if (translated !== undefined) return translated;

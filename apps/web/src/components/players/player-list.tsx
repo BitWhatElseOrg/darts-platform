@@ -3,11 +3,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { z } from "zod";
 
 import { playerSchema, type PlayerResponse } from "@darts-platform/schemas";
 import { Button } from "@darts-platform/ui";
 
-import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
+import { apiRequest, ApiClientError, userFacingErrorMessage } from "@/lib/api-client";
 import {
   defaultPlayerFilter,
   filterPlayers,
@@ -15,9 +16,10 @@ import {
   type PlayerFilter,
 } from "@/lib/list-filter";
 import { ListFilterBar } from "@/components/list-filter-bar";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
-import { inputClassName } from "./form-styles";
 import { PlayerAvatar } from "./player-avatar";
+import { PlayerEditDialog } from "./player-edit-dialog";
 
 export function PlayerList({
   players,
@@ -26,6 +28,7 @@ export function PlayerList({
   isPending,
   canEdit,
   canArchive,
+  canDelete,
 }: {
   readonly players: readonly PlayerResponse[];
   readonly teamsByPlayer: ReadonlyMap<string, readonly string[]>;
@@ -33,20 +36,9 @@ export function PlayerList({
   readonly isPending: boolean;
   readonly canEdit: boolean;
   readonly canArchive: boolean;
+  readonly canDelete: boolean;
 }) {
-  const queryClient = useQueryClient();
   const [filter, setFilter] = useState<PlayerFilter>(defaultPlayerFilter);
-  const archivePlayer = useMutation({
-    mutationFn: (playerId: string) =>
-      apiRequest({
-        path: `/organizations/${organizationId}/players/${playerId}`,
-        method: "DELETE",
-        schema: playerSchema,
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["players", organizationId] });
-    },
-  });
 
   const visible = useMemo(
     () => filterPlayers(players, filter, teamsByPlayer),
@@ -120,9 +112,9 @@ export function PlayerList({
         {visible.map((player) => (
           <PlayerRow
             canArchive={canArchive}
+            canDelete={canDelete}
             canEdit={canEdit}
             key={player.id}
-            onArchive={() => archivePlayer.mutate(player.id)}
             organizationId={organizationId}
             player={player}
             teams={teamsByPlayer.get(player.id) ?? []}
@@ -149,107 +141,164 @@ function PlayerRow({
   organizationId,
   canEdit,
   canArchive,
-  onArchive,
+  canDelete,
 }: {
   readonly player: PlayerResponse;
   readonly teams: readonly string[];
   readonly organizationId: string;
   readonly canEdit: boolean;
   readonly canArchive: boolean;
-  readonly onArchive: () => void;
+  readonly canDelete: boolean;
 }) {
   const queryClient = useQueryClient();
-  const [isEditing, setIsEditing] = useState(false);
-  const [displayName, setDisplayName] = useState(player.displayName);
-  const [nickname, setNickname] = useState(player.nickname ?? "");
-  const updatePlayer = useMutation({
+  const [editOpen, setEditOpen] = useState(false);
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  const archiveMutation = useMutation({
+    mutationFn: () =>
+      apiRequest({
+        path: `/organizations/${organizationId}/players/${player.id}`,
+        method: "DELETE",
+        schema: playerSchema,
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["players", organizationId] });
+      setArchiveConfirmOpen(false);
+      setDeleteConfirmOpen(false);
+    },
+  });
+
+  const reactivateMutation = useMutation({
     mutationFn: () =>
       apiRequest({
         path: `/organizations/${organizationId}/players/${player.id}`,
         method: "PATCH",
-        body: { displayName, nickname: nickname.trim().length === 0 ? null : nickname },
+        body: { status: "ACTIVE" },
         schema: playerSchema,
       }),
     onSuccess: async () => {
-      setIsEditing(false);
       await queryClient.invalidateQueries({ queryKey: ["players", organizationId] });
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: () =>
+      apiRequest({
+        path: `/organizations/${organizationId}/players/${player.id}/permanent`,
+        method: "DELETE",
+        schema: z.undefined(),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["players", organizationId] });
+      setDeleteConfirmOpen(false);
+    },
+  });
+
+  const canOfferArchiveInstead =
+    deleteMutation.isError &&
+    deleteMutation.error instanceof ApiClientError &&
+    deleteMutation.error.code === "PLAYER_HAS_HISTORY" &&
+    player.status === "ACTIVE" &&
+    canArchive;
+
   return (
     <div className="min-h-16 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        {isEditing ? (
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <input
-              aria-label={`Anzeigename für ${player.displayName}`}
-              className={inputClassName}
-              onChange={(event) => setDisplayName(event.target.value)}
-              value={displayName}
-            />
-            <input
-              aria-label={`Spitzname für ${player.displayName}`}
-              className={inputClassName}
-              placeholder="Spitzname (optional)"
-              onChange={(event) => setNickname(event.target.value)}
-              value={nickname}
-            />
+        <div className="flex items-center gap-3">
+          <PlayerAvatar decorative organizationId={organizationId} player={player} size={40} />
+          <div>
+            <p className="font-semibold text-white">{player.displayName}</p>
+            <p className="text-caption text-slate-400">
+              {player.nickname ?? "Kein Spitzname"} · {player.status === "ACTIVE" ? "Aktiv" : "Archiviert"}
+              {" · "}
+              {teams.length > 0 ? teams.join(", ") : "Ohne Team"}
+              {" · "}
+              {player.hasAccount ? "Konto verknüpft" : "Kein Konto verknüpft"}
+            </p>
           </div>
-        ) : (
-          <div className="flex items-center gap-3">
-            <PlayerAvatar decorative organizationId={organizationId} player={player} size={40} />
-            <div>
-              <p className="font-semibold text-white">{player.displayName}</p>
-              <p className="text-caption text-slate-400">
-                {player.nickname ?? "Kein Spitzname"} · {player.status === "ACTIVE" ? "Aktiv" : "Archiviert"}
-                {" · "}
-                {teams.length > 0 ? teams.join(", ") : "Ohne Team"}
-                {" · "}
-                {player.hasAccount ? "Konto verknüpft" : "Kein Konto verknüpft"}
-              </p>
-            </div>
-          </div>
-        )}
+        </div>
         <div className="flex flex-wrap gap-2">
-          {isEditing ? (
-            <>
-              <Button
-                disabled={displayName.trim().length === 0 || updatePlayer.isPending}
-                onClick={() => updatePlayer.mutate()}
-              >
-                Speichern
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setDisplayName(player.displayName);
-                  setNickname(player.nickname ?? "");
-                  setIsEditing(false);
-                }}
-              >
-                Abbrechen
-              </Button>
-            </>
-          ) : (
-            <>
-              <Link className="inline-flex min-h-10 items-center rounded-lg border border-slate-700 px-4 text-body font-medium text-slate-100" href={`/spieler/${player.id}?organisation=${organizationId}`}>Profil</Link>
-              {canEdit ? (
-                <Button variant="outline" onClick={() => setIsEditing(true)}>
-                  Bearbeiten
-                </Button>
-              ) : null}
-              {canArchive && player.status === "ACTIVE" ? (
-                <Button variant="outline" onClick={onArchive}>Archivieren</Button>
-              ) : null}
-            </>
-          )}
+          <Link className="inline-flex min-h-10 items-center rounded-lg border border-slate-700 px-4 text-body font-medium text-slate-100" href={`/spieler/${player.id}?organisation=${organizationId}`}>Profil</Link>
+          {canEdit ? (
+            <Button variant="outline" onClick={() => setEditOpen(true)}>
+              Bearbeiten
+            </Button>
+          ) : null}
+          {canArchive && player.status === "ACTIVE" ? (
+            <Button
+              variant="outline"
+              onClick={() => {
+                archiveMutation.reset();
+                setArchiveConfirmOpen(true);
+              }}
+            >
+              Archivieren
+            </Button>
+          ) : null}
+          {canEdit && player.status === "INACTIVE" ? (
+            <Button
+              disabled={reactivateMutation.isPending}
+              onClick={() => reactivateMutation.mutate()}
+              variant="outline"
+            >
+              Reaktivieren
+            </Button>
+          ) : null}
+          {canDelete ? (
+            <Button
+              variant="outline"
+              onClick={() => {
+                deleteMutation.reset();
+                setDeleteConfirmOpen(true);
+              }}
+            >
+              Löschen
+            </Button>
+          ) : null}
         </div>
       </div>
-      {updatePlayer.isError ? (
+      {reactivateMutation.isError ? (
         <p className="mt-2 text-body text-rose-300" role="alert">
-          {userFacingErrorMessage(updatePlayer.error)}
+          {userFacingErrorMessage(reactivateMutation.error)}
         </p>
       ) : null}
+
+      <PlayerEditDialog
+        onClose={() => setEditOpen(false)}
+        open={editOpen}
+        organizationId={organizationId}
+        player={player}
+      />
+
+      <ConfirmDialog
+        confirmLabel="Archivieren"
+        confirmVariant="primary"
+        description={`${player.displayName} kann danach keine neuen Matches und Turniere bestreiten. Resultate und Statistik bleiben erhalten, und du kannst den Spieler jederzeit reaktivieren.`}
+        error={archiveMutation.isError ? userFacingErrorMessage(archiveMutation.error) : null}
+        onCancel={() => setArchiveConfirmOpen(false)}
+        onConfirm={() => archiveMutation.mutate()}
+        open={archiveConfirmOpen}
+        pending={archiveMutation.isPending}
+        title="Spieler archivieren"
+      />
+
+      <ConfirmDialog
+        confirmLabel="Endgültig löschen"
+        description={`${player.displayName} wird mit Profilbild und Statistik gelöscht. Das lässt sich nicht rückgängig machen. Spieler, die bereits gespielt haben oder in einem Team stehen, lassen sich nur archivieren.`}
+        error={deleteMutation.isError ? userFacingErrorMessage(deleteMutation.error) : null}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        onConfirm={() => deleteMutation.mutate()}
+        open={deleteConfirmOpen}
+        pending={deleteMutation.isPending}
+        title="Spieler endgültig löschen"
+      >
+        {canOfferArchiveInstead ? (
+          <Button onClick={() => archiveMutation.mutate()} type="button" variant="outline">
+            Stattdessen archivieren
+          </Button>
+        ) : null}
+      </ConfirmDialog>
     </div>
   );
 }
