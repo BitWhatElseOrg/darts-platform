@@ -398,6 +398,58 @@ describe("PlayerList", () => {
     expect(archiveInstead.disabled).toBe(false);
   });
 
+  it("zeigt beim erneuten Oeffnen des Loesch-Dialogs keinen veralteten Archivieren-Fehlschlag mehr (Whole-Branch-Review, Befund 4)", async () => {
+    // Ablauf: 1) Loeschen -> 409 PLAYER_HAS_HISTORY -> "Stattdessen
+    // archivieren" erscheint. 2) Dieser Archivierungsversuch schlaegt
+    // seinerseits fehl -> archiveMutation.isError wird wahr, der Dialog
+    // zeigt den Fehlschlag. 3) Abbrechen schliesst den Dialog, OHNE
+    // archiveMutation zurueckzusetzen (vor dem Fix). 4) Erneut "Löschen",
+    // wieder 409 -> "Stattdessen archivieren" erscheint erneut, und zwar
+    // OHNE den Fehlschlag aus Schritt 2 sofort wieder anzuzeigen.
+    const historyError = new client.ApiClientError(
+      "Dieser Spieler hat bereits gespielt oder steht in einem Turnier, Team oder einer Begegnung. Er lässt sich nur archivieren.",
+      "PLAYER_HAS_HISTORY",
+      null,
+      undefined,
+      409,
+    );
+    client.apiRequest.mockRejectedValueOnce(historyError);
+    renderList([anna], new Map(), { canArchive: true, canDelete: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Löschen" }));
+    let dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Endgültig löschen" }));
+
+    const archiveInstead = await waitFor(() =>
+      within(dialog).getByRole("button", { name: "Stattdessen archivieren" }),
+    );
+    client.apiRequest.mockRejectedValueOnce(new Error("archivieren kaputt"));
+    fireEvent.click(archiveInstead);
+
+    await waitFor(() => {
+      expect(within(dialog).getAllByRole("alert").map((element) => element.textContent)).toContain(
+        "Fehler",
+      );
+    });
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Abbrechen" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    client.apiRequest.mockRejectedValueOnce(historyError);
+    fireEvent.click(screen.getByRole("button", { name: "Löschen" }));
+    dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Endgültig löschen" }));
+
+    await waitFor(() => {
+      expect(
+        within(dialog).getByRole("button", { name: "Stattdessen archivieren" }),
+      ).toBeTruthy();
+    });
+    expect(within(dialog).queryAllByRole("alert").map((element) => element.textContent)).not.toContain(
+      "Fehler",
+    );
+  });
+
   it("zeigt kein 'Anzeigename'-Feld, solange kein Bearbeiten-Dialog offen ist (Fix-Runde 2)", () => {
     // Vor Fix-Runde 2 mountete `PlayerRow` `PlayerEditDialog` dauerhaft und
     // schaltete nur `open` um -- ein geschlossener Dialog liess dabei sein
