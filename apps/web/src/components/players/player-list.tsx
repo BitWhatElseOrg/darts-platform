@@ -264,12 +264,13 @@ function PlayerRow({
         </p>
       ) : null}
 
-      <PlayerEditDialog
-        onClose={() => setEditOpen(false)}
-        open={editOpen}
-        organizationId={organizationId}
-        player={player}
-      />
+      {editOpen ? (
+        <PlayerEditDialog
+          onClose={() => setEditOpen(false)}
+          organizationId={organizationId}
+          player={player}
+        />
+      ) : null}
 
       <ConfirmDialog
         confirmLabel="Archivieren"

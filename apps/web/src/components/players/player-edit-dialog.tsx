@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -64,19 +64,47 @@ function defaultsFrom(player: PlayerResponse): PlayerEditFormValues {
 }
 
 export function PlayerEditDialog({
-  open,
   player,
   organizationId,
   onClose,
 }: {
-  readonly open: boolean;
   readonly player: PlayerResponse;
   readonly organizationId: string;
   readonly onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  useDialogFocusReturn(dialogRef, open);
+  // `PlayerRow` mountet diese Komponente NUR, waehrend sie offen sein soll
+  // (siehe `player-list.tsx`) -- eine dauerhaft gemountete, per `open`-Prop
+  // umgeschaltete Instanz (wie `confirm-dialog.tsx`) liess bei geschlossenem
+  // Dialog trotzdem ein `<label>Anzeigename</label>`/`<input>`-Paar im DOM
+  // stehen. Das kollidierte in Playwrights Strict Mode mit dem echten
+  // Anzeigename-Feld, sobald mehr als ein Spieler auf der Seite stand
+  // (Task-4-E2E-Lauf, 15 betroffene Faelle in `foundation.spec.ts` u.a.).
+  //
+  // Damit `useDialogFocusReturn` trotzdem sauber schliesst UND den Fokus auf
+  // den "Bearbeiten"-Knopf zurueckgibt (die Rueckgabe passiert in der
+  // `else if (!open)`-Verzweigung des Hooks, die nur laeuft, wenn die
+  // Komponente den Uebergang offen->geschlossen noch MITBEKOMMT, nicht bei
+  // einem sofortigen Unmount), verwaltet diese Komponente ihr Offen-Sein
+  // selbst: `dialogOpen` startet `true` (Mount = Oeffnen), ein Schliessen
+  // setzt zunaechst nur `dialogOpen` auf `false` (der Hook schliesst/gibt den
+  // Fokus zurueck, waehrend die Komponente noch existiert), und erst danach
+  // ruft der Effekt unten `onClose()` auf, der bei `PlayerRow` das
+  // Unmounten auslöst.
+  const [dialogOpen, setDialogOpen] = useState(true);
+  useDialogFocusReturn(dialogRef, dialogOpen);
+  useEffect(() => {
+    if (!dialogOpen) onClose();
+  }, [dialogOpen, onClose]);
+
   const queryClient = useQueryClient();
+  // Kein Reset-Effekt mehr noetig: da jede Oeffnung eine FRISCHE Instanz
+  // mountet, liest `defaultValues` den `player`-Stand exakt einmal, im
+  // Moment des Oeffnens. Ein Hintergrund-Refetch von
+  // ["players", organizationId] waehrend der Dialog offen ist liefert zwar
+  // ein neues `player`-Objekt an `PlayerRow`/`PlayerEditDialog` weiter, aber
+  // ohne reaktiven Reset-Effekt wirkt sich das auf das laufende Formular
+  // nicht mehr aus (AGENTS.md §18, "kein versteckter Datenverlust").
   const form = useForm<PlayerEditFormValues, unknown, PlayerEditFormOutput>({
     resolver: zodResolver(playerEditFormSchema),
     defaultValues: defaultsFrom(player),
@@ -92,39 +120,17 @@ export function PlayerEditDialog({
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["players", organizationId] });
-      onClose();
+      setDialogOpen(false);
     },
   });
-
-  // Nur beim UEBERGANG geschlossen->offen vorbelegen, nicht bei jeder
-  // Aenderung von `player` waehrend der Dialog offen ist: die Spielerliste
-  // steht in TanStack Query (`staleTime` 5000, `refetchOnWindowFocus`), ein
-  // Hintergrund-Refetch kann waehrend der Eingabe ein neues, aber
-  // inhaltlich gleiches `player`-Objekt liefern. Ein Reset auf jede
-  // `player`-Referenzaenderung wuerde dann unbemerkt ungespeicherte
-  // Eingaben verwerfen (AGENTS.md §18, "kein versteckter Datenverlust").
-  // `player` bewusst NICHT in den Dependencies: der Effekt soll nur auf den
-  // Uebergang reagieren, dabei aber den `player`-Stand des Renders lesen, in
-  // dem `open` gerade wahr wurde.
-  const wasOpenRef = useRef(false);
-  useEffect(() => {
-    const justOpened = open && !wasOpenRef.current;
-    wasOpenRef.current = open;
-    if (justOpened) {
-      form.reset(defaultsFrom(player));
-      updatePlayer.reset();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- absichtlich nur `open`: siehe Kommentar oben.
-  }, [open]);
 
   const displayNameError = form.formState.errors.displayName;
   const emailError = form.formState.errors.email;
 
-  // Eindeutig je Zeile: `PlayerRow` mountet pro Spieler dauerhaft eine
-  // eigene Instanz (siehe `confirm-dialog.tsx`), statische IDs wuerden bei
-  // mehr als einem Spieler dupliziert und `aria-labelledby`/
-  // `aria-describedby`/`<label htmlFor>` liessen sich dann nicht mehr
-  // zuverlaessig der tatsaechlich offenen Instanz zuordnen.
+  // `useId()` statt statischer Strings: auch wenn inzwischen nur eine
+  // Instanz gleichzeitig gemountet ist (siehe oben), bleibt das robust,
+  // falls diese Komponente je an mehr als einer Stelle einer Seite
+  // gleichzeitig verwendet wird.
   const baseId = useId();
   const titleId = `${baseId}-title`;
   const descriptionId = `${baseId}-description`;
@@ -145,7 +151,7 @@ export function PlayerEditDialog({
       className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-2xl border border-ring-red-deep/50 bg-slate-950 p-5 text-white shadow-2xl sm:p-6"
       onCancel={(event) => {
         event.preventDefault();
-        onClose();
+        setDialogOpen(false);
       }}
       ref={dialogRef}
     >
@@ -223,7 +229,12 @@ export function PlayerEditDialog({
         ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <Button disabled={updatePlayer.isPending} onClick={onClose} type="button" variant="outline">
+          <Button
+            disabled={updatePlayer.isPending}
+            onClick={() => setDialogOpen(false)}
+            type="button"
+            variant="outline"
+          >
             Abbrechen
           </Button>
           <Button disabled={updatePlayer.isPending} type="submit">

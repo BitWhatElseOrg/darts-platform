@@ -282,15 +282,21 @@ describe("PlayerList", () => {
     const carla = player({ id: "c", displayName: "Carla Muster", firstName: "Carla" });
     renderList([anna, carla], new Map(), { canEdit: true });
 
-    // Zwei Zeilen, zwei dauerhaft gemountete `PlayerEditDialog`-Instanzen
-    // (siehe `player-list.tsx`) -- vor dem Fix teilten sich beide dieselben
-    // statischen IDs. `within(dialog).getByLabelText(...)` allein deckt das
-    // NICHT auf: @testing-library/dom loest `<label for>` ueber
-    // `container.querySelector('[id="..."]')` auf, also bereits gescopet auf
-    // die offene Instanz. Der eigentliche Fehler zeigt sich erst bei der
-    // ungescopten Aufloesung ueber `document.getElementById`, wie sie
-    // `aria-labelledby`/`aria-describedby` und ein `<label for>` auch im
-    // echten Browser durchlaufen (IDs sind dokumentweit eindeutig gemeint).
+    // Ursprünglich (Fix-Runde 1) galt hier: zwei Zeilen, zwei dauerhaft
+    // gemountete `PlayerEditDialog`-Instanzen, die sich vor dem Fix dieselben
+    // statischen IDs teilten. Seit Fix-Runde 2 mountet `player-list.tsx`
+    // `PlayerEditDialog` nur noch waehrend sie offen ist (siehe dort) --
+    // Duplikate koennen strukturell nicht mehr auftreten, da nie mehr als
+    // eine Instanz gleichzeitig existiert. Der Test bleibt trotzdem
+    // sinnvoll: er haelt fest, dass beim Oeffnen der ZWEITEN Zeile
+    // `aria-labelledby`/`aria-describedby` und ein `<label for>` auf die
+    // tatsaechlich gemountete Instanz zeigen und deren Werte die von Carla
+    // sind (nicht etwa ein Reststand von Anna). Aufloesung bewusst ueber das
+    // ungescopte `document.getElementById`, wie `aria-labelledby`/
+    // `aria-describedby`/`<label for>` es auch im echten Browser tun (IDs
+    // sind dokumentweit eindeutig gemeint) -- `within(dialog).getByLabelText`
+    // allein wuerde das nicht zeigen, da @testing-library/dom `<label for>`
+    // ueber ein bereits auf `dialog` gescoptes `querySelector` aufloest.
     const [, secondEditButton] = screen.getAllByRole("button", { name: "Bearbeiten" });
     if (secondEditButton === undefined) throw new Error("Erwartete zwei 'Bearbeiten'-Buttons.");
     fireEvent.click(secondEditButton);
@@ -337,7 +343,12 @@ describe("PlayerList", () => {
 
     // Simuliert einen Hintergrund-Refetch von ["players", organizationId]:
     // ein neues Objekt mit denselben Werten, wie TanStack Query es nach
-    // `staleTime`/Fokuswechsel liefert -- keine Nutzeraktion.
+    // `staleTime`/Fokuswechsel liefert -- keine Nutzeraktion. Seit Fix-Runde 2
+    // (Mount-on-open) greift dieser Schutz "von selbst": `defaultValues`
+    // liest `player` nur einmal, im Moment des Mountens: es gibt keinen
+    // Reset-Effekt mehr, der auf eine neue `player`-Referenz reagieren
+    // koennte, waehrend die (seit Fix-Runde 1 unveraendert bestehende)
+    // dieselbe Dialog-Instanz weiterlebt.
     rerender(buildTree([{ ...anna }]));
 
     expect(
@@ -385,5 +396,24 @@ describe("PlayerList", () => {
       expect(alerts).toContain("Fehler");
     });
     expect(archiveInstead.disabled).toBe(false);
+  });
+
+  it("zeigt kein 'Anzeigename'-Feld, solange kein Bearbeiten-Dialog offen ist (Fix-Runde 2)", () => {
+    // Vor Fix-Runde 2 mountete `PlayerRow` `PlayerEditDialog` dauerhaft und
+    // schaltete nur `open` um -- ein geschlossener Dialog liess dabei sein
+    // `<label>Anzeigename</label>`/`<input>`-Paar im DOM stehen. `queryBy-
+    // LabelText` filtert (anders als eine `ByRole`-Abfrage) nicht nach
+    // `display: none`, haette diesen Reststand also gefunden. Das war exakt
+    // der Fund aus Task 4s E2E-Lauf: `page.getByLabel("Anzeigename", {
+    // exact: true })` traf in Playwrights Strict Mode auf zwei Elemente.
+    renderList([anna], new Map(), { canEdit: true });
+
+    expect(screen.queryByLabelText("Anzeigename")).toBeNull();
+
+    // Und nach dem Schliessen (Abbrechen) wieder weg.
+    fireEvent.click(screen.getByRole("button", { name: "Bearbeiten" }));
+    expect(screen.getByLabelText("Anzeigename")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Abbrechen" }));
+    expect(screen.queryByLabelText("Anzeigename")).toBeNull();
   });
 });
