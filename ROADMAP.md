@@ -4,11 +4,15 @@
 
 Die Roadmap führt vom technischen Fundament bis zum Vollausbau als Multi-Tenant Dart-Plattform.
 
-**Aktueller Stand (5. September 2026):** Phasen 0 bis 6 sind implementiert.
-Zusätzlich ist der Ligabetrieb mit Team-Begegnungen und Ligatabelle nach
-VFC-Reglement umgesetzt; Phase 9 ist damit teilweise abgedeckt. Der nächste
-geplante Produktabschnitt bleibt Phase 7. Registrierung neuer Konten ist bereits
-heute einladungsgebunden; Turnierverwaltung wird nur Rollen mit der
+**Aktueller Stand (24. September 2026):** Phasen 0 bis 6 sind implementiert
+und laufen in Production; das Go-Live-Testprogramm ist seit dem 18.09.2026
+abgeschlossen. Vorgezogen und in Betrieb sind der Ligabetrieb mit
+Team-Begegnungen, Ligatabelle und Einzelrangliste nach VFC-Reglement (Phase 9
+teilweise) sowie E-Mails für Einladung und Passwort-Reset (Phase 11
+teilweise). Von Phase 7 steht die Basis mit Organisationen, Rollen,
+Permissions und Einladungen; Settings, Limits, Branding, eigene Domains und
+Billing sind der nächste geplante Produktabschnitt. Registrierung neuer Konten
+ist einladungsgebunden; Turnierverwaltung wird nur Rollen mit der
 entsprechenden Permission angeboten.
 
 ---
@@ -75,15 +79,16 @@ Saubere technische Basis schaffen.
   Zertifikat für `api.dartbase.ch` ist gültig.
 - [x] Die öffentlichen Web- und API-Smoke-Tests bestehen.
 - [x] Die beiden stabilen GitHub-Checks sind definiert und werden vor Releases
-  verifiziert. Ein verpflichtendes Ruleset bleibt dokumentiert ausstehend,
-  solange das Repository GitHub Free verwendet.
+  verifiziert. Seit das Repository am 18.09.2026 öffentlich ist, verlangen
+  `main` und `develop` per Branch-Protection einen PR mit beiden Checks als
+  Required Status Checks, auch für Admins.
 - [x] Das Environment `staging` folgt `develop`, mit eigenen Datenservices und
   eigenen Zugangsdaten; Production und Staging laufen mit aktivierter
   Point-in-Time-Recovery.
 - [x] Ausgehende E-Mails laufen seit dem 21.09.2026 über einen echten
   Versanddienst; davor schrieb der Log-Adapter nur ins Protokoll.
 
-Einrichtung, Diagnose, IaC-Abgleich und die GitHub-Tarifgrenze stehen im
+Einrichtung, Diagnose, IaC-Abgleich und das GitHub-CI-Gate stehen im
 [Railway-Runbook](./infrastructure/railway.md).
 
 ---
