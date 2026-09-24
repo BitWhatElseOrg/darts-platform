@@ -45,8 +45,18 @@ function OrganizationSettings({ organization }: { readonly organization: Organiz
 
   return (
     <div className="space-y-8">
-      <OrganizationDetails canUpdate={canUpdate} organization={organization} />
-      {canDelete ? <DangerZone organization={organization} /> : null}
+      {/*
+        `key={organization.id}` erzwingt eine Neumontage bei einem
+        Organisationswechsel. Ohne sie bleiben `useForm`-Defaultwerte und der
+        `useState` des Loeschdialogs auf der zuerst gemounteten Organisation
+        stehen: `WorkspaceShell` bietet ohne Seitenwechsel eine
+        Organisationsauswahl an (`<select>`), die nur die `organization`-Prop
+        aendert, nicht den Komponentenbaum — sonst koennten Stammdaten oder
+        eine eingetippte Namensbestaetigung einer anderen Organisation
+        angezeigt bleiben.
+      */}
+      <OrganizationDetails canUpdate={canUpdate} key={`details-${organization.id}`} organization={organization} />
+      {canDelete ? <DangerZone key={`danger-${organization.id}`} organization={organization} /> : null}
     </div>
   );
 }
@@ -72,10 +82,15 @@ function OrganizationDetails({ organization, canUpdate }: {
         body: data,
         schema: organizationSummarySchema,
       }),
-    onSuccess: async () => {
+    onSuccess: async (saved) => {
       // Dieselbe Abfrage, die auch die Uebersicht und `WorkspaceShell` fuellt
       // (`useTournamentOrganization`) — sie zeigt danach den neuen Namen.
       await queryClient.invalidateQueries({ queryKey: ["organizations"] });
+      // Setzt die Vergleichsbasis fuer `isDirty` auf den gespeicherten Stand.
+      // Ohne das blieben die Werte gegenueber den urspruenglichen
+      // Defaultwerten "dirty", und "Gespeichert." liesse sich nach der
+      // naechsten Bearbeitung nicht mehr ausblenden.
+      form.reset({ name: saved.name, timezone: saved.timezone, locale: saved.locale });
     },
   });
 
@@ -105,7 +120,8 @@ function OrganizationDetails({ organization, canUpdate }: {
     );
   }
 
-  const { name: nameError, timezone: timezoneError, locale: localeError } = form.formState.errors;
+  const { errors, isDirty } = form.formState;
+  const { name: nameError, timezone: timezoneError, locale: localeError } = errors;
 
   return (
     <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6">
@@ -173,7 +189,7 @@ function OrganizationDetails({ organization, canUpdate }: {
       {updateOrganization.isError ? (
         <p className="text-body text-rose-300" role="alert">{userFacingErrorMessage(updateOrganization.error)}</p>
       ) : null}
-      {updateOrganization.isSuccess ? (
+      {updateOrganization.isSuccess && !isDirty ? (
         <p className="text-body text-emerald-300" role="status">Gespeichert.</p>
       ) : null}
     </section>

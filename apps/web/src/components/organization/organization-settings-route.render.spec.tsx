@@ -39,14 +39,21 @@ const server = vi.hoisted(() => ({
 
 const client = vi.hoisted(() => ({
   apiRequest: vi.fn(
-    ({ path, method }: { readonly path: string; readonly method?: string; readonly body?: unknown }) => {
+    ({ path, method, body }: { readonly path: string; readonly method?: string; readonly body?: unknown }) => {
       if (path === "/organizations" && (method === undefined || method === "GET")) {
         return Promise.resolve(server.organizations);
       }
       if (path.startsWith("/organizations/") && method === "PATCH") {
         if (server.updateRejection !== null) return Promise.reject(server.updateRejection);
-        const [current] = server.organizations as Array<Record<string, unknown>>;
-        return Promise.resolve({ ...current });
+        const id = path.slice("/organizations/".length);
+        const current = (server.organizations as Array<Record<string, unknown>>).find(
+          (candidate) => candidate.id === id,
+        );
+        // Spiegelt den echten Endpunkt: die Antwort trägt die uebermittelten
+        // Felder, nicht bloss den alten Stand — sonst wuerde ein
+        // anschliessendes `form.reset(saved)` die Eingabe unbemerkt
+        // zuruecksetzen.
+        return Promise.resolve({ ...current, ...(body as Record<string, unknown> | undefined) });
       }
       if (path.startsWith("/organizations/") && method === "DELETE") {
         if (server.deleteRejection !== null) return Promise.reject(server.deleteRejection);
@@ -203,5 +210,59 @@ describe("OrganizationSettingsRoute", () => {
     await screen.findByLabelText("Name");
 
     expect(screen.queryByLabelText('Zur Bestätigung den Namen „VFC Musterstadt" eintippen')).toBeNull();
+  });
+
+  it("zeigt nach einem Organisationswechsel ohne Neumontage der Seite sofort die neuen Stammdaten", async () => {
+    // `WorkspaceShell` bietet ohne Seitenwechsel eine Organisationsauswahl
+    // an (`<select>`); dabei aendert sich nur die `organization`-Prop, nicht
+    // der Komponentenbaum. Ohne `key={organization.id}` auf
+    // `OrganizationDetails`/`DangerZone` bliebe `useForm` bei den
+    // Defaultwerten der zuerst gemounteten Organisation stehen.
+    const otherOrganization = {
+      ...organization,
+      id: "22222222-2222-4222-8222-222222222222",
+      name: "VFC Andernorts",
+      slug: "vfc-andernorts",
+      timezone: "Europe/Berlin",
+      locale: "de-DE",
+    };
+    server.organizations = [organization, otherOrganization];
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(OrganizationSettingsRoute, { requestedOrganizationId: organization.id }),
+      ),
+    );
+
+    expect((await screen.findByLabelText("Name") as HTMLInputElement).value).toBe("VFC Musterstadt");
+
+    rerender(
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(OrganizationSettingsRoute, { requestedOrganizationId: otherOrganization.id }),
+      ),
+    );
+
+    await waitFor(() => {
+      expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("VFC Andernorts");
+    });
+    expect((screen.getByLabelText("Zeitzone") as HTMLInputElement).value).toBe("Europe/Berlin");
+  });
+
+  it("blendet «Gespeichert.» aus, sobald danach weiter bearbeitet wird", async () => {
+    renderRoute();
+
+    const nameInput = (await screen.findByLabelText("Name")) as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "VFC Neustadt" } });
+    fireEvent.submit(screen.getByRole("button", { name: "Speichern" }).closest("form")!);
+
+    await screen.findByRole("status");
+
+    fireEvent.change(nameInput, { target: { value: "VFC Neustadt II" } });
+
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });
