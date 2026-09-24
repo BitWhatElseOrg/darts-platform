@@ -195,6 +195,22 @@ export class OrganizationsController {
     });
   }
 
+  @Delete(":organizationId/members/:userId")
+  @HttpCode(204)
+  public async removeMember(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("userId", ParseUUIDPipe) userId: string,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<void> {
+    await this.organizationsService.removeMember({
+      organizationId,
+      targetUserId: userId,
+      auth,
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
+    });
+  }
+
   /**
    * Manuelle Zuordnung Konto -> Spielerprofil. Eigene, schmale Ressource
    * statt eines weiteren Feldes in `PATCH members/:userId`, dessen

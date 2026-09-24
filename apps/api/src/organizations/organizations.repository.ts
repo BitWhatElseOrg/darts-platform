@@ -36,6 +36,13 @@ import {
 import { describeInvitationDelivery } from "./invitation-delivery.js";
 import { buildInvitationUrl } from "./invitation-link.js";
 
+export type RemoveMembershipResult =
+  | { readonly outcome: "removed" }
+  | { readonly outcome: "not-found" }
+  | { readonly outcome: "actor-not-active" }
+  | { readonly outcome: "owner-change-requires-owner" }
+  | { readonly outcome: "last-owner" };
+
 export type UpdateMembershipResult =
   | { readonly outcome: "updated"; readonly member: OrganizationMember }
   | { readonly outcome: "not-found" }
@@ -1225,6 +1232,162 @@ export class OrganizationsRepository {
       });
 
       return { outcome: "updated", member };
+    });
+  }
+
+  /**
+   * Entfernt eine Mitgliedschaft vollstaendig. Sperrreihenfolge und Lesen
+   * der handelnden Rolle unter der Sperre wie in `updateMembership` — aus
+   * denselben Gruenden: der Service liest die Rolle der handelnden Person
+   * vor der Transaktion, und bis hierher kann sie veraltet sein.
+   *
+   * Der letzte-OWNER-Schutz ist Verteidigung in der Tiefe und heute ueber
+   * den Dienst nicht erreichbar: `removeMember` entfernt nie die eigene
+   * Mitgliedschaft (`SELF_MEMBERSHIP_CHANGE_FORBIDDEN`) und eine bestehende
+   * OWNER-Zeile nur, wer selbst aktiver OWNER ist
+   * (`owner-change-requires-owner`, gleich darunter). Die handelnde Person
+   * ist damit immer ein anderer aktiver OWNER als das Ziel, sodass nach dem
+   * Entfernen mindestens einer uebrig bleibt. Bleibt die Pruefung trotzdem
+   * bestehen, verhindert sie, dass eine spaetere Aenderung an den beiden
+   * Bedingungen den letzten OWNER stillschweigend entfernbar macht.
+   *
+   * Das Konto selbst bleibt bestehen — nur die Mitgliedschaft und eine
+   * bestehende Spielerzuordnung in dieser Organisation werden geloest, damit
+   * dieselbe Person spaeter erneut eingeladen werden kann.
+   */
+  public async removeMembership(input: {
+    readonly organizationId: string;
+    readonly targetUserId: string;
+    readonly actorUserId: string;
+    readonly audit: AuditContext;
+  }): Promise<RemoveMembershipResult> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [organization] = await transaction
+        .select({ id: organizations.id })
+        .from(organizations)
+        .where(eq(organizations.id, input.organizationId))
+        .limit(1)
+        .for("update");
+
+      if (organization === undefined) {
+        return { outcome: "not-found" };
+      }
+
+      const [actor] = await transaction
+        .select({ role: memberships.role, status: memberships.status })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.organizationId, input.organizationId),
+            eq(memberships.userId, input.actorUserId),
+          ),
+        )
+        .limit(1)
+        .for("update", { of: memberships });
+
+      if (
+        actor === undefined ||
+        actor.status !== "ACTIVE" ||
+        !isOrganizationRole(actor.role)
+      ) {
+        return { outcome: "actor-not-active" };
+      }
+
+      const actorRole: OrganizationRole = actor.role;
+
+      const [current] = await transaction
+        .select({
+          id: memberships.id,
+          role: memberships.role,
+          status: memberships.status,
+          email: users.email,
+        })
+        .from(memberships)
+        .innerJoin(users, eq(memberships.userId, users.id))
+        .where(
+          and(
+            eq(memberships.organizationId, input.organizationId),
+            eq(memberships.userId, input.targetUserId),
+          ),
+        )
+        .limit(1)
+        .for("update", { of: memberships });
+
+      if (current === undefined) {
+        return { outcome: "not-found" };
+      }
+
+      if (!isOrganizationRole(current.role) || !isMembershipStatus(current.status)) {
+        throw new Error("The stored membership carries an unknown role or status.");
+      }
+
+      // Dieselbe Gegenrichtung wie in `updateMembership`: eine bestehende
+      // OWNER-Zeile aendert (und entfernt) nur, wer selbst aktiver OWNER ist.
+      if (current.role === "OWNER" && actorRole !== "OWNER") {
+        return { outcome: "owner-change-requires-owner" };
+      }
+
+      // Verteidigung in der Tiefe, siehe Docstring: ueber den Dienst nicht
+      // erreichbar, weil die handelnde Person hier immer ein anderer aktiver
+      // OWNER als das Ziel ist.
+      if (current.role === "OWNER" && current.status === "ACTIVE") {
+        const [remainingOwner] = await transaction
+          .select({ userId: memberships.userId })
+          .from(memberships)
+          .where(
+            and(
+              eq(memberships.organizationId, input.organizationId),
+              eq(memberships.role, "OWNER"),
+              eq(memberships.status, "ACTIVE"),
+              ne(memberships.userId, input.targetUserId),
+            ),
+          )
+          .limit(1);
+
+        if (remainingOwner === undefined) {
+          return { outcome: "last-owner" };
+        }
+      }
+
+      const [linked] = await transaction
+        .update(players)
+        .set({ userId: null, updatedAt: new Date() })
+        .where(and(eq(players.organizationId, input.organizationId), eq(players.userId, input.targetUserId)))
+        .returning({ id: players.id });
+
+      if (linked !== undefined) {
+        await transaction.insert(auditEvents).values({
+          organizationId: input.organizationId,
+          actorUserId: input.actorUserId,
+          action: "PLAYER_UNLINKED",
+          entityType: "Player",
+          entityId: linked.id,
+          oldValue: { userId: input.targetUserId },
+          newValue: { userId: null, reason: "MEMBER_REMOVED" },
+          ip: input.audit.ip,
+          userAgent: input.audit.userAgent,
+          correlationId: input.audit.correlationId,
+        });
+      }
+
+      await transaction.insert(auditEvents).values({
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: "MEMBER_REMOVED",
+        entityType: "Membership",
+        entityId: current.id,
+        oldValue: { userId: input.targetUserId, email: current.email, role: current.role, status: current.status },
+        newValue: null,
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+
+      await transaction
+        .delete(memberships)
+        .where(and(eq(memberships.organizationId, input.organizationId), eq(memberships.userId, input.targetUserId)));
+
+      return { outcome: "removed" };
     });
   }
 
