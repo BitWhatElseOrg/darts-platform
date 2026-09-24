@@ -46,6 +46,22 @@ bleibt so.
   gehört, in einer Transaktion: ein einfaches `delete(organizations)`
   reicht, weil jede tenant-bezogene Fremdschlüsselspalte `onDelete:
   "cascade"` trägt.
+  **Invariante, die das trägt:** jede Tabelle, die selbst eine RESTRICT-
+  oder NO-ACTION-Fremdschlüsselspalte auf eine andere Mandantentabelle hält
+  (z. B. `match_participant_players.player_id`, `visits.thrower_player_id`,
+  `tournament_matches.winner_player_id`, `encounters.home_team_id`), trägt
+  zusätzlich selbst eine `organization_id`-Spalte mit direktem `ON DELETE
+  CASCADE` auf `organizations`. Ohne diese zweite, direkte Kaskade würde
+  Postgres beim Löschen der Organisation auf genau die RESTRICT-Klammer
+  laufen, die einen Spieler mit Historie vor dem *einzelnen* Löschen
+  schützt — die Zeile müsste dann erst über die referenzierte Tabelle
+  verschwinden, was die RESTRICT-Prüfung nicht garantiert abwartet. Die
+  Invariante ist keine Konvention, sondern wird durch einen Datenbanktest
+  gegen `pg_constraint` erzwungen (`packages/database/src/client.integration.spec.ts`,
+  „kaskadiert jede RESTRICT-geschützte Mandantentabelle direkt aus
+  organizations"): jede neue Tabelle mit einer solchen RESTRICT-Spalte
+  braucht ab sofort ebenfalls die direkte `organization_id`-Kaskade, sonst
+  schlägt der Test fehl.
 - **Audit ausserhalb des Mandanten:** Der Audit-Eintrag über die Löschung
   (`ORGANIZATION_DELETED`) trägt `organization_id = NULL` — die kaskadierte
   Löschung würde ihn sonst mit sich reissen, bevor er etwas dokumentiert. Er

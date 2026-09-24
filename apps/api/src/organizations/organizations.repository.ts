@@ -260,6 +260,26 @@ export class OrganizationsRepository {
    * Gruppen und KO-Matches, Team mit Kader, Wettbewerb, Begegnung mit
    * Aufstellung, offene Einladung und Statistik-Aggregat — verschwindet
    * restlos, ohne dass eine Tabelle vorher explizit geleert werden muss.
+   *
+   * Undokumentierte Voraussetzung, die dieses einfache `delete` erst
+   * erlaubt (ADR 0018): Tabellen, die eine RESTRICT- oder
+   * NO-ACTION-Fremdschluesselspalte auf eine ANDERE Mandantentabelle halten
+   * — etwa `match_participant_players.player_id`,
+   * `visits.thrower_player_id`, `tournament_matches.winner_player_id`,
+   * `encounters.home_team_id` — muessen selbst ebenfalls eine
+   * `organization_id`-Spalte mit direktem `ON DELETE CASCADE` auf
+   * `organizations` tragen. Ohne diese zweite, direkte Kaskade wuerde
+   * Postgres beim Loeschen der Organisation an genau der RESTRICT-Klammer
+   * scheitern, die einen Spieler mit Historie vor dem einzelnen Loeschen
+   * schuetzt (`player:delete`, 409 `PLAYER_HAS_HISTORY`) — die geschuetzte
+   * Zeile darf beim Organisations-Loeschen nicht darauf warten, erst ueber
+   * die referenzierte Tabelle zu verschwinden. Diese Invariante wird nicht
+   * nur hier behauptet, sondern durch einen Datenbanktest gegen
+   * `pg_constraint` erzwungen: `packages/database/src/client.integration.spec.ts`
+   * („kaskadiert jede RESTRICT-geschützte Mandantentabelle direkt aus
+   * organizations"). Eine neue Tabelle mit einer solchen RESTRICT-Spalte
+   * ohne eigene direkte `organization_id`-Kaskade laesst diesen Test rot
+   * werden, nicht erst `deleteOrganization` in Produktion.
    */
   public async deleteOrganization(input: {
     readonly organizationId: string;
