@@ -7,7 +7,7 @@
 // 409 PLAYER_HAS_HISTORY beim Loeschen bietet "Stattdessen archivieren" an.
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { createElement } from "react";
+import { createElement, createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PlayerResponse } from "@darts-platform/schemas";
@@ -467,5 +467,90 @@ describe("PlayerList", () => {
     expect(screen.getByLabelText("Anzeigename")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Abbrechen" }));
     expect(screen.queryByLabelText("Anzeigename")).toBeNull();
+  });
+
+  it("haelt genau einen Dialog fuer die ganze Liste: Loeschen fuer einen anderen Spieler schliesst ein offenes Archivieren-Dialog (Task 1)", () => {
+    // Vor Task 1 registrierte jede Zeile ihren eigenen Dialogzustand: das
+    // Archivieren-Dialog von Anna und das Loeschen-Dialog von Bruno konnten
+    // gleichzeitig offen sein. Mit einem einzigen Listenzustand schliesst das
+    // Oeffnen einer zweiten Absicht die erste automatisch.
+    renderList([anna, bruno], new Map(), { canArchive: true, canDelete: true });
+
+    const archiveButtons = screen.getAllByRole("button", { name: "Archivieren" });
+    const annaArchiveButton = archiveButtons[0];
+    if (annaArchiveButton === undefined) throw new Error("Erwartete einen Archivieren-Button.");
+    fireEvent.click(annaArchiveButton);
+    expect(within(screen.getByRole("dialog")).getByText("Spieler archivieren")).toBeTruthy();
+
+    const deleteButtons = screen.getAllByRole("button", { name: "Löschen" });
+    const brunoDeleteButton = deleteButtons[1];
+    if (brunoDeleteButton === undefined) throw new Error("Erwartete zwei Löschen-Buttons.");
+    fireEvent.click(brunoDeleteButton);
+
+    const dialogs = screen.getAllByRole("dialog");
+    expect(dialogs).toHaveLength(1);
+    expect(within(dialogs[0] as HTMLElement).getByText("Spieler endgültig löschen")).toBeTruthy();
+  });
+
+  it("nennt bei verknuepftem Konto im Loeschen-Dialog die Aufhebung der Verknuepfung (Task 1)", () => {
+    renderList([anna], new Map(), { canDelete: true });
+    fireEvent.click(screen.getByRole("button", { name: "Löschen" }));
+    expect(
+      within(screen.getByRole("dialog")).getByText(
+        "Die Verknüpfung mit dem Benutzerkonto wird dabei aufgehoben; das Konto selbst bleibt bestehen.",
+        { exact: false },
+      ),
+    ).toBeTruthy();
+
+    cleanup();
+    renderList([bruno], new Map(), { canDelete: true });
+    fireEvent.click(screen.getByRole("button", { name: "Löschen" }));
+    expect(
+      within(screen.getByRole("dialog")).queryByText(
+        "Die Verknüpfung mit dem Benutzerkonto wird dabei aufgehoben",
+        { exact: false },
+      ),
+    ).toBeNull();
+  });
+
+  it("fokussiert nach erfolgreichem endgueltigem Loeschen die Ueberschrift und zeigt eine Statusmeldung (Task 1)", async () => {
+    // Heute verschwindet mit der Zeile auch das Fokus-Rueckgabeziel des
+    // Loeschen-Buttons -- der Fokus landet auf <body>. Neu soll er auf eine
+    // von aussen uebergebene Ueberschrift wandern, und eine role="status"
+    // Meldung soll den Spielernamen nennen.
+    const headingRef = createRef<HTMLHeadingElement>();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          "div",
+          null,
+          createElement("h2", { ref: headingRef, tabIndex: -1 }, "Spieler"),
+          createElement(PlayerList, {
+            canArchive: false,
+            canDelete: true,
+            canEdit: false,
+            headingRef,
+            isPending: false,
+            organizationId: "organisation-1",
+            players: [anna],
+            teamsByPlayer: new Map(),
+          }),
+        ),
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Löschen" }));
+    const dialog = screen.getByRole("dialog");
+    client.apiRequest.mockResolvedValueOnce(undefined);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Endgültig löschen" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+    expect(document.activeElement).toBe(headingRef.current);
+    expect(screen.getByRole("status").textContent).toBe("Anna Müller wurde gelöscht.");
   });
 });
