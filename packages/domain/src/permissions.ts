@@ -9,6 +9,7 @@ export const organizationPermissions = [
   "player:create",
   "player:update",
   "player:archive",
+  "player:delete",
   "board:read",
   "board:manage",
   "match:read",

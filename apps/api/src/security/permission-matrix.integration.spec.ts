@@ -82,6 +82,10 @@ const probes: Record<OrganizationPermission, Probe> = {
     method: "DELETE",
     url: `/api/v1/organizations/${organizationId}/players/${randomUUID()}`,
   },
+  "player:delete": {
+    method: "DELETE",
+    url: `/api/v1/organizations/${organizationId}/players/${randomUUID()}/permanent`,
+  },
   "board:read": {
     method: "GET",
     url: `/api/v1/organizations/${organizationId}/boards`,

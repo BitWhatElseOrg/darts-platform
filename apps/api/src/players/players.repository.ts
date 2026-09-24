@@ -1,10 +1,19 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 
 import {
   auditEvents,
+  encounterLineupEntries,
+  encounterNominations,
+  encounterSubstitutions,
+  matchParticipantPlayers,
   playerAvatars,
   players,
+  teamPlayers,
+  tournamentGroupParticipants,
+  tournamentMatches,
+  tournamentParticipants,
+  visits,
   type DatabaseExecutor,
 } from "@darts-platform/database";
 import type {
@@ -41,6 +50,145 @@ function toPlayerResponse(row: PlayerRow, avatarChecksum: string | null) {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+/**
+ * Kommt der Spieler in einer Tabelle vor, die ihn per RESTRICT festhaelt?
+ * Sequentiell statt `Promise.all`: alle Proben laufen auf derselben
+ * Transaktionsverbindung, und die erste gefundene Zeile beendet die
+ * Pruefung sofort.
+ */
+async function hasPlayerHistory(
+  executor: DatabaseExecutor,
+  organizationId: string,
+  playerId: string,
+): Promise<boolean> {
+  const probes: Array<() => Promise<{ readonly id: string }[]>> = [
+    () =>
+      executor
+        .select({ id: matchParticipantPlayers.playerId })
+        .from(matchParticipantPlayers)
+        .where(
+          and(
+            eq(matchParticipantPlayers.organizationId, organizationId),
+            eq(matchParticipantPlayers.playerId, playerId),
+          ),
+        )
+        .limit(1),
+    () =>
+      executor
+        .select({ id: visits.id })
+        .from(visits)
+        .where(
+          and(
+            eq(visits.organizationId, organizationId),
+            eq(visits.throwerPlayerId, playerId),
+          ),
+        )
+        .limit(1),
+    () =>
+      executor
+        .select({ id: tournamentParticipants.playerId })
+        .from(tournamentParticipants)
+        .where(
+          and(
+            eq(tournamentParticipants.organizationId, organizationId),
+            eq(tournamentParticipants.playerId, playerId),
+          ),
+        )
+        .limit(1),
+    () =>
+      executor
+        .select({ id: tournamentGroupParticipants.playerId })
+        .from(tournamentGroupParticipants)
+        .where(
+          and(
+            eq(tournamentGroupParticipants.organizationId, organizationId),
+            eq(tournamentGroupParticipants.playerId, playerId),
+          ),
+        )
+        .limit(1),
+    () =>
+      executor
+        .select({ id: tournamentMatches.id })
+        .from(tournamentMatches)
+        .where(
+          and(
+            eq(tournamentMatches.organizationId, organizationId),
+            or(
+              eq(tournamentMatches.participantOneId, playerId),
+              eq(tournamentMatches.participantTwoId, playerId),
+              eq(tournamentMatches.winnerPlayerId, playerId),
+            ),
+          ),
+        )
+        .limit(1),
+    () =>
+      executor
+        .select({ id: teamPlayers.playerId })
+        .from(teamPlayers)
+        .where(
+          and(
+            eq(teamPlayers.organizationId, organizationId),
+            eq(teamPlayers.playerId, playerId),
+          ),
+        )
+        .limit(1),
+    () =>
+      executor
+        .select({ id: encounterNominations.playerId })
+        .from(encounterNominations)
+        .where(
+          and(
+            eq(encounterNominations.organizationId, organizationId),
+            eq(encounterNominations.playerId, playerId),
+          ),
+        )
+        .limit(1),
+    () =>
+      executor
+        .select({ id: encounterLineupEntries.playerId })
+        .from(encounterLineupEntries)
+        .where(
+          and(
+            eq(encounterLineupEntries.organizationId, organizationId),
+            eq(encounterLineupEntries.playerId, playerId),
+          ),
+        )
+        .limit(1),
+    () =>
+      executor
+        .select({ id: encounterSubstitutions.id })
+        .from(encounterSubstitutions)
+        .where(
+          and(
+            eq(encounterSubstitutions.organizationId, organizationId),
+            or(
+              eq(encounterSubstitutions.outPlayerId, playerId),
+              eq(encounterSubstitutions.inPlayerId, playerId),
+            ),
+          ),
+        )
+        .limit(1),
+  ];
+
+  for (const probe of probes) {
+    const rows = await probe();
+    if (rows.length > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Prallt ein Schreibvorgang an einem RESTRICT-Fremdschluessel ab? */
+function isForeignKeyViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "23503"
+  );
 }
 
 /**
@@ -304,6 +452,70 @@ export class PlayersRepository {
       );
       return toPlayerResponse(player, avatarChecksum);
     });
+  }
+
+  /**
+   * Loescht einen Spieler endgueltig — nur, wenn er keine Historie hat
+   * (Spec 2026-09-24-bearbeiten-loeschen). Die RESTRICT-Fremdschluessel
+   * bleiben die letzte Wache; die ausdrueckliche Pruefung vorher liefert
+   * eine verstaendliche Antwort statt eines Datenbankfehlers.
+   */
+  public async deletePermanently(
+    input: TenantActorInput & { readonly playerId: string },
+  ): Promise<"deleted" | "not-found" | "has-history"> {
+    try {
+      return await this.databaseService.database.transaction(async (transaction) => {
+        const [previous] = await transaction
+          .select()
+          .from(players)
+          .where(
+            and(
+              eq(players.organizationId, input.organizationId),
+              eq(players.id, input.playerId),
+            ),
+          )
+          .limit(1)
+          .for("update");
+
+        if (previous === undefined) {
+          return "not-found";
+        }
+
+        if (await hasPlayerHistory(transaction, input.organizationId, input.playerId)) {
+          return "has-history";
+        }
+
+        await transaction.insert(auditEvents).values({
+          organizationId: input.organizationId,
+          actorUserId: input.userId,
+          action: "PLAYER_DELETED",
+          entityType: "Player",
+          entityId: previous.id,
+          oldValue: previous,
+          newValue: null,
+          ip: input.audit.ip,
+          userAgent: input.audit.userAgent,
+          correlationId: input.audit.correlationId,
+        });
+
+        await transaction
+          .delete(players)
+          .where(
+            and(
+              eq(players.organizationId, input.organizationId),
+              eq(players.id, input.playerId),
+            ),
+          );
+
+        return "deleted";
+      });
+    } catch (error) {
+      // Eine parallel entstandene Historie scheitert am RESTRICT-Schluessel.
+      if (isForeignKeyViolation(error)) {
+        return "has-history";
+      }
+      throw error;
+    }
   }
 
   public async findAvatar(input: {

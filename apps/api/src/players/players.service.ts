@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
@@ -137,6 +138,36 @@ export class PlayersService {
       throw new NotFoundException("Player not found.");
     }
     return playerSchema.parse(player);
+  }
+
+  public async deletePermanently(input: {
+    readonly organizationId: string;
+    readonly playerId: string;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<void> {
+    await this.organizationAccessService.requirePermission({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      permission: "player:delete",
+    });
+    const outcome = await this.playersRepository.deletePermanently({
+      organizationId: input.organizationId,
+      playerId: input.playerId,
+      userId: input.auth.user.id,
+      audit: input.audit,
+    });
+    switch (outcome) {
+      case "not-found":
+        throw new NotFoundException("Player not found.");
+      case "has-history":
+        throw new ConflictException({
+          code: "PLAYER_HAS_HISTORY",
+          message: "This player has match, tournament, team or encounter history and can only be archived.",
+        });
+      case "deleted":
+        return;
+    }
   }
 
   /**
