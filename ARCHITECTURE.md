@@ -334,8 +334,8 @@ organization:manage_roles
 ```
 
 `player:delete` erlaubt nur die endgültige Löschung eines Spielers ohne
-Historie (keine Matches, kein Teameintrag) und ist auf `OWNER` und `ADMIN`
-beschränkt.
+Historie (keine Matches, keine Turnier-, Kader- oder Begegnungseinträge) und
+ist auf `OWNER` und `ADMIN` beschränkt.
 
 Jede Mutation muss serverseitig autorisiert werden.
 

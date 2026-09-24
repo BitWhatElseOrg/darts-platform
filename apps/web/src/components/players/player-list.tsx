@@ -286,7 +286,7 @@ function PlayerRow({
 
       <ConfirmDialog
         confirmLabel="Endgültig löschen"
-        description={`${player.displayName} wird mit Profilbild und Statistik gelöscht. Das lässt sich nicht rückgängig machen. Spieler, die bereits gespielt haben oder in einem Team stehen, lassen sich nur archivieren.`}
+        description={`${player.displayName} wird mit Profilbild und Statistik gelöscht. Das lässt sich nicht rückgängig machen. Spieler, die bereits gespielt haben oder in einem Turnier, Team oder einer Begegnung stehen, lassen sich nur archivieren.`}
         error={deleteMutation.isError ? userFacingErrorMessage(deleteMutation.error) : null}
         onCancel={() => setDeleteConfirmOpen(false)}
         onConfirm={() => deleteMutation.mutate()}

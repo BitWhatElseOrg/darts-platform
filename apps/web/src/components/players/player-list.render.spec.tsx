@@ -222,7 +222,7 @@ describe("PlayerList", () => {
   it("'Löschen' oeffnet einen Dialog; ein 409 PLAYER_HAS_HISTORY bietet 'Stattdessen archivieren' an", async () => {
     client.apiRequest.mockRejectedValueOnce(
       new client.ApiClientError(
-        "Dieser Spieler hat bereits gespielt oder steht in einem Team. Er lässt sich nur archivieren.",
+        "Dieser Spieler hat bereits gespielt oder steht in einem Turnier, Team oder einer Begegnung. Er lässt sich nur archivieren.",
         "PLAYER_HAS_HISTORY",
         null,
         undefined,
@@ -239,7 +239,7 @@ describe("PlayerList", () => {
 
     await waitFor(() => {
       expect(within(dialog).getByRole("alert").textContent).toBe(
-        "Dieser Spieler hat bereits gespielt oder steht in einem Team. Er lässt sich nur archivieren.",
+        "Dieser Spieler hat bereits gespielt oder steht in einem Turnier, Team oder einer Begegnung. Er lässt sich nur archivieren.",
       );
     });
 
@@ -359,7 +359,7 @@ describe("PlayerList", () => {
   it("'Stattdessen archivieren' deaktiviert sich waehrend pending und zeigt einen Fehlschlag im offenen Loesch-Dialog (Fix-Runde 1, Befund 3)", async () => {
     client.apiRequest.mockRejectedValueOnce(
       new client.ApiClientError(
-        "Dieser Spieler hat bereits gespielt oder steht in einem Team. Er lässt sich nur archivieren.",
+        "Dieser Spieler hat bereits gespielt oder steht in einem Turnier, Team oder einer Begegnung. Er lässt sich nur archivieren.",
         "PLAYER_HAS_HISTORY",
         null,
         undefined,

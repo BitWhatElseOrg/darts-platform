@@ -119,8 +119,11 @@ test("Spieler bearbeiten, archivieren, reaktivieren und endgueltig loeschen", as
 
   await page.goto(`/teams?organisation=${organizationId}`);
   await expect(page.getByRole("heading", { level: 1, name: "Teams" })).toBeVisible();
-  await page.getByLabel("Name", { exact: true }).fill(teamName);
-  await page.getByRole("button", { name: "Team anlegen" }).click();
+  const teamForm = page.locator("form").filter({
+    has: page.getByRole("button", { name: "Team anlegen" }),
+  });
+  await teamForm.getByLabel("Name", { exact: true }).fill(teamName);
+  await teamForm.getByRole("button", { name: "Team anlegen" }).click();
   const teamCard = page.locator("article").filter({ hasText: teamName });
   await expect(teamCard).toBeVisible();
   await teamCard.getByLabel("Person aufnehmen").selectOption({ label: secondPlayerName });
