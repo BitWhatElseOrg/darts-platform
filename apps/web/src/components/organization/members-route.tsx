@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { hasOrganizationPermission, type OrganizationRole } from "@darts-platform/domain";
 import {
@@ -134,8 +134,10 @@ function Members({ currentUserId, organization }: {
         schema: z.undefined(),
       }),
     onSuccess: async () => {
+      const removedName = removeTarget?.displayName ?? "Das Mitglied";
       await invalidateMembers();
       setRemoveTarget(null);
+      setRemovedAnnouncement(`${removedName} wurde aus der Organisation entfernt.`);
     },
   });
   const cancelInvitation = useMutation({
@@ -170,12 +172,24 @@ function Members({ currentUserId, organization }: {
   // sich nur von der neuen Inhaberschaft rückgängig machen.
   const [ownerTransfer, setOwnerTransfer] = useState<OrganizationMember | null>(null);
   const [removeTarget, setRemoveTarget] = useState<OrganizationMember | null>(null);
+  const [removedAnnouncement, setRemovedAnnouncement] = useState<string | null>(null);
   const [filter, setFilter] = useState<MemberFilter>(defaultMemberFilter);
   // Vor dem Frühausstieg, damit die Hook-Reihenfolge stabil bleibt.
   const visibleMembers = useMemo(
     () => filterMembers(membersQuery.data ?? [], filter),
     [membersQuery.data, filter],
   );
+
+  // Fokusziel nach erfolgreichem Entfernen: die Zeile samt Entfernen-Button
+  // verschwindet mit ihr, `useDialogFocusReturn` faende also kein
+  // Rueckgabeziel mehr vor. Laeuft erst NACHDEM `ConfirmDialog` seinen
+  // eigenen schliessenden Effekt (Fokus-Rueckgabe an den bereits entfernten
+  // Button) durchlaufen hat: React fuehrt Effekte von Kindern vor denen der
+  // Elternkomponente aus (wie in `player-list.tsx`, Task 1).
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (removedAnnouncement !== null) headingRef.current?.focus();
+  }, [removedAnnouncement]);
 
   if (!mayManageMembers) {
     return (
@@ -199,9 +213,14 @@ function Members({ currentUserId, organization }: {
   return (
     <div className="space-y-8">
       <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6">
-        <h2 className="font-numerals text-title font-bold text-white">Mitglieder</h2>
+        <h2 className="font-numerals text-title font-bold text-white" ref={headingRef} tabIndex={-1}>
+          Mitglieder
+        </h2>
         {updateMember.error !== null ? (
           <p className="text-body text-rose-300" role="alert">{messageFrom(updateMember.error)}</p>
+        ) : null}
+        {removedAnnouncement !== null ? (
+          <p className="text-body text-slate-300" role="status">{removedAnnouncement}</p>
         ) : null}
         {membersQuery.isPending ? (
           <p className="text-body text-slate-400">Mitglieder werden geladen …</p>
@@ -346,6 +365,7 @@ function Members({ currentUserId, organization }: {
                       <Button
                         onClick={() => {
                           removeMember.reset();
+                          setRemovedAnnouncement(null);
                           setRemoveTarget(member);
                         }}
                         type="button"
