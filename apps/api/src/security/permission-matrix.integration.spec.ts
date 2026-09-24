@@ -64,6 +64,10 @@ const probes: Record<OrganizationPermission, Probe> = {
     url: `/api/v1/organizations/${organizationId}/members/${randomUUID()}`,
     payload: { role: "MEMBER" },
   },
+  "organization:delete": {
+    method: "DELETE",
+    url: `/api/v1/organizations/${organizationId}`,
+  },
   "player:read": {
     method: "GET",
     url: `/api/v1/organizations/${organizationId}/players`,
@@ -79,6 +83,10 @@ const probes: Record<OrganizationPermission, Probe> = {
     payload: { displayName: "X" },
   },
   "player:archive": {
+    method: "DELETE",
+    url: `/api/v1/organizations/${organizationId}/players/${randomUUID()}`,
+  },
+  "player:delete": {
     method: "DELETE",
     url: `/api/v1/organizations/${organizationId}/players/${randomUUID()}`,
   },
