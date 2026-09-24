@@ -135,3 +135,28 @@ Zählreihe statt der zuvor beobachteten Aufspaltung (Befund D3-1).
 **Ergebnis: D3 ist damit auch in Production grün.** Das im Abnahmeprotokoll
 genannte Gate (Spoof-Probe gegen die Production-Domain nach dem Release) ist
 erfüllt; der Restpunkt aus der Staging-Nachmessung ist geschlossen.
+
+## Nachmessung D3-2 24.09.2026 – grün
+
+Datum/Zeit 24.09.2026, 19:54 Uhr, Umgebung `staging`, API
+`https://api-staging.dartbase.ch`, Stand `develop` nach Merge von PR #71.
+Wiederholung des seriellen Falls vom 17.09.2026: 12 Fehl-Logins
+nacheinander gegen `/api/v1/auth/sign-in/email` mit einer fiktiven Adresse
+(`d3-2-probe@example.test`), Abstand je ca. 0,5 s, von einer Maschine.
+
+| Merkmal | Erwartung | Ergebnis |
+| --- | --- | --- |
+| Statuscodes | Nr. 1–10 → 401, ab Nr. 11 → 429 | 10× 401, Nr. 11 und 12 → 429 |
+| `x-ratelimit-remaining` | fortlaufend 9 … 0 | 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 0 |
+| Antwortkörper des 429 | einheitliches Fehlerformat | `RATE_LIMIT_EXCEEDED` mit `correlationId` |
+
+Ursache des ursprünglichen Befunds: dieselbe wie bei D3-1. Vor PR #46 hing
+der Zähler-Schlüssel beider Bremsen (Fastify-Rate-Limit und Better Auth) an
+`request.ip`, und das wechselte zwischen zwei Railway-Proxy-Adressen. Zwölf
+Logins nacheinander verteilten sich so auf zwei Eimer mit je etwa sechs
+Versuchen. Keiner erreichte die Grenze von 10. Die Einschätzung vom
+18.09.2026, D3-2 sei unabhängig vom D3-1-Fix, trifft damit nicht zu. Die
+Messung vom 17.09.2026 lief vor dem Fix, nach dem Fix war der serielle Fall
+bis heute nicht wiederholt worden.
+
+**Ergebnis: D3-2 ist behoben und geschlossen.**
