@@ -45,14 +45,27 @@ test("die Inhaberschaft benennt die Organisation um und loescht sie danach endgu
   });
 
   await page.goto(`/?organisation=${organizationId}`);
-  await page.getByRole("link", { name: "Organisation" }).click();
+  // Scope auf die Dashboard-Navigation: die Startseite trägt daneben eine
+  // zweite, unbenannte `<nav>` ("Hilfe", nur die Bedienungsanleitung) — ein
+  // ungescoptes `getByRole("link", { name: "Organisation" })` läuft sonst in
+  // Playwrights Strict Mode, sobald irgendwo sonst auf der Seite ebenfalls
+  // ein Treffer für den Teilstring "Organisation" auftaucht.
+  const dashboardNav = page.getByRole("navigation");
+  await dashboardNav.getByRole("link", { name: "Organisation" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Organisation" })).toBeVisible();
 
   const nameInput = page.getByLabel("Name");
   await expect(nameInput).toHaveValue(organizationName);
   await nameInput.fill(renamedOrganizationName);
   await page.getByRole("button", { name: "Speichern" }).click();
-  await expect(page.getByRole("status")).toHaveText("Gespeichert.");
+  // Scope auf den Stammdaten-Abschnitt: `role="status"` steht dort neben dem
+  // Formular, nicht global auf der Seite — ein ungescopter Locator wäre
+  // brüchig, sobald ein weiterer Status-Hinweis anderswo auf der Seite
+  // hinzukommt.
+  const detailsSection = page.locator("section").filter({
+    has: page.getByRole("heading", { level: 2, name: "Stammdaten" }),
+  });
+  await expect(detailsSection.getByRole("status")).toHaveText("Gespeichert.");
 
   // Der neue Name gilt sofort auch auf der Uebersicht — dieselbe Abfrage
   // (`["organizations"]`), die `WorkspaceShell` und das Dashboard fuellt.
