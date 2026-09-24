@@ -362,14 +362,18 @@ Vor dem Einbau prüfen: Hat jede dieser Tabellen eine Spalte `organizationId` un
   }
 ```
 
-- [ ] **Step 6: Tests grün**
+- [ ] **Step 6: Permission-Matrix-Probe umstellen**
 
-Run: Datei aus Step 2, dann `src/security/tenant-isolation-matrix.integration.spec.ts` und `src/testing/route-inventory.integration.spec.ts` (neue Route wird automatisch erfasst; muss 403/404 liefern). `pnpm --filter @darts-platform/api typecheck` und `pnpm --filter @darts-platform/api lint`.
+In `apps/api/src/security/permission-matrix.integration.spec.ts` zeigt die Probe `"player:delete"` seit Task 1 vorübergehend auf die Archiv-Route. Auf `DELETE /api/v1/organizations/${organizationId}/players/${randomUUID()}/permanent` umstellen und den Übergangskommentar entfernen.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Tests grün**
+
+Run: Datei aus Step 2, `src/security/permission-matrix.integration.spec.ts`, dann `src/security/tenant-isolation-matrix.integration.spec.ts` und `src/testing/route-inventory.integration.spec.ts` (neue Route wird automatisch erfasst; muss 403/404 liefern). `pnpm --filter @darts-platform/api typecheck` und `pnpm --filter @darts-platform/api lint`.
+
+- [ ] **Step 8: Commit**
 
 ```bash
-git add apps/api/src/players
+git add apps/api/src/players apps/api/src/security/permission-matrix.integration.spec.ts
 git commit -m "feat(api): Spieler ohne Historie endgueltig loeschen"
 ```
 
@@ -661,7 +665,7 @@ PR nach `develop`, nach grüner CI mergen, danach `git merge origin/develop`.
 - Create: `apps/api/src/organizations/organization-deletion.integration.spec.ts`
 
 **Interfaces:**
-- Consumes: Permission `"organization:delete"` (Task 1).
+- Produces: Permission `"organization:delete"` (nach Ruling im Ledger hierher verschoben, weil die Permission-Matrix eine echte Route braucht).
 - Produces: `DELETE /api/v1/organizations/:organizationId` mit Body `{ confirmName: string }` → 204; 400 `VALIDATION_ERROR` bei fehlendem Body; 400 `ORGANIZATION_NAME_MISMATCH`; 403 für ADMIN und darunter; 404.
 - Schema:
 
@@ -672,6 +676,42 @@ export const deleteOrganizationSchema = z.object({
 });
 export type DeleteOrganizationInput = z.infer<typeof deleteOrganizationSchema>;
 ```
+
+- [ ] **Step 0: Permission `organization:delete`**
+
+In `packages/domain/src/permissions.ts` nach `"organization:manage_roles"` `"organization:delete",` einfügen und ADMIN ersetzen durch:
+
+```ts
+  // Die Organisation zu loeschen bleibt der Inhaberschaft vorbehalten
+  // (Spec 2026-09-24-bearbeiten-loeschen): ADMIN erhaelt sonst jede
+  // Permission, diese eine nicht.
+  ADMIN: new Set<OrganizationPermission>(
+    organizationPermissions.filter((permission) => permission !== "organization:delete"),
+  ),
+```
+
+Test in `packages/domain/src/permissions.spec.ts`:
+
+```ts
+  it("reserves deleting the organization for owners", () => {
+    expect(hasOrganizationPermission("OWNER", "organization:delete")).toBe(true);
+    for (const role of ["ADMIN", "TOURNAMENT_DIRECTOR", "SCORER", "MEMBER", "VIEWER"] as const) {
+      expect(hasOrganizationPermission(role, "organization:delete")).toBe(false);
+    }
+  });
+```
+
+Probe in `apps/api/src/security/permission-matrix.integration.spec.ts` (Pflicht: `Record<OrganizationPermission, Probe>`), nach `"organization:manage_roles"`:
+
+```ts
+  "organization:delete": {
+    method: "DELETE",
+    url: `/api/v1/organizations/${organizationId}`,
+    payload: { confirmName: "falscher Name" },
+  },
+```
+
+Der falsche Name führt nach der Berechtigungsprüfung zu 400 `ORGANIZATION_NAME_MISMATCH` (zählt als «autorisiert»), die Probe löscht also nie die Test-Organisation. `pnpm --filter @darts-platform/domain build` danach.
 
 - [ ] **Step 1: Failing Integrationstest mit vollständig gefüllter Organisation**
 
@@ -812,12 +852,12 @@ Fastify akzeptiert einen JSON-Body auf `DELETE`. Im Integrationstest einen echte
 
 In `bodies` ergänzen: `"DELETE /api/v1/organizations/:organizationId": { confirmName: "Verein B" },`. Im zweiten Durchgang läuft Owner A gegen Organisation B – Erwartung 403, Schnappschuss unverändert. Darauf achten, dass die Route **nie** mit Owner B als Akteur gegen B läuft (die Fixture nutzt `currentAuth = ownerBAuth` nur zum Anlegen).
 
-- [ ] **Step 6: Tests grün** – neue Datei, Matrix, Route-Inventar, `organizations.integration.spec.ts`; `pnpm --filter @darts-platform/schemas build`, `typecheck`, `lint`.
+- [ ] **Step 6: Tests grün** – neue Datei, Tenant-Matrix, `permission-matrix.integration.spec.ts`, Route-Inventar, `organizations.integration.spec.ts`, `cd packages/domain && npx vitest run`; `pnpm --filter @darts-platform/schemas build`, `typecheck`, `lint`.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add packages/schemas apps/api/src
+git add packages/domain packages/schemas apps/api/src
 git commit -m "feat(api): Organisation mit Namensbestaetigung endgueltig loeschen"
 ```
 
