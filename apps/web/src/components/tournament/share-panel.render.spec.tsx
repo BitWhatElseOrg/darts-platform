@@ -54,4 +54,16 @@ describe("SharePanel", () => {
   it("laesst den Freigabe-Schalter mit tournament:update bedienen", () => {
     expect(renderPanel(true).disabled).toBe(false);
   });
+
+  // Befund 2 des Probelaufs vom 25.09.2026: Auf 390 px drueckte der Schalter
+  // den Hinweistext auf ein Wort je Zeile zusammen ("Wer / den / Link / hat").
+  // Auf schmalen Flaechen stapelt die Karte Text und Schalter deshalb
+  // untereinander; erst ab `sm` stehen sie nebeneinander.
+  it("stapelt Text und Schalter auf schmalen Flaechen", () => {
+    renderPanel(true);
+    const section = screen.getByRole("region", { name: "Öffentliche Freigabe" });
+    expect(section.className).toContain("flex-col");
+    expect(section.className).toContain("sm:flex-row");
+    expect(section.className).not.toContain("flex-wrap");
+  });
 });

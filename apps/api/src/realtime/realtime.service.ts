@@ -10,6 +10,7 @@ import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 import { DatabaseService } from "../database/database.service.js";
 import { parseSubscriptionId } from "./event-routing.js";
 import { createHandshakeGate } from "./handshake-guard.js";
+import { OutboxPublishLoop } from "./outbox-publish-loop.js";
 import { publishOutboxBatch, type RealtimeBroadcaster } from "./publish-outbox.js";
 import { SubscriptionAuthorization } from "./subscription-authorization.js";
 import { joinSubscription, rejectSubscription } from "./subscription-limit.js";
@@ -25,8 +26,16 @@ export class RealtimeService implements OnApplicationShutdown, RealtimeBroadcast
   private readonly publisher: RedisClientType;
   private readonly subscriber: RedisClientType;
   private io: Server | null = null;
-  private timer: NodeJS.Timeout | null = null;
-  private publishing = false;
+  /**
+   * Poll-Schleife des Outbox-Versands. `stop()` wartet auf den laufenden
+   * Durchlauf, bevor Socket.IO und Redis schliessen -- sonst laeuft ein
+   * Batch gegen den beendeten Publisher (siehe outbox-publish-loop.ts).
+   */
+  private readonly loop = new OutboxPublishLoop(
+    () => this.publishOutbox(),
+    500,
+    (error) => this.logger.error("Outbox konnte nicht publiziert werden", error),
+  );
 
   /**
    * Bindet die Fehlerbuchung des Relays an den Anwendungslogger. In der
@@ -78,8 +87,7 @@ export class RealtimeService implements OnApplicationShutdown, RealtimeBroadcast
     });
     this.io.adapter(createAdapter(this.publisher, this.subscriber));
     this.io.on("connection", (socket) => this.register(socket));
-    this.timer = setInterval(() => void this.publishOutbox(), 500);
-    this.timer.unref();
+    this.loop.start();
   }
 
   public emit(room: string, event: string, payload: Readonly<Record<string, string>>): void {
@@ -153,22 +161,20 @@ export class RealtimeService implements OnApplicationShutdown, RealtimeBroadcast
   }
 
   private async publishOutbox(): Promise<void> {
-    if (this.publishing || this.io === null) return;
-    this.publishing = true;
-    try {
-      await publishOutboxBatch(this.database.database, this, {
-        logger: this.outboxLogger,
-      });
-    } catch (error) {
-      this.logger.error("Outbox konnte nicht publiziert werden", error);
-    } finally {
-      this.publishing = false;
-    }
+    if (this.io === null) return;
+    await publishOutboxBatch(this.database.database, this, {
+      logger: this.outboxLogger,
+    });
   }
 
   public async onApplicationShutdown(): Promise<void> {
-    if (this.timer !== null) clearInterval(this.timer);
-    await this.io?.close();
+    // Reihenfolge: erst kein neuer Durchlauf und den laufenden abwarten, dann
+    // Socket.IO schliessen, zuletzt Redis. `io` auf null: ein `emit` aus einer
+    // noch offenen HTTP-Anfrage trifft danach keinen geschlossenen Adapter.
+    await this.loop.stop();
+    const io = this.io;
+    this.io = null;
+    await io?.close();
     if (this.publisher.isOpen) await this.publisher.quit();
     if (this.subscriber.isOpen) await this.subscriber.quit();
   }
