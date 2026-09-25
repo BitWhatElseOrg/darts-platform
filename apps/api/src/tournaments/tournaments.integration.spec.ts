@@ -1101,6 +1101,40 @@ describe("persistent tournament MVP", () => {
     await service.delete({ organizationId, tournamentId: running.id, auth, audit });
   });
 
+  // Nebenbeobachtung aus der Sichtprobe vom 25.09.2026: ein Jeder-gegen-jeden-
+  // Turnier hatte keine Gruppen und damit nirgends eine Tabelle, und die
+  // Zentrale nannte die Phase "Gruppenphase".
+  it("liefert fuer Jeder gegen jeden eine Tabelle und nennt die Phase beim Namen", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: "Jeder gegen jeden Probe",
+        startsAt: new Date("2026-09-25T12:00:00.000Z"),
+        format: "ROUND_ROBIN",
+        startingScore: 301,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 2,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    expect(dashboard.tournament.stageLabel).toBe("Jeder gegen jeden");
+    expect(dashboard.groups).toHaveLength(1);
+    expect(dashboard.groups[0]).toMatchObject({ groupLabel: "Jeder gegen jeden", qualifyCount: 0, playedMatches: 0, totalMatches: 6 });
+    expect(dashboard.groups[0]?.rows.map((row) => row.playerId).sort()).toEqual([...playerIds].sort());
+    await service.delete({ organizationId, tournamentId: created.id, auth, audit });
+  });
+
   it("maps a command ID used by another tournament to 400 instead of 500", async () => {
     const createInput = (name: string) => ({
       organizationId,

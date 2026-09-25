@@ -140,6 +140,13 @@ an niemanden; Turniere ohne Ergebnisse lassen sich mit `tournament:delete`
 löschen (409 `TOURNAMENT_HAS_RESULTS` sonst). Offen bleibt nur 6
 (Beobachtung, keine Änderung nötig).
 
+Nebenbeobachtung aus der Sichtprobe zu Befund 7 (Branch
+`fix/round-robin-tabelle`): Ein Jeder-gegen-jeden-Turnier hatte keine
+Gruppenzeilen und damit weder in der Zentrale noch in der Live-Ansicht eine
+Tabelle («Gruppenstand · 0 Gruppen»), der Zustand hiess «Gruppenphase». Das
+Dashboard liefert für das Format jetzt eine Tabelle über das ganze Feld, die
+Phase heisst «Jeder gegen jeden», der Zustand «läuft».
+
 Schwerwiegende Befunde (hoch/kritisch): **keine.** Scoring-Korrektheit,
 Idempotenz, Versionsprüfung, Turnierlebenszyklus, Qualifikation, Tableau,
 Tenant-Grenzen der öffentlichen Sicht und Realtime-Zustellung haben unter

@@ -63,7 +63,7 @@ export function DashboardHeader({ connection, dashboard, pendingCount }: Dashboa
           <div>
             <SheetLabel as="dt">Zustand</SheetLabel>
             <dd className="mt-1 font-plate text-body font-semibold text-wedge-900">
-              {statusLabel(tournament.status)}
+              {statusLabel(tournament.status, tournament.format)}
             </dd>
           </div>
           <div>

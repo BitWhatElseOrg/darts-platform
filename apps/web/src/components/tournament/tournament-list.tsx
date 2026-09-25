@@ -93,7 +93,7 @@ export function TournamentList({ requestedOrganizationId }: { readonly requested
                     </div>
                     <div className="w-32">
                       <SheetLabel>Zustand</SheetLabel>
-                      <p className="mt-1.5"><StateTag label={statusLabel(tournament.status)} tone={tournament.status === "COMPLETED" ? "waiting" : tournament.status === "DRAFT" ? "blocked" : "live"} /></p>
+                      <p className="mt-1.5"><StateTag label={statusLabel(tournament.status, tournament.format)} tone={tournament.status === "COMPLETED" ? "waiting" : tournament.status === "DRAFT" ? "blocked" : "live"} /></p>
                     </div>
                   </Link>
                 </li>

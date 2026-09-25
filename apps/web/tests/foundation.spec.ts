@@ -524,7 +524,9 @@ test("a club can complete a match and start a generated tournament match", async
   await withdrawalDialog.getByLabel("Spieler").selectOption({ label: "E2E Player One" });
   await withdrawalDialog.getByLabel("Ausfallgrund").fill("Akute Verletzung");
   await withdrawalDialog.getByRole("button", { name: "Ausfall bestätigen" }).click();
-  await expect(page.getByText("E2E Player One · Ausgefallen")).toBeVisible();
+  // Seit Jeder gegen jeden eine Tabelle hat, steht der Name dort ein zweites
+  // Mal; gemeint ist der Teilnehmerstatus.
+  await expect(page.getByLabel("Teilnehmerstatus").getByText("E2E Player One · Ausgefallen")).toBeVisible();
   await expect(page.getByText(/gewinnt kampflos/u).first()).toBeVisible();
 
   // Turniere sind standardmässig privat (Task 6) — die öffentliche
@@ -540,7 +542,9 @@ test("a club can complete a match and start a generated tournament match", async
   await page.goto(`/live/${tournamentId}`);
   // Die Teilnehmerliste steht in der Live-Ansicht zugeklappt am Seitenende.
   await page.locator("summary", { hasText: "Teilnehmende" }).click();
-  await expect(page.getByText("E2E Player One · Ausgefallen")).toBeVisible();
+  // Die oeffentliche Live-Ansicht nennt den Ausfall in der Tabelle und in der
+  // Teilnehmerliste; eine sichtbare Nennung genuegt.
+  await expect(page.getByText("E2E Player One · Ausgefallen").first()).toBeVisible();
 });
 
 test("gibt ein Turnier fuer die oeffentliche Live-Ansicht frei", async ({ browser, page }) => {
