@@ -312,11 +312,12 @@ jobs:
             exit 1
           fi
           # In den ersten 120 s nach dem Start meldet der Worker eine fehlende
-          # Tabelle als `warn` mit `*.tick_deferred` statt als Fehler (Deploy-
-          # Reihenfolge, `apps/worker/src/main.ts`). Dieser Rauchtest laeuft
-          # ganz in diesem Fenster, die Migration lief hier aber vorher -- eine
-          # verzoegerte Runde ist deshalb nie berechtigt und faellt eigens auf.
-          if docker logs worker-smoke 2>&1 | grep --quiet 'tick_deferred'; then
+          # Tabelle als `warn` mit `*.tick_deferred` beziehungsweise
+          # `*.prune_deferred` statt als Fehler (Deploy-Reihenfolge,
+          # `apps/worker/src/main.ts`). Dieser Rauchtest laeuft ganz in diesem
+          # Fenster, die Migration lief hier aber vorher -- eine verzoegerte
+          # Runde ist deshalb nie berechtigt und faellt eigens auf.
+          if docker logs worker-smoke 2>&1 | grep --quiet '_deferred'; then
             echo "Worker findet Tabellen nicht (Migration fehlt)."
             exit 1
           fi

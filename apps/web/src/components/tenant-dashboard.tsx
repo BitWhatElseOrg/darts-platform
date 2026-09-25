@@ -424,7 +424,7 @@ function OrganizationOverview({
         <OverviewLink
           href={`/spieler${organisationParam}`}
           title="Spieler"
-          description="Kader pflegen, Profile öffnen, Mitglieder einladen"
+          description="Kader pflegen und Profile öffnen"
         />
         <OverviewLink
           href={`/teams${organisationParam}`}
@@ -448,7 +448,7 @@ function OrganizationOverview({
           <OverviewLink
             href={`/mitglieder${organisationParam}`}
             title="Mitglieder"
-            description="Rollen, Zugänge und offene Einladungen"
+            description="Rollen, Zugänge und Einladungen"
           />
         ) : null}
         {hasOrganizationPermission(organization.role, "organization:update") ? (

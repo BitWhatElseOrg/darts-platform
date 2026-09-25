@@ -49,7 +49,20 @@ function member(overrides: Partial<Record<string, unknown>> = {}) {
 
 const server = vi.hoisted(() => ({
   members: [] as unknown[],
+  invitations: [] as unknown[],
+  role: "OWNER" as string,
   removeRejection: null as unknown,
+}));
+
+const createdInvitation = vi.hoisted(() => ({
+  id: "33333333-3333-4333-8333-333333333333",
+  organizationId: "11111111-1111-4111-8111-111111111111",
+  email: "neu@example.com",
+  role: "MEMBER",
+  status: "PENDING",
+  expiresAt: new Date("2026-10-02T12:00:00.000Z"),
+  lastDelivery: null,
+  claimToken: "claim-token-fuer-den-test-0123456789abcdefghij",
 }));
 
 const client = vi.hoisted(() => ({
@@ -63,7 +76,7 @@ const client = vi.hoisted(() => ({
             slug: "vfc-musterstadt",
             timezone: "Europe/Zurich",
             locale: "de-CH",
-            role: "OWNER",
+            role: server.role,
             playerId: null,
           },
         ]);
@@ -75,7 +88,11 @@ const client = vi.hoisted(() => ({
         return Promise.resolve([]);
       }
       if (path.endsWith("/invitations") && (method === undefined || method === "GET")) {
-        return Promise.resolve([]);
+        return Promise.resolve(server.invitations);
+      }
+      if (path.endsWith("/invitations") && method === "POST") {
+        server.invitations = [...server.invitations, createdInvitation];
+        return Promise.resolve(createdInvitation);
       }
       if (path.includes("/members/") && method === "DELETE") {
         if (server.removeRejection !== null) return Promise.reject(server.removeRejection);
@@ -107,6 +124,8 @@ function renderRoute() {
 
 beforeEach(() => {
   server.members = [member()];
+  server.invitations = [];
+  server.role = "OWNER";
   server.removeRejection = null;
   client.apiRequest.mockClear();
 });
@@ -146,5 +165,40 @@ describe("MembersRoute", () => {
     expect(screen.getByRole("status").textContent).toBe(
       "Bruno Beispiel wurde aus der Organisation entfernt.",
     );
+  });
+
+  it("zeigt das Einladungsformular im Abschnitt 'Offene Einladungen', wenn Mitglieder verwaltet werden duerfen", async () => {
+    renderRoute();
+
+    await screen.findByText("Bruno Beispiel");
+
+    const section = screen.getByRole("heading", { name: "Offene Einladungen" }).closest("section");
+    expect(section).not.toBeNull();
+    expect(within(section as HTMLElement).getByLabelText("E-Mail-Adresse für Einladung")).toBeTruthy();
+    expect(screen.queryByText(/auf der Seite/u)).toBeNull();
+  });
+
+  it("zeigt ohne 'organization:manage_members' kein Einladungsformular", async () => {
+    server.role = "MEMBER";
+    renderRoute();
+
+    await screen.findByText(/fehlt dir die Berechtigung/u);
+
+    expect(screen.queryByLabelText("E-Mail-Adresse für Einladung")).toBeNull();
+  });
+
+  it("laedt die offenen Einladungen nach erfolgreichem Einladen neu", async () => {
+    renderRoute();
+
+    await screen.findByText("Keine offene Einladung.");
+    fireEvent.change(screen.getByLabelText("E-Mail-Adresse für Einladung"), {
+      target: { value: "neu@example.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Einladen" }));
+
+    await screen.findByLabelText("Einladungslink");
+    const section = screen.getByRole("heading", { name: "Offene Einladungen" }).closest("section") as HTMLElement;
+    await within(section).findByText("neu@example.com");
+    expect(within(section).queryByText("Keine offene Einladung.")).toBeNull();
   });
 });

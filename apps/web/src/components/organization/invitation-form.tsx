@@ -12,7 +12,7 @@ import { Button } from "@darts-platform/ui";
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { buildInvitationLink } from "@/lib/invitation-link";
 
-import { inputClassName, labelClassName } from "./form-styles";
+import { inputClassName, labelClassName } from "../players/form-styles";
 
 const roles = [
   { value: "ADMIN", label: "Admin" },
@@ -31,9 +31,12 @@ const roles = [
 export function InvitationForm({
   organizationId,
   players,
+  onCreated,
 }: {
   readonly organizationId: string;
   readonly players: readonly PlayerResponse[];
+  /** Nach erfolgreichem Anlegen, damit die Liste der offenen Einladungen nachlaedt. */
+  readonly onCreated?: () => void;
 }) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<string>("MEMBER");
@@ -59,6 +62,7 @@ export function InvitationForm({
       setEmail("");
       setRole("MEMBER");
       setPlayerId("");
+      onCreated?.();
     },
   });
 

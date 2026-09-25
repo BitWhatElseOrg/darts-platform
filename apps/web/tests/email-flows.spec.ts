@@ -37,8 +37,8 @@ test("eine eingeladene Person registriert sich ueber den (erneut gesendeten) Lin
     ownerName: `E2E Mail Owner ${short}`,
   });
 
-  // Einladen: Link und Code erscheinen einmalig als Fallback.
-  await page.goto(`/spieler?organisation=${organizationId}`);
+  // Einladen unter Mitglieder: Link und Code erscheinen einmalig als Fallback.
+  await page.goto(`/mitglieder?organisation=${organizationId}`);
   await page.getByLabel("E-Mail-Adresse für Einladung").fill(guestEmail);
   await page.getByRole("button", { name: "Einladen" }).click();
   const firstLink = await page.getByLabel("Einladungslink").inputValue();

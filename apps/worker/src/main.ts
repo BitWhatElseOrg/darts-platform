@@ -149,8 +149,12 @@ async function prune(): Promise<void> {
         logger.emit("log", { event: "outbox.pruned", removed });
       }
     } catch (error) {
-      logger.emit("error", {
-        event: "outbox.prune_failed",
+      // Gleiches Startfenster wie bei den Ticks: der Aufraeumlauf startet
+      // sofort und traf in Production (Release #59, Migration 0034) die
+      // Tabelle noch nicht an, siehe Protokoll B3.
+      const deferred = isDeferredByMigration(error);
+      logger.emit(deferred ? "warn" : "error", {
+        event: deferred ? "outbox.prune_deferred" : "outbox.prune_failed",
         message: error instanceof Error ? error.message : String(error),
       });
     }
@@ -165,8 +169,9 @@ async function prune(): Promise<void> {
         logger.emit("log", { event: "email.pruned", removed: removedEmails });
       }
     } catch (error) {
-      logger.emit("error", {
-        event: "email.prune_failed",
+      const deferred = isDeferredByMigration(error);
+      logger.emit(deferred ? "warn" : "error", {
+        event: deferred ? "email.prune_deferred" : "email.prune_failed",
         message: error instanceof Error ? error.message : String(error),
       });
     }

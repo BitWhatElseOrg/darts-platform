@@ -14,14 +14,13 @@ import { apiRequest } from "@/lib/api-client";
 import { activeTeamsByPlayer } from "@/lib/list-filter";
 import { WorkspaceShell } from "@/components/workspace-shell";
 
-import { InvitationForm } from "./invitation-form";
 import { PlayerForm } from "./player-form";
 import { PlayerList } from "./player-list";
 
 export function RosterRoute({ requestedOrganizationId }: { readonly requestedOrganizationId: string | undefined }) {
   return (
     <WorkspaceShell
-      lead="Spielerinnen und Spieler pflegen, Profile öffnen und Mitglieder in die Organisation einladen."
+      lead="Spielerinnen und Spieler pflegen und Profile öffnen. Einladen und Rollen vergeben gehört zu Mitglieder."
       requestedOrganizationId={requestedOrganizationId}
       title="Spieler & Team"
     >
@@ -50,7 +49,6 @@ function Roster({ organization }: { readonly organization: OrganizationSummary }
     [teamsQuery.data],
   );
 
-  const canManageMembers = hasOrganizationPermission(organization.role, "organization:manage_members");
   const canCreatePlayers = hasOrganizationPermission(organization.role, "player:create");
   const canEditPlayers = hasOrganizationPermission(organization.role, "player:update");
   const canArchivePlayers = hasOrganizationPermission(organization.role, "player:archive");
@@ -81,21 +79,6 @@ function Roster({ organization }: { readonly organization: OrganizationSummary }
           teamsByPlayer={teamsByPlayer}
         />
       </section>
-
-      {canManageMembers ? (
-        <section className="space-y-4 border-t border-slate-800 pt-8">
-          <div>
-            <h2 className="font-numerals text-title font-bold text-white">Team</h2>
-            <p className="mt-1 text-body text-slate-400">
-              Lade Personen mit einer Rolle ein. Der Einladungscode wird nur einmal angezeigt.
-            </p>
-          </div>
-          <InvitationForm
-            organizationId={organization.id}
-            players={playersQuery.data ?? []}
-          />
-        </section>
-      ) : null}
     </div>
   );
 }
