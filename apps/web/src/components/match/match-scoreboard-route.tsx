@@ -5,6 +5,7 @@ import { hasOrganizationPermission } from "@darts-platform/domain";
 import { matchStateSchema } from "@darts-platform/schemas";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
+import { matchLoadMessage, matchRefetchInterval, shouldRetryMatchLoad } from "@/lib/match-load-state";
 import { matchBackLink } from "@/lib/match-navigation";
 import { useTournamentOrganization } from "../tournament/use-tournament-organization";
 import { MatchScoreboard } from "./match-scoreboard";
@@ -28,7 +29,10 @@ export function MatchScoreboardRoute({ encounterId, matchId, requestedOrganizati
       signal,
     }),
     enabled: organization !== null,
-    refetchInterval: 4_000,
+    // Ein 404 ist endgueltig: nicht weiter pollen, nicht wiederholen
+    // (Probelauf 25.09.2026, Befund 3). Alles andere erholt sich von selbst.
+    refetchInterval: (query) => matchRefetchInterval(query.state.error),
+    retry: shouldRetryMatchLoad,
   });
 
   const back = matchBackLink({
@@ -44,15 +48,20 @@ export function MatchScoreboardRoute({ encounterId, matchId, requestedOrganizati
         : matchQuery.isPending
           ? "Match wird geladen …"
           : matchQuery.error
-            ? userFacingErrorMessage(matchQuery.error)
+            ? matchLoadMessage(matchQuery.error)
             : null;
 
   if (message !== null || organization === null || matchQuery.data === undefined) {
     return (
       <main className="sektorenring flex min-h-screen items-center justify-center bg-sisal-200 px-4 py-6 text-chalk">
-        <p className="rounded-xl border border-sisal-400 bg-sisal-100/80 p-5 text-body text-spider" role="status">
-          {message}
-        </p>
+        <div className="flex flex-col items-start gap-3 rounded-xl border border-sisal-400 bg-sisal-100/80 p-5 text-body text-spider">
+          <p role="status">{message}</p>
+          {matchQuery.error && organization !== null ? (
+            <a className="underline underline-offset-2" href={back.href}>
+              {back.label}
+            </a>
+          ) : null}
+        </div>
       </main>
     );
   }

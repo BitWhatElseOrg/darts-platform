@@ -753,6 +753,7 @@ export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canW
                   pending={pendingBoardIds.has(slot.boardId) || commandBusy}
                   shortcut={String(slot.ringNumber)}
                   slot={slot}
+                  tournamentStatus={dashboard.tournament.status}
                 />
               ))}
             </div>

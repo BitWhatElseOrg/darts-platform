@@ -103,7 +103,10 @@ export function SharePanel({ canShare, organizationId, publicId, tournamentId, v
     <Wedge
       aria-labelledby="share-heading"
       as="section"
-      className="mt-5 flex flex-wrap items-center justify-between gap-4 p-4"
+      // Gestapelt statt `flex-wrap`: mit `flex-1` (Basis 0) brach die Zeile nie
+      // um, der Schalter drueckte den Text auf 390 px auf ein Wort je Zeile
+      // (Probelauf 25.09.2026, Befund 2). Ab `sm` nebeneinander.
+      className="mt-5 flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between"
       tone="plate"
     >
       <div className="min-w-0 flex-1">

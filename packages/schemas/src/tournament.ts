@@ -71,6 +71,14 @@ export const slotParticipantSchema = z.object({
 });
 
 export const boardSlotMatchSchema = z.object({
+  /**
+   * Die ID des TURNIERMATCHES (Paarung im Spielplan), nicht des Scoring-
+   * Matches. `/matches/:id` und die Scoringflaeche kennen nur Letzteres;
+   * ein Geraet findet es ueber die Matchliste (`boardId`, `liveTarget`).
+   * Die Scoring-ID steht bewusst nicht hier: der Slot wird unveraendert in
+   * die oeffentliche Sicht gereicht, und interne Kennungen gehoeren nicht
+   * nach draussen (Audit B, I-1b; Probelauf 25.09.2026, Befund 3).
+   */
   matchId: z.uuid(),
   version: z.number().int().nonnegative(),
   stageLabel: z.string(),

@@ -14,6 +14,7 @@ import { buildBracketRounds, knockoutLeadsLiveView, type BracketNode, type Brack
 import { recallDisplayKey, rememberDisplayKey } from "@/lib/display-key-storage";
 import { resolvePublicId } from "@/lib/live-address";
 import { liveDotClass } from "@/lib/live-status";
+import { tournamentWinner } from "@/lib/tournament-winner";
 import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
 
 interface LiveTournamentProps {
@@ -179,6 +180,7 @@ export function LiveTournament({ boardId, displayKeySecret, mode, publicId }: Li
       </div>
     </LiveSection>
   ) : null;
+  const winner = tournamentWinner(dashboard);
   const bracketSection = dashboard.bracket.length > 0 ? (
     <LiveSection title="K.-o.-Tableau">
       <BracketTree rounds={buildBracketRounds(dashboard.bracket)} />
@@ -190,7 +192,10 @@ export function LiveTournament({ boardId, displayKeySecret, mode, publicId }: Li
       <header className="mx-auto flex max-w-[1500px] flex-wrap items-end justify-between gap-4 border-b border-ring-green/40 pb-5">
         <div>
           <h1 className="font-numerals text-headline font-bold">{dashboard.tournament.name}</h1>
-          <p className="mt-2 text-body text-sisal-500">{dashboard.tournament.stageLabel} · {dashboard.tournament.playedMatches} von {dashboard.tournament.totalMatches} Matches gespielt</p>
+          <p className="mt-2 text-body text-sisal-500">
+            {dashboard.tournament.stageLabel} · {dashboard.tournament.playedMatches} von {dashboard.tournament.totalMatches} Matches gespielt
+            {winner !== null ? <> · <span className="font-semibold text-chalk">Turniersieg: {winner}</span></> : null}
+          </p>
         </div>
         <div className="flex items-center gap-3 text-body">
           <span

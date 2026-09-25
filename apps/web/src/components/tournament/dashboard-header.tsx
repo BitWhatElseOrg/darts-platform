@@ -4,6 +4,7 @@ import { Rule, SheetLabel, StateTag } from "@darts-platform/ui";
 import type { TournamentDashboard } from "@darts-platform/schemas";
 
 import { calendarDate, clockTime, statusLabel } from "@/lib/tournament-format";
+import { tournamentWinner } from "@/lib/tournament-winner";
 
 function inRuleLabel(rule: "STRAIGHT" | "DOUBLE"): string {
   return rule === "DOUBLE" ? "Double In" : "Straight In";
@@ -28,6 +29,7 @@ interface DashboardHeaderProps {
 
 export function DashboardHeader({ connection, dashboard, pendingCount }: DashboardHeaderProps) {
   const { boards, tournament } = dashboard;
+  const winner = tournamentWinner(dashboard);
   const free = boards.filter((slot) => slot.state === "FREE").length;
   const blocked = boards.filter((slot) => slot.state === "BLOCKED").length;
   const share =
@@ -48,6 +50,12 @@ export function DashboardHeader({ connection, dashboard, pendingCount }: Dashboa
             {tournament.stageLabel} · {calendarDate(tournament.startsAt)} ·{" "}
             {tournament.startingScore} {inRuleLabel(tournament.inRule)} ·{" "}
             {outRuleLabel(tournament.outRule)}
+            {winner !== null ? (
+              <>
+                {" · "}
+                <span className="font-semibold text-wedge-900">Turniersieg: {winner}</span>
+              </>
+            ) : null}
           </p>
         </div>
 

@@ -973,6 +973,80 @@ describe("persistent tournament MVP", () => {
     expect(dashboard.tournament.name.length).toBeGreaterThan(0);
     expect(dashboard.participants.length).toBeGreaterThan(0);
   }, 30_000);
+  // Befund 1 des Probelaufs vom 25.09.2026: Das Dashboard meldete jedes
+  // Board mit laufendem Turniermatch als Stoerung "nicht verfuegbar" -- vier
+  // Dauerhinweise im Normalbetrieb, hinter denen eine echte Sperre unterging.
+  it("meldet ein bespieltes Board nicht als Stoerung, ein Board ausser Betrieb schon", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: "Stoerungen Cup",
+        startsAt: new Date("2026-09-25T12:00:00.000Z"),
+        format: "GROUPS_THEN_KNOCKOUT",
+        startingScore: 301,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 2,
+        qualifyPerGroup: 1,
+        knockoutSize: 2,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    let dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    expect(dashboard.conflicts).toEqual([]);
+    const firstReady = dashboard.queue.find((entry) => entry.readiness === "READY");
+    if (firstReady === undefined) throw new Error("Expected a ready tournament match.");
+    dashboard = await service.assign({
+      organizationId,
+      tournamentId: created.id,
+      data: { commandId: randomUUID(), expectedVersion: 0, matchId: firstReady.matchId, boardId: boardIds[0] },
+      auth,
+      audit,
+    });
+    expect(dashboard.boards[0]?.state).toBe("PLAYING");
+    expect(dashboard.conflicts).toEqual([]);
+
+    await databaseService.database
+      .update(boards)
+      .set({ status: "OFFLINE" })
+      .where(and(eq(boards.organizationId, organizationId), eq(boards.id, boardIds[1])));
+    try {
+      dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+      expect(dashboard.boards[1]?.state).toBe("BLOCKED");
+      expect(dashboard.conflicts).toHaveLength(1);
+      expect(dashboard.conflicts[0]).toMatchObject({ id: boardIds[1], code: "BOARD_BLOCKED", severity: "WARNING" });
+    } finally {
+      await databaseService.database
+        .update(boards)
+        .set({ status: "AVAILABLE" })
+        .where(and(eq(boards.organizationId, organizationId), eq(boards.id, boardIds[1])));
+      // Das gestartete Match wieder abbrechen: die folgenden Faelle setzen
+      // freie Spieler und ein freies Board 1 voraus.
+      const [scheduled] = await databaseService.database
+        .select({ scoringMatchId: tournamentMatches.scoringMatchId })
+        .from(tournamentMatches)
+        .where(and(eq(tournamentMatches.organizationId, organizationId), eq(tournamentMatches.id, firstReady.matchId)))
+        .limit(1);
+      if (scheduled?.scoringMatchId) {
+        const scoring = await matchesService.get({ organizationId, matchId: scheduled.scoringMatchId, auth });
+        await matchesService.abort({
+          organizationId,
+          matchId: scoring.id,
+          data: { commandId: randomUUID(), expectedVersion: scoring.version, reason: "Testaufraeumung" },
+          auth,
+          audit,
+        });
+      }
+    }
+  });
+
   it("maps a command ID used by another tournament to 400 instead of 500", async () => {
     const createInput = (name: string) => ({
       organizationId,
