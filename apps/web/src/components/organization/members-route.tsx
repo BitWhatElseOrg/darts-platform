@@ -37,6 +37,7 @@ import { ListFilterBar } from "@/components/list-filter-bar";
 import { WorkspaceShell } from "@/components/workspace-shell";
 
 import { InvitationDeliveryBadge } from "./invitation-delivery-badge";
+import { InvitationForm } from "./invitation-form";
 import { MemberPlayerLink } from "./member-player-link";
 
 const cancelledSchema = z.object({ cancelled: z.literal(true) });
@@ -400,8 +401,15 @@ function Members({ currentUserId, organization }: {
       <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6">
         <h2 className="font-numerals text-title font-bold text-white">Offene Einladungen</h2>
         <p className="text-body text-slate-400">
-          Neue Einladungen verschickst du auf der Seite <span className="text-slate-300">Spieler</span>.
+          Lade Personen mit einer Rolle ein. Link und Code werden nur einmal angezeigt.
         </p>
+        <InvitationForm
+          organizationId={organization.id}
+          players={playersQuery.data ?? []}
+          onCreated={() =>
+            void queryClient.invalidateQueries({ queryKey: ["organization-invitations", organization.id] })
+          }
+        />
         {cancelInvitation.error !== null ? (
           <p className="text-body text-rose-300" role="alert">{messageFrom(cancelInvitation.error)}</p>
         ) : null}

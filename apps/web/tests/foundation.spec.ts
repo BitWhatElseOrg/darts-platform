@@ -268,11 +268,6 @@ test("a club can complete a match and start a generated tournament match", async
   const playerForm = page.locator("form").filter({
     has: page.getByRole("button", { name: "Spieler hinzufügen" }),
   });
-  const invitationForm = page.locator("form").filter({
-    has: page.getByRole("button", { name: "Einladen" }),
-  });
-  await visibleLabeledControl(invitationForm, "E-Mail-Adresse für Einladung");
-  await visibleLabeledControl(invitationForm, "Rolle");
   await (await visibleLabeledControl(playerForm, "Anzeigename")).fill("E2E Player One");
   await (await visibleLabeledControl(playerForm, "Spitzname (optional)")).fill("The Test One");
   await page.getByRole("button", { name: "Spieler hinzufügen" }).click();
@@ -281,6 +276,16 @@ test("a club can complete a match and start a generated tournament match", async
   await playerForm.getByLabel("Spitzname (optional)", { exact: true }).fill("The Test Two");
   await page.getByRole("button", { name: "Spieler hinzufügen" }).click();
   await expect(page.getByText("E2E Player Two", { exact: true }).first()).toBeVisible();
+
+  // Einladen gehoert zu Mitglieder, nicht zum Kader.
+  await page.goto("/");
+  await page.getByRole("link", { name: /Rollen, Zugänge/u }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Mitglieder" })).toBeVisible();
+  const invitationForm = page.locator("form").filter({
+    has: page.getByRole("button", { name: "Einladen" }),
+  });
+  await visibleLabeledControl(invitationForm, "E-Mail-Adresse für Einladung");
+  await visibleLabeledControl(invitationForm, "Rolle");
 
   await page.goto("/");
   await page.getByRole("link", { name: /Boards anlegen/u }).click();

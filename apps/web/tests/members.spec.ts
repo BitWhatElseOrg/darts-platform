@@ -41,9 +41,9 @@ test("the members page lists the own membership and withdraws an open invitation
     ownerName,
   });
 
-  // Eingeladen wird auf der Spielerseite; die Verwaltung zeigt die Einladung
-  // danach als offen und nimmt sie zurueck.
-  await page.goto(`/spieler?organisation=${organizationId}`);
+  // Eingeladen wird auf der Mitgliederseite selbst; die Liste zeigt die
+  // Einladung danach als offen und nimmt sie zurueck.
+  await page.goto(`/mitglieder?organisation=${organizationId}`);
   await page.getByLabel("E-Mail-Adresse für Einladung").fill(invitedEmail);
   await page.getByRole("button", { name: "Einladen" }).click();
   await expect(page.getByLabel("Einladungscode")).toBeVisible();
@@ -91,7 +91,7 @@ test("der Inhaber entfernt ein Mitglied, das die Einladung angenommen hat", asyn
 
   // Einladen ueber die Spielerseite; der Link ist der Fallback, den auch
   // `email-flows.spec.ts` fuer die Annahme verwendet.
-  await page.goto(`/spieler?organisation=${organizationId}`);
+  await page.goto(`/mitglieder?organisation=${organizationId}`);
   await page.getByLabel("E-Mail-Adresse für Einladung").fill(guestEmail);
   await page.getByRole("button", { name: "Einladen" }).click();
   const invitationLink = await page.getByLabel("Einladungslink").inputValue();
@@ -127,7 +127,7 @@ test("der Inhaber entfernt ein Mitglied, das die Einladung angenommen hat", asyn
 
   // Dieselbe Adresse laesst sich erneut einladen — das Konto besteht weiter,
   // nur die Mitgliedschaft ist geloescht.
-  await page.goto(`/spieler?organisation=${organizationId}`);
+  await page.goto(`/mitglieder?organisation=${organizationId}`);
   await page.getByLabel("E-Mail-Adresse für Einladung").fill(guestEmail);
   await page.getByRole("button", { name: "Einladen" }).click();
   await expect(page.getByLabel("Einladungscode")).toBeVisible();
