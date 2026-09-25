@@ -53,6 +53,15 @@
         ],
         "createdAt": "2026-09-09T17:04:05.687Z",
         "reason": "false positive: slate-950 is near-black, not gray - high contrast on bg-emerald-400 (pre-existing pairing, unrelated to this change)"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "sfmono-regular",
+        "files": [
+          "apps/web/public/bedienungsanleitung.html"
+        ],
+        "createdAt": "2026-09-25T05:24:27.219Z",
+        "reason": "Codes zum exakten Abtippen (Einladungscode, Permission-Schluessel) stehen wie in den font-mono-Feldern der App in der System-Monospace; in DESIGN.md unter One Voice Per Job als Ausnahme festgehalten"
       }
     ]
   }
