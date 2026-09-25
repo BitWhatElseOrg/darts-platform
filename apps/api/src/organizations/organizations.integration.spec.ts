@@ -324,4 +324,21 @@ describe("PATCH /organizations/:id ueber HTTP (Zeitzone/Sprache)", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ timezone: "Europe/Berlin" });
   }, 30_000);
+
+  it("kanonisiert eine kleingeschriebene Zeitzone vor dem Speichern", async () => {
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/organizations/${httpOrganizationId}`,
+      payload: { timezone: "europe/zurich" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ timezone: "Europe/Zurich" });
+
+    const [row] = await databaseService.database
+      .select({ timezone: organizations.timezone })
+      .from(organizations)
+      .where(eq(organizations.id, httpOrganizationId));
+    expect(row?.timezone).toBe("Europe/Zurich");
+  }, 30_000);
 });

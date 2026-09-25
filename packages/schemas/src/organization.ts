@@ -1,26 +1,42 @@
 import { z } from "zod";
 
 /**
- * `Intl.supportedValuesOf("timeZone")` fehlt in dieser Node-Version "UTC" —
- * deshalb keine Listenpruefung, sondern der Praxistest ueber eine echte
- * `Intl.DateTimeFormat`-Instanziierung, die jede gueltige IANA-Zeitzone
- * (inklusive "UTC") annimmt und jede unbekannte mit einer Exception quittiert.
+ * Eine numerische Offset-Zeitzone (z. B. "+01:00") ist kein IANA-Name und
+ * traegt keine DST-Regeln — sie darf trotz gueltiger `Intl`-Aufloesung nicht
+ * gespeichert werden. Node loest sie klaglos auf sich selbst auf (empirisch
+ * geprueft, Node 24: `new Intl.DateTimeFormat("en-US", { timeZone: "+01:00"
+ * }).resolvedOptions().timeZone === "+01:00"`), waehrend ein unbekannter Name
+ * wie "GMT+1" eine Exception wirft.
  */
-function isKnownTimeZone(value: string): boolean {
+const OFFSET_TIMEZONE_PATTERN = /^[+-]\d/;
+
+/**
+ * Kanonisiert eine Zeitzonenangabe ueber eine echte `Intl.DateTimeFormat`-
+ * Instanziierung statt einer Listenpruefung: `Intl.supportedValuesOf
+ * ("timeZone")` fehlt in dieser Node-Version "UTC", und die Aufloesung
+ * erledigt gleichzeitig Gross-/Kleinschreibung ("europe/zurich" ->
+ * "Europe/Zurich") und veraltete Aliase ("US/Pacific" ->
+ * "America/Los_Angeles", "EST" -> "America/Panama" — empirisch mit Node 24
+ * geprueft; beides sind gueltige IANA-Namen, `EST` ist im tzdata-Backward-File
+ * ein fixer Offset ohne DST, dessen Aequivalent Panama ist). `null` bei einer
+ * unbekannten Zeitzone oder einem numerischen Offset.
+ */
+function canonicalTimeZone(value: string): string | null {
+  if (OFFSET_TIMEZONE_PATTERN.test(value)) return null;
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value });
-    return true;
+    const resolved = new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions().timeZone;
+    return OFFSET_TIMEZONE_PATTERN.test(resolved) ? null : resolved;
   } catch {
-    return false;
+    return null;
   }
 }
 
-function isKnownLocale(value: string): boolean {
+/** `null` bei einem Sprachtag, das `Intl.getCanonicalLocales` zurueckweist. */
+function canonicalLocale(value: string): string | null {
   try {
-    Intl.getCanonicalLocales(value);
-    return true;
+    return Intl.getCanonicalLocales(value)[0] ?? null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -29,14 +45,28 @@ const timezoneValueSchema = z
   .trim()
   .min(1)
   .max(100)
-  .refine(isKnownTimeZone, { message: "Unbekannte Zeitzone." });
+  .transform((value, ctx) => {
+    const canonical = canonicalTimeZone(value);
+    if (canonical === null) {
+      ctx.addIssue({ code: "custom", message: "Unbekannte Zeitzone." });
+      return z.NEVER;
+    }
+    return canonical;
+  });
 
 const localeValueSchema = z
   .string()
   .trim()
   .min(2)
   .max(35)
-  .refine(isKnownLocale, { message: "Unbekannte Sprache." });
+  .transform((value, ctx) => {
+    const canonical = canonicalLocale(value);
+    if (canonical === null) {
+      ctx.addIssue({ code: "custom", message: "Unbekannte Sprache." });
+      return z.NEVER;
+    }
+    return canonical;
+  });
 
 export const organizationRoleSchema = z.enum([
   "OWNER",

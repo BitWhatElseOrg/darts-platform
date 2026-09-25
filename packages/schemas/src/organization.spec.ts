@@ -144,6 +144,40 @@ it("akzeptiert eine gueltige IANA-Zeitzone", () => {
   expect(updateOrganizationSchema.safeParse({ timezone: "Europe/Zurich" }).success).toBe(true);
 });
 
+it("kanonisiert eine Zeitzone unabhaengig von Gross-/Kleinschreibung", () => {
+  const result = updateOrganizationSchema.safeParse({ timezone: "europe/zurich" });
+
+  expect(result.success).toBe(true);
+  if (result.success) expect(result.data.timezone).toBe("Europe/Zurich");
+});
+
+it("kanonisiert einen veralteten Zeitzonen-Alias auf den heutigen IANA-Namen", () => {
+  // Empirisch mit Node 24 geprueft: `US/Pacific` loest ueber
+  // `Intl.DateTimeFormat` auf `America/Los_Angeles` auf. Ob eine Node-Version
+  // stattdessen den Alias unveraendert liesse, waere ebenso zulaessig — hier
+  // haelt der Test das TATSAECHLICH beobachtete Verhalten fest, nicht eine
+  // von zwei denkbaren Spezifikationen.
+  const result = updateOrganizationSchema.safeParse({ timezone: "US/Pacific" });
+
+  expect(result.success).toBe(true);
+  if (result.success) {
+    expect(new Intl.DateTimeFormat("en-US", { timeZone: "US/Pacific" }).resolvedOptions().timeZone).toBe(
+      result.data.timezone,
+    );
+  }
+});
+
+it("weist eine numerische Offset-Zeitzone zurueck, obwohl Intl sie klaglos aufloest", () => {
+  // "+01:00" ist kein IANA-Zonenname und traegt keine DST-Regeln, wird von
+  // `Intl.DateTimeFormat` aber unveraendert als eigene Zeitzone akzeptiert.
+  const result = updateOrganizationSchema.safeParse({ timezone: "+01:00" });
+
+  expect(result.success).toBe(false);
+  if (!result.success) {
+    expect(result.error.issues[0]?.message).toBe("Unbekannte Zeitzone.");
+  }
+});
+
 it("weist eine unbekannte Sprache zurueck", () => {
   const result = updateOrganizationSchema.safeParse({ locale: "nicht-existent!!" });
 
@@ -155,6 +189,13 @@ it("weist eine unbekannte Sprache zurueck", () => {
 
 it("akzeptiert ein gueltiges BCP-47-Sprachtag", () => {
   expect(updateOrganizationSchema.safeParse({ locale: "en-GB" }).success).toBe(true);
+});
+
+it("kanonisiert ein Sprachtag ueber Intl.getCanonicalLocales", () => {
+  const result = updateOrganizationSchema.safeParse({ locale: "de-ch" });
+
+  expect(result.success).toBe(true);
+  if (result.success) expect(result.data.locale).toBe(Intl.getCanonicalLocales("de-ch")[0]);
 });
 
 it("weist bei der Anlage eine unbekannte Zeitzone oder Sprache zurueck", () => {
