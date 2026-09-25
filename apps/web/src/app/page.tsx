@@ -40,12 +40,18 @@ export default function HomePage() {
 
         <ApplicationDashboard />
 
-        <nav aria-label="Hilfe" className="mt-auto flex w-full justify-center border-t border-slate-800/80 pt-6">
+        <nav aria-label="Hilfe" className="mt-auto flex w-full flex-wrap justify-center gap-3 border-t border-slate-800/80 pt-6">
           <a
             className="inline-flex min-h-11 items-center rounded-lg border border-emerald-300/50 px-4 py-2 text-body font-semibold text-emerald-200 transition hover:border-emerald-200 hover:text-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-300"
             href="/bedienungsanleitung.html"
           >
             Bedienungsanleitung
+          </a>
+          <a
+            className="inline-flex min-h-11 items-center rounded-lg border border-slate-700 px-4 py-2 text-body font-semibold text-slate-200 transition hover:border-slate-500 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-emerald-300"
+            href="/datenschutz.html"
+          >
+            Datenschutz
           </a>
         </nav>
       </div>

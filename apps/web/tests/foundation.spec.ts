@@ -121,13 +121,32 @@ test("the sign-in form exposes credentials to password managers", async ({ page 
   await expect(page.getByLabel("Passwort")).toHaveAttribute("autocomplete", "new-password");
 });
 
+test("the public sign-in page links to the privacy notice next to the manual", async ({ page }) => {
+  await page.goto("/");
+
+  const helpLinks = page.getByRole("navigation", { name: "Hilfe" }).getByRole("link");
+  await expect(helpLinks).toHaveText(["Bedienungsanleitung", "Datenschutz"]);
+  await helpLinks.last().click();
+
+  await expect(page).toHaveURL(/\/datenschutz\.html$/u);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Datenschutzerklärung" }),
+  ).toBeVisible();
+  // Der Entwurfshinweis bleibt sichtbar, bis er bewusst entfernt wird.
+  await expect(page.getByRole("note").first()).toContainText("Entwurf");
+  await page.getByRole("link", { name: "Bedienungsanleitung" }).click();
+  await expect(page).toHaveURL(/\/bedienungsanleitung\.html$/u);
+});
+
 test("the public sign-in page links to the branded standalone manual", async ({ page }) => {
   await page.goto("/");
 
   const manualLink = page.getByRole("link", { name: "Bedienungsanleitung" });
   await expect(manualLink).toHaveAttribute("href", "/bedienungsanleitung.html");
   await expect(page.locator("footer")).toBeVisible();
-  await expect(page.locator("main a").last()).toHaveText("Bedienungsanleitung");
+  await expect(page.getByRole("navigation", { name: "Hilfe" }).getByRole("link").first()).toHaveText(
+    "Bedienungsanleitung",
+  );
   await manualLink.click();
 
   await expect(page).toHaveURL(/\/bedienungsanleitung\.html$/u);

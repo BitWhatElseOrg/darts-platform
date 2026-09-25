@@ -138,7 +138,9 @@ Nicht bestätigt: konkreter Veranstaltungsort, Lichtverhältnisse, Turniergröss
   Sutter-Precision-Wortmarke erscheint dort mit «powered by» im Footer. Das
   Dart-Ost-Logo und sichtbare Dart-Ost-Verweise führen zu `https://dartost.ch/`.
 - Die öffentliche Bedienungsanleitung ist ohne Anmeldung über die Einstiegsseite
-  und direkt unter `/bedienungsanleitung.html` erreichbar.
+  und direkt unter `/bedienungsanleitung.html` erreichbar. Daneben steht die
+  Datenschutzerklärung unter `/datenschutz.html`; sie ist als Entwurf
+  gekennzeichnet, bis die zuständige Stelle sie freigegeben hat.
 - Einstieg, Organisationsverwaltung und Turnierverwaltung verwenden eine
   gemeinsame dunkle Slate-/Weiss-/Emerald-Oberfläche. Die ursprüngliche
   Sektorenring-Sprache bleibt als Komponenten- und Informationsmodell erhalten;
