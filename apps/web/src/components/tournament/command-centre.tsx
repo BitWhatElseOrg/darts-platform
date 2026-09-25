@@ -773,7 +773,7 @@ export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canW
           </div>
         </div>
 
-        <div className="mt-9"><StandingsSheet groups={dashboard.groups} /></div>
+        <div className="mt-9"><StandingsSheet format={dashboard.tournament.format} groups={dashboard.groups} /></div>
         {canDelete ? (
           <DeleteTournamentPanel
             blockedReason={tournamentDeletionBlocker(dashboard)}

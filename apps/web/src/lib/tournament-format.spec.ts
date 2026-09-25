@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { calendarDate, calendarDateNumeric, clockTime } from "./tournament-format";
+import { calendarDate, calendarDateNumeric, clockTime, statusLabel } from "./tournament-format";
 
 /**
  * Die Anwurfzeit wird als Lokalzeit erfasst (`datetime-local`) und muss als
@@ -45,5 +45,16 @@ describe("Zeit- und Datumsausgabe", () => {
     // Die Sommerzeit endet 2026 am 25. Oktober um 03:00 Lokalzeit.
     expect(clockTime(new Date("2026-10-24T22:00:00.000Z"))).toBe("00:00");
     expect(clockTime(new Date("2026-10-25T22:00:00.000Z"))).toBe("23:00");
+  });
+});
+
+describe("statusLabel", () => {
+  // Nebenbeobachtung aus der Sichtprobe vom 25.09.2026: Jeder gegen jeden
+  // laeuft technisch als GROUP_STAGE, hat aber keine Gruppenphase.
+  it("nennt die Gruppenphase nur bei Formaten mit Gruppen", () => {
+    expect(statusLabel("GROUP_STAGE")).toBe("Gruppenphase");
+    expect(statusLabel("GROUP_STAGE", "GROUPS_THEN_KNOCKOUT")).toBe("Gruppenphase");
+    expect(statusLabel("GROUP_STAGE", "ROUND_ROBIN")).toBe("läuft");
+    expect(statusLabel("COMPLETED", "ROUND_ROBIN")).toBe("beendet");
   });
 });

@@ -168,12 +168,14 @@ export function LiveTournament({ boardId, displayKeySecret, mode, publicId }: Li
     : dashboard.boards;
   // Ab der K.-o.-Phase steht das Tableau vor den Gruppenranglisten.
   const knockoutFirst = knockoutLeadsLiveView(dashboard.tournament.status);
+  // Jeder gegen jeden hat eine Tabelle, keine Gruppen (Sichtprobe 25.09.2026).
+  const roundRobin = dashboard.tournament.format === "ROUND_ROBIN";
   const groupsSection = dashboard.groups.length > 0 ? (
-    <LiveSection title="Gruppenranglisten">
+    <LiveSection title={roundRobin ? "Tabelle" : "Gruppenranglisten"}>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {dashboard.groups.map((group) => (
           <div className="overflow-hidden rounded-xl border border-sisal-400" key={group.groupLabel}>
-            <h3 className="bg-sisal-100 px-4 py-3 font-numerals text-title-sm font-bold">Gruppe {group.groupLabel}</h3>
+            <h3 className="bg-sisal-100 px-4 py-3 font-numerals text-title-sm font-bold">{roundRobin ? group.groupLabel : `Gruppe ${group.groupLabel}`}</h3>
             <ol>{group.rows.map((row) => <li className="grid grid-cols-[2rem_1fr_3rem] border-t border-sisal-300 px-4 py-2 text-body tabular" key={row.playerId}><span>{row.position}.</span><span>{row.displayName}{row.withdrawn ? " · Ausgefallen" : ""}</span><span className="text-right font-bold">{row.points}</span></li>)}</ol>
           </div>
         ))}

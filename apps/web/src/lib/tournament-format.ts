@@ -1,4 +1,4 @@
-import type { BoardSlotState, QueueReadiness, TournamentStatus } from "@darts-platform/schemas";
+import type { BoardSlotState, QueueReadiness, TournamentFormat, TournamentStatus } from "@darts-platform/schemas";
 
 /**
  * Presentation only. Nothing here decides anything: every value it formats was
@@ -74,14 +74,19 @@ export function readinessLabel(readiness: QueueReadiness): string {
   }
 }
 
-export function statusLabel(status: TournamentStatus): string {
+/**
+ * Jeder gegen jeden laeuft technisch als GROUP_STAGE, hat aber keine
+ * Gruppenphase (Sichtprobe 25.09.2026) -- mit `format` heisst der Zustand
+ * schlicht "laeuft".
+ */
+export function statusLabel(status: TournamentStatus, format?: TournamentFormat): string {
   switch (status) {
     case "DRAFT":
       return "Entwurf";
     case "READY":
       return "startbereit";
     case "GROUP_STAGE":
-      return "Gruppenphase";
+      return format === "ROUND_ROBIN" ? "läuft" : "Gruppenphase";
     case "KNOCKOUT":
       return "K.-o.-Runde";
     case "COMPLETED":
