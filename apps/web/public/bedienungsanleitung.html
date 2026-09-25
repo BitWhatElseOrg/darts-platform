@@ -9,306 +9,7 @@
       content="Öffentliche deutsche Bedienungsanleitung für die DartBase Turnier Plattform"
     />
     <title>Bedienungsanleitung · DartBase – Turnier Plattform</title>
-    <style>
-      :root {
-        color-scheme: dark;
-        --bg: #020617;
-        --surface: #0f172a;
-        --surface-raised: #172033;
-        --line: #293548;
-        --text: #f8fafc;
-        --muted: #a9b5c7;
-        --accent: #34d399;
-        --accent-deep: #047857;
-        --warning: #fbbf24;
-        --danger: #fb7185;
-        --paper: #ffffff;
-        --ink: #152033;
-        --radius: 16px;
-        --shadow: 0 20px 55px rgb(0 0 0 / 0.22);
-      }
-
-      * { box-sizing: border-box; }
-      html {
-        scroll-behavior: smooth;
-        scroll-padding-top: 24px;
-        scrollbar-color: var(--accent-deep) var(--surface);
-      }
-      ::selection { background: var(--accent); color: #022c22; }
-      body {
-        margin: 0;
-        background:
-          radial-gradient(circle at 84% 2%, rgb(16 185 129 / 0.12), transparent 26rem),
-          var(--bg);
-        color: var(--text);
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-          "Segoe UI", sans-serif;
-        font-size: 16px;
-        line-height: 1.65;
-      }
-
-      a { color: var(--accent); text-underline-offset: 0.2em; }
-      a:hover { color: #6ee7b7; }
-      a:focus-visible {
-        border-radius: 4px;
-        outline: 2px solid var(--accent);
-        outline-offset: 4px;
-      }
-      img { max-width: 100%; }
-      code, kbd {
-        border: 1px solid var(--line);
-        border-radius: 6px;
-        background: #020617;
-        padding: 0.12rem 0.38rem;
-        color: #d1fae5;
-        font: 0.88em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      }
-      kbd { box-shadow: inset 0 -2px 0 var(--line); }
-
-      .skip-link {
-        position: fixed;
-        top: 0.5rem;
-        left: 0.5rem;
-        z-index: 20;
-        transform: translateY(-150%);
-        border-radius: 8px;
-        background: var(--accent);
-        padding: 0.65rem 1rem;
-        color: #022c22;
-        font-weight: 800;
-      }
-      .skip-link:focus { transform: translateY(0); }
-
-      .hero {
-        border-bottom: 1px solid var(--line);
-        background: var(--surface);
-        padding: 3.5rem max(1.25rem, calc((100vw - 1280px) / 2));
-      }
-      .hero-inner {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        align-items: center;
-        gap: 2rem;
-      }
-      .brand-logo { width: 164px; height: auto; }
-      .hero-nav { margin-bottom: 1.25rem; }
-      .home-link {
-        display: inline-flex;
-        min-height: 44px;
-        align-items: center;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 0.55rem 0.85rem;
-        color: var(--text);
-        font-size: 0.9rem;
-        font-weight: 700;
-        text-decoration: none;
-      }
-      .home-link:hover { border-color: var(--accent); }
-      .eyebrow {
-        margin: 0 0 0.4rem;
-        color: var(--accent);
-        font-size: 0.78rem;
-        font-weight: 800;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
-      }
-      h1, h2, h3 {
-        overflow-wrap: anywhere;
-        line-height: 1.18;
-        text-wrap: balance;
-      }
-      h1 { margin: 0; font-size: clamp(2.2rem, 6vw, 4.8rem); letter-spacing: -0.04em; }
-      .lead { max-width: 760px; margin: 1rem 0 0; color: var(--muted); font-size: 1.08rem; }
-      .meta { margin: 1.2rem 0 0; color: var(--muted); font-size: 0.88rem; }
-
-      .layout {
-        display: grid;
-        grid-template-columns: 270px minmax(0, 1fr);
-        gap: clamp(2rem, 5vw, 5rem);
-        width: min(1280px, calc(100% - 2.5rem));
-        margin: 0 auto;
-        padding: 2.5rem 0 6rem;
-      }
-      .toc {
-        position: sticky;
-        top: 1.5rem;
-        align-self: start;
-        max-height: calc(100vh - 3rem);
-        overflow: auto;
-        border: 1px solid var(--line);
-        border-radius: var(--radius);
-        background: rgb(15 23 42 / 0.8);
-        padding: 1.25rem;
-        box-shadow: var(--shadow);
-      }
-      .toc strong { display: block; margin-bottom: 0.75rem; }
-      .toc ol { margin: 0; padding-left: 1.2rem; }
-      .toc li { margin: 0.36rem 0; color: var(--muted); font-size: 0.9rem; }
-      .toc a { color: inherit; text-decoration: none; }
-      .toc a:hover, .toc a:focus-visible { color: var(--accent); }
-
-      main { min-width: 0; }
-      main:focus { outline: none; }
-      main > section { padding: 1.5rem 0 3rem; border-bottom: 1px solid var(--line); }
-      main > section:first-child { padding-top: 0; }
-      main > section:last-child { border-bottom: 0; }
-      main > section > p,
-      main > section > ul,
-      main > section > ol,
-      main > section > dl { max-width: 75ch; }
-      h2 { margin: 0 0 1rem; font-size: clamp(1.65rem, 3vw, 2.35rem); letter-spacing: -0.025em; }
-      h3 { margin: 2rem 0 0.65rem; font-size: 1.15rem; }
-      p { margin: 0.7rem 0; }
-      ul, ol { padding-left: 1.35rem; }
-      li + li { margin-top: 0.35rem; }
-
-      .cards {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 1rem;
-        margin-top: 1.25rem;
-      }
-      .card {
-        border: 1px solid var(--line);
-        border-radius: var(--radius);
-        background: linear-gradient(145deg, var(--surface-raised), var(--surface));
-        padding: 1.25rem;
-      }
-      .card h3 { margin-top: 0; }
-      .card p:last-child { margin-bottom: 0; }
-      .number {
-        display: inline-grid;
-        width: 2rem;
-        height: 2rem;
-        place-items: center;
-        margin-bottom: 0.8rem;
-        border-radius: 999px;
-        background: var(--accent);
-        color: #022c22;
-        font-weight: 900;
-      }
-      .steps { list-style: none; padding: 0; counter-reset: steps; }
-      .steps > li {
-        position: relative;
-        min-height: 3.25rem;
-        padding: 0.3rem 0 1.35rem 3.25rem;
-        counter-increment: steps;
-      }
-      .steps > li::before {
-        content: counter(steps);
-        position: absolute;
-        left: 0;
-        top: 0;
-        display: grid;
-        width: 2.2rem;
-        height: 2.2rem;
-        place-items: center;
-        border: 2px solid var(--accent);
-        border-radius: 999px;
-        color: var(--accent);
-        font-weight: 900;
-      }
-      .steps > li:not(:last-child)::after {
-        content: "";
-        position: absolute;
-        left: 1.07rem;
-        top: 2.25rem;
-        bottom: -0.05rem;
-        width: 2px;
-        background: var(--line);
-      }
-
-      .callout {
-        margin: 1.25rem 0;
-        border: 1px solid rgb(52 211 153 / 0.45);
-        border-radius: 10px;
-        background: rgb(16 185 129 / 0.08);
-        padding: 1rem 1.1rem;
-      }
-      .callout.warning {
-        border-color: rgb(251 191 36 / 0.45);
-        background: rgb(251 191 36 / 0.08);
-      }
-      .callout.danger {
-        border-color: rgb(251 113 133 / 0.45);
-        background: rgb(251 113 133 / 0.08);
-      }
-      .callout strong { display: block; margin-bottom: 0.2rem; }
-
-      .table-wrap { overflow-x: auto; margin: 1.2rem 0; border: 1px solid var(--line); border-radius: 12px; }
-      table { width: 100%; border-collapse: collapse; min-width: 650px; }
-      caption {
-        background: var(--surface-raised);
-        padding: 0.8rem 0.9rem;
-        color: var(--text);
-        font-weight: 800;
-        text-align: left;
-      }
-      th, td { padding: 0.8rem 0.9rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-      thead th { background: #111d30; color: var(--accent); font-size: 0.76rem; letter-spacing: 0.08em; text-transform: uppercase; }
-      tbody th { background: transparent; color: var(--text); font-size: inherit; letter-spacing: normal; text-transform: none; }
-      tr:last-child td { border-bottom: 0; }
-      tbody tr:hover { background: rgb(255 255 255 / 0.025); }
-      .yes { color: #6ee7b7; font-weight: 800; }
-      .limited { color: #fde68a; font-weight: 800; }
-
-      .checklist { list-style: none; padding: 0; }
-      .checklist li { position: relative; padding-left: 1.75rem; }
-      .checklist li::before { content: "□"; position: absolute; left: 0; color: var(--accent); font-weight: 900; }
-
-      .glossary { display: grid; grid-template-columns: max-content 1fr; gap: 0.45rem 1rem; }
-      .glossary dt { color: var(--accent); font-weight: 800; }
-      .glossary dd { margin: 0; color: var(--muted); }
-
-      .page-footer {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1.5rem;
-        border-top: 1px solid var(--line);
-        padding: 2rem max(1.25rem, calc((100vw - 1280px) / 2));
-        color: var(--muted);
-        font-size: 0.86rem;
-      }
-      .powered { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
-      .back { white-space: nowrap; }
-
-      @media (max-width: 850px) {
-        .hero { padding-top: 2rem; padding-bottom: 2rem; }
-        .hero-inner { grid-template-columns: 1fr; }
-        .brand-logo { width: 124px; order: -1; }
-        .layout { grid-template-columns: 1fr; }
-        .toc { position: static; max-height: none; }
-        .cards { grid-template-columns: 1fr; }
-      }
-      @media (max-width: 560px) {
-        .layout { width: min(100% - 1.5rem, 1280px); }
-        h1 {
-          font-size: clamp(1.7rem, 7.2vw, 2.1rem);
-          letter-spacing: -0.04em;
-        }
-        .glossary { grid-template-columns: 1fr; }
-        .glossary dd { margin-bottom: 0.6rem; }
-        .page-footer { align-items: flex-start; flex-direction: column; }
-      }
-
-      @media print {
-        :root { color-scheme: light; }
-        body { background: white; color: var(--ink); font-size: 10.5pt; }
-        .hero { background: white; border-bottom: 2px solid var(--ink); padding: 1.5cm 0; }
-        .hero-inner, .layout, .page-footer { width: 100%; max-width: none; padding-left: 0; padding-right: 0; }
-        .layout { display: block; margin: 0; padding-top: 1cm; }
-        .toc, .skip-link, .back, .powered, .hero-nav { display: none; }
-        main > section { break-inside: auto; border-color: #ccd3dc; }
-        h2, h3 { break-after: avoid; }
-        .card, .callout, .table-wrap { break-inside: avoid; background: white; color: var(--ink); box-shadow: none; border-color: #aab4c1; }
-        .lead, .meta, .glossary dd { color: #475569; }
-        a { color: var(--ink); text-decoration: none; }
-        code, kbd { background: white; color: var(--ink); border-color: #94a3b8; }
-        th { background: #e2e8f0; color: var(--ink); }
-      }
-    </style>
+    <link rel="stylesheet" href="/seiten.css" />
   </head>
   <body id="oben">
     <a class="skip-link" href="#inhalt">Direkt zum Inhalt</a>
@@ -324,7 +25,7 @@
             DartBase – Turnier Plattform: von der Einladung über Spieler und Boards
             bis zu Turnier, Liga, Scoring und Ergebniskorrektur.
           </p>
-          <p class="meta">Ausgabe 1.2 · Stand 22. September 2026 · Produktsprache de-CH</p>
+          <p class="meta">Ausgabe 1.2 · Stand 22. September 2026 · Produktsprache de&#8209;CH</p>
         </div>
         <img
           class="brand-logo"
@@ -501,6 +202,32 @@
             nicht ermitteln, ob der Weg offen ist, erscheint statt des Formulars ein Hinweis
             mit <strong>Erneut versuchen</strong>.
           </div>
+          <h3>Organisationsseite: Name, Zeitzone, Sprache und Löschen</h3>
+          <p>
+            Die Seite <strong>Organisation</strong> im Dashboard zeigt Name, Zeitzone
+            und Sprache der aktiven Organisation. Zeitzone und Sprache werden aus einer
+            Auswahlliste gewählt, nicht frei eingetippt. <strong>Speichern</strong> lässt
+            sich erst anklicken, sobald mindestens ein Feld tatsächlich geändert wurde,
+            und ändert dann die Stammdaten sofort für die ganze Organisation; der
+            Kurzname (etwa <code>dc-muster</code>) steht in Links und Einladungen und
+            lässt sich nicht ändern. Wer keine Berechtigung zum Bearbeiten hat, sieht
+            dieselben Werte nur lesend.
+          </p>
+          <p>
+            Im Gefahrenbereich <strong>Organisation löschen</strong> öffnet der
+            gleichnamige Button einen Bestätigungsdialog: Erst wenn der Organisationsname
+            exakt eingetippt ist, lässt sich <strong>Organisation löschen</strong>
+            im Dialog anklicken.
+          </p>
+          <div class="callout warning">
+            <strong>Endgültig und ohne Wiederherstellung</strong>
+            Gelöscht werden alle Spieler, Turniere, Matches, Ligen, Statistiken und
+            Mitgliedschaften dieser Organisation — ohne Papierkorb und ohne Rückgängig.
+            Danach führt der Weg zurück zur Startseite; eine andere zugängliche
+            Organisation gilt automatisch als neue Auswahl. Nur die Inhaberschaft
+            (Owner) darf eine Organisation löschen.
+          </div>
+
           <h3>Mitglied einladen</h3>
           <ol class="steps">
             <li>Die gewünschte Organisation öffnen.</li>
@@ -543,6 +270,25 @@
           <p>
             <strong>Einladung zurückziehen</strong> macht eine offene Einladung ungültig.
           </p>
+
+          <h3>Mitglied entfernen oder Zugang deaktivieren</h3>
+          <p>
+            <strong>Zugang deaktivieren</strong> sperrt eine Mitgliedschaft vorübergehend: Rolle
+            und Spieler-Zuordnung bleiben erhalten, die Person verliert nur den Zugriff.
+            <strong>Zugang reaktivieren</strong> macht das jederzeit rückgängig.
+          </p>
+          <p>
+            <strong>Entfernen</strong> löscht die Mitgliedschaft endgültig und löst eine
+            bestehende Spieler-Verknüpfung. Das Konto selbst bleibt bestehen, und die Person
+            lässt sich später erneut einladen. Für eine nur vorübergehende Sperre eignet sich
+            <strong>Zugang deaktivieren</strong> besser.
+          </p>
+          <div class="callout warning">
+            <strong>Der letzte Owner bleibt geschützt</strong>
+            Die eigene Mitgliedschaft, eine fremde Owner-Mitgliedschaft ohne eigene
+            Owner-Rolle und der letzte aktive Owner lassen sich weder entfernen noch
+            deaktivieren.
+          </div>
         </section>
 
         <section id="spieler">
@@ -562,6 +308,28 @@
             Berechtigte Rollen können Spieler bearbeiten. Owner und Admin können Spieler
             archivieren. Archivierte Spieler bleiben für historische Matches erhalten, stehen
             aber nicht mehr für neue Matches oder Turniere zur Verfügung.
+          </p>
+
+          <h3>Spieler bearbeiten, archivieren und löschen</h3>
+          <p>
+            <strong>Bearbeiten</strong> öffnet einen Dialog mit allen sechs Feldern
+            (Vorname, Nachname, Anzeigename, Spitzname, E-Mail, externe Referenz);
+            Änderungen gelten sofort für alle Ansichten der Organisation.
+          </p>
+          <p>
+            <strong>Archivieren</strong> ist reversibel: Resultate und Statistik
+            bleiben erhalten, der Spieler steht aber für neue Matches und Turniere
+            nicht mehr zur Verfügung. <strong>Reaktivieren</strong> macht das jederzeit
+            rückgängig.
+          </p>
+          <p>
+            <strong>Endgültig löschen</strong> entfernt Profil, Bild und Statistik
+            ohne Wiederherstellung. Ist der Spieler mit einem Benutzerkonto verknüpft,
+            bleibt dieses Konto bestehen — nur die Verknüpfung wird dabei aufgehoben.
+            Das Löschen gelingt nur, wenn der Spieler weder gespielt hat noch in einem
+            Turnier, Team oder einer Begegnung steht — mit Historie bietet der Dialog
+            stattdessen <strong>Stattdessen archivieren</strong> an. Nur Owner und Admin
+            dürfen einen Spieler endgültig löschen.
           </p>
 
           <h3>Profilbild hinterlegen</h3>
@@ -967,6 +735,7 @@
         <a href="https://dartost.ch/" rel="noopener noreferrer">Dart Ost</a>
         und
         <a href="https://www.sutter-precision.ch/" rel="noopener noreferrer">Sutter Precision</a>
+        · <a href="/datenschutz.html">Datenschutz</a>
       </span>
       <a class="back" href="#oben">Nach oben ↑</a>
     </footer>

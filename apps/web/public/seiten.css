@@ -1,0 +1,373 @@
+/* Gemeinsamer Stil der statischen Seiten (Bedienungsanleitung,
+   Datenschutzerklaerung). Die Werte sind die Token aus DESIGN.md; die
+   Seiten sind statisches HTML ohne Tailwind, deshalb stehen sie hier
+   noch einmal unter denselben Namen. */
+:root {
+  color-scheme: dark;
+  --bg: #020617;              /* slate-950, Night Slate */
+  --surface: #0f172a;         /* slate-900, Panel Slate */
+  --surface-raised: #1e293b;  /* slate-800, Field Slate */
+  --line: #334155;            /* slate-700, Faint Seam */
+  --line-strong: #475569;     /* slate-600, Seam Slate */
+  --text: #f8fafc;            /* chalk */
+  --steel: #cbd5e1;           /* slate-300 */
+  --muted: #94a3b8;           /* slate-400, Steel Caption */
+  --accent: #34d399;          /* ring-green, lit */
+  --accent-text: #6ee7b7;     /* ring-green-deep, als Text auf Slate */
+  --accent-filled: #047857;   /* ring-green-filled, Grund unter Chalk */
+  --danger: #fb7185;          /* ring-red */
+  --ink: #1e293b;             /* Druck: slate-800 auf Papier */
+  --radius-control: 0.5rem;
+  --radius-inset: 0.75rem;
+  --radius-panel: 1rem;
+  --radius-plate: 9999px;
+  --shadow: 0 25px 50px -12px rgb(0 0 0 / 0.2);
+  --font-display: "Saira Condensed", "Arial Narrow", sans-serif;
+  --font-body: "Archivo", system-ui, sans-serif;
+  --text-headline: 2.75rem;
+  --text-data: 2rem;
+  --text-title: 1.5rem;
+  --text-title-sm: 1.125rem;
+  --text-counter: 1rem;
+  --text-field: 0.9375rem;
+  --text-body: 0.875rem;
+  --text-caption: 0.75rem;
+  --text-label: 0.625rem;
+  --measure-prose: 65ch;
+}
+
+/* Dieselben Schriften wie die App (apps/web/src/app/layout.tsx), selbst
+   gehostet unter /fonts, weil die statische Seite next/font nicht nutzen
+   kann und die CSP nur font-src 'self' erlaubt. Lizenz: SIL OFL 1.1,
+   siehe /fonts/OFL-*.txt. */
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/archivo-latin-variable.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Saira Condensed";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/saira-condensed-latin-700.woff2") format("woff2");
+}
+
+* { box-sizing: border-box; }
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 24px;
+  scrollbar-color: var(--accent-filled) var(--surface);
+}
+::selection { background: var(--accent); color: #022c22; }
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top, rgb(16 185 129 / 0.12), transparent 36rem),
+    var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: 1.5;
+}
+
+a { color: var(--accent); text-underline-offset: 0.2em; }
+a:hover { color: var(--accent-text); }
+a:focus-visible {
+  border-radius: var(--radius-control);
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+img { max-width: 100%; }
+code, kbd {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  padding: 0.12rem 0.38rem;
+  color: var(--text);
+  /* Codes, die man exakt abtippt (Einladungscode, Permission-Schluessel),
+     stehen wie in den Code-Feldern der App in der System-Monospace
+     (Tailwind `font-mono`) — eine Datenstimme, keine dritte Schrift. */
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: var(--text-caption);
+}
+kbd { box-shadow: inset 0 -2px 0 var(--line); }
+
+.skip-link {
+  position: fixed;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 20;
+  transform: translateY(-150%);
+  display: inline-flex;
+  height: 2.75rem;
+  align-items: center;
+  border-radius: var(--radius-control);
+  background: var(--accent-filled);
+  padding: 0 1.25rem;
+  color: var(--text);
+  font-weight: 600;
+}
+.skip-link:focus { transform: translateY(0); }
+
+.hero {
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  padding: 3.5rem max(1.25rem, calc((100vw - 1280px) / 2));
+}
+.hero-inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2rem;
+}
+.brand-logo { width: 164px; height: auto; }
+.hero-nav { margin-bottom: 1.25rem; }
+.home-link {
+  display: inline-flex;
+  height: 2.75rem;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 0 1.25rem;
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: 600;
+  text-decoration: none;
+}
+.home-link:hover { background: var(--surface); border-color: var(--line-strong); }
+.eyebrow {
+  margin: 0 0 0.4rem;
+  color: var(--muted);
+  font-size: var(--text-label);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+h1, h2, h3 {
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+h1 { margin: 0; font-size: var(--text-headline); line-height: 0.9; letter-spacing: -0.02em; }
+.lead {
+  max-width: var(--measure-prose);
+  margin: 1rem 0 0;
+  color: var(--muted);
+  font-size: var(--text-field);
+  line-height: 1.4;
+}
+.meta { margin: 1.25rem 0 0; color: var(--muted); font-size: var(--text-caption); line-height: 1.4; }
+
+.layout {
+  display: grid;
+  grid-template-columns: 270px minmax(0, 1fr);
+  gap: clamp(2rem, 5vw, 5rem);
+  width: min(1280px, calc(100% - 2.5rem));
+  margin: 0 auto;
+  padding: 2.5rem 0 6rem;
+}
+.toc {
+  position: sticky;
+  top: 1.5rem;
+  align-self: start;
+  max-height: calc(100vh - 3rem);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  padding: 1rem;
+  box-shadow: var(--shadow);
+}
+.toc strong { display: block; margin-bottom: 0.75rem; }
+.toc ol { margin: 0; padding-left: 1.2rem; }
+.toc li { margin: 0.5rem 0; color: var(--muted); font-size: var(--text-body); }
+.toc a { color: inherit; text-decoration: none; }
+.toc a:hover, .toc a:focus-visible { color: var(--accent); }
+
+main { min-width: 0; }
+main:focus { outline: none; }
+main > section { padding: 1.5rem 0 3rem; border-bottom: 1px solid var(--line); }
+main > section:first-child { padding-top: 0; }
+main > section:last-child { border-bottom: 0; }
+main > section > p,
+main > section > ul,
+main > section > ol,
+main > section > dl { max-width: var(--measure-prose); hyphens: auto; }
+h2 { margin: 0 0 1rem; font-size: var(--text-title); line-height: 1.1; letter-spacing: -0.01em; }
+h3 { margin: 2rem 0 0.75rem; font-size: var(--text-title-sm); line-height: 1; letter-spacing: -0.01em; }
+p { margin: 0.7rem 0; }
+ul, ol { padding-left: 1.35rem; }
+li + li { margin-top: 0.35rem; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+.card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  padding: 1rem;
+  box-shadow: var(--shadow);
+}
+.card h3 { margin-top: 0; }
+.card p:last-child { margin-bottom: 0; }
+/* Ring-Plate (DESIGN.md, Shapes): grüne Scheibe, Chalk-Zeichen in der
+   Ziffernschrift. Der Buchstabe steht nicht allein — der Kartentitel
+   daneben trägt die Information. */
+.number {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  margin-bottom: 0.75rem;
+  border-radius: var(--radius-plate);
+  background: var(--accent-filled);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: var(--text-counter);
+  font-weight: 700;
+  line-height: 1;
+}
+.steps { list-style: none; padding: 0; counter-reset: steps; }
+.steps > li {
+  position: relative;
+  min-height: 2.5rem;
+  padding: 0.25rem 0 1.5rem 2.5rem;
+  counter-increment: steps;
+}
+.steps > li::before {
+  content: counter(steps);
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border-radius: var(--radius-plate);
+  background: var(--accent-filled);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: var(--text-counter);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.steps > li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: calc(0.875rem - 0.5px);
+  top: 2rem;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+}
+
+/* Drei Stufen, zwei Signalfarben (DESIGN.md, Two Signals Rule): Hinweis
+   in Grün, Vorsicht als neutrale Ink-Platte, Alarm in Rot. Jede Stufe
+   trägt ihr Wort in der fetten Zeile, nie nur die Farbe. */
+.callout {
+  margin: 1.25rem 0;
+  border: 1px solid rgb(52 211 153 / 0.45);
+  border-radius: var(--radius-panel);
+  background: rgb(16 185 129 / 0.08);
+  padding: 0.875rem 1rem;
+}
+.callout.warning {
+  border-color: var(--line-strong);
+  background: var(--surface-raised);
+}
+.callout.danger {
+  border-color: rgb(251 113 133 / 0.45);
+  background: rgb(251 113 133 / 0.08);
+}
+.callout strong { display: block; margin-bottom: 0.2rem; }
+
+.table-wrap { overflow-x: auto; margin: 1.25rem 0; border: 1px solid var(--line); border-radius: var(--radius-panel); }
+table { width: 100%; border-collapse: collapse; min-width: 650px; }
+caption {
+  background: var(--surface-raised);
+  padding: 0.8rem 0.9rem;
+  color: var(--text);
+  font-weight: 600;
+  text-align: left;
+}
+th, td { padding: 0.8rem 0.9rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+thead th { background: var(--surface); color: var(--muted); font-size: var(--text-label); font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; }
+tbody th { background: transparent; color: var(--text); font-size: inherit; letter-spacing: normal; text-transform: none; }
+tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: rgb(248 250 252 / 0.03); }
+.yes { color: var(--accent-text); font-weight: 600; }
+.limited { color: var(--steel); font-weight: 600; }
+
+.checklist { list-style: none; padding: 0; }
+.checklist li { position: relative; padding-left: 1.75rem; }
+/* Gezeichnetes Kästchen statt Unicode-Glyphe (DESIGN.md, Shapes). */
+.checklist li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.1rem;
+  width: 1rem;
+  height: 1rem;
+  border: 1.5px solid var(--muted);
+}
+
+.glossary { display: grid; grid-template-columns: max-content 1fr; gap: 0.45rem 1rem; }
+.glossary dt { color: var(--text); font-weight: 600; }
+.glossary dd { margin: 0; color: var(--muted); }
+
+.page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  border-top: 1px solid var(--line);
+  padding: 2rem max(1.25rem, calc((100vw - 1280px) / 2));
+  color: var(--muted);
+  font-size: var(--text-caption);
+  line-height: 1.4;
+}
+.powered { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+.back { white-space: nowrap; }
+
+@media (max-width: 850px) {
+  .hero { padding-top: 2rem; padding-bottom: 2rem; }
+  .hero-inner { grid-template-columns: 1fr; }
+  .brand-logo { width: 124px; order: -1; }
+  .layout { grid-template-columns: 1fr; }
+  .toc { position: static; max-height: none; }
+  .cards { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .layout { width: min(100% - 1.5rem, 1280px); }
+  h1 { font-size: var(--text-data); line-height: 0.85; letter-spacing: -0.015em; }
+  .glossary { grid-template-columns: 1fr; }
+  .glossary dd { margin-bottom: 0.6rem; }
+  .page-footer { align-items: flex-start; flex-direction: column; }
+}
+
+@media print {
+  :root { color-scheme: light; }
+  body { background: none; color: var(--ink); }
+  .hero { background: none; border-bottom: 1px solid var(--ink); padding: 1.5cm 0; }
+  .hero-inner, .layout, .page-footer { width: 100%; max-width: none; padding-left: 0; padding-right: 0; }
+  .layout { display: block; margin: 0; padding-top: 1cm; }
+  .toc, .skip-link, .back, .powered, .hero-nav { display: none; }
+  main > section { break-inside: auto; border-color: #cbd5e1; }
+  h2, h3 { break-after: avoid; }
+  .card, .callout, .table-wrap { break-inside: avoid; background: none; color: var(--ink); box-shadow: none; border-color: #94a3b8; }
+  .lead, .meta, .glossary dd, .eyebrow, thead th { color: #475569; }
+  .number, .steps > li::before { background: var(--ink); color: #f8fafc; }
+  .yes, .limited, .glossary dt, caption { color: var(--ink); }
+  a { color: var(--ink); text-decoration: none; }
+  code, kbd { background: none; color: var(--ink); border-color: #94a3b8; }
+  th { background: #e2e8f0; color: var(--ink); }
+}

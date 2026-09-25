@@ -319,6 +319,7 @@ tournament:finish
 
 player:create
 player:update
+player:delete
 
 match:start
 match:score
@@ -330,7 +331,26 @@ board:control
 
 organization:manage_members
 organization:manage_roles
+organization:delete
 ```
+
+`player:delete` erlaubt nur die endgültige Löschung eines Spielers ohne
+Historie (keine Matches, keine Turnier-, Kader- oder Begegnungseinträge) und
+ist auf `OWNER` und `ADMIN` beschränkt.
+
+`organization:delete` erlaubt das endgültige Löschen der gesamten
+Organisation (`DELETE /organizations/:id`, Body `{ confirmName }`) und ist
+ausschliesslich `OWNER` vorbehalten — ADMIN erhält jede andere Permission,
+diese eine nicht. Der eingetippte Name muss exakt mit dem Organisationsnamen
+übereinstimmen, sonst antwortet der Server mit 400
+`ORGANIZATION_NAME_MISMATCH`, ohne etwas zu löschen. Bei Erfolg (204)
+verschwinden alle Daten der Organisation restlos (Spieler, Turniere,
+Matches, Teams, Wettbewerbe, Begegnungen, Einladungen, Mitgliedschaften);
+der Audit-Eintrag `ORGANIZATION_DELETED` bleibt ausserhalb des Mandanten
+erhalten (`organization_id = NULL`, siehe
+[ADR 0018](./docs/adr/0018-loeschkonzept.md)). Die Löschung ist
+irreversibel; einzige Rückholmöglichkeit ist eine Point-in-Time-Recovery
+durch den Betrieb.
 
 Jede Mutation muss serverseitig autorisiert werden.
 
@@ -379,6 +399,18 @@ offene Einladung zurück und entwertet dabei ihren Claim-Token; eine bereits
 angenommene oder zurückgezogene Einladung meldet 404. Alle drei verlangen
 `organization:manage_members`, der Rollen- und Statuswechsel darüber hinaus
 `organization:manage_roles`.
+
+`DELETE /organizations/:id/members/:userId` entfernt eine Mitgliedschaft
+vollständig statt sie nur zu sperren: Sie verlangt ebenfalls
+`organization:manage_members`, löst eine bestehende Spieler-Verknüpfung und
+protokolliert `MEMBER_REMOVED` im Audit-Log. Das Konto selbst bleibt bestehen
+und lässt sich später erneut einladen. Dieselben drei Schutzregeln wie beim
+Rollen- und Statuswechsel gelten auch hier: die eigene Mitgliedschaft (403
+`SELF_MEMBERSHIP_CHANGE_FORBIDDEN`), eine fremde Inhaber-Mitgliedschaft ohne
+eigene OWNER-Rolle (403 `OWNER_CHANGE_REQUIRES_OWNER`) und der letzte aktive
+OWNER (409 `LAST_OWNER_PROTECTED`) bleiben geschützt. Fehlt die Berechtigung
+`organization:manage_members`, antwortet der Endpoint mit 403; eine
+unbekannte Mitgliedschaft mit 404.
 
 ### Einmaliger Production-Owner-Bootstrap
 

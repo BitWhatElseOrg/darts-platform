@@ -19,12 +19,14 @@ import type { ApplicationEnvironment } from "@darts-platform/config";
 import {
   createInvitationSchema,
   createOrganizationSchema,
+  deleteOrganizationSchema,
   linkMemberPlayerSchema,
   updateMembershipSchema,
   updateOrganizationSchema,
   type CreateInvitationInput,
   type CreateOrganizationInput,
   type CreatedInvitation,
+  type DeleteOrganizationInput,
   type LinkMemberPlayerInput,
   type Invitation,
   type OrganizationCapabilities,
@@ -112,6 +114,27 @@ export class OrganizationsController {
     });
   }
 
+  /**
+   * Endgueltiges Loeschen mit eingetipptem Namen als Bestaetigung. Der
+   * Koerper wird trotz `DELETE` erwartet — Fastify akzeptiert das.
+   */
+  @Delete(":organizationId")
+  @HttpCode(204)
+  public async delete(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Body() body: unknown,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<void> {
+    const data: DeleteOrganizationInput = parseBody(deleteOrganizationSchema, body);
+    await this.organizationsService.deleteOrganization({
+      organizationId,
+      data,
+      auth,
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
+    });
+  }
+
   @Post(":organizationId/invitations")
   public async invite(
     @Param("organizationId", ParseUUIDPipe) organizationId: string,
@@ -190,6 +213,22 @@ export class OrganizationsController {
       organizationId,
       targetUserId: userId,
       data,
+      auth,
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
+    });
+  }
+
+  @Delete(":organizationId/members/:userId")
+  @HttpCode(204)
+  public async removeMember(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("userId", ParseUUIDPipe) userId: string,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<void> {
+    await this.organizationsService.removeMember({
+      organizationId,
+      targetUserId: userId,
       auth,
       audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });

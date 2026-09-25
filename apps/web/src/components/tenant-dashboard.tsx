@@ -451,6 +451,13 @@ function OrganizationOverview({
             description="Rollen, Zugänge und offene Einladungen"
           />
         ) : null}
+        {hasOrganizationPermission(organization.role, "organization:update") ? (
+          <OverviewLink
+            href={`/organisation${organisationParam}`}
+            title="Organisation"
+            description="Name, Zeitzone, Sprache und Löschen"
+          />
+        ) : null}
       </nav>
 
       <div className="space-y-3">

@@ -67,6 +67,11 @@ let currentAuth: AuthContext = ownerAuth;
  */
 const bodies: Record<string, object> = {
   "PATCH /api/v1/organizations/:organizationId": { name: "Fremd umbenannt" },
+  // Der Koerper ist irrelevant: der Zugriff scheitert bereits an der
+  // fehlenden Mitgliedschaft in Organisation B, bevor der Name verglichen
+  // wird. Der Wert steht trotzdem fuer den Namen von B, falls die Probe
+  // jemals hinter die Berechtigungspruefung vordraenge.
+  "DELETE /api/v1/organizations/:organizationId": { confirmName: "Verein B" },
   "POST /api/v1/organizations/:organizationId/boards": { name: "Board 1" },
   "POST /api/v1/organizations/:organizationId/players": { displayName: "Fremde Spielerin", status: "ACTIVE" },
   "PATCH /api/v1/organizations/:organizationId/players/:playerId": { displayName: "Umbenannt" },
@@ -364,7 +369,11 @@ function fillRealParams(url: string, realIds: Record<string, string>): string {
 function payloadFor(route: RouteEntry): { payload?: object | Buffer; headers?: Record<string, string> } {
   const key = `${route.method} ${route.url}`;
   const isAvatarUpload = key.endsWith("/avatar") && route.method === "PUT";
-  if (route.method === "GET" || route.method === "DELETE") return {};
+  if (route.method === "GET") return {};
+  // Ein `DELETE` traegt ueberwiegend keinen Koerper; die eine Ausnahme
+  // (Organisation loeschen, Namensbestaetigung) steht in `bodies` und wird
+  // wie jede andere Route mit Koerper behandelt.
+  if (route.method === "DELETE" && bodies[key] === undefined) return {};
   if (isAvatarUpload) {
     return { payload: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), headers: { "content-type": "image/png" } };
   }

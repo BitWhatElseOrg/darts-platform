@@ -27,10 +27,22 @@ export const createPlayerSchema = z.object({
   status: playerStatusSchema.default("ACTIVE"),
 });
 
-export const updatePlayerSchema = createPlayerSchema.partial().refine(
-  (value) => Object.keys(value).length > 0,
-  "At least one player field must be provided.",
-);
+/**
+ * Wie `createPlayerSchema`, aber ohne den Status-Default: `.partial()` allein
+ * wuerde `status.default("ACTIVE")` aus dem Basisschema weiterhin auf jedes
+ * Update anwenden und so einen archivierten Spieler bei jeder Bearbeitung
+ * ohne Statusfeld (z. B. `PlayerEditDialog`) stillschweigend reaktivieren.
+ * Der Status wird darum aus dem Basisschema entfernt und ohne Default wieder
+ * angehaengt, bevor `.partial()` greift.
+ */
+export const updatePlayerSchema = createPlayerSchema
+  .omit({ status: true })
+  .extend({ status: playerStatusSchema.optional() })
+  .partial()
+  .refine(
+    (value) => Object.keys(value).length > 0,
+    "At least one player field must be provided.",
+  );
 
 export const playerSchema = z.object({
   id: z.uuid(),

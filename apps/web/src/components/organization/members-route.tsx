@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { hasOrganizationPermission, type OrganizationRole } from "@darts-platform/domain";
 import {
@@ -32,6 +32,7 @@ import {
 } from "@/lib/list-filter";
 import { buildInvitationLink } from "@/lib/invitation-link";
 import { roleLabel } from "@/lib/roles";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ListFilterBar } from "@/components/list-filter-bar";
 import { WorkspaceShell } from "@/components/workspace-shell";
 
@@ -125,6 +126,30 @@ function Members({ currentUserId, organization }: {
       }),
     onSuccess: invalidateMembers,
   });
+  const removeMember = useMutation({
+    mutationFn: (userId: string) =>
+      apiRequest({
+        path: `/organizations/${organization.id}/members/${userId}`,
+        method: "DELETE",
+        schema: z.undefined(),
+      }),
+  });
+
+  // Aufrufgebundenes `onSuccess` statt eines globalen (wie
+  // `runArchive`/`runDelete` in `player-list.tsx`, Task 1): `removeTarget`
+  // aus dem Komponenten-State koennte sich zwischen dem Absenden und der
+  // Antwort schon auf ein anderes Mitglied verschieben (Dialog geschlossen,
+  // neu geoeffnet) -- der Name in der Meldung und das bedingte Schliessen
+  // sollen aber zu GENAU diesem Aufruf gehoeren.
+  const runRemove = (target: OrganizationMember) => {
+    removeMember.mutate(target.userId, {
+      onSuccess: async () => {
+        await invalidateMembers();
+        setRemoveTarget((current) => (current !== null && current.userId === target.userId ? null : current));
+        setRemovedAnnouncement(`${target.displayName} wurde aus der Organisation entfernt.`);
+      },
+    });
+  };
   const cancelInvitation = useMutation({
     mutationFn: (invitationId: string) =>
       apiRequest({
@@ -156,12 +181,25 @@ function Members({ currentUserId, organization }: {
   // erledigt: Sie nimmt der handelnden Person die höchste Rolle und lässt
   // sich nur von der neuen Inhaberschaft rückgängig machen.
   const [ownerTransfer, setOwnerTransfer] = useState<OrganizationMember | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<OrganizationMember | null>(null);
+  const [removedAnnouncement, setRemovedAnnouncement] = useState<string | null>(null);
   const [filter, setFilter] = useState<MemberFilter>(defaultMemberFilter);
   // Vor dem Frühausstieg, damit die Hook-Reihenfolge stabil bleibt.
   const visibleMembers = useMemo(
     () => filterMembers(membersQuery.data ?? [], filter),
     [membersQuery.data, filter],
   );
+
+  // Fokusziel nach erfolgreichem Entfernen: die Zeile samt Entfernen-Button
+  // verschwindet mit ihr, `useDialogFocusReturn` faende also kein
+  // Rueckgabeziel mehr vor. Laeuft erst NACHDEM `ConfirmDialog` seinen
+  // eigenen schliessenden Effekt (Fokus-Rueckgabe an den bereits entfernten
+  // Button) durchlaufen hat: React fuehrt Effekte von Kindern vor denen der
+  // Elternkomponente aus (wie in `player-list.tsx`, Task 1).
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (removedAnnouncement !== null) headingRef.current?.focus();
+  }, [removedAnnouncement]);
 
   if (!mayManageMembers) {
     return (
@@ -185,10 +223,19 @@ function Members({ currentUserId, organization }: {
   return (
     <div className="space-y-8">
       <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6">
-        <h2 className="font-numerals text-title font-bold text-white">Mitglieder</h2>
+        <h2 className="font-numerals text-title font-bold text-white" ref={headingRef} tabIndex={-1}>
+          Mitglieder
+        </h2>
         {updateMember.error !== null ? (
           <p className="text-body text-rose-300" role="alert">{messageFrom(updateMember.error)}</p>
         ) : null}
+        {/*
+          Immer gemountet (Whole-Branch-Review, Befund 2, wie in
+          `player-list.tsx`): eine `role="status"`-Region, die erst nach dem
+          Einhaengen befuellt wird, kuendigt Screenreadern nicht zuverlaessig
+          an. Leer statt fehlend, solange nichts zu melden ist.
+        */}
+        <p className="text-body text-slate-300" role="status">{removedAnnouncement ?? ""}</p>
         {membersQuery.isPending ? (
           <p className="text-body text-slate-400">Mitglieder werden geladen …</p>
         ) : membersQuery.isError ? (
@@ -282,59 +329,66 @@ function Members({ currentUserId, organization }: {
                         : `Spielerprofil: ${member.player.displayName}`}
                     </p>
                   </div>
-                  {actions.canChangeRole || actions.canChangeStatus ? (
-                    <div className="grid gap-2 sm:w-64">
-                      <label className="block space-y-1">
-                        <span className="text-caption font-semibold tracking-[0.14em] text-slate-500 uppercase">
-                          Rolle
-                        </span>
-                        <select
-                          className={selectClassName}
-                          disabled={!actions.canChangeRole || pending}
-                          onChange={(event) => {
-                            const role = event.target.value as OrganizationRole;
-                            if (role === member.role) return;
-                            if (role === "OWNER") {
-                              setOwnerTransfer(member);
-                              return;
-                            }
-                            updateMember.mutate({ userId: member.userId, data: { role } });
-                          }}
-                          value={member.role}
+                  <div className="grid gap-2 sm:w-64">
+                    {actions.canChangeRole || actions.canChangeStatus ? (
+                      <>
+                        <label className="block space-y-1">
+                          <span className="text-caption font-semibold tracking-[0.14em] text-slate-500 uppercase">
+                            Rolle
+                          </span>
+                          <select
+                            className={selectClassName}
+                            disabled={!actions.canChangeRole || pending}
+                            onChange={(event) => {
+                              const role = event.target.value as OrganizationRole;
+                              if (role === member.role) return;
+                              if (role === "OWNER") {
+                                setOwnerTransfer(member);
+                                return;
+                              }
+                              updateMember.mutate({ userId: member.userId, data: { role } });
+                            }}
+                            value={member.role}
+                          >
+                            {assignableRoles(organization.role).map((role) => (
+                              <option key={role} value={role}>{roleLabel(role)}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <Button
+                          disabled={!actions.canChangeStatus || pending}
+                          onClick={() =>
+                            updateMember.mutate({
+                              userId: member.userId,
+                              data: { status: member.status === "SUSPENDED" ? "ACTIVE" : "SUSPENDED" },
+                            })
+                          }
+                          type="button"
+                          variant="outline"
                         >
-                          {assignableRoles(organization.role).map((role) => (
-                            <option key={role} value={role}>{roleLabel(role)}</option>
-                          ))}
-                        </select>
-                      </label>
+                          {member.status === "SUSPENDED" ? "Zugang reaktivieren" : "Zugang deaktivieren"}
+                        </Button>
+                      </>
+                    ) : null}
+                    <MemberPlayerLink
+                      member={member}
+                      organizationId={organization.id}
+                      players={playersQuery.data ?? []}
+                    />
+                    {actions.canRemove ? (
                       <Button
-                        disabled={!actions.canChangeStatus || pending}
-                        onClick={() =>
-                          updateMember.mutate({
-                            userId: member.userId,
-                            data: { status: member.status === "SUSPENDED" ? "ACTIVE" : "SUSPENDED" },
-                          })
-                        }
+                        onClick={() => {
+                          removeMember.reset();
+                          setRemovedAnnouncement(null);
+                          setRemoveTarget(member);
+                        }}
                         type="button"
                         variant="outline"
                       >
-                        {member.status === "SUSPENDED" ? "Zugang reaktivieren" : "Zugang deaktivieren"}
+                        Entfernen
                       </Button>
-                      <MemberPlayerLink
-                        member={member}
-                        organizationId={organization.id}
-                        players={playersQuery.data ?? []}
-                      />
-                    </div>
-                  ) : (
-                    <div className="grid gap-2 sm:w-64">
-                      <MemberPlayerLink
-                        member={member}
-                        organizationId={organization.id}
-                        players={playersQuery.data ?? []}
-                      />
-                    </div>
-                  )}
+                    ) : null}
+                  </div>
                 </li>
               );
             })}
@@ -440,6 +494,25 @@ function Members({ currentUserId, organization }: {
           setOwnerTransfer(null);
         }}
         pending={updateMember.isPending}
+      />
+
+      <ConfirmDialog
+        confirmLabel="Entfernen"
+        confirmVariant="danger"
+        description={
+          removeTarget === null
+            ? ""
+            : `${removeTarget.displayName} verliert den Zugang zu dieser Organisation. Eine Spieler-Verknüpfung wird gelöst. Das Konto bleibt bestehen, und du kannst die Person später wieder einladen. Wenn du den Zugang nur vorübergehend sperren willst, nutze «Zugang deaktivieren».`
+        }
+        error={removeMember.isError ? userFacingErrorMessage(removeMember.error) : null}
+        onCancel={() => setRemoveTarget(null)}
+        onConfirm={() => {
+          if (removeTarget === null) return;
+          runRemove(removeTarget);
+        }}
+        open={removeTarget !== null}
+        pending={removeMember.isPending}
+        title="Mitglied entfernen"
       />
     </div>
   );
