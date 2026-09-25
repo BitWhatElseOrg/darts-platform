@@ -1,0 +1,507 @@
+{
+  "case": "Probelauf 16 Spieler Gruppen->KO",
+  "date": "2026-09-25",
+  "environment": "staging",
+  "tournamentId": "c48375b6-37c3-40c7-a1ae-e87428ef9624",
+  "publicId": "b583f723-1544-4a58-a666-7f6dca57bbbc",
+  "durationS": 486,
+  "final": {
+    "status": "COMPLETED",
+    "played": 31,
+    "total": 31,
+    "winner": "Melanie Lüthi",
+    "recentResults": 10,
+    "scoringMatches": 29
+  },
+  "replayAfterCorrection": {
+    "winner": "Adrian Oberholzer",
+    "status": "COMPLETED"
+  },
+  "stats": {
+    "requests": 1563,
+    "http5xx": 0,
+    "http429": 0,
+    "http409": 31,
+    "http4xxOther": 0,
+    "minRateRemaining": 45,
+    "visits": 1031,
+    "visitsBust": 17,
+    "visitsCheckout": 73,
+    "duplicateResends": 35,
+    "staleVersionProbes": 17,
+    "undos": 22,
+    "legStarts": 26,
+    "assignments": 26,
+    "assignConflicts": 0,
+    "matchesPlayed": 29,
+    "engineMismatches": 0,
+    "durations": {
+      "visit": {
+        "n": 1083,
+        "p50": 75,
+        "p95": 109,
+        "max": 628
+      },
+      "dashboard": {
+        "n": 238,
+        "p50": 99,
+        "p95": 169,
+        "max": 221
+      },
+      "assign": {
+        "n": 26,
+        "p50": 120,
+        "p95": 219,
+        "max": 259
+      },
+      "publicLive": {
+        "n": 58,
+        "p50": 109,
+        "p95": 220,
+        "max": 283
+      }
+    },
+    "realtimeEvents": 1123,
+    "realtimeByType": {
+      "VISIT_RECORDED": 987,
+      "VISIT_REVERTED": 22,
+      "TOURNAMENT_MATCH_COMPLETED": 29,
+      "MATCH_COMPLETED": 29,
+      "TOURNAMENT_MATCH_ASSIGNED": 26,
+      "LEG_DECIDED": 26,
+      "TOURNAMENT_MATCH_REOPENED": 1,
+      "TOURNAMENT_MATCH_WALKOVER": 2,
+      "TOURNAMENT_PARTICIPANT_WITHDRAWN": 1
+    },
+    "realtimeLagMs": {
+      "n": 637,
+      "p50": 219,
+      "p95": 481,
+      "max": 1264
+    },
+    "publicMismatch": 0
+  },
+  "groups": [
+    {
+      "groupLabel": "A",
+      "qualifyCount": 2,
+      "playedMatches": 6,
+      "totalMatches": 6,
+      "rows": [
+        {
+          "position": 1,
+          "playerId": "c904b46c-8f8d-409f-80ac-9361bd8bfb9d",
+          "displayName": "Petra Rüegg",
+          "played": 3,
+          "won": 3,
+          "lost": 0,
+          "legsFor": 4,
+          "legsAgainst": 0,
+          "legDifference": 4,
+          "points": 6,
+          "withdrawn": false,
+          "qualified": true
+        },
+        {
+          "position": 2,
+          "playerId": "a5cabbad-3a8d-4348-93bd-eddccfcf7d31",
+          "displayName": "Reto Ammann",
+          "played": 3,
+          "won": 2,
+          "lost": 1,
+          "legsFor": 2,
+          "legsAgainst": 3,
+          "legDifference": -1,
+          "points": 4,
+          "withdrawn": false,
+          "qualified": true
+        },
+        {
+          "position": 3,
+          "playerId": "8c1a2f5f-bfbd-4982-960b-cdf2a9b4032a",
+          "displayName": "Sibylle Huber",
+          "played": 3,
+          "won": 1,
+          "lost": 2,
+          "legsFor": 2,
+          "legsAgainst": 0,
+          "legDifference": 2,
+          "points": 2,
+          "withdrawn": true,
+          "qualified": false
+        },
+        {
+          "position": 4,
+          "playerId": "1ddb6070-2f2c-4c49-b762-027f27d415d4",
+          "displayName": "Kevin Imhof",
+          "played": 3,
+          "won": 0,
+          "lost": 3,
+          "legsFor": 1,
+          "legsAgainst": 6,
+          "legDifference": -5,
+          "points": 0,
+          "withdrawn": false,
+          "qualified": false
+        }
+      ]
+    },
+    {
+      "groupLabel": "B",
+      "qualifyCount": 2,
+      "playedMatches": 6,
+      "totalMatches": 6,
+      "rows": [
+        {
+          "position": 1,
+          "playerId": "b0601ce0-36ec-45e7-905f-49ab0c0222f6",
+          "displayName": "Luca Gasser",
+          "played": 3,
+          "won": 3,
+          "lost": 0,
+          "legsFor": 6,
+          "legsAgainst": 1,
+          "legDifference": 5,
+          "points": 6,
+          "withdrawn": false,
+          "qualified": true
+        },
+        {
+          "position": 2,
+          "playerId": "50eadd3d-22cc-45db-9520-ee0aa5be2699",
+          "displayName": "Adrian Oberholzer",
+          "played": 3,
+          "won": 2,
+          "lost": 1,
+          "legsFor": 5,
+          "legsAgainst": 2,
+          "legDifference": 3,
+          "points": 4,
+          "withdrawn": false,
+          "qualified": true
+        },
+        {
+          "position": 3,
+          "playerId": "3b5457cd-3e29-4528-b762-0f0633820508",
+          "displayName": "Sandra Bühler",
+          "played": 3,
+          "won": 1,
+          "lost": 2,
+          "legsFor": 2,
+          "legsAgainst": 5,
+          "legDifference": -3,
+          "points": 2,
+          "withdrawn": false,
+          "qualified": false
+        },
+        {
+          "position": 4,
+          "playerId": "e62ee01f-3da3-4015-ba6a-0cb447b3390d",
+          "displayName": "Corinne Jäger",
+          "played": 3,
+          "won": 0,
+          "lost": 3,
+          "legsFor": 1,
+          "legsAgainst": 6,
+          "legDifference": -5,
+          "points": 0,
+          "withdrawn": false,
+          "qualified": false
+        }
+      ]
+    },
+    {
+      "groupLabel": "C",
+      "qualifyCount": 2,
+      "playedMatches": 6,
+      "totalMatches": 6,
+      "rows": [
+        {
+          "position": 1,
+          "playerId": "53fc713b-4944-49f1-972d-81b11e8d1318",
+          "displayName": "Tanja Näf",
+          "played": 3,
+          "won": 3,
+          "lost": 0,
+          "legsFor": 6,
+          "legsAgainst": 2,
+          "legDifference": 4,
+          "points": 6,
+          "withdrawn": false,
+          "qualified": true
+        },
+        {
+          "position": 2,
+          "playerId": "232671ba-b743-4529-9490-68740f2b0b5c",
+          "displayName": "Fabienne Fässler",
+          "played": 3,
+          "won": 2,
+          "lost": 1,
+          "legsFor": 5,
+          "legsAgainst": 4,
+          "legDifference": 1,
+          "points": 4,
+          "withdrawn": false,
+          "qualified": true
+        },
+        {
+          "position": 3,
+          "playerId": "e1ddf6e3-e54e-4671-bd56-54ad1a08baa4",
+          "displayName": "Marco Ceretti",
+          "played": 3,
+          "won": 1,
+          "lost": 2,
+          "legsFor": 4,
+          "legsAgainst": 5,
+          "legDifference": -1,
+          "points": 2,
+          "withdrawn": false,
+          "qualified": false
+        },
+        {
+          "position": 4,
+          "playerId": "2f1ff9cd-4391-4ee2-9223-3512aa4120a0",
+          "displayName": "Dario Keller",
+          "played": 3,
+          "won": 0,
+          "lost": 3,
+          "legsFor": 2,
+          "legsAgainst": 6,
+          "legDifference": -4,
+          "points": 0,
+          "withdrawn": false,
+          "qualified": false
+        }
+      ]
+    },
+    {
+      "groupLabel": "D",
+      "qualifyCount": 2,
+      "playedMatches": 6,
+      "totalMatches": 6,
+      "rows": [
+        {
+          "position": 1,
+          "playerId": "f1f7360d-037f-455e-8aee-7aca94c99e0a",
+          "displayName": "Melanie Lüthi",
+          "played": 3,
+          "won": 3,
+          "lost": 0,
+          "legsFor": 6,
+          "legsAgainst": 3,
+          "legDifference": 3,
+          "points": 6,
+          "withdrawn": false,
+          "qualified": true
+        },
+        {
+          "position": 2,
+          "playerId": "ba77016f-1c47-41ed-a111-ea9d52276296",
+          "displayName": "Pascal Egger",
+          "played": 3,
+          "won": 2,
+          "lost": 1,
+          "legsFor": 5,
+          "legsAgainst": 2,
+          "legDifference": 3,
+          "points": 4,
+          "withdrawn": false,
+          "qualified": true
+        },
+        {
+          "position": 3,
+          "playerId": "bee36d66-ee50-4caf-9846-e338200f00fd",
+          "displayName": "Silvan Meier",
+          "played": 3,
+          "won": 1,
+          "lost": 2,
+          "legsFor": 3,
+          "legsAgainst": 5,
+          "legDifference": -2,
+          "points": 2,
+          "withdrawn": false,
+          "qualified": false
+        },
+        {
+          "position": 4,
+          "playerId": "d28379ed-aac3-4e50-b928-dd9d2cfd6eff",
+          "displayName": "Nadine Dubois",
+          "played": 3,
+          "won": 0,
+          "lost": 3,
+          "legsFor": 2,
+          "legsAgainst": 6,
+          "legDifference": -4,
+          "points": 0,
+          "withdrawn": false,
+          "qualified": false
+        }
+      ]
+    }
+  ],
+  "bracket": [
+    {
+      "matchId": "8cdaad3a-d479-45ad-8406-32aaa85ee775",
+      "stageLabel": "K.-o. · Runde 1",
+      "round": 1,
+      "position": 1,
+      "status": "COMPLETED",
+      "resultType": "PLAYED",
+      "participantNames": [
+        "Petra Rüegg",
+        "Pascal Egger"
+      ],
+      "winnerDisplayName": "Pascal Egger"
+    },
+    {
+      "matchId": "bffdb016-e28a-4377-9c30-4c909197e55a",
+      "stageLabel": "K.-o. · Runde 1",
+      "round": 1,
+      "position": 2,
+      "status": "COMPLETED",
+      "resultType": "PLAYED",
+      "participantNames": [
+        "Adrian Oberholzer",
+        "Tanja Näf"
+      ],
+      "winnerDisplayName": "Adrian Oberholzer"
+    },
+    {
+      "matchId": "9c238e3c-a6f5-4ea5-b89c-da05ec3b0e0f",
+      "stageLabel": "K.-o. · Runde 1",
+      "round": 1,
+      "position": 3,
+      "status": "COMPLETED",
+      "resultType": "PLAYED",
+      "participantNames": [
+        "Reto Ammann",
+        "Melanie Lüthi"
+      ],
+      "winnerDisplayName": "Melanie Lüthi"
+    },
+    {
+      "matchId": "52451cdd-1da4-477d-8602-54f029c476d9",
+      "stageLabel": "K.-o. · Runde 1",
+      "round": 1,
+      "position": 4,
+      "status": "COMPLETED",
+      "resultType": "PLAYED",
+      "participantNames": [
+        "Luca Gasser",
+        "Fabienne Fässler"
+      ],
+      "winnerDisplayName": "Luca Gasser"
+    },
+    {
+      "matchId": "a93447b9-0927-4782-93b9-92e5ee812c99",
+      "stageLabel": "K.-o. · Runde 2",
+      "round": 2,
+      "position": 1,
+      "status": "COMPLETED",
+      "resultType": "PLAYED",
+      "participantNames": [
+        "Pascal Egger",
+        "Adrian Oberholzer"
+      ],
+      "winnerDisplayName": "Adrian Oberholzer"
+    },
+    {
+      "matchId": "680bcb6e-dae8-4a9f-a490-d8f547c55c5a",
+      "stageLabel": "K.-o. · Runde 2",
+      "round": 2,
+      "position": 2,
+      "status": "COMPLETED",
+      "resultType": "PLAYED",
+      "participantNames": [
+        "Melanie Lüthi",
+        "Luca Gasser"
+      ],
+      "winnerDisplayName": "Melanie Lüthi"
+    },
+    {
+      "matchId": "ee5b8638-e91f-4a7a-9282-d0a46e836dfb",
+      "stageLabel": "K.-o. · Runde 3",
+      "round": 3,
+      "position": 1,
+      "status": "COMPLETED",
+      "resultType": "PLAYED",
+      "participantNames": [
+        "Adrian Oberholzer",
+        "Melanie Lüthi"
+      ],
+      "winnerDisplayName": "Melanie Lüthi"
+    }
+  ],
+  "findingsFromRun": [
+    {
+      "time": "11:52:58.077",
+      "severity": "mittel",
+      "text": "Unerwarteter 409 beim Visit (Version 19)"
+    },
+    {
+      "time": "11:52:59.657",
+      "severity": "mittel",
+      "text": "Unerwarteter 409 beim Visit (Version 19)"
+    },
+    {
+      "time": "11:53:00.917",
+      "severity": "mittel",
+      "text": "Unerwarteter 409 beim Visit (Version 19)"
+    },
+    {
+      "time": "11:53:01.986",
+      "severity": "mittel",
+      "text": "Unerwarteter 409 beim Visit (Version 19)"
+    },
+    {
+      "time": "11:53:03.407",
+      "severity": "mittel",
+      "text": "Unerwarteter 409 beim Visit (Version 19)"
+    },
+    {
+      "time": "11:53:05.117",
+      "severity": "mittel",
+      "text": "Unerwarteter 409 beim Visit (Version 19)"
+    },
+    {
+      "time": "11:53:06.557",
+      "severity": "mittel",
+      "text": "Unerwarteter 409 beim Visit (Version 19)"
+    },
+    {
+      "time": "11:53:10.567",
+      "severity": "mittel",
+      "text": "Unerwarteter 409 beim Visit (Version 21)"
+    },
+    {
+      "time": "11:53:11.686",
+      "severity": "mittel",
+      "text": "Unerwarteter 409 beim Visit (Version 21)"
+    },
+    {
+      "time": "11:53:13.151",
+      "severity": "mittel",
+      "text": "Unerwarteter 409 beim Visit (Version 21)"
+    },
+    {
+      "time": "11:53:14.167",
+      "severity": "mittel",
+      "text": "Unerwarteter 409 beim Visit (Version 21)"
+    },
+    {
+      "time": "11:53:15.777",
+      "severity": "mittel",
+      "text": "Unerwarteter 409 beim Visit (Version 21)"
+    },
+    {
+      "time": "11:53:17.226",
+      "severity": "mittel",
+      "text": "Unerwarteter 409 beim Visit (Version 21)"
+    },
+    {
+      "time": "11:53:18.718",
+      "severity": "mittel",
+      "text": "Unerwarteter 409 beim Visit (Version 21)"
+    }
+  ]
+}
