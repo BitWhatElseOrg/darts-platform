@@ -47,6 +47,9 @@ if (playing) {
   await shot("06-live-board", `${web}/live/${st.publicId}/board/${playing.boardId}`);
 } else console.log("kein laufendes Match fuer Scoring-Screenshot");
 await shot("07-matches", `${web}/matches?organisation=${st.orgId}`);
+// Befund 3: die Turniermatch-ID aus dem Tableau ist keine Scoring-Match-ID -> 404-Bild der Scoringflaeche
+const bracketMatch = dash.bracket[0];
+if (bracketMatch) await shot("05b-scoring-404", `${web}/matches/${bracketMatch.matchId}?organisation=${st.orgId}`);
 // Mobile Ansicht der Kommandozentrale und der Scoringflaeche
 const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, storageState: await context.storageState() });
 const mp = await mobile.newPage();
