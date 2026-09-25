@@ -1,6 +1,5 @@
 "use client";
 
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -30,7 +29,7 @@ const readOnlyLabelClassName = "block text-caption font-semibold tracking-[0.14e
  * `packages/schemas/src/organization.ts`) — hier deshalb von Hand ergaenzt.
  * Modul-Konstante statt Neuberechnung bei jedem Render.
  */
-const TIMEZONE_OPTIONS = [...Intl.supportedValuesOf("timeZone"), "UTC"];
+const TIMEZONE_OPTIONS = [...new Set([...Intl.supportedValuesOf("timeZone"), "UTC"])];
 
 /**
  * Nur die vier Sprachen, in denen die Plattform bisher denkbar ist. Weitere
@@ -46,6 +45,26 @@ const LOCALE_OPTIONS = [
 /** Haengt einen gespeicherten, aber nicht gelisteten Wert als weitere Option an. */
 function withStoredValue(options: readonly string[], storedValue: string): readonly string[] {
   return options.includes(storedValue) ? options : [...options, storedValue];
+}
+
+/**
+ * Nur tatsaechlich bearbeitete Felder werden an `PATCH` geschickt. Die
+ * Zeitzonen-/Sprachspalten tragen historische Bestandsdaten ohne DB-Check
+ * (Ruling Fix-Runde 1): eine Organisation, deren gespeicherte Zeitzone die
+ * neue Validierung nicht mehr besteht, muesste trotzdem den Namen aendern
+ * koennen. Ein unveraendertes, ungueltiges Feld darf deshalb weder das
+ * Absenden verhindern noch versehentlich mitgeschickt werden — reine
+ * PATCH-Semantik statt PUT.
+ */
+function pickChangedFields(
+  values: UpdateOrganizationInput,
+  dirtyFields: Partial<Record<keyof UpdateOrganizationInput, unknown>>,
+): UpdateOrganizationInput {
+  const changed: UpdateOrganizationInput = {};
+  if (dirtyFields.name) changed.name = values.name;
+  if (dirtyFields.timezone) changed.timezone = values.timezone;
+  if (dirtyFields.locale) changed.locale = values.locale;
+  return changed;
 }
 
 export function OrganizationSettingsRoute({ requestedOrganizationId }: {
@@ -89,8 +108,12 @@ function OrganizationDetails({ organization, canUpdate }: {
   readonly canUpdate: boolean;
 }) {
   const queryClient = useQueryClient();
+  // Kein `zodResolver`: der validiert bei jedem Absenden alle registrierten
+  // Felder, auch unveraendert gebliebene. Eine historische, nicht mehr
+  // gueltige Zeitzone/Sprache wuerde dann jede Aenderung blockieren, selbst
+  // eine reine Namensaenderung. Stattdessen validiert `onSubmit` unten nur
+  // die tatsaechlich bearbeiteten Felder (`pickChangedFields`).
   const form = useForm<UpdateOrganizationInput>({
-    resolver: zodResolver(updateOrganizationSchema),
     defaultValues: {
       name: organization.name,
       timezone: organization.timezone,
@@ -143,7 +166,7 @@ function OrganizationDetails({ organization, canUpdate }: {
     );
   }
 
-  const { errors, isDirty } = form.formState;
+  const { errors, isDirty, dirtyFields } = form.formState;
   const { name: nameError, timezone: timezoneError, locale: localeError } = errors;
   const timezoneOptions = withStoredValue(TIMEZONE_OPTIONS, organization.timezone);
   const localeOptions = withStoredValue(
@@ -151,12 +174,35 @@ function OrganizationDetails({ organization, canUpdate }: {
     organization.locale,
   );
 
+  const onSubmit = form.handleSubmit((values) => {
+    const changed = pickChangedFields(values, dirtyFields);
+    if (Object.keys(changed).length === 0) {
+      // Nichts bearbeitet — kein Aufruf, statt ein PATCH ohne Feld zu senden
+      // (das `updateOrganizationSchema`-Refine wiese es ohnehin zurueck).
+      return;
+    }
+
+    const result = updateOrganizationSchema.safeParse(changed);
+    if (!result.success) {
+      form.clearErrors();
+      for (const issue of result.error.issues) {
+        const field = issue.path[0];
+        if (field === "name" || field === "timezone" || field === "locale") {
+          form.setError(field, { message: issue.message, type: "manual" });
+        }
+      }
+      return;
+    }
+
+    updateOrganization.mutate(result.data);
+  });
+
   return (
     <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6">
       <h2 className="font-numerals text-title font-bold text-white">Stammdaten</h2>
       <form
         className="grid gap-4 sm:grid-cols-2"
-        onSubmit={(event) => void form.handleSubmit((data) => updateOrganization.mutate(data))(event)}
+        onSubmit={(event) => void onSubmit(event)}
       >
         <div className="space-y-2">
           <label className={labelClassName} htmlFor="organization-name">Name</label>
@@ -221,7 +267,7 @@ function OrganizationDetails({ organization, canUpdate }: {
           </p>
         </div>
         <div className="sm:col-span-2">
-          <Button disabled={updateOrganization.isPending} type="submit">Speichern</Button>
+          <Button disabled={updateOrganization.isPending || !isDirty} type="submit">Speichern</Button>
         </div>
       </form>
       {updateOrganization.isError ? (

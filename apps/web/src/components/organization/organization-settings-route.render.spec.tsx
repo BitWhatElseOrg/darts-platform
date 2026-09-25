@@ -81,6 +81,28 @@ function renderRoute() {
   );
 }
 
+type ApiRequestCall = [{ readonly path: string; readonly method?: string; readonly body?: unknown }];
+
+/**
+ * `client.apiRequest.mock.calls` sammelt fuer den ganzen Dateilauf, nicht nur
+ * pro Test (kein `mockClear` in `beforeEach`). `.find(...)` griffe deshalb bei
+ * mehreren PATCH-Faellen den aeltesten Treffer aus einem frueheren Test ab —
+ * hier zaehlt immer der juengste.
+ */
+function patchCalls(): ApiRequestCall[] {
+  return (client.apiRequest.mock.calls as ApiRequestCall[]).filter(
+    ([input]) => input.method === "PATCH",
+  );
+}
+
+function lastPatchCall(): ApiRequestCall | undefined {
+  return patchCalls().at(-1);
+}
+
+function countPatchCalls(): number {
+  return patchCalls().length;
+}
+
 beforeEach(() => {
   server.organizations = [organization];
   server.updateRejection = null;
@@ -152,7 +174,9 @@ describe("OrganizationSettingsRoute", () => {
     expect(screen.queryByRole("button", { name: "Speichern" })).toBeNull();
   });
 
-  it("speichert die Stammdaten und zeigt eine Erfolgsmeldung", async () => {
+  it("speichert nur das geaenderte Feld und zeigt eine Erfolgsmeldung", async () => {
+    // PATCH-Semantik: unveraenderte Felder werden nicht mitgeschickt (siehe
+    // "sendet nur die geaenderte Zeitzone" weiter unten fuer die Begruendung).
     renderRoute();
 
     const nameInput = await screen.findByLabelText("Name");
@@ -161,13 +185,53 @@ describe("OrganizationSettingsRoute", () => {
 
     const status = await screen.findByRole("status");
     expect(status.textContent).toBe("Gespeichert.");
-    const patchCall = client.apiRequest.mock.calls.find(
-      ([input]: [{ readonly method?: string }]) => input.method === "PATCH",
-    );
+    const patchCall = lastPatchCall();
     expect(patchCall?.[0]).toMatchObject({
       path: `/organizations/${organization.id}`,
-      body: { name: "VFC Neustadt", timezone: "Europe/Zurich", locale: "de-CH" },
+      body: { name: "VFC Neustadt" },
     });
+    expect(patchCall?.[0].body).not.toHaveProperty("timezone");
+    expect(patchCall?.[0].body).not.toHaveProperty("locale");
+  });
+
+  it("sendet nur die geaenderte Zeitzone, auch wenn Name und Sprache unveraendert bleiben", async () => {
+    renderRoute();
+
+    const timezoneSelect = await screen.findByLabelText("Zeitzone");
+    fireEvent.change(timezoneSelect, { target: { value: "Europe/Berlin" } });
+    fireEvent.submit(screen.getByRole("button", { name: "Speichern" }).closest("form")!);
+
+    await screen.findByRole("status");
+    expect(lastPatchCall()?.[0].body).toEqual({ timezone: "Europe/Berlin" });
+  });
+
+  it("erlaubt eine Namensaenderung, obwohl die gespeicherte Zeitzone die neue Pruefung nicht mehr besteht", async () => {
+    // Bestandsdaten: die Spalte hat keinen DB-Check, eine historische
+    // Zeitzone kann daher ungueltig geworden sein. Eine reine
+    // Namensaenderung darf trotzdem funktionieren, ohne die unveraenderte
+    // Zeitzone erneut zu validieren oder mitzuschicken.
+    server.organizations = [{ ...organization, timezone: "Legacy/Invalid" }];
+    renderRoute();
+
+    const nameInput = await screen.findByLabelText("Name");
+    fireEvent.change(nameInput, { target: { value: "VFC Neustadt" } });
+    fireEvent.submit(screen.getByRole("button", { name: "Speichern" }).closest("form")!);
+
+    const status = await screen.findByRole("status");
+    expect(status.textContent).toBe("Gespeichert.");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(lastPatchCall()?.[0].body).toEqual({ name: "VFC Neustadt" });
+  });
+
+  it("sendet bei unveraenderten Feldern kein PATCH", async () => {
+    renderRoute();
+    await screen.findByLabelText("Name");
+    const patchCallsBefore = countPatchCalls();
+
+    fireEvent.submit(screen.getByRole("button", { name: "Speichern" }).closest("form")!);
+
+    await Promise.resolve();
+    expect(countPatchCalls()).toBe(patchCallsBefore);
   });
 
   it("zeigt den Gefahrenbereich nur fuer OWNER, nicht fuer ADMIN", async () => {
