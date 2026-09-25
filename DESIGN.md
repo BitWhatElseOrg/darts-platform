@@ -285,7 +285,7 @@ Ten steps, and only ten. All ten are in active use. Saira Condensed carries the 
 
 **The Hyphenation Rule.** Product language is German, where a compound is routinely longer than the column it is given. Prose carries `prose-de` (`hyphens: auto` plus `overflow-wrap: break-word`); `lang="de"` on `<html>` supplies the pattern. Prose measure is capped at `65ch`. Any `truncate` on a user-supplied name carries `title={…}`, because a clipped name must still be readable.
 
-**The One Voice Per Job Rule.** Saira Condensed for numerals and headings, Archivo for everything read as language. No third face, and no system display face substituted for either.
+**The One Voice Per Job Rule.** Saira Condensed for numerals and headings, Archivo for everything read as language. No third face, and no system display face substituted for either. The one sanctioned exception is a code the reader must copy exactly — an invitation code, a permission key — which is set in the system monospace stack (`font-mono`), in the app's code inputs and in the manual alike. That is a data voice, not a third face.
 
 **The Ten Steps Rule.** The ramp has exactly ten steps and they are the ones above. A size one pixel off an existing step is drift, not a decision: pick the neighbour. There are no literal `text-[…]` sizes left anywhere in `apps/web` or `packages/ui`: every one of the 215 call sites now names its role, and the entry page, scoreboard, live wallboard and workspace shell — which used to run a parallel `text-sm`/`text-3xl` ramp of their own — are on the same ten steps.
 
