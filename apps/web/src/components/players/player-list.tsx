@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useEffect, useMemo, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { z } from "zod";
 
 import { playerSchema, type PlayerResponse } from "@darts-platform/schemas";
@@ -53,15 +53,28 @@ export function PlayerList({
   readonly canEdit: boolean;
   readonly canArchive: boolean;
   readonly canDelete: boolean;
-  // Ziel fuer den Fokus nach erfolgreichem endgueltigem Loeschen (Task 1):
-  // die Zeile samt Loeschen-Button verschwindet, `useDialogFocusReturn`
-  // faende also kein Rueckgabeziel mehr vor. `roster-route.tsx` uebergibt
-  // hier den Ref auf die Ueberschrift "Spieler".
-  readonly headingRef?: RefObject<HTMLElement | null>;
+  // Ziel fuer den Fokus nach erfolgreichem endgueltigem Loeschen (Task 1) und
+  // nach Archivieren/Reaktivieren, wenn die Zeile dabei aus dem gefilterten
+  // Ergebnis faellt (Whole-Branch-Review, Befund 1): der einzige Aufrufer
+  // (`roster-route.tsx`) uebergibt immer den Ref auf die Ueberschrift
+  // "Spieler", darum kein optionales Prop mehr.
+  readonly headingRef: RefObject<HTMLElement | null>;
 }) {
   const [filter, setFilter] = useState<PlayerFilter>(defaultPlayerFilter);
   const [dialog, setDialog] = useState<PlayerDialogState | null>(null);
   const [deletedAnnouncement, setDeletedAnnouncement] = useState<string | null>(null);
+  // Fokusziel nach erfolgreichem Archivieren/Reaktivieren (Whole-Branch-
+  // Review, Befund 1): die Zeile bleibt zwar bestehen, aber der Button, der
+  // den Fokus haben sollte, wird durch einen anderen ersetzt (Archivieren <->
+  // Reaktivieren) -- `useDialogFocusReturn`/der Browser faenden dafuer kein
+  // Ziel mehr vor. Bei gesetztem Statusfilter faellt die Zeile ausserdem ganz
+  // aus der gefilterten Sicht; dann greift derselbe Ueberschrift-Fallback wie
+  // beim Loeschen.
+  const [rowFocusRequest, setRowFocusRequest] = useState<{
+    readonly playerId: string;
+    readonly label: string;
+    readonly expectedStatus: PlayerResponse["status"];
+  } | null>(null);
   const queryClient = useQueryClient();
 
   // Laeuft erst, NACHDEM das Kind `ConfirmDialog` seinen eigenen
@@ -71,8 +84,35 @@ export function PlayerList({
   // Ueberschrift gewinnt dadurch deterministisch, statt auf einen Timer zu
   // setzen.
   useEffect(() => {
-    if (deletedAnnouncement !== null) headingRef?.current?.focus();
+    if (deletedAnnouncement !== null) headingRef.current?.focus();
   }, [deletedAnnouncement, headingRef]);
+
+  // Dieselbe Reihenfolge-Garantie wie oben (Kind- vor Elterneffekt) gilt auch
+  // hier: das Archivieren-Dialog schliesst sich im selben Update, das diesen
+  // Effekt ausloest, `ConfirmDialog`s eigene Fokus-Rueckgabe ist also schon
+  // gelaufen. Zusaetzlich haengt der Effekt von `players` ab: der Refetch
+  // nach `invalidateQueries` kann eine eigene, separat geplante
+  // Aktualisierung sein, die den `players`-Stand hinter dem Erfolgs-Callback
+  // zurueckliegen laesst -- der Effekt wartet dann einfach auf den naechsten
+  // Durchlauf, sobald der neue Status tatsaechlich angekommen ist, statt auf
+  // einer festen Verzoegerung zu beruhen. Kein `setState` im Effekt-Koerper
+  // (ESLint `react-hooks/set-state-in-effect`): statt die Anfrage nach
+  // Erledigung zurueckzusetzen, merkt sich ein Ref, welche Anfrage schon
+  // bearbeitet wurde, damit derselbe Fokuswechsel nicht bei jedem spaeteren,
+  // unabhaengigen `players`-Update wiederholt wird.
+  const handledRowFocusRequestRef = useRef<typeof rowFocusRequest>(null);
+  useEffect(() => {
+    if (rowFocusRequest === null || handledRowFocusRequestRef.current === rowFocusRequest) return;
+    const { playerId, label, expectedStatus } = rowFocusRequest;
+    const current = players.find((candidate) => candidate.id === playerId);
+    if (current !== undefined && current.status !== expectedStatus) return;
+    handledRowFocusRequestRef.current = rowFocusRequest;
+    const row = document.querySelector<HTMLElement>(`[data-player-id="${CSS.escape(playerId)}"]`);
+    const buttons = row === null ? [] : Array.from(row.querySelectorAll("button"));
+    const preferred = buttons.find((button) => button.textContent?.trim() === label);
+    const target = preferred ?? buttons[0] ?? headingRef.current;
+    target?.focus();
+  }, [rowFocusRequest, players, headingRef]);
 
   const invalidatePlayers = () => queryClient.invalidateQueries({ queryKey: ["players", organizationId] });
 
@@ -115,6 +155,7 @@ export function PlayerList({
         // zwar nicht mehr aendern, die Pruefung bleibt aber die
         // eigentliche, vom Timing unabhaengige Garantie.
         setDialog((current) => (current !== null && current.player.id === target.id ? null : current));
+        setRowFocusRequest({ playerId: target.id, label: "Reaktivieren", expectedStatus: "INACTIVE" });
       },
     });
   };
@@ -137,8 +178,16 @@ export function PlayerList({
         body: { status: "ACTIVE" },
         schema: playerSchema,
       }),
-    onSuccess: () => invalidatePlayers(),
   });
+
+  const runReactivate = (target: PlayerResponse) => {
+    reactivateMutation.mutate(target.id, {
+      onSuccess: async () => {
+        await invalidatePlayers();
+        setRowFocusRequest({ playerId: target.id, label: "Archivieren", expectedStatus: "ACTIVE" });
+      },
+    });
+  };
 
   const openEdit = (player: PlayerResponse) => {
     setDeletedAnnouncement(null);
@@ -266,11 +315,15 @@ export function PlayerList({
         ]}
       />
 
-      {deletedAnnouncement !== null ? (
-        <p className="text-body text-slate-300" role="status">
-          {deletedAnnouncement}
-        </p>
-      ) : null}
+      {/*
+        Immer gemountet (Whole-Branch-Review, Befund 2): eine `role="status"`-
+        Region, die erst NACH dem Einhaengen befuellt wird, kuendigt
+        Screenreadern nicht zuverlaessig an. Leer statt fehlend, solange
+        nichts zu melden ist.
+      */}
+      <p className="text-body text-slate-300" role="status">
+        {deletedAnnouncement ?? ""}
+      </p>
 
       <div className="space-y-3">
         {isPending ? <p className="text-body text-slate-400">Spieler werden geladen …</p> : null}
@@ -283,7 +336,7 @@ export function PlayerList({
             onArchive={openArchive}
             onDelete={openDelete}
             onEdit={openEdit}
-            onReactivate={(target) => reactivateMutation.mutate(target.id)}
+            onReactivate={runReactivate}
             organizationId={organizationId}
             player={player}
             reactivateError={
@@ -388,7 +441,10 @@ function PlayerRow({
   readonly reactivateError: string | null;
 }) {
   return (
-    <div className="min-h-16 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+    <div
+      className="min-h-16 rounded-xl border border-slate-800 bg-slate-950/50 p-4"
+      data-player-id={player.id}
+    >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <PlayerAvatar decorative organizationId={organizationId} player={player} size={40} />

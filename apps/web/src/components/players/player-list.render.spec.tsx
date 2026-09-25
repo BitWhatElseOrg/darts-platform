@@ -5,12 +5,12 @@
 // oeffnet einen `PlayerEditDialog`, Archivieren und Loeschen oeffnen einen
 // `ConfirmDialog` statt sofort zu senden, Reaktivieren sendet direkt, und ein
 // 409 PLAYER_HAS_HISTORY beim Loeschen bietet "Stattdessen archivieren" an.
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { createElement, createRef } from "react";
+import { createElement, createRef, type RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PlayerResponse } from "@darts-platform/schemas";
+import { playerListSchema, type PlayerResponse } from "@darts-platform/schemas";
 
 // Wie in `api-client.spec.ts`: haelt den Test unabhaengig davon, ob
 // NEXT_PUBLIC_API_URL in der Umgebung gesetzt ist.
@@ -51,6 +51,8 @@ const client = vi.hoisted(() => {
 });
 vi.mock("@/lib/api-client", () => client);
 
+import { apiRequest } from "@/lib/api-client";
+
 import { PlayerList } from "./player-list";
 
 afterEach(() => {
@@ -90,6 +92,10 @@ function renderList(
   teams: ReadonlyMap<string, readonly string[]>,
   permissions: Partial<{ canArchive: boolean; canEdit: boolean; canDelete: boolean }> = {},
 ) {
+  // `headingRef` ist seit Task 4 ein Pflicht-Prop (der einzige Aufrufer
+  // uebergibt ihn immer); die meisten Tests hier pruefen keinen Fokus, daher
+  // reicht ein formloser Platzhalter-Ref ohne echtes Ueberschriftselement.
+  const headingRef = { current: null } as RefObject<HTMLElement | null>;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     createElement(
@@ -99,6 +105,7 @@ function renderList(
         canArchive: false,
         canDelete: false,
         canEdit: false,
+        headingRef,
         isPending: false,
         organizationId: "organisation-1",
         players,
@@ -120,6 +127,15 @@ describe("PlayerList", () => {
     expect(
       screen.getByText("Kein Spitzname · Aktiv · Ohne Team · Kein Konto verknüpft"),
     ).toBeTruthy();
+  });
+
+  it("haelt die Statusregion fuer 'Geloescht' dauerhaft im DOM, auch leer (Whole-Branch-Review, Befund 2)", () => {
+    // Eine `role="status"`-Region, die erst NACH dem Einhaengen befuellt
+    // wird, kuendigt Screenreadern nicht zuverlaessig an. Vor jeder Aktion
+    // muss sie also schon existieren, nur eben leer.
+    renderList([anna, bruno], new Map());
+
+    expect(screen.getByRole("status").textContent).toBe("");
   });
 
   it("nennt die Trefferzahl in einer aria-live-Region", () => {
@@ -318,6 +334,7 @@ describe("PlayerList", () => {
 
   it("PlayerEditDialog behaelt ungespeicherte Eingaben bei einem Hintergrund-Refetch (gleiche Werte, neue player-Referenz) (Fix-Runde 1, Befund 2)", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const headingRef = { current: null } as RefObject<HTMLElement | null>;
     const buildTree = (players: readonly PlayerResponse[]) =>
       createElement(
         QueryClientProvider,
@@ -326,6 +343,7 @@ describe("PlayerList", () => {
           canArchive: false,
           canDelete: false,
           canEdit: true,
+          headingRef,
           isPending: false,
           organizationId: "organisation-1",
           players,
@@ -606,5 +624,137 @@ describe("PlayerList", () => {
     });
     expect(document.activeElement).toBe(headingRef.current);
     expect(screen.getByRole("status").textContent).toBe("Anna Müller wurde gelöscht.");
+  });
+
+  describe("Fokus nach Archivieren/Reaktivieren (Whole-Branch-Review, Befund 1)", () => {
+    /**
+     * Anders als die Loeschen-Faelle oben braucht dieser Test eine echte
+     * Rueckkopplung: nach erfolgreichem Archivieren/Reaktivieren ruft
+     * `player-list.tsx` `invalidateQueries` auf, und erst der dadurch
+     * ausgeloeste Refetch liefert den geaenderten Status, der ueber
+     * sichtbar/ausgeblendet entscheidet. Ein statisches `players`-Array wie
+     * in `renderList` wuerde das nicht abbilden -- dieser Harness haelt
+     * darum eine kleine, ueber `apiRequest` erreichbare "Datenbank" und
+     * bindet sie ueber `useQuery` mit demselben Query-Key wie
+     * `roster-route.tsx` ein.
+     */
+    function renderRosterLikeHarness(
+      initialPlayers: readonly PlayerResponse[],
+      permissions: Partial<{ canArchive: boolean; canEdit: boolean; canDelete: boolean }>,
+    ) {
+      let database = initialPlayers.map((entry) => ({ ...entry }));
+      client.apiRequest.mockImplementation(
+        ({ path, method }: { readonly path: string; readonly method?: string }) => {
+          if ((method === undefined || method === "GET") && path === "/organizations/organisation-1/players") {
+            return Promise.resolve(database);
+          }
+          const match = /^\/organizations\/organisation-1\/players\/([^/]+)$/.exec(path);
+          if (match && method === "DELETE") {
+            const id = match[1];
+            database = database.map((entry) => (entry.id === id ? { ...entry, status: "INACTIVE" as const } : entry));
+            return Promise.resolve(database.find((entry) => entry.id === id));
+          }
+          if (match && method === "PATCH") {
+            const id = match[1];
+            database = database.map((entry) => (entry.id === id ? { ...entry, status: "ACTIVE" as const } : entry));
+            return Promise.resolve(database.find((entry) => entry.id === id));
+          }
+          return Promise.reject(new Error(`Unerwarteter Aufruf in der Testfixtur: ${method ?? "GET"} ${path}`));
+        },
+      );
+
+      const headingRef = createRef<HTMLHeadingElement>();
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+      function Harness() {
+        const query = useQuery({
+          queryKey: ["players", "organisation-1"],
+          queryFn: () =>
+            apiRequest({
+              path: "/organizations/organisation-1/players",
+              schema: playerListSchema,
+            }),
+        });
+        return createElement(
+          "div",
+          null,
+          createElement("h2", { ref: headingRef, tabIndex: -1 }, "Spieler"),
+          createElement(PlayerList, {
+            canArchive: false,
+            canDelete: false,
+            canEdit: false,
+            headingRef,
+            isPending: query.isPending,
+            organizationId: "organisation-1",
+            players: query.data ?? [],
+            teamsByPlayer: new Map(),
+            ...permissions,
+          }),
+        );
+      }
+
+      render(createElement(QueryClientProvider, { client: queryClient }, createElement(Harness)));
+      return { headingRef };
+    }
+
+    it("fokussiert nach erfolgreichem Archivieren den Reaktivieren-Button in derselben Zeile, wenn sie sichtbar bleibt", async () => {
+      renderRosterLikeHarness([anna], { canArchive: true, canEdit: true });
+
+      const archiveButton = await screen.findByRole("button", { name: "Archivieren" });
+      fireEvent.click(archiveButton);
+      const dialog = screen.getByRole("dialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Archivieren" }));
+
+      const reactivateButton = await waitFor(() =>
+        screen.getByRole("button", { name: "Reaktivieren" }),
+      );
+      expect(document.activeElement).toBe(reactivateButton);
+      expect(reactivateButton.closest("[data-player-id]")?.getAttribute("data-player-id")).toBe("a");
+    });
+
+    it("fokussiert nach erfolgreichem Archivieren die Ueberschrift, wenn der Statusfilter die Zeile danach ausblendet", async () => {
+      const { headingRef } = renderRosterLikeHarness([anna], { canArchive: true, canEdit: true });
+
+      await screen.findByRole("button", { name: "Archivieren" });
+      fireEvent.change(screen.getByLabelText("Status"), { target: { value: "ACTIVE" } });
+
+      const archiveButton = screen.getByRole("button", { name: "Archivieren" });
+      fireEvent.click(archiveButton);
+      const dialog = screen.getByRole("dialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Archivieren" }));
+
+      await waitFor(() => {
+        expect(screen.queryByText("Anna Müller")).toBeNull();
+      });
+      expect(document.activeElement).toBe(headingRef.current);
+    });
+
+    it("fokussiert nach erfolgreichem Reaktivieren den Archivieren-Button in derselben Zeile, wenn sie sichtbar bleibt", async () => {
+      const archived = player({ id: "a", displayName: "Anna Müller", status: "INACTIVE" });
+      renderRosterLikeHarness([archived], { canArchive: true, canEdit: true });
+
+      const reactivateButton = await screen.findByRole("button", { name: "Reaktivieren" });
+      fireEvent.click(reactivateButton);
+
+      const archiveButton = await waitFor(() => screen.getByRole("button", { name: "Archivieren" }));
+      expect(document.activeElement).toBe(archiveButton);
+      expect(archiveButton.closest("[data-player-id]")?.getAttribute("data-player-id")).toBe("a");
+    });
+
+    it("fokussiert nach erfolgreichem Reaktivieren die Ueberschrift, wenn der Statusfilter die Zeile danach ausblendet", async () => {
+      const archived = player({ id: "a", displayName: "Anna Müller", status: "INACTIVE" });
+      const { headingRef } = renderRosterLikeHarness([archived], { canArchive: true, canEdit: true });
+
+      await screen.findByRole("button", { name: "Reaktivieren" });
+      fireEvent.change(screen.getByLabelText("Status"), { target: { value: "INACTIVE" } });
+
+      const reactivateButton = screen.getByRole("button", { name: "Reaktivieren" });
+      fireEvent.click(reactivateButton);
+
+      await waitFor(() => {
+        expect(screen.queryByText("Anna Müller")).toBeNull();
+      });
+      expect(document.activeElement).toBe(headingRef.current);
+    });
   });
 });
