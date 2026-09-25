@@ -13,6 +13,17 @@ const organizationId = randomUUID();
 const now = new Date("2026-09-06T12:00:00.000Z");
 const old = new Date(now.getTime() - (OUTBOX_RETENTION_DAYS + 1) * 24 * 60 * 60 * 1000);
 const recent = new Date(now.getTime() - 60 * 1000);
+/**
+ * Im CI-Quality-Gate laufen api, web und worker parallel gegen dieselbe
+ * Datenbank. Ein fremder Poller (Statistik im Worker, Realtime-Relay in den
+ * API-Specs) kann eine "bleibt"-Zeile verteilen oder statistisch stempeln,
+ * bevor der Prune sie prueft -- dann fehlt sie im Set-Vergleich (Laeufe
+ * 35535180088 und 36134553715). Beide Poller ueberspringen Zeilen, deren
+ * `*_not_before` in der Zukunft liegt; die eigenen Zeilen tragen deshalb
+ * diesen Riegel. Der Prune selbst kennt die Felder nicht, die Aussage des
+ * Tests bleibt unveraendert.
+ */
+const untouchable = new Date("2099-01-01T00:00:00.000Z");
 
 beforeAll(async () => {
   await connection.database.insert(organizations).values({
@@ -37,11 +48,11 @@ describe("pruneProcessedOutboxEvents", () => {
         // 0: alt, verteilt, statistisch verarbeitet -> weg
         { organizationId, aggregateType: "Match", aggregateId: randomUUID(), eventType: "MATCH_COMPLETED", payload: {}, occurredAt: old, publishedAt: old, statisticsProcessedAt: old },
         // 1: alt, verteilt, aber statistisch offen -> bleibt
-        { organizationId, aggregateType: "Match", aggregateId: randomUUID(), eventType: "MATCH_COMPLETED", payload: {}, occurredAt: old, publishedAt: old },
+        { organizationId, aggregateType: "Match", aggregateId: randomUUID(), eventType: "MATCH_COMPLETED", payload: {}, occurredAt: old, publishedAt: old, statisticsNotBefore: untouchable },
         // 2: alt, verteilt, kein Statistikereignis -> weg
         { organizationId, aggregateType: "Match", aggregateId: randomUUID(), eventType: "VISIT_RECORDED", payload: {}, occurredAt: old, publishedAt: old },
         // 3: alt, noch nicht verteilt -> bleibt
-        { organizationId, aggregateType: "Match", aggregateId: randomUUID(), eventType: "VISIT_RECORDED", payload: {}, occurredAt: old },
+        { organizationId, aggregateType: "Match", aggregateId: randomUUID(), eventType: "VISIT_RECORDED", payload: {}, occurredAt: old, publishNotBefore: untouchable },
         // 4: frisch und vollstaendig verarbeitet -> bleibt
         { organizationId, aggregateType: "Match", aggregateId: randomUUID(), eventType: "MATCH_COMPLETED", payload: {}, occurredAt: recent, publishedAt: recent, statisticsProcessedAt: recent },
       ])
