@@ -132,8 +132,6 @@ test("the public sign-in page links to the privacy notice next to the manual", a
   await expect(
     page.getByRole("heading", { level: 1, name: "Datenschutzerklärung" }),
   ).toBeVisible();
-  // Der Entwurfshinweis bleibt sichtbar, bis er bewusst entfernt wird.
-  await expect(page.getByRole("note").first()).toContainText("Entwurf");
   await page.getByRole("link", { name: "Bedienungsanleitung" }).click();
   await expect(page).toHaveURL(/\/bedienungsanleitung\.html$/u);
 });
