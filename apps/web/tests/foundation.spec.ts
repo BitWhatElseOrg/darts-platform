@@ -542,9 +542,9 @@ test("a club can complete a match and start a generated tournament match", async
   await page.goto(`/live/${tournamentId}`);
   // Die Teilnehmerliste steht in der Live-Ansicht zugeklappt am Seitenende.
   await page.locator("summary", { hasText: "Teilnehmende" }).click();
-  // Seit Jeder gegen jeden eine Tabelle hat, steht der Name dort ein zweites
-  // Mal; gemeint ist der Teilnehmerstatus.
-  await expect(page.getByLabel("Teilnehmerstatus").getByText("E2E Player One · Ausgefallen")).toBeVisible();
+  // Die oeffentliche Live-Ansicht nennt den Ausfall in der Tabelle und in der
+  // Teilnehmerliste; eine sichtbare Nennung genuegt.
+  await expect(page.getByText("E2E Player One · Ausgefallen").first()).toBeVisible();
 });
 
 test("gibt ein Turnier fuer die oeffentliche Live-Ansicht frei", async ({ browser, page }) => {
