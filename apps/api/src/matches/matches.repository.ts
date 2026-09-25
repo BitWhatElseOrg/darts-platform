@@ -143,6 +143,11 @@ function toLegStartRule(value: string): LegStartRule {
   throw new ScoringValidationError("INVALID_LEG_START_RULE", "The stored leg start rule is unknown.");
 }
 
+/** Lebensdauer einer Board-Steuerungs-Lease; der Client erneuert alle 3 s. */
+const LEASE_TTL_MS = 10_000;
+/** Karenz nach Ablauf, in der nur derselbe Controller oder `force` uebernimmt. */
+export const LEASE_GRACE_MS = 5 * 60_000;
+
 @Injectable()
 export class MatchesRepository {
   public constructor(@Inject(DatabaseService) private readonly databaseService: DatabaseService) {}
@@ -374,8 +379,13 @@ export class MatchesRepository {
       if (match === undefined) return null;
       const [current] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
       const now = new Date();
-      const expiresAt = new Date(now.getTime() + 10_000);
-      const mayOwn = match.status === "IN_PROGRESS" && (input.force || current === undefined || current.controllerId === input.controllerId || current.expiresAt <= now);
+      const expiresAt = new Date(now.getTime() + LEASE_TTL_MS);
+      // Eine abgelaufene Lease eines ANDEREN Geraets gilt LEASE_GRACE_MS lang
+      // als "kurz verlassen" (Sperrbildschirm, Tab im Hintergrund) und faellt
+      // ohne force nicht an ein Geraet, das die Flaeche nur oeffnet; danach
+      // gilt das Board als verlassen (Spec 2026-09-25, Befund 5).
+      const abandoned = current !== undefined && current.expiresAt.getTime() + LEASE_GRACE_MS <= now.getTime();
+      const mayOwn = match.status === "IN_PROGRESS" && (input.force || current === undefined || current.controllerId === input.controllerId || abandoned);
       if (!mayOwn && current !== undefined) return { controllerId: current.controllerId, owned: false, expiresAt: current.expiresAt };
       if (!mayOwn) return { controllerId: input.controllerId, owned: false, expiresAt: now };
       await transaction.insert(boardControllerLeases).values({ matchId: input.matchId, organizationId: input.organizationId, controllerId: input.controllerId, userId: input.auth.user.id, expiresAt })

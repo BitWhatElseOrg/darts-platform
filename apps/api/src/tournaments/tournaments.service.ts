@@ -354,6 +354,37 @@ export class TournamentsService {
     }
   }
 
+  /**
+   * Loescht ein Turnier, in dem nichts gespielt wurde (Spec 2026-09-25,
+   * Befund 7). Kein Ergebnis, kein laufendes Match -- sonst 409; die
+   * Historie eines gespielten Turniers bleibt (ADR 0018).
+   */
+  public async delete(input: {
+    readonly organizationId: string;
+    readonly tournamentId: string;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<void> {
+    await this.require(input, "tournament:delete");
+    const outcome = await this.repository.remove({
+      organizationId: input.organizationId,
+      tournamentId: input.tournamentId,
+      auth: input.auth,
+      audit: input.audit,
+    });
+    switch (outcome) {
+      case "not-found":
+        throw new NotFoundException("Tournament not found.");
+      case "has-results":
+        throw new ConflictException({
+          code: "TOURNAMENT_HAS_RESULTS",
+          message: "Ein Turnier mit gespielten oder laufenden Matches lässt sich nicht löschen.",
+        });
+      case "deleted":
+        return;
+    }
+  }
+
   private async projectDashboard(data: TournamentDashboardData): Promise<TournamentDashboard> {
     // Eine Abfrage je Match statt eine je Match und Zusatzabfrage: `getStates`
     // laedt den Live-Bezug aller Paarungen gebuendelt (matches.repository.ts).
@@ -674,7 +705,7 @@ export class TournamentsService {
 
   private async require(
     input: { readonly organizationId: string; readonly auth: AuthContext },
-    permission: "tournament:read" | "tournament:create" | "tournament:update" | "board:assign",
+    permission: "tournament:read" | "tournament:create" | "tournament:update" | "tournament:share" | "tournament:delete" | "board:assign",
   ): Promise<void> {
     await this.access.requirePermission({
       organizationId: input.organizationId,

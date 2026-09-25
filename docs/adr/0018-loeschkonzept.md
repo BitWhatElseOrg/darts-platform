@@ -97,3 +97,15 @@ bleibt so.
 - `ARCHITECTURE.md` und die Bedienungsanleitung nennen die drei neuen Wege
   (Spieler endgültig löschen, Mitglied entfernen, Organisation löschen) und
   die jeweils nötige Permission.
+
+## Nachtrag 25.09.2026: Turniere
+
+Ein Turnier lässt sich löschen (`tournament:delete`, OWNER, ADMIN und
+TOURNAMENT_DIRECTOR), solange nichts gespielt wurde: kein Turniermatch mit
+Status `COMPLETED`, kein verknüpftes Scoring-Match. Freilose zählen nicht als
+gespielt. Sonst antwortet der Server mit 409 `TOURNAMENT_HAS_RESULTS` – ein
+gespieltes Turnier trägt Statistik, Spielerhistorie und Audit und bleibt,
+gleiche Linie wie `player:delete`. Die Turniertabellen kaskadieren auf
+`tournaments.id`; der Audit-Eintrag `TOURNAMENT_DELETED` bleibt im Mandanten
+und trägt Name, Format, Teilnehmer- und Matchzahl. Spec:
+`docs/superpowers/specs/2026-09-25-lease-karenz-turnier-loeschen-design.md`.

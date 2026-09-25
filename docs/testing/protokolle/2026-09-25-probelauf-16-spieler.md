@@ -132,9 +132,13 @@ Realtime-Service wartet beim Herunterfahren auf den laufenden
 Outbox-Durchlauf (`outbox-publish-loop.ts`) – beides Ursachen roter
 Quality-Gate-Läufe ohne Codefehler.
 
-Offen bleiben 5 (Lease-Übernahme beim blossen Öffnen, Verhaltensänderung mit
-eigener Spezifikation), 6 (Beobachtung, keine Änderung nötig) und 7
-(Löschen von Turnieren, eigenes Feature mit Autorisierung und Audit).
+Befunde 5 und 7 sind nach der Spec
+`docs/superpowers/specs/2026-09-25-lease-karenz-turnier-loeschen-design.md`
+behoben (Branch `fix/probelauf-befunde-5-7`): eine abgelaufene fremde Lease
+gilt fünf Minuten als «kurz verlassen» und fällt ohne «Steuerung übernehmen»
+an niemanden; Turniere ohne Ergebnisse lassen sich mit `tournament:delete`
+löschen (409 `TOURNAMENT_HAS_RESULTS` sonst). Offen bleibt nur 6
+(Beobachtung, keine Änderung nötig).
 
 Schwerwiegende Befunde (hoch/kritisch): **keine.** Scoring-Korrektheit,
 Idempotenz, Versionsprüfung, Turnierlebenszyklus, Qualifikation, Tableau,

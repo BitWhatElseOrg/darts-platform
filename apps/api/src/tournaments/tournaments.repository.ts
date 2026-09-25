@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, or, sql } from "drizzle-orm";
 
 import {
   auditEvents,
@@ -674,6 +674,56 @@ export class TournamentsRepository {
         correlationId: input.audit.correlationId,
       });
       return created.id;
+    });
+  }
+
+  /**
+   * Loescht ein Turnier ohne Ergebnisse (Spec 2026-09-25, Befund 7). Die
+   * Turniertabellen kaskadieren auf `tournaments.id`; Boards werden ueber
+   * `tournament_boards` nur entkoppelt. Freilose (`BYE`) zaehlen nicht als
+   * gespielt, ein verknuepftes Scoring-Match (laufend) sehr wohl.
+   */
+  public async remove(input: ActorInput): Promise<"deleted" | "not-found" | "has-results"> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [tournament] = await transaction
+        .select()
+        .from(tournaments)
+        .where(and(eq(tournaments.organizationId, input.organizationId), eq(tournaments.id, input.tournamentId)))
+        .for("update")
+        .limit(1);
+      if (tournament === undefined) return "not-found";
+      const matchRows = await transaction
+        .select({ status: tournamentMatches.status, scoringMatchId: tournamentMatches.scoringMatchId })
+        .from(tournamentMatches)
+        .where(and(eq(tournamentMatches.organizationId, input.organizationId), eq(tournamentMatches.tournamentId, input.tournamentId)));
+      if (matchRows.some((match) => match.status === "COMPLETED" || match.scoringMatchId !== null)) return "has-results";
+      const [participants] = await transaction
+        .select({ participantCount: count() })
+        .from(tournamentParticipants)
+        .where(and(eq(tournamentParticipants.organizationId, input.organizationId), eq(tournamentParticipants.tournamentId, input.tournamentId)));
+      const participantCount = participants?.participantCount ?? 0;
+      await transaction
+        .delete(tournaments)
+        .where(and(eq(tournaments.organizationId, input.organizationId), eq(tournaments.id, input.tournamentId)));
+      await transaction.insert(auditEvents).values({
+        organizationId: input.organizationId,
+        actorUserId: input.auth.user.id,
+        action: "TOURNAMENT_DELETED",
+        entityType: "Tournament",
+        entityId: input.tournamentId,
+        oldValue: {
+          name: tournament.name,
+          format: tournament.format,
+          status: tournament.status,
+          participantCount: Number(participantCount),
+          totalMatches: matchRows.length,
+        },
+        newValue: null,
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+      return "deleted";
     });
   }
 

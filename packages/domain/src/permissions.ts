@@ -22,6 +22,7 @@ export const organizationPermissions = [
   "tournament:create",
   "tournament:update",
   "tournament:share",
+  "tournament:delete",
   "statistics:read",
   "board:assign",
   "team:read",
@@ -62,6 +63,9 @@ const rolePermissions = {
     "tournament:create",
     "tournament:update",
     "tournament:share",
+    // Wer Turniere anlegt, darf ein versehentlich angelegtes entfernen;
+    // geloescht wird nur, was keine Ergebnisse hat (Spec 2026-09-25).
+    "tournament:delete",
     "statistics:read",
     "board:assign",
     "team:read",
