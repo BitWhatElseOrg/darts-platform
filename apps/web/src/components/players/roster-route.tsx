@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 
 import { hasOrganizationPermission } from "@darts-platform/domain";
 import {
@@ -56,10 +56,17 @@ function Roster({ organization }: { readonly organization: OrganizationSummary }
   const canArchivePlayers = hasOrganizationPermission(organization.role, "player:archive");
   const canDeletePlayers = hasOrganizationPermission(organization.role, "player:delete");
 
+  // Fokusziel nach erfolgreichem endgueltigem Loeschen (Task 1): die Zeile
+  // samt Loeschen-Button verschwindet mit ihr, `tabIndex={-1}` macht die
+  // sonst nicht fokussierbare Ueberschrift zu einem gueltigen Ziel.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
   return (
     <div className="space-y-10">
       <section className="space-y-5">
-        <h2 className="font-numerals text-title font-bold text-white">Spieler</h2>
+        <h2 className="font-numerals text-title font-bold text-white" ref={headingRef} tabIndex={-1}>
+          Spieler
+        </h2>
 
         {canCreatePlayers ? <PlayerForm organizationId={organization.id} /> : null}
 
@@ -67,6 +74,7 @@ function Roster({ organization }: { readonly organization: OrganizationSummary }
           canArchive={canArchivePlayers}
           canDelete={canDeletePlayers}
           canEdit={canEditPlayers}
+          headingRef={headingRef}
           isPending={playersQuery.isPending}
           organizationId={organization.id}
           players={playersQuery.data ?? []}

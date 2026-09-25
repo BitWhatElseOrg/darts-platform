@@ -198,15 +198,20 @@ async function openScoreboard(page: Page, label: string): Promise<void> {
 async function record(page: Page, points: number, checkout?: Checkout): Promise<void> {
   await typeRoundScore(page, points);
   if (checkout === undefined) {
-    // Nach erfolgreicher Übernahme setzt die Fläche das Ziffernfeld zurück;
-    // `roundValue` wird ausschliesslich bei tatsächlichem Erfolg geleert
-    // (match-scoreboard.tsx, `submitJustSucceeded`) — ein Versionskonflikt
-    // liesse den Wert bewusst stehen. Eine Zifferntaste aktiviert erst, wenn
-    // das Absenden vorbei ist (nicht mehr `submitPending`); erst danach zeigt
-    // "Aufnahme erfassen" gesperrt den geleerten, also erfolgreich
-    // übernommenen Wert.
-    await expect(page.getByRole("button", { name: "Ziffer 0" })).toBeEnabled();
-    await expect(page.getByRole("button", { name: "Aufnahme erfassen" })).toBeDisabled();
+    // Nach erfolgreicher Übernahme wechselt der Wurf zur Gegenseite; hat die
+    // unter Double In noch nicht eröffnet, zeigt die Fläche statt des
+    // Rundenfelds das Dart-Keypad (match-scoreboard.tsx, `dartEntryRequired`,
+    // round-entry.ts `requiresDartEntry`) — "Ziffer 0" gibt es dann gar nicht
+    // mehr, ein Warten allein darauf war in CI einmal rot (PR #73), lokal
+    // grün nur, weil der Refetch das Rennen meist gewann. Die Prüfung greift
+    // deshalb wie `openScoreboard` auf eine gewöhnliche Taste des jeweils
+    // gezeigten Keypads zurück ("Fehlwurf" im Dart-, "Ziffer 0" im
+    // Rundenmodus): beide aktivieren erst, wenn das Absenden vorbei ist
+    // (nicht mehr `submitPending`). Dass die Aufnahme dabei tatsächlich
+    // übernommen wurde, weisen die Aufrufer im Anschluss über den Restscore
+    // nach.
+    const anyPlainKey = page.getByRole("button", { name: /^(Fehlwurf|Ziffer 0)$/u });
+    await expect(anyPlainKey.first()).toBeEnabled();
     return;
   }
   const dialog = page.getByRole("dialog", { name: "Checkout erfassen" });

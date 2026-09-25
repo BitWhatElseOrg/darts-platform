@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { z } from "zod";
 
 import { playerSchema, type PlayerResponse } from "@darts-platform/schemas";
@@ -21,6 +21,21 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PlayerAvatar } from "./player-avatar";
 import { PlayerEditDialog } from "./player-edit-dialog";
 
+/**
+ * Einmal je Liste statt je Zeile (Task 1): vorher registrierte jede
+ * `PlayerRow` eigene `ConfirmDialog`-Instanzen (Archivieren, Löschen) und bei
+ * Bedarf einen `PlayerEditDialog`, jede mit eigenem dokumentweiten
+ * `focusout`-Listener aus `useDialogFocusReturn`. Diese diskriminierte Union
+ * erzwingt zusaetzlich Exklusivitaet: es kann nie mehr als eine Absicht
+ * gleichzeitig offen sein (vorher konnten z. B. das Archivieren-Dialog von
+ * Spieler A und das Loeschen-Dialog von Spieler B gleichzeitig offen bleiben,
+ * weil jede Zeile ihren eigenen Zustand hielt).
+ */
+type PlayerDialogState =
+  | { readonly kind: "edit"; readonly player: PlayerResponse }
+  | { readonly kind: "archive"; readonly player: PlayerResponse }
+  | { readonly kind: "delete"; readonly player: PlayerResponse };
+
 export function PlayerList({
   players,
   teamsByPlayer,
@@ -29,6 +44,7 @@ export function PlayerList({
   canEdit,
   canArchive,
   canDelete,
+  headingRef,
 }: {
   readonly players: readonly PlayerResponse[];
   readonly teamsByPlayer: ReadonlyMap<string, readonly string[]>;
@@ -37,8 +53,200 @@ export function PlayerList({
   readonly canEdit: boolean;
   readonly canArchive: boolean;
   readonly canDelete: boolean;
+  // Ziel fuer den Fokus nach erfolgreichem endgueltigem Loeschen (Task 1) und
+  // nach Archivieren/Reaktivieren, wenn die Zeile dabei aus dem gefilterten
+  // Ergebnis faellt (Whole-Branch-Review, Befund 1): der einzige Aufrufer
+  // (`roster-route.tsx`) uebergibt immer den Ref auf die Ueberschrift
+  // "Spieler", darum kein optionales Prop mehr.
+  readonly headingRef: RefObject<HTMLElement | null>;
 }) {
   const [filter, setFilter] = useState<PlayerFilter>(defaultPlayerFilter);
+  const [dialog, setDialog] = useState<PlayerDialogState | null>(null);
+  const [deletedAnnouncement, setDeletedAnnouncement] = useState<string | null>(null);
+  // Fokusziel nach erfolgreichem Archivieren/Reaktivieren (Whole-Branch-
+  // Review, Befund 1): die Zeile bleibt zwar bestehen, aber der Button, der
+  // den Fokus haben sollte, wird durch einen anderen ersetzt (Archivieren <->
+  // Reaktivieren) -- `useDialogFocusReturn`/der Browser faenden dafuer kein
+  // Ziel mehr vor. Bei gesetztem Statusfilter faellt die Zeile ausserdem ganz
+  // aus der gefilterten Sicht; dann greift derselbe Ueberschrift-Fallback wie
+  // beim Loeschen.
+  const [rowFocusRequest, setRowFocusRequest] = useState<{
+    readonly playerId: string;
+    readonly label: string;
+    readonly expectedStatus: PlayerResponse["status"];
+  } | null>(null);
+  const queryClient = useQueryClient();
+
+  // Laeuft erst, NACHDEM das Kind `ConfirmDialog` seinen eigenen
+  // schliessenden Effekt (Fokus-Rueckgabe an den -- nach dem Loeschen bereits
+  // entfernten -- auslösenden Button) durchlaufen hat: React fuehrt Effekte
+  // von Kindern vor denen der Elternkomponente aus. Der Griff auf die
+  // Ueberschrift gewinnt dadurch deterministisch, statt auf einen Timer zu
+  // setzen.
+  useEffect(() => {
+    if (deletedAnnouncement !== null) headingRef.current?.focus();
+  }, [deletedAnnouncement, headingRef]);
+
+  // Dieselbe Reihenfolge-Garantie wie oben (Kind- vor Elterneffekt) gilt auch
+  // hier: das Archivieren-Dialog schliesst sich im selben Update, das diesen
+  // Effekt ausloest, `ConfirmDialog`s eigene Fokus-Rueckgabe ist also schon
+  // gelaufen. Zusaetzlich haengt der Effekt von `players` ab: der Refetch
+  // nach `invalidateQueries` kann eine eigene, separat geplante
+  // Aktualisierung sein, die den `players`-Stand hinter dem Erfolgs-Callback
+  // zurueckliegen laesst -- der Effekt wartet dann einfach auf den naechsten
+  // Durchlauf, sobald der neue Status tatsaechlich angekommen ist, statt auf
+  // einer festen Verzoegerung zu beruhen. Kein `setState` im Effekt-Koerper
+  // (ESLint `react-hooks/set-state-in-effect`): statt die Anfrage nach
+  // Erledigung zurueckzusetzen, merkt sich ein Ref, welche Anfrage schon
+  // bearbeitet wurde, damit derselbe Fokuswechsel nicht bei jedem spaeteren,
+  // unabhaengigen `players`-Update wiederholt wird.
+  const handledRowFocusRequestRef = useRef<typeof rowFocusRequest>(null);
+  useEffect(() => {
+    if (rowFocusRequest === null || handledRowFocusRequestRef.current === rowFocusRequest) return;
+    const { playerId, label, expectedStatus } = rowFocusRequest;
+    const current = players.find((candidate) => candidate.id === playerId);
+    if (current !== undefined && current.status !== expectedStatus) return;
+    handledRowFocusRequestRef.current = rowFocusRequest;
+    const row = document.querySelector<HTMLElement>(`[data-player-id="${CSS.escape(playerId)}"]`);
+    const buttons = row === null ? [] : Array.from(row.querySelectorAll("button"));
+    const preferred = buttons.find((button) => button.textContent?.trim() === label);
+    const target = preferred ?? buttons[0] ?? headingRef.current;
+    target?.focus();
+  }, [rowFocusRequest, players, headingRef]);
+
+  const invalidatePlayers = () => queryClient.invalidateQueries({ queryKey: ["players", organizationId] });
+
+  // Kein globales `onSuccess` mehr auf der Mutation selbst (Fix-Runde 1,
+  // Review-Befund 1): `archiveMutation` ist jetzt fuer die ganze Liste
+  // geteilt. Ein globales `onSuccess`/`onError` haette bei jeder Antwort
+  // bedingungslos das GERADE offene Dialog angefasst -- auch dann, wenn der
+  // Aufruf, der diese Antwort ausgeloest hat, laengst zu einer anderen
+  // Person gehoerte (z. B. ein "Stattdessen archivieren" fuer X, dessen
+  // Antwort erst eintrifft, nachdem der Loeschen-Dialog fuer Y schon offen
+  // ist). Stattdessen bekommt jeder `mutate()`-Aufruf sein eigenes,
+  // aufrufgebundenes `onSuccess` (siehe `runArchive`/`onConfirm` unten), das
+  // den Zielspieler dieses konkreten Aufrufs geschlossen haelt und nur dann
+  // wirkt, wenn das aktuell offene Dialog noch zu genau diesem Spieler
+  // gehoert.
+  const archiveMutation = useMutation({
+    mutationFn: (playerId: string) =>
+      apiRequest({
+        path: `/organizations/${organizationId}/players/${playerId}`,
+        method: "DELETE",
+        schema: playerSchema,
+      }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (playerId: string) =>
+      apiRequest({
+        path: `/organizations/${organizationId}/players/${playerId}/permanent`,
+        method: "DELETE",
+        schema: z.undefined(),
+      }),
+  });
+
+  const runArchive = (target: PlayerResponse) => {
+    archiveMutation.mutate(target.id, {
+      onSuccess: async () => {
+        await invalidatePlayers();
+        // Nur schliessen, wenn das offene Dialog noch dieser Person gehoert
+        // -- waehrend der Anfrage kann sich das Dialog dank der Sperre unten
+        // zwar nicht mehr aendern, die Pruefung bleibt aber die
+        // eigentliche, vom Timing unabhaengige Garantie.
+        setDialog((current) => (current !== null && current.player.id === target.id ? null : current));
+        setRowFocusRequest({ playerId: target.id, label: "Reaktivieren", expectedStatus: "INACTIVE" });
+      },
+    });
+  };
+
+  const runDelete = (target: PlayerResponse) => {
+    deleteMutation.mutate(target.id, {
+      onSuccess: async () => {
+        await invalidatePlayers();
+        setDialog((current) => (current !== null && current.player.id === target.id ? null : current));
+        setDeletedAnnouncement(`${target.displayName} wurde gelöscht.`);
+      },
+    });
+  };
+
+  const reactivateMutation = useMutation({
+    mutationFn: (playerId: string) =>
+      apiRequest({
+        path: `/organizations/${organizationId}/players/${playerId}`,
+        method: "PATCH",
+        body: { status: "ACTIVE" },
+        schema: playerSchema,
+      }),
+  });
+
+  const runReactivate = (target: PlayerResponse) => {
+    reactivateMutation.mutate(target.id, {
+      onSuccess: async () => {
+        await invalidatePlayers();
+        setRowFocusRequest({ playerId: target.id, label: "Archivieren", expectedStatus: "ACTIVE" });
+      },
+    });
+  };
+
+  const openEdit = (player: PlayerResponse) => {
+    setDeletedAnnouncement(null);
+    setDialog({ kind: "edit", player });
+  };
+  const openArchive = (player: PlayerResponse) => {
+    setDeletedAnnouncement(null);
+    archiveMutation.reset();
+    setDialog({ kind: "archive", player });
+  };
+  const openDelete = (player: PlayerResponse) => {
+    // Beide Mutationen zuruecksetzen, nicht nur deleteMutation: ein
+    // vorheriger Archivieren-Fehlversuch (derselbe oder ein anderer Spieler,
+    // da die Mutation jetzt Listen- statt Zeilen-Zustand ist) darf im
+    // Loeschen-Dialog nicht als stille Karteikarte wieder auftauchen.
+    setDeletedAnnouncement(null);
+    deleteMutation.reset();
+    archiveMutation.reset();
+    setDialog({ kind: "delete", player });
+  };
+
+  // Beide Mutationen sind fuer die ganze Liste geteilt: `variables` haelt
+  // die zuletzt aufgerufene Spieler-ID fest. Ein Abgleich mit dem aktuell
+  // offenen Dialog verhindert, dass eine verspaetet eintreffende Antwort
+  // (z. B. ein "Stattdessen archivieren" fuer eine laengst geschlossene
+  // Person) sich faelschlich einem inzwischen geoeffneten, fremden Dialog
+  // zuordnet (Fix-Runde 1, Review-Befund 1).
+  const archiveMatchesDialog = dialog !== null && archiveMutation.variables === dialog.player.id;
+  const deleteMatchesDialog = dialog !== null && deleteMutation.variables === dialog.player.id;
+
+  const canOfferArchiveInstead =
+    dialog !== null &&
+    dialog.kind === "delete" &&
+    deleteMatchesDialog &&
+    deleteMutation.isError &&
+    deleteMutation.error instanceof ApiClientError &&
+    deleteMutation.error.code === "PLAYER_HAS_HISTORY" &&
+    dialog.player.status === "ACTIVE" &&
+    canArchive;
+
+  // Das Loeschen-Dialog darf sich nicht schliessen lassen, waehrend eine
+  // vom "Stattdessen archivieren"-Knopf ausgeloeste `archiveMutation` fuer
+  // GENAU diese Person noch laeuft -- vorher war `pending` hier nur an
+  // `deleteMutation.isPending` gebunden, sodass Abbrechen/Escape mitten in
+  // dieser Anfrage funktionierten (Fix-Runde 1, Review-Befund 1).
+  const deleteDialogPending = deleteMutation.isPending || (archiveMutation.isPending && archiveMatchesDialog);
+
+  const archiveDescription =
+    dialog !== null
+      ? `${dialog.player.displayName} kann danach keine neuen Matches und Turniere bestreiten. Resultate und Statistik bleiben erhalten, und du kannst den Spieler jederzeit reaktivieren.`
+      : "";
+  const deleteDescription =
+    dialog !== null
+      ? `${dialog.player.displayName} wird mit Profilbild und Statistik gelöscht. Das lässt sich nicht rückgängig machen. Spieler, die bereits gespielt haben oder in einem Turnier, Team oder einer Begegnung stehen, lassen sich nur archivieren.${
+          dialog.player.hasAccount
+            ? " Die Verknüpfung mit dem Benutzerkonto wird dabei aufgehoben; das Konto selbst bleibt bestehen."
+            : ""
+        }`
+      : "";
 
   const visible = useMemo(
     () => filterPlayers(players, filter, teamsByPlayer),
@@ -107,6 +315,16 @@ export function PlayerList({
         ]}
       />
 
+      {/*
+        Immer gemountet (Whole-Branch-Review, Befund 2): eine `role="status"`-
+        Region, die erst NACH dem Einhaengen befuellt wird, kuendigt
+        Screenreadern nicht zuverlaessig an. Leer statt fehlend, solange
+        nichts zu melden ist.
+      */}
+      <p className="text-body text-slate-300" role="status">
+        {deletedAnnouncement ?? ""}
+      </p>
+
       <div className="space-y-3">
         {isPending ? <p className="text-body text-slate-400">Spieler werden geladen …</p> : null}
         {visible.map((player) => (
@@ -115,8 +333,18 @@ export function PlayerList({
             canDelete={canDelete}
             canEdit={canEdit}
             key={player.id}
+            onArchive={openArchive}
+            onDelete={openDelete}
+            onEdit={openEdit}
+            onReactivate={runReactivate}
             organizationId={organizationId}
             player={player}
+            reactivateError={
+              reactivateMutation.isError && reactivateMutation.variables === player.id
+                ? userFacingErrorMessage(reactivateMutation.error)
+                : null
+            }
+            reactivatePending={reactivateMutation.isPending && reactivateMutation.variables === player.id}
             teams={teamsByPlayer.get(player.id) ?? []}
           />
         ))}
@@ -131,6 +359,56 @@ export function PlayerList({
           </p>
         ) : null}
       </div>
+
+      {dialog?.kind === "edit" ? (
+        <PlayerEditDialog onClose={() => setDialog(null)} organizationId={organizationId} player={dialog.player} />
+      ) : null}
+
+      <ConfirmDialog
+        confirmLabel={dialog?.kind === "archive" ? "Archivieren" : "Endgültig löschen"}
+        confirmVariant={dialog?.kind === "archive" ? "primary" : "danger"}
+        description={dialog?.kind === "archive" ? archiveDescription : deleteDescription}
+        error={
+          dialog?.kind === "archive"
+            ? archiveMutation.isError && archiveMatchesDialog
+              ? userFacingErrorMessage(archiveMutation.error)
+              : null
+            : dialog?.kind === "delete"
+              ? deleteMutation.isError && deleteMatchesDialog
+                ? userFacingErrorMessage(deleteMutation.error)
+                : null
+              : null
+        }
+        onCancel={() => setDialog(null)}
+        onConfirm={() => {
+          if (dialog === null) return;
+          if (dialog.kind === "archive") runArchive(dialog.player);
+          else if (dialog.kind === "delete") runDelete(dialog.player);
+        }}
+        open={dialog?.kind === "archive" || dialog?.kind === "delete"}
+        pending={dialog?.kind === "archive" ? archiveMutation.isPending : deleteDialogPending}
+        title={dialog?.kind === "archive" ? "Spieler archivieren" : "Spieler endgültig löschen"}
+      >
+        {canOfferArchiveInstead ? (
+          <>
+            <Button
+              disabled={archiveMutation.isPending}
+              onClick={() => {
+                if (dialog !== null) runArchive(dialog.player);
+              }}
+              type="button"
+              variant="outline"
+            >
+              Stattdessen archivieren
+            </Button>
+            {archiveMutation.isError && archiveMatchesDialog ? (
+              <p className="text-body text-rose-300" role="alert">
+                {userFacingErrorMessage(archiveMutation.error)}
+              </p>
+            ) : null}
+          </>
+        ) : null}
+      </ConfirmDialog>
     </div>
   );
 }
@@ -142,6 +420,12 @@ function PlayerRow({
   canEdit,
   canArchive,
   canDelete,
+  onEdit,
+  onArchive,
+  onDelete,
+  onReactivate,
+  reactivatePending,
+  reactivateError,
 }: {
   readonly player: PlayerResponse;
   readonly teams: readonly string[];
@@ -149,61 +433,18 @@ function PlayerRow({
   readonly canEdit: boolean;
   readonly canArchive: boolean;
   readonly canDelete: boolean;
+  readonly onEdit: (player: PlayerResponse) => void;
+  readonly onArchive: (player: PlayerResponse) => void;
+  readonly onDelete: (player: PlayerResponse) => void;
+  readonly onReactivate: (player: PlayerResponse) => void;
+  readonly reactivatePending: boolean;
+  readonly reactivateError: string | null;
 }) {
-  const queryClient = useQueryClient();
-  const [editOpen, setEditOpen] = useState(false);
-  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-
-  const archiveMutation = useMutation({
-    mutationFn: () =>
-      apiRequest({
-        path: `/organizations/${organizationId}/players/${player.id}`,
-        method: "DELETE",
-        schema: playerSchema,
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["players", organizationId] });
-      setArchiveConfirmOpen(false);
-      setDeleteConfirmOpen(false);
-    },
-  });
-
-  const reactivateMutation = useMutation({
-    mutationFn: () =>
-      apiRequest({
-        path: `/organizations/${organizationId}/players/${player.id}`,
-        method: "PATCH",
-        body: { status: "ACTIVE" },
-        schema: playerSchema,
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["players", organizationId] });
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: () =>
-      apiRequest({
-        path: `/organizations/${organizationId}/players/${player.id}/permanent`,
-        method: "DELETE",
-        schema: z.undefined(),
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["players", organizationId] });
-      setDeleteConfirmOpen(false);
-    },
-  });
-
-  const canOfferArchiveInstead =
-    deleteMutation.isError &&
-    deleteMutation.error instanceof ApiClientError &&
-    deleteMutation.error.code === "PLAYER_HAS_HISTORY" &&
-    player.status === "ACTIVE" &&
-    canArchive;
-
   return (
-    <div className="min-h-16 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+    <div
+      className="min-h-16 rounded-xl border border-slate-800 bg-slate-950/50 p-4"
+      data-player-id={player.id}
+    >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <PlayerAvatar decorative organizationId={organizationId} player={player} size={40} />
@@ -221,102 +462,32 @@ function PlayerRow({
         <div className="flex flex-wrap gap-2">
           <Link className="inline-flex min-h-10 items-center rounded-lg border border-slate-700 px-4 text-body font-medium text-slate-100" href={`/spieler/${player.id}?organisation=${organizationId}`}>Profil</Link>
           {canEdit ? (
-            <Button variant="outline" onClick={() => setEditOpen(true)}>
+            <Button variant="outline" onClick={() => onEdit(player)}>
               Bearbeiten
             </Button>
           ) : null}
           {canArchive && player.status === "ACTIVE" ? (
-            <Button
-              variant="outline"
-              onClick={() => {
-                archiveMutation.reset();
-                setArchiveConfirmOpen(true);
-              }}
-            >
+            <Button variant="outline" onClick={() => onArchive(player)}>
               Archivieren
             </Button>
           ) : null}
           {canEdit && player.status === "INACTIVE" ? (
-            <Button
-              disabled={reactivateMutation.isPending}
-              onClick={() => reactivateMutation.mutate()}
-              variant="outline"
-            >
+            <Button disabled={reactivatePending} onClick={() => onReactivate(player)} variant="outline">
               Reaktivieren
             </Button>
           ) : null}
           {canDelete ? (
-            <Button
-              variant="outline"
-              onClick={() => {
-                // Beide Mutationen zuruecksetzen, nicht nur deleteMutation:
-                // ein vorheriger Archivieren-Fehlversuch (derselbe Spieler,
-                // andere Aktion) darf im Loeschen-Dialog nicht als stille
-                // Karteikarte wieder auftauchen.
-                deleteMutation.reset();
-                archiveMutation.reset();
-                setDeleteConfirmOpen(true);
-              }}
-            >
+            <Button variant="outline" onClick={() => onDelete(player)}>
               Löschen
             </Button>
           ) : null}
         </div>
       </div>
-      {reactivateMutation.isError ? (
+      {reactivateError !== null ? (
         <p className="mt-2 text-body text-rose-300" role="alert">
-          {userFacingErrorMessage(reactivateMutation.error)}
+          {reactivateError}
         </p>
       ) : null}
-
-      {editOpen ? (
-        <PlayerEditDialog
-          onClose={() => setEditOpen(false)}
-          organizationId={organizationId}
-          player={player}
-        />
-      ) : null}
-
-      <ConfirmDialog
-        confirmLabel="Archivieren"
-        confirmVariant="primary"
-        description={`${player.displayName} kann danach keine neuen Matches und Turniere bestreiten. Resultate und Statistik bleiben erhalten, und du kannst den Spieler jederzeit reaktivieren.`}
-        error={archiveMutation.isError ? userFacingErrorMessage(archiveMutation.error) : null}
-        onCancel={() => setArchiveConfirmOpen(false)}
-        onConfirm={() => archiveMutation.mutate()}
-        open={archiveConfirmOpen}
-        pending={archiveMutation.isPending}
-        title="Spieler archivieren"
-      />
-
-      <ConfirmDialog
-        confirmLabel="Endgültig löschen"
-        description={`${player.displayName} wird mit Profilbild und Statistik gelöscht. Das lässt sich nicht rückgängig machen. Spieler, die bereits gespielt haben oder in einem Turnier, Team oder einer Begegnung stehen, lassen sich nur archivieren.`}
-        error={deleteMutation.isError ? userFacingErrorMessage(deleteMutation.error) : null}
-        onCancel={() => setDeleteConfirmOpen(false)}
-        onConfirm={() => deleteMutation.mutate()}
-        open={deleteConfirmOpen}
-        pending={deleteMutation.isPending}
-        title="Spieler endgültig löschen"
-      >
-        {canOfferArchiveInstead ? (
-          <>
-            <Button
-              disabled={archiveMutation.isPending}
-              onClick={() => archiveMutation.mutate()}
-              type="button"
-              variant="outline"
-            >
-              Stattdessen archivieren
-            </Button>
-            {archiveMutation.isError ? (
-              <p className="text-body text-rose-300" role="alert">
-                {userFacingErrorMessage(archiveMutation.error)}
-              </p>
-            ) : null}
-          </>
-        ) : null}
-      </ConfirmDialog>
     </div>
   );
 }

@@ -1,5 +1,73 @@
 import { z } from "zod";
 
+/**
+ * Eine numerische Offset-Zeitzone (z. B. "+01:00") ist kein IANA-Name und
+ * traegt keine DST-Regeln — sie darf trotz gueltiger `Intl`-Aufloesung nicht
+ * gespeichert werden. Node loest sie klaglos auf sich selbst auf (empirisch
+ * geprueft, Node 24: `new Intl.DateTimeFormat("en-US", { timeZone: "+01:00"
+ * }).resolvedOptions().timeZone === "+01:00"`), waehrend ein unbekannter Name
+ * wie "GMT+1" eine Exception wirft.
+ */
+const OFFSET_TIMEZONE_PATTERN = /^[+-]\d/;
+
+/**
+ * Kanonisiert eine Zeitzonenangabe ueber eine echte `Intl.DateTimeFormat`-
+ * Instanziierung statt einer Listenpruefung: `Intl.supportedValuesOf
+ * ("timeZone")` fehlt in dieser Node-Version "UTC", und die Aufloesung
+ * erledigt gleichzeitig Gross-/Kleinschreibung ("europe/zurich" ->
+ * "Europe/Zurich") und veraltete Aliase ("US/Pacific" ->
+ * "America/Los_Angeles", "EST" -> "America/Panama" — empirisch mit Node 24
+ * geprueft; beides sind gueltige IANA-Namen, `EST` ist im tzdata-Backward-File
+ * ein fixer Offset ohne DST, dessen Aequivalent Panama ist). `null` bei einer
+ * unbekannten Zeitzone oder einem numerischen Offset.
+ */
+function canonicalTimeZone(value: string): string | null {
+  if (OFFSET_TIMEZONE_PATTERN.test(value)) return null;
+  try {
+    const resolved = new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions().timeZone;
+    return OFFSET_TIMEZONE_PATTERN.test(resolved) ? null : resolved;
+  } catch {
+    return null;
+  }
+}
+
+/** `null` bei einem Sprachtag, das `Intl.getCanonicalLocales` zurueckweist. */
+function canonicalLocale(value: string): string | null {
+  try {
+    return Intl.getCanonicalLocales(value)[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+const timezoneValueSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .transform((value, ctx) => {
+    const canonical = canonicalTimeZone(value);
+    if (canonical === null) {
+      ctx.addIssue({ code: "custom", message: "Unbekannte Zeitzone." });
+      return z.NEVER;
+    }
+    return canonical;
+  });
+
+const localeValueSchema = z
+  .string()
+  .trim()
+  .min(2)
+  .max(35)
+  .transform((value, ctx) => {
+    const canonical = canonicalLocale(value);
+    if (canonical === null) {
+      ctx.addIssue({ code: "custom", message: "Unbekannte Sprache." });
+      return z.NEVER;
+    }
+    return canonical;
+  });
+
 export const organizationRoleSchema = z.enum([
   "OWNER",
   "ADMIN",
@@ -34,8 +102,8 @@ export const createOrganizationSchema = z.object({
     .min(2)
     .max(100)
     .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
-  timezone: z.string().trim().min(1).max(100).default("Europe/Zurich"),
-  locale: z.string().trim().min(2).max(35).default("de-CH"),
+  timezone: timezoneValueSchema.default("Europe/Zurich"),
+  locale: localeValueSchema.default("de-CH"),
 });
 
 /**
@@ -46,8 +114,8 @@ export const createOrganizationSchema = z.object({
 export const updateOrganizationSchema = z
   .object({
     name: z.string().trim().min(2).max(255).optional(),
-    timezone: z.string().trim().min(1).max(100).optional(),
-    locale: z.string().trim().min(2).max(35).optional(),
+    timezone: timezoneValueSchema.optional(),
+    locale: localeValueSchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one organization field must be provided.",

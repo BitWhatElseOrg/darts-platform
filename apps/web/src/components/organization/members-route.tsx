@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { hasOrganizationPermission, type OrganizationRole } from "@darts-platform/domain";
 import {
@@ -133,11 +133,23 @@ function Members({ currentUserId, organization }: {
         method: "DELETE",
         schema: z.undefined(),
       }),
-    onSuccess: async () => {
-      await invalidateMembers();
-      setRemoveTarget(null);
-    },
   });
+
+  // Aufrufgebundenes `onSuccess` statt eines globalen (wie
+  // `runArchive`/`runDelete` in `player-list.tsx`, Task 1): `removeTarget`
+  // aus dem Komponenten-State koennte sich zwischen dem Absenden und der
+  // Antwort schon auf ein anderes Mitglied verschieben (Dialog geschlossen,
+  // neu geoeffnet) -- der Name in der Meldung und das bedingte Schliessen
+  // sollen aber zu GENAU diesem Aufruf gehoeren.
+  const runRemove = (target: OrganizationMember) => {
+    removeMember.mutate(target.userId, {
+      onSuccess: async () => {
+        await invalidateMembers();
+        setRemoveTarget((current) => (current !== null && current.userId === target.userId ? null : current));
+        setRemovedAnnouncement(`${target.displayName} wurde aus der Organisation entfernt.`);
+      },
+    });
+  };
   const cancelInvitation = useMutation({
     mutationFn: (invitationId: string) =>
       apiRequest({
@@ -170,12 +182,24 @@ function Members({ currentUserId, organization }: {
   // sich nur von der neuen Inhaberschaft rückgängig machen.
   const [ownerTransfer, setOwnerTransfer] = useState<OrganizationMember | null>(null);
   const [removeTarget, setRemoveTarget] = useState<OrganizationMember | null>(null);
+  const [removedAnnouncement, setRemovedAnnouncement] = useState<string | null>(null);
   const [filter, setFilter] = useState<MemberFilter>(defaultMemberFilter);
   // Vor dem Frühausstieg, damit die Hook-Reihenfolge stabil bleibt.
   const visibleMembers = useMemo(
     () => filterMembers(membersQuery.data ?? [], filter),
     [membersQuery.data, filter],
   );
+
+  // Fokusziel nach erfolgreichem Entfernen: die Zeile samt Entfernen-Button
+  // verschwindet mit ihr, `useDialogFocusReturn` faende also kein
+  // Rueckgabeziel mehr vor. Laeuft erst NACHDEM `ConfirmDialog` seinen
+  // eigenen schliessenden Effekt (Fokus-Rueckgabe an den bereits entfernten
+  // Button) durchlaufen hat: React fuehrt Effekte von Kindern vor denen der
+  // Elternkomponente aus (wie in `player-list.tsx`, Task 1).
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (removedAnnouncement !== null) headingRef.current?.focus();
+  }, [removedAnnouncement]);
 
   if (!mayManageMembers) {
     return (
@@ -199,10 +223,19 @@ function Members({ currentUserId, organization }: {
   return (
     <div className="space-y-8">
       <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6">
-        <h2 className="font-numerals text-title font-bold text-white">Mitglieder</h2>
+        <h2 className="font-numerals text-title font-bold text-white" ref={headingRef} tabIndex={-1}>
+          Mitglieder
+        </h2>
         {updateMember.error !== null ? (
           <p className="text-body text-rose-300" role="alert">{messageFrom(updateMember.error)}</p>
         ) : null}
+        {/*
+          Immer gemountet (Whole-Branch-Review, Befund 2, wie in
+          `player-list.tsx`): eine `role="status"`-Region, die erst nach dem
+          Einhaengen befuellt wird, kuendigt Screenreadern nicht zuverlaessig
+          an. Leer statt fehlend, solange nichts zu melden ist.
+        */}
+        <p className="text-body text-slate-300" role="status">{removedAnnouncement ?? ""}</p>
         {membersQuery.isPending ? (
           <p className="text-body text-slate-400">Mitglieder werden geladen …</p>
         ) : membersQuery.isError ? (
@@ -346,6 +379,7 @@ function Members({ currentUserId, organization }: {
                       <Button
                         onClick={() => {
                           removeMember.reset();
+                          setRemovedAnnouncement(null);
                           setRemoveTarget(member);
                         }}
                         type="button"
@@ -474,7 +508,7 @@ function Members({ currentUserId, organization }: {
         onCancel={() => setRemoveTarget(null)}
         onConfirm={() => {
           if (removeTarget === null) return;
-          removeMember.mutate(removeTarget.userId);
+          runRemove(removeTarget);
         }}
         open={removeTarget !== null}
         pending={removeMember.isPending}

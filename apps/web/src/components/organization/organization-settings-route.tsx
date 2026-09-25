@@ -1,6 +1,5 @@
 "use client";
 
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -24,6 +23,49 @@ const inputClassName =
   "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
 const labelClassName = "block text-body font-medium text-slate-300";
 const readOnlyLabelClassName = "block text-caption font-semibold tracking-[0.14em] text-slate-500 uppercase";
+
+/**
+ * `Intl.supportedValuesOf("timeZone")` fehlt "UTC" (siehe
+ * `packages/schemas/src/organization.ts`) — hier deshalb von Hand ergaenzt.
+ * Modul-Konstante statt Neuberechnung bei jedem Render.
+ */
+const TIMEZONE_OPTIONS = [...new Set([...Intl.supportedValuesOf("timeZone"), "UTC"])];
+
+/**
+ * Nur die vier Sprachen, in denen die Plattform bisher denkbar ist. Weitere
+ * Gebietsschemas kommen dazu, sobald sie tatsaechlich benutzt werden.
+ */
+const LOCALE_OPTIONS = [
+  { value: "de-CH", label: "Deutsch (Schweiz)" },
+  { value: "fr-CH", label: "Französisch (Schweiz)" },
+  { value: "it-CH", label: "Italienisch (Schweiz)" },
+  { value: "en-GB", label: "Englisch" },
+] as const;
+
+/** Haengt einen gespeicherten, aber nicht gelisteten Wert als weitere Option an. */
+function withStoredValue(options: readonly string[], storedValue: string): readonly string[] {
+  return options.includes(storedValue) ? options : [...options, storedValue];
+}
+
+/**
+ * Nur tatsaechlich bearbeitete Felder werden an `PATCH` geschickt. Die
+ * Zeitzonen-/Sprachspalten tragen historische Bestandsdaten ohne DB-Check
+ * (Ruling Fix-Runde 1): eine Organisation, deren gespeicherte Zeitzone die
+ * neue Validierung nicht mehr besteht, muesste trotzdem den Namen aendern
+ * koennen. Ein unveraendertes, ungueltiges Feld darf deshalb weder das
+ * Absenden verhindern noch versehentlich mitgeschickt werden — reine
+ * PATCH-Semantik statt PUT.
+ */
+function pickChangedFields(
+  values: UpdateOrganizationInput,
+  dirtyFields: Partial<Record<keyof UpdateOrganizationInput, unknown>>,
+): UpdateOrganizationInput {
+  const changed: UpdateOrganizationInput = {};
+  if (dirtyFields.name) changed.name = values.name;
+  if (dirtyFields.timezone) changed.timezone = values.timezone;
+  if (dirtyFields.locale) changed.locale = values.locale;
+  return changed;
+}
 
 export function OrganizationSettingsRoute({ requestedOrganizationId }: {
   readonly requestedOrganizationId: string | undefined;
@@ -66,8 +108,12 @@ function OrganizationDetails({ organization, canUpdate }: {
   readonly canUpdate: boolean;
 }) {
   const queryClient = useQueryClient();
+  // Kein `zodResolver`: der validiert bei jedem Absenden alle registrierten
+  // Felder, auch unveraendert gebliebene. Eine historische, nicht mehr
+  // gueltige Zeitzone/Sprache wuerde dann jede Aenderung blockieren, selbst
+  // eine reine Namensaenderung. Stattdessen validiert `onSubmit` unten nur
+  // die tatsaechlich bearbeiteten Felder (`pickChangedFields`).
   const form = useForm<UpdateOrganizationInput>({
-    resolver: zodResolver(updateOrganizationSchema),
     defaultValues: {
       name: organization.name,
       timezone: organization.timezone,
@@ -120,15 +166,43 @@ function OrganizationDetails({ organization, canUpdate }: {
     );
   }
 
-  const { errors, isDirty } = form.formState;
+  const { errors, isDirty, dirtyFields } = form.formState;
   const { name: nameError, timezone: timezoneError, locale: localeError } = errors;
+  const timezoneOptions = withStoredValue(TIMEZONE_OPTIONS, organization.timezone);
+  const localeOptions = withStoredValue(
+    LOCALE_OPTIONS.map((option) => option.value),
+    organization.locale,
+  );
+
+  const onSubmit = form.handleSubmit((values) => {
+    const changed = pickChangedFields(values, dirtyFields);
+    if (Object.keys(changed).length === 0) {
+      // Nichts bearbeitet — kein Aufruf, statt ein PATCH ohne Feld zu senden
+      // (das `updateOrganizationSchema`-Refine wiese es ohnehin zurueck).
+      return;
+    }
+
+    const result = updateOrganizationSchema.safeParse(changed);
+    if (!result.success) {
+      form.clearErrors();
+      for (const issue of result.error.issues) {
+        const field = issue.path[0];
+        if (field === "name" || field === "timezone" || field === "locale") {
+          form.setError(field, { message: issue.message, type: "manual" });
+        }
+      }
+      return;
+    }
+
+    updateOrganization.mutate(result.data);
+  });
 
   return (
     <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6">
       <h2 className="font-numerals text-title font-bold text-white">Stammdaten</h2>
       <form
         className="grid gap-4 sm:grid-cols-2"
-        onSubmit={(event) => void form.handleSubmit((data) => updateOrganization.mutate(data))(event)}
+        onSubmit={(event) => void onSubmit(event)}
       >
         <div className="space-y-2">
           <label className={labelClassName} htmlFor="organization-name">Name</label>
@@ -147,31 +221,41 @@ function OrganizationDetails({ organization, canUpdate }: {
         </div>
         <div className="space-y-2">
           <label className={labelClassName} htmlFor="organization-timezone">Zeitzone</label>
-          <input
+          <select
             aria-describedby={timezoneError ? "organization-timezone-error" : undefined}
             aria-invalid={timezoneError ? true : undefined}
             className={inputClassName}
             id="organization-timezone"
             {...form.register("timezone")}
-          />
+          >
+            {timezoneOptions.map((timezone) => (
+              <option key={timezone} value={timezone}>{timezone}</option>
+            ))}
+          </select>
           {timezoneError ? (
             <p className="text-body text-rose-300" id="organization-timezone-error" role="alert">
-              Bitte eine Zeitzone angeben.
+              {timezoneError.message ?? "Bitte eine Zeitzone angeben."}
             </p>
           ) : null}
         </div>
         <div className="space-y-2">
           <label className={labelClassName} htmlFor="organization-locale">Sprache</label>
-          <input
+          <select
             aria-describedby={localeError ? "organization-locale-error" : undefined}
             aria-invalid={localeError ? true : undefined}
             className={inputClassName}
             id="organization-locale"
             {...form.register("locale")}
-          />
+          >
+            {localeOptions.map((locale) => (
+              <option key={locale} value={locale}>
+                {LOCALE_OPTIONS.find((option) => option.value === locale)?.label ?? locale}
+              </option>
+            ))}
+          </select>
           {localeError ? (
             <p className="text-body text-rose-300" id="organization-locale-error" role="alert">
-              Bitte eine Sprache mit mindestens 2 Zeichen angeben.
+              {localeError.message ?? "Bitte eine Sprache angeben."}
             </p>
           ) : null}
         </div>
@@ -183,7 +267,7 @@ function OrganizationDetails({ organization, canUpdate }: {
           </p>
         </div>
         <div className="sm:col-span-2">
-          <Button disabled={updateOrganization.isPending} type="submit">Speichern</Button>
+          <Button disabled={updateOrganization.isPending || !isDirty} type="submit">Speichern</Button>
         </div>
       </form>
       {updateOrganization.isError ? (
