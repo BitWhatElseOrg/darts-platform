@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { io, type Socket } from "socket.io-client";
 import { previewVisitOutcome } from "@darts-platform/scoring-engine";
-import { readStagingConfig, signIn, type StagingSession } from "/home/sut/projects/darts-platform/apps/api/test/staging/staging-client.js";
+import { readStagingConfig, signIn, type StagingSession } from "./staging-client.js";
 
 const OUT = process.env.SIM_OUT ?? "/tmp/sim";
 const LOG = `${OUT}.log`;
