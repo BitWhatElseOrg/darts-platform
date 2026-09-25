@@ -46,6 +46,9 @@ import type { TournamentCorrectionResult } from "../matches/matches.repository.j
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { DisplayKeysService } from "./display-keys.service.js";
 import { isMatchOverrunning } from "./match-overrun.js";
+
+/** Bezeichnung der einzigen Phase eines Jeder-gegen-jeden-Turniers (auch Match-Stage-Label im Repository). */
+const ROUND_ROBIN_LABEL = "Jeder gegen jeden";
 import {
   TournamentsRepository,
   type TournamentDashboardData,
@@ -354,6 +357,37 @@ export class TournamentsService {
     }
   }
 
+  /**
+   * Loescht ein Turnier, in dem nichts gespielt wurde (Spec 2026-09-25,
+   * Befund 7). Kein Ergebnis, kein laufendes Match -- sonst 409; die
+   * Historie eines gespielten Turniers bleibt (ADR 0018).
+   */
+  public async delete(input: {
+    readonly organizationId: string;
+    readonly tournamentId: string;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<void> {
+    await this.require(input, "tournament:delete");
+    const outcome = await this.repository.remove({
+      organizationId: input.organizationId,
+      tournamentId: input.tournamentId,
+      auth: input.auth,
+      audit: input.audit,
+    });
+    switch (outcome) {
+      case "not-found":
+        throw new NotFoundException("Tournament not found.");
+      case "has-results":
+        throw new ConflictException({
+          code: "TOURNAMENT_HAS_RESULTS",
+          message: "Ein Turnier mit gespielten oder laufenden Matches lässt sich nicht löschen.",
+        });
+      case "deleted":
+        return;
+    }
+  }
+
   private async projectDashboard(data: TournamentDashboardData): Promise<TournamentDashboard> {
     // Eine Abfrage je Match statt eine je Match und Zusatzabfrage: `getStates`
     // laedt den Live-Bezug aller Paarungen gebuendelt (matches.repository.ts).
@@ -501,11 +535,18 @@ export class TournamentsService {
       };
     });
 
-    const groups: GroupStanding[] = data.groups.map((group) => {
-      const members = data.groupParticipants
-        .filter((participant) => participant.groupId === group.id)
-        .map((participant) => ({ playerId: participant.playerId, seed: participant.seed }));
-      const groupMatches = data.matches.filter((match) => match.groupId === group.id);
+    /**
+     * Eine Tabelle aus Teilnehmern und Matches -- fuer jede Gruppe, und bei
+     * Jeder gegen jeden fuer das ganze Feld (Sichtprobe 25.09.2026: das
+     * Format hat keine Gruppenzeilen und blieb deshalb ohne Tabelle).
+     */
+    const buildStanding = (input: {
+      readonly label: string;
+      readonly qualifyCount: number;
+      readonly members: readonly { readonly playerId: string; readonly seed: number }[];
+      readonly matches: readonly (typeof data.matches)[number][];
+    }): GroupStanding => {
+      const { members, matches: groupMatches } = input;
       const results: GroupMatchResult[] = [];
       for (const match of groupMatches) {
         if (
@@ -548,11 +589,11 @@ export class TournamentsService {
       const ranking = calculateGroupStandings({ participants: members, results, withdrawnPlayerIds });
       const complete = results.length === groupMatches.length;
       const qualifiedPlayerIds = new Set(
-        ranking.filter((row) => !row.withdrawn).slice(0, group.qualifyCount).map((row) => row.playerId),
+        ranking.filter((row) => !row.withdrawn).slice(0, input.qualifyCount).map((row) => row.playerId),
       );
       return {
-        groupLabel: group.label,
-        qualifyCount: group.qualifyCount,
+        groupLabel: input.label,
+        qualifyCount: input.qualifyCount,
         playedMatches: results.length,
         totalMatches: groupMatches.length,
         rows: ranking.map((row) => ({
@@ -561,7 +602,27 @@ export class TournamentsService {
           qualified: complete && qualifiedPlayerIds.has(row.playerId),
         })),
       };
-    });
+    };
+    const groups: GroupStanding[] =
+      data.tournament.format === "ROUND_ROBIN" && data.groups.length === 0
+        ? [
+            buildStanding({
+              label: ROUND_ROBIN_LABEL,
+              qualifyCount: 0,
+              members: data.participants.map((participant) => ({ playerId: participant.playerId, seed: participant.seed })),
+              matches: data.matches.filter((match) => match.groupId === null),
+            }),
+          ]
+        : data.groups.map((group) =>
+            buildStanding({
+              label: group.label,
+              qualifyCount: group.qualifyCount,
+              members: data.groupParticipants
+                .filter((participant) => participant.groupId === group.id)
+                .map((participant) => ({ playerId: participant.playerId, seed: participant.seed })),
+              matches: data.matches.filter((match) => match.groupId === group.id),
+            }),
+          );
 
     const completedMatches = data.matches.filter((match) =>
       ["COMPLETED", "BYE"].includes(match.status),
@@ -596,7 +657,9 @@ export class TournamentsService {
         version: data.tournament.version,
         stageLabel:
           data.tournament.status === "GROUP_STAGE"
-            ? "Gruppenphase"
+            ? data.tournament.format === "ROUND_ROBIN"
+              ? ROUND_ROBIN_LABEL
+              : "Gruppenphase"
             : data.tournament.status === "KNOCKOUT"
               ? "K.-o.-Runde"
               : data.tournament.status === "COMPLETED"
@@ -674,7 +737,7 @@ export class TournamentsService {
 
   private async require(
     input: { readonly organizationId: string; readonly auth: AuthContext },
-    permission: "tournament:read" | "tournament:create" | "tournament:update" | "board:assign",
+    permission: "tournament:read" | "tournament:create" | "tournament:update" | "tournament:share" | "tournament:delete" | "board:assign",
   ): Promise<void> {
     await this.access.requirePermission({
       organizationId: input.organizationId,

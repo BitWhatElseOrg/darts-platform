@@ -101,6 +101,17 @@ describe("tournament:share", () => {
     }
   });
 
+  it("laesst Leitung und Verwaltung ein Turnier ohne Ergebnisse loeschen", () => {
+    // Spec 2026-09-25-lease-karenz-turnier-loeschen: wer Turniere anlegt,
+    // darf ein versehentlich angelegtes entfernen; gespielte bleiben ohnehin.
+    for (const role of ["OWNER", "ADMIN", "TOURNAMENT_DIRECTOR"] as const) {
+      expect(hasOrganizationPermission(role, "tournament:delete")).toBe(true);
+    }
+    for (const role of ["SCORER", "MEMBER", "VIEWER"] as const) {
+      expect(hasOrganizationPermission(role, "tournament:delete")).toBe(false);
+    }
+  });
+
   it("reserves deleting the organization for owners", () => {
     expect(hasOrganizationPermission("OWNER", "organization:delete")).toBe(true);
     for (const role of ["ADMIN", "TOURNAMENT_DIRECTOR", "SCORER", "MEMBER", "VIEWER"] as const) {

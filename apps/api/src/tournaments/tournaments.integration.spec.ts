@@ -1047,6 +1047,94 @@ describe("persistent tournament MVP", () => {
     }
   });
 
+  // Spec 2026-09-25-lease-karenz-turnier-loeschen (Befund 7): ein Turnier ohne
+  // gespielte Matches laesst sich loeschen, eines mit Ergebnis nicht.
+  it("loescht ein Turnier ohne Ergebnisse und verweigert es mit Ergebnis", async () => {
+    const create = () => service.create({
+      organizationId,
+      data: {
+        name: "Versehen Cup",
+        startsAt: new Date("2026-09-25T12:00:00.000Z"),
+        format: "GROUPS_THEN_KNOCKOUT",
+        startingScore: 301,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 2,
+        qualifyPerGroup: 1,
+        knockoutSize: 2,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+
+    const fresh = await create();
+    await expect(service.delete({ organizationId, tournamentId: fresh.id, auth: foreignAuth, audit })).rejects.toMatchObject({ status: 403 });
+    await service.delete({ organizationId, tournamentId: fresh.id, auth, audit });
+    expect((await service.list({ organizationId, auth })).some((entry) => entry.id === fresh.id)).toBe(false);
+    await expect(service.dashboard({ organizationId, tournamentId: fresh.id, auth })).rejects.toMatchObject({ status: 404 });
+    await expect(service.delete({ organizationId, tournamentId: fresh.id, auth, audit })).rejects.toMatchObject({ status: 404 });
+    const [audited] = await databaseService.database
+      .select()
+      .from(auditEvents)
+      .where(and(eq(auditEvents.organizationId, organizationId), eq(auditEvents.action, "TOURNAMENT_DELETED"), eq(auditEvents.entityId, fresh.id)));
+    expect(audited?.oldValue).toMatchObject({ name: "Versehen Cup", participantCount: 4, totalMatches: 3 });
+
+    // Mit laufendem Match: verweigert.
+    const running = await create();
+    let dashboard = await service.dashboard({ organizationId, tournamentId: running.id, auth });
+    const ready = dashboard.queue.find((entry) => entry.readiness === "READY");
+    if (ready === undefined) throw new Error("Expected a ready tournament match.");
+    dashboard = await service.assign({ organizationId, tournamentId: running.id, data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, matchId: ready.matchId, boardId: boardIds[0] }, auth, audit });
+    await expect(service.delete({ organizationId, tournamentId: running.id, auth, audit })).rejects.toMatchObject({ status: 409, response: { code: "TOURNAMENT_HAS_RESULTS" } });
+    // Aufraeumen: Match abbrechen (Board und Spieler frei), danach ist es wieder loeschbar.
+    const [scheduled] = await databaseService.database.select({ scoringMatchId: tournamentMatches.scoringMatchId }).from(tournamentMatches).where(eq(tournamentMatches.id, ready.matchId)).limit(1);
+    if (scheduled?.scoringMatchId) {
+      const scoring = await matchesService.get({ organizationId, matchId: scheduled.scoringMatchId, auth });
+      await matchesService.abort({ organizationId, matchId: scoring.id, data: { commandId: randomUUID(), expectedVersion: scoring.version, reason: "Testaufraeumung" }, auth, audit });
+    }
+    await service.delete({ organizationId, tournamentId: running.id, auth, audit });
+  });
+
+  // Nebenbeobachtung aus der Sichtprobe vom 25.09.2026: ein Jeder-gegen-jeden-
+  // Turnier hatte keine Gruppen und damit nirgends eine Tabelle, und die
+  // Zentrale nannte die Phase "Gruppenphase".
+  it("liefert fuer Jeder gegen jeden eine Tabelle und nennt die Phase beim Namen", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        name: "Jeder gegen jeden Probe",
+        startsAt: new Date("2026-09-25T12:00:00.000Z"),
+        format: "ROUND_ROBIN",
+        startingScore: 301,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        maxRounds: null,
+        bestOfLegs: 1,
+        bestOfSets: 1,
+        participantIds: playerIds,
+        groupCount: 1,
+        qualifyPerGroup: 1,
+        knockoutSize: 2,
+        seeding: "SEEDED",
+        boardIds: [...boardIds],
+      },
+      auth,
+      audit,
+    });
+    const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    expect(dashboard.tournament.stageLabel).toBe("Jeder gegen jeden");
+    expect(dashboard.groups).toHaveLength(1);
+    expect(dashboard.groups[0]).toMatchObject({ groupLabel: "Jeder gegen jeden", qualifyCount: 0, playedMatches: 0, totalMatches: 6 });
+    expect(dashboard.groups[0]?.rows.map((row) => row.playerId).sort()).toEqual([...playerIds].sort());
+    await service.delete({ organizationId, tournamentId: created.id, auth, audit });
+  });
+
   it("maps a command ID used by another tournament to 400 instead of 500", async () => {
     const createInput = (name: string) => ({
       organizationId,

@@ -19,9 +19,11 @@ export function TournamentDashboardRoute({ requestedOrganizationId, tournamentId
   // Anzeige-Schluessel-Verwaltung (Task 6), zu unterscheiden von `canShare`
   // oben (`tournament:update`, ein Namenszufall -- siehe `display-keys-panel.tsx`).
   const canManageDisplayKeys = hasOrganizationPermission(organization.role, "tournament:share");
+  const canDelete = hasOrganizationPermission(organization.role, "tournament:delete");
   return (
     <CommandCentre
       canCorrect={canCorrect}
+      canDelete={canDelete}
       canManageDisplayKeys={canManageDisplayKeys}
       canShare={canCorrect}
       canWithdraw={canCorrect}

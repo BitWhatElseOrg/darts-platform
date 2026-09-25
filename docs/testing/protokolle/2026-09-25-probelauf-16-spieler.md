@@ -118,9 +118,34 @@ Befunde 1, 2, 3, 4 und 8 sind behoben und mit Tests belegt:
   (`dashboard-header.render.spec.tsx`, `board-wedge.render.spec.tsx`,
   `tournament-winner.spec.ts`).
 
-Offen bleiben 5 (Lease-Übernahme beim blossen Öffnen, Verhaltensänderung mit
-eigener Spezifikation), 6 (Beobachtung, keine Änderung nötig) und 7
-(Löschen von Turnieren, eigenes Feature mit Autorisierung und Audit).
+Sichtprüfung auf Staging (Deploy 8ba3bce, 25.09.2026 15:16): Kopfzeilen
+von Zentrale und Live-Ansicht nennen «Turniersieg: Adrian Oberholzer»
+(Sieger nach der Finalkorrektur), die vier freien Kacheln sagen «Turnier
+beendet.», das Störungen-Panel steht auf «ohne Befund», die Freigabe-Karte
+bricht auf 390 px normal um, und die Scoringfläche zeigt für eine
+Turniermatch-ID «Dieses Match gibt es nicht oder nicht mehr» mit Link «Zur
+Übersicht» nach genau einer Anfrage statt vierzehn.
+
+Zusätzlich im selben PR: der Prune-Test der Outbox schützt seine
+«bleibt»-Zeilen per `*_not_before` vor fremden Pollern, und der
+Realtime-Service wartet beim Herunterfahren auf den laufenden
+Outbox-Durchlauf (`outbox-publish-loop.ts`) – beides Ursachen roter
+Quality-Gate-Läufe ohne Codefehler.
+
+Befunde 5 und 7 sind nach der Spec
+`docs/superpowers/specs/2026-09-25-lease-karenz-turnier-loeschen-design.md`
+behoben (Branch `fix/probelauf-befunde-5-7`): eine abgelaufene fremde Lease
+gilt fünf Minuten als «kurz verlassen» und fällt ohne «Steuerung übernehmen»
+an niemanden; Turniere ohne Ergebnisse lassen sich mit `tournament:delete`
+löschen (409 `TOURNAMENT_HAS_RESULTS` sonst). Offen bleibt nur 6
+(Beobachtung, keine Änderung nötig).
+
+Nebenbeobachtung aus der Sichtprobe zu Befund 7 (Branch
+`fix/round-robin-tabelle`): Ein Jeder-gegen-jeden-Turnier hatte keine
+Gruppenzeilen und damit weder in der Zentrale noch in der Live-Ansicht eine
+Tabelle («Gruppenstand · 0 Gruppen»), der Zustand hiess «Gruppenphase». Das
+Dashboard liefert für das Format jetzt eine Tabelle über das ganze Feld, die
+Phase heisst «Jeder gegen jeden», der Zustand «läuft».
 
 Schwerwiegende Befunde (hoch/kritisch): **keine.** Scoring-Korrektheit,
 Idempotenz, Versionsprüfung, Turnierlebenszyklus, Qualifikation, Tableau,

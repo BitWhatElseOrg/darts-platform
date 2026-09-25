@@ -47,6 +47,28 @@ if (playing) {
   await shot("06-live-board", `${web}/live/${st.publicId}/board/${playing.boardId}`);
 } else console.log("kein laufendes Match fuer Scoring-Screenshot");
 await shot("07-matches", `${web}/matches?organisation=${st.orgId}`);
+// Befund 7: frisches Turnier anlegen, Abschnitt "Turnier loeschen" zeigen, dann ueber den Dialog loeschen.
+if (process.env.SHOT_DELETE === "1") {
+  const players = await page.evaluate(async (u) => (await fetch(u, { credentials: "include" })).json(), `${api}/organizations/${st.orgId}/players`);
+  const ids = players.filter((p) => p.status === "ACTIVE").slice(0, 4).map((p) => p.id);
+  const boards = await page.evaluate(async (u) => (await fetch(u, { credentials: "include" })).json(), `${api}/organizations/${st.orgId}/boards`);
+  const boardIds = boards.filter((b) => b.status === "AVAILABLE").slice(0, 1).map((b) => b.id);
+  const created = await page.evaluate(async ([u, body]) => { const r = await fetch(u, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body }); return { status: r.status, data: await r.json() }; }, [`${api}/organizations/${st.orgId}/tournaments`, JSON.stringify({ name: "Sichtprobe Löschen", startsAt: new Date().toISOString(), format: "ROUND_ROBIN", startingScore: 501, inRule: "STRAIGHT", outRule: "DOUBLE", maxRounds: null, bestOfLegs: 1, bestOfSets: 1, participantIds: ids, groupCount: 1, qualifyPerGroup: 1, knockoutSize: 2, seeding: "SEEDED", boardIds })]);
+  console.log("Sichtprobe-Turnier:", created.status, created.status === 201 ? "" : JSON.stringify(created.data).slice(0, 300));
+  if (created.status === 201) {
+    await shot("10-loeschen-panel", `${web}/turniere/${created.data.id}?organisation=${st.orgId}`);
+    await page.getByRole("button", { name: "Turnier löschen" }).click();
+    await page.getByRole("dialog", { name: "Turnier löschen" }).waitFor();
+    await page.screenshot({ path: `${outDir}/11-loeschen-dialog.png`, fullPage: false });
+    await Promise.all([page.waitForURL(/\/turniere\?organisation=/u), page.getByRole("dialog").getByRole("button", { name: "Turnier löschen" }).click()]);
+    await page.waitForTimeout(1500);
+    await page.screenshot({ path: `${outDir}/12-nach-loeschen.png`, fullPage: true });
+    console.log("Sichtprobe-Turnier geloescht, Liste enthaelt es noch:", await page.getByText("Sichtprobe Löschen").count());
+  }
+}
+// Befund 3: die Turniermatch-ID aus dem Tableau ist keine Scoring-Match-ID -> 404-Bild der Scoringflaeche
+const bracketMatch = dash.bracket[0];
+if (bracketMatch) await shot("05b-scoring-404", `${web}/matches/${bracketMatch.matchId}?organisation=${st.orgId}`);
 // Mobile Ansicht der Kommandozentrale und der Scoringflaeche
 const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, storageState: await context.storageState() });
 const mp = await mobile.newPage();

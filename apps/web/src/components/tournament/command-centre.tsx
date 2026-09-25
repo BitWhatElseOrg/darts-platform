@@ -36,6 +36,7 @@ import {
 import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
 import { BoardWedge } from "./board-wedge";
 import { DashboardHeader } from "./dashboard-header";
+import { DeleteTournamentPanel } from "./delete-tournament-panel";
 import { DisplayKeysPanel } from "./display-keys-panel";
 import { DisruptionsPanel } from "./disruptions-panel";
 import { QueuePanel } from "./queue-panel";
@@ -43,6 +44,7 @@ import { ParticipantDisruptionPanel } from "./participant-disruption-panel";
 import { ResultsPanel } from "./results-panel";
 import { liveNavTarget, SharePanel } from "./share-panel";
 import { StandingsSheet } from "./standings-sheet";
+import { tournamentDeletionBlocker } from "@/lib/tournament-deletion";
 
 /**
  * Eine noch nicht bestaetigte Board-Zuweisung. Sie lebt in derselben
@@ -108,6 +110,8 @@ interface CommandCentreProps {
    */
   readonly canManageDisplayKeys: boolean;
   readonly canWithdraw: boolean;
+  /** `tournament:delete` -- Abschnitt "Turnier loeschen" am Ende (Spec 2026-09-25). */
+  readonly canDelete: boolean;
 }
 
 function conflictState(error: unknown, expected: number): VersionConflict | null {
@@ -121,7 +125,9 @@ function conflictState(error: unknown, expected: number): VersionConflict | null
     : null;
 }
 
-export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canWithdraw, organizationId, tournamentId }: CommandCentreProps) {
+export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canWithdraw, organizationId, tournamentId,
+  canDelete,
+}: CommandCentreProps) {
   const queryClient = useQueryClient();
   const queryKey = useMemo(
     () => ["tournament-dashboard", organizationId, tournamentId] as const,
@@ -767,7 +773,15 @@ export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canW
           </div>
         </div>
 
-        <div className="mt-9"><StandingsSheet groups={dashboard.groups} /></div>
+        <div className="mt-9"><StandingsSheet format={dashboard.tournament.format} groups={dashboard.groups} /></div>
+        {canDelete ? (
+          <DeleteTournamentPanel
+            blockedReason={tournamentDeletionBlocker(dashboard)}
+            organizationId={organizationId}
+            tournamentId={tournamentId}
+            tournamentName={dashboard.tournament.name}
+          />
+        ) : null}
         <Rule className="mt-10" />
         <p className="pt-4 font-plate text-caption text-sisal-500">Serverstand · Echtzeit {realtimeConnection}</p>
       </div>

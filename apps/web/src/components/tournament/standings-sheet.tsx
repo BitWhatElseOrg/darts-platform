@@ -9,26 +9,31 @@ import {
   Th,
   Tr,
 } from "@darts-platform/ui";
-import type { GroupStanding } from "@darts-platform/schemas";
+import type { GroupStanding, TournamentFormat } from "@darts-platform/schemas";
 
 interface StandingsSheetProps {
   readonly groups: readonly GroupStanding[];
+  /** Jeder gegen jeden hat eine Tabelle, keine Gruppen (Sichtprobe 25.09.2026). */
+  readonly format: TournamentFormat;
 }
 
 /**
  * The printed group sheet: typeset, not carded. Qualifying places are marked by
  * ground, by the double-ring mark and by the column header — never by hue alone.
  */
-export function StandingsSheet({ groups }: StandingsSheetProps) {
+export function StandingsSheet({ format, groups }: StandingsSheetProps) {
+  const roundRobin = format === "ROUND_ROBIN";
   return (
     <section aria-labelledby="standings-heading">
       <div className="flex items-baseline justify-between gap-3 pb-2">
         <SheetLabel as="h2" id="standings-heading">
-          Gruppenstand
+          {roundRobin ? "Tabelle" : "Gruppenstand"}
         </SheetLabel>
-        <span className="font-plate text-caption text-sisal-500">
-          {groups.length} Gruppen
-        </span>
+        {roundRobin ? null : (
+          <span className="font-plate text-caption text-sisal-500">
+            {groups.length} {groups.length === 1 ? "Gruppe" : "Gruppen"}
+          </span>
+        )}
       </div>
       <Rule />
       <div className="grid gap-x-8 gap-y-6 pt-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -38,7 +43,7 @@ export function StandingsSheet({ groups }: StandingsSheetProps) {
             <article key={group.groupLabel}>
               <div className="flex items-baseline justify-between gap-2 pb-1">
                 <h3 className="font-numerals text-title-sm font-bold text-wedge-900">
-                  Gruppe {group.groupLabel}
+                  {roundRobin ? group.groupLabel : `Gruppe ${group.groupLabel}`}
                 </h3>
                 <span className="shrink-0 flex items-center gap-1.5 font-numerals text-counter font-bold tabular text-sisal-500">
                   {complete ? (
@@ -50,8 +55,9 @@ export function StandingsSheet({ groups }: StandingsSheetProps) {
               <div className="overflow-x-auto">
                 <Table>
                   <caption className="sr-only">
-                    Tabelle der Gruppe {group.groupLabel}. Die ersten{" "}
-                    {group.qualifyCount} Plätze qualifizieren sich.
+                    {roundRobin
+                      ? "Tabelle aller Teilnehmenden."
+                      : `Tabelle der Gruppe ${group.groupLabel}. Die ersten ${group.qualifyCount} Plätze qualifizieren sich.`}
                   </caption>
                   <thead>
                     <tr>

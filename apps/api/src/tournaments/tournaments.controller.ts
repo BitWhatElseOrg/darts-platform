@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Req } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Req } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 
 import {
@@ -81,6 +81,17 @@ export class TournamentsController {
   ): Promise<TournamentSummary> {
     const data: CreateTournamentInput = parseBody(createTournamentSchema, body);
     return this.service.create({ organizationId, data, auth, audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS) });
+  }
+
+  @Delete(":tournamentId")
+  @HttpCode(204)
+  public delete(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("tournamentId", ParseUUIDPipe) tournamentId: string,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<void> {
+    return this.service.delete({ organizationId, tournamentId, auth, audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS) });
   }
 
   @Get(":tournamentId/dashboard")

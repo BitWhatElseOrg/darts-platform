@@ -118,6 +118,28 @@ describe("persistent X01 match", () => {
     expect(abortedAuditEvents[0]?.newValue).toMatchObject({ discardedVisitCount: 1 });
   });
 
+  // Spec 2026-09-25-lease-karenz-turnier-loeschen (Befund 5): eine abgelaufene
+  // Lease eines anderen Geraets gilt fuenf Minuten als "kurz verlassen" und
+  // faellt ohne force nicht an einen Zuschauer, der die Flaeche nur oeffnet.
+  it("gibt eine kurz abgelaufene fremde Lease ohne force nicht her, eine lange verlassene schon", async () => {
+    const state = await service.create({ organizationId, data: { playerOneId, playerTwoId, boardId: null, bestOfLegs: 1, bestOfSets: 1 }, auth, audit });
+    const scorerId = randomUUID();
+    const viewerId = randomUUID();
+    expect((await service.acquireControllerLease({ organizationId, matchId: state.id, controllerId: scorerId, force: false, auth, audit })).owned).toBe(true);
+
+    // Sperrbildschirm: 30 s kein Heartbeat, Lease seit 20 s abgelaufen.
+    await databaseService.database.update(boardControllerLeases).set({ expiresAt: new Date(Date.now() - 20_000) }).where(eq(boardControllerLeases.matchId, state.id));
+    const viewer = await service.acquireControllerLease({ organizationId, matchId: state.id, controllerId: viewerId, force: false, auth, audit });
+    expect(viewer.owned).toBe(false);
+    expect(viewer.controllerId).toBe(scorerId);
+    // Der Scorer selbst bekommt sie zurueck.
+    expect((await service.acquireControllerLease({ organizationId, matchId: state.id, controllerId: scorerId, force: false, auth, audit })).owned).toBe(true);
+
+    // Wirklich verlassen: seit sechs Minuten kein Heartbeat.
+    await databaseService.database.update(boardControllerLeases).set({ expiresAt: new Date(Date.now() - 6 * 60_000) }).where(eq(boardControllerLeases.matchId, state.id));
+    expect((await service.acquireControllerLease({ organizationId, matchId: state.id, controllerId: viewerId, force: false, auth, audit })).owned).toBe(true);
+  });
+
   it("is idempotent, rejects stale versions, supports undo and completes 501", async () => {
     let state = await service.create({ organizationId, data: { playerOneId, playerTwoId, boardId, bestOfLegs: 1, bestOfSets: 1 }, auth, audit });
     const firstControllerId = randomUUID();
