@@ -72,9 +72,20 @@ describe("Datenschutzerklaerung", () => {
     expect(notice).not.toMatch(/Google Analytics|Matomo|Plausible/u);
   });
 
-  it("bleibt als Entwurf gekennzeichnet, bis die Freigabe erfolgt ist", () => {
-    expect(notice).toContain("Entwurf – noch nicht freigegeben");
-    expect(notice).toMatch(/<p class="meta">Entwurf/u);
+  it("ist freigegeben: kein Entwurfsvermerk, keine offenen Pruefpunkte", () => {
+    // Freigabe durch den Betreiber am 25.09.2026, nachdem die drei
+    // "Zu pruefen"-Punkte (Rollenverteilung, Auslandsgarantien, Audit-
+    // Aufbewahrung) entschieden waren. Taucht einer der Marker wieder auf,
+    // ist die Seite bewusst wieder ein Entwurf — dann diesen Test umdrehen.
+    expect(notice).not.toContain("Entwurf");
+    expect(notice).not.toContain("Zu prüfen");
+    expect(notice).toMatch(/<p class="meta">Fassung \d+\.\d+ · Stand/u);
+  });
+
+  it("legt die Rollen, die Auslandsgarantien und die Audit-Aufbewahrung fest", () => {
+    expect(notice).toContain("Vereinbarung zur Auftragsbearbeitung");
+    expect(notice).toContain("vertragliche Garantien");
+    expect(notice).toContain("ohne feste Frist");
   });
 
   it("teilt sich den Stil mit der Bedienungsanleitung", () => {
