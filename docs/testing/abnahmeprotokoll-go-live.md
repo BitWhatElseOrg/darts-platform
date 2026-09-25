@@ -1,6 +1,6 @@
 # Abnahmeprotokoll Go-Live-Testprogramm
 
-Stand: 18.09.2026, Nachtrag D3-2 vom 24.09.2026. Release-Stand: `main` 051ddbf (Release-PR #49, `develop` →
+Stand: 18.09.2026, Nachträge D3-2 vom 24.09.2026 und B3 vom 25.09.2026. Release-Stand: `main` 051ddbf (Release-PR #49, `develop` →
 `main`, 51 Commits, PRs #45–#48, grüne CI, Merge 16:29), Production seit ca.
 16:40 auf diesem Stand deployt (API, Web, Worker) — `https://dartbase.ch`
 HTTP 200, `GET /api/v1/health` ok. Gehört zu Spec
@@ -35,7 +35,7 @@ alle sechs Fälle gemessen.
 | --- | --- | --- | --- | --- |
 | B1 Backup-Stand Production | 17.09.2026, PITR eingeschaltet 18.09.2026 | grün | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | `railway postgres pitr status` lieferte am 17.09.2026 für Production `enabled: false`, `bucketWired: false` — keine kontinuierliche Sicherung. Der Betreiber hat PITR am 18.09.2026, 15:41 UTC, auf Production eingeschaltet (`enabled: true`, `bucketWired: true`); die Production-Health blieb während und nach dem dadurch ausgelösten Redeploy der Datenbank `ok` (6 Messungen über 60 s). Das Restore-Verfahren selbst ist über die Staging-Probe B2 bereits nachgewiesen. |
 | B2 Restore-Probe auf Staging | 18.09.2026 | grün | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | PITR in Staging eingeschaltet, Restore auf T1 = 14:59:07 UTC in einen neuen Service (`postgres-restored`) zurückgespielt, fertig 15:03:39 UTC (≈ 1,5 Minuten): 10 statt 11 Organisationen, die nach T1 angelegte fehlte wie erwartet. Nach Zurückschalten der Staging-API auf die Original-Datenbank wieder 11 Organisationen. Manuelle Backups auf diesem Plan nicht verfügbar (`pitr backup create` → kein Zugriff), für den Restore auch nicht nötig. |
-| B3 Migrationsprobe | – | offen | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | Wartet auf die nächste Migration in `develop` und einen Staging-Deploy. |
+| B3 Migrationsprobe | 20.09.2026 (Migration 0034), ausgewertet 25.09.2026 | grün | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | Staging-Deploy `develop` e01a9dc und Production-Release #59: je genau ein Migrationslauf (`database_migration_started`/`_completed`, 80 ms bzw. 68 ms) vor dem Nest-Start, `api_started` danach. Worker lief beide Male rund 22 s vor der Migration an: auf Staging 24 Zeilen auf `error` (23× `email.tick_failed`, 1× `email.prune_failed`), funktional unschädlich, nach der Migration still. Fix 21addcc (PR #58) meldet 42P01 im Startfenster von 120 s als `tick_deferred` auf `warn`; in Production nachgewiesen (23× `warn`, 1× `email.prune_failed` noch auf `error`). Aufräumzweig mit dem Nachtrag vom 25.09.2026 nachgezogen (`prune_deferred`), nachweisbar erst mit der nächsten Migration. |
 | B4 Redis-Ausfall | 18.09.2026 | grün | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | Lastlauf 5 Boards/3 Visits/s über 90 s, `railway restart --service Redis` bei t=30 s (Ausfall 08:10:06–08:10:07 UTC): 0 von 1112 Visits mit Fehler, 0 von 25 Health-Abfragen nicht `ok`, p95 92 ms (p50 70 ms, p99 117 ms), `deadLettered` danach 0. |
 | B5 Worker-Neustart | 18.09.2026 | grün | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | Im selben Lauf `railway restart --service @darts-platform/worker` bei t=60 s (`worker_started` 08:10:41): Health während/nach Neustart `ok`, `publishLagSeconds` 0, `deadLettered` 0. |
 | B6 API-Neustart mit offenen Sockets | 18.09.2026 | grün | [2026-09-18-block-b.md](protokolle/2026-09-18-block-b.md) | Vorgehen wie B4/B5, zusätzlich mit den 50 Sockets aus Fall A4: 50/50 Sockets innerhalb 6 s nach `railway restart` neu verbunden; nächstes Ereignis (Board-Zuordnung) innerhalb 6 s an 50/50 Sockets zugestellt. |
@@ -110,10 +110,12 @@ Begründung:
   Production aus); der Betreiber hat PITR am 18.09.2026, 15:41 UTC,
   eingeschaltet, die Production-Health blieb während und nach dem
   dadurch ausgelösten Redeploy `ok` — Befund behoben. B3
-  (Migrationsprobe) bleibt offen, wird aber erst mit der nächsten
-  Schema-Änderung in `develop` fällig, nicht durch eine noch
-  ausstehende Prüfung eines heute schon vorliegenden Zustands, und ist
-  der einzige verbleibende offene Fall in Block B.
+  (Migrationsprobe) ist am 25.09.2026 anhand der Migration 0034 vom
+  20.09.2026 ausgewertet und grün: genau ein Migrationslauf vor dem
+  API-Start auf Staging wie in Production; der Worker lief beide Male vor
+  der Migration an, was seit Fix 21addcc (Release #59) als `warn`
+  statt `error` erscheint, für den Aufräumzweig mit dem Nachtrag
+  nachgezogen.
 - Block D: alle sechs Fälle grün. D3-1 ist sowohl auf Staging als auch in
   Production (Deploy `main` 051ddbf) nachgemessen grün — der zuvor offene
   Restpunkt (Production-Probe nach Release) ist damit geschlossen. D3-2
@@ -124,8 +126,8 @@ Begründung:
 Was noch offen ist, blockiert den eigentlichen Block-E-Szenario-Test
 nicht:
 
-- **B3 (Migrationsprobe):** wird erst mit der nächsten Migration in
-  `develop` fällig, keine heute schon messbare Voraussetzung.
+- **B3 (Migrationsprobe):** am 25.09.2026 ausgewertet und grün (siehe
+  Block B).
 - **Follow-ups:** D3-2 (serieller Login-Fall ohne 429) ist am 24.09.2026
   geklärt und nachgemessen grün. Die D1/D2-Follow-ups (echte Ressourcen in B, eigene
   Routen für `organization:read`/`organization:update`, Reihenfolge
@@ -141,8 +143,7 @@ aus der B2-Restore-Probe ist am 18.09.2026 abends gelöscht worden):
   einem Worktree, der gelöscht werden kann (siehe „Blocker beim
   Betreiber" oben).
 
-**Damit aus Testsicht: freigegeben** — alle Blöcke A bis D sind grün bis
-auf B3, das erst mit der nächsten Schema-Änderung fällig wird und den
-Szenario-Test nicht blockiert. Die genannten Follow-ups und
-Betreiber-Punkte bleiben als nicht blockierende Nachträge bzw. Backlog
-offen.
+**Damit aus Testsicht: freigegeben** — alle Blöcke A bis D sind grün;
+B3 ist seit dem Nachtrag vom 25.09.2026 ebenfalls grün. Die genannten
+Follow-ups und Betreiber-Punkte bleiben als nicht blockierende Nachträge
+bzw. Backlog offen.
