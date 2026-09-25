@@ -178,6 +178,10 @@ const probes: Record<OrganizationPermission, Probe> = {
     method: "GET",
     url: `/api/v1/organizations/${organizationId}/tournaments/${randomUUID()}/display-keys`,
   },
+  "tournament:delete": {
+    method: "DELETE",
+    url: `/api/v1/organizations/${organizationId}/tournaments/${randomUUID()}`,
+  },
   "statistics:read": {
     method: "GET",
     url: `/api/v1/organizations/${organizationId}/players/${randomUUID()}/statistics`,
