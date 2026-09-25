@@ -45,6 +45,7 @@ import { MatchesRepository } from "../matches/matches.repository.js";
 import type { TournamentCorrectionResult } from "../matches/matches.repository.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { DisplayKeysService } from "./display-keys.service.js";
+import { isMatchOverrunning } from "./match-overrun.js";
 import {
   TournamentsRepository,
   type TournamentDashboardData,
@@ -404,7 +405,12 @@ export class TournamentsService {
             bestOfLegs: scoring.bestOfLegs,
             bestOfSets: scoring.bestOfSets,
             startedAt: scoring.createdAt,
-            overrunning: false,
+            overrunning: isMatchOverrunning({
+              startedAt: scoring.createdAt,
+              now: generatedAt,
+              bestOfLegs: scoring.bestOfLegs,
+              bestOfSets: scoring.bestOfSets,
+            }),
             participants: scoring.participants.map((participant) => ({
               playerId: participant.playerId,
               displayName: participant.displayName,
@@ -560,19 +566,23 @@ export class TournamentsService {
     const completedMatches = data.matches.filter((match) =>
       ["COMPLETED", "BYE"].includes(match.status),
     ).length;
-    const conflicts = data.boards.flatMap((board) =>
-      isBoardFree(board)
-        ? []
-        : [
+    // Nur ein gesperrter Slot ist eine Stoerung. Ein Board mit laufendem
+    // Match dieses Turniers ist belegt, nicht gestoert -- vorher meldete das
+    // Panel im Normalbetrieb jedes bespielte Board als "nicht verfuegbar"
+    // (Probelauf 25.09.2026, Befund 1).
+    const conflicts = boards.flatMap((slot) =>
+      slot.state === "BLOCKED"
+        ? [
             {
-              id: board.boardId,
+              id: slot.boardId,
               severity: "WARNING" as const,
               code: "BOARD_BLOCKED",
-              message: `${board.boardName} ist nicht verfügbar.`,
-              subject: board.boardName,
+              message: `${slot.boardName} ist nicht verfügbar.`,
+              subject: slot.boardName,
               detectedAt: generatedAt,
             },
-          ],
+          ]
+        : [],
     );
     return tournamentDashboardSchema.parse({
       tournament: {
