@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 
 import {
   createInvitationSchema,
+  createOrganizationSchema,
   invitationSchema,
   linkMemberPlayerSchema,
   organizationCapabilitiesSchema,
@@ -116,6 +117,63 @@ it("verlangt mindestens ein Stammdatenfeld und laesst den Slug nicht zu", () => 
   expect(updateOrganizationSchema.safeParse({ name: "x" }).success).toBe(false);
   const parsed = updateOrganizationSchema.parse({ slug: "neuer-slug", locale: "fr-CH" });
   expect(parsed).toEqual({ locale: "fr-CH" });
+});
+
+it("weist eine unbekannte Zeitzone zurueck", () => {
+  const result = updateOrganizationSchema.safeParse({ timezone: "Mars/Olympus" });
+
+  expect(result.success).toBe(false);
+  if (!result.success) {
+    expect(result.error.issues[0]?.message).toBe("Unbekannte Zeitzone.");
+  }
+});
+
+it("akzeptiert UTC als Zeitzone, obwohl sie in Intl.supportedValuesOf fehlt", () => {
+  expect(updateOrganizationSchema.safeParse({ timezone: "UTC" }).success).toBe(true);
+  expect(
+    createOrganizationSchema.safeParse({
+      name: "UTC Verein",
+      slug: "utc-verein",
+      timezone: "UTC",
+      locale: "de-CH",
+    }).success,
+  ).toBe(true);
+});
+
+it("akzeptiert eine gueltige IANA-Zeitzone", () => {
+  expect(updateOrganizationSchema.safeParse({ timezone: "Europe/Zurich" }).success).toBe(true);
+});
+
+it("weist eine unbekannte Sprache zurueck", () => {
+  const result = updateOrganizationSchema.safeParse({ locale: "nicht-existent!!" });
+
+  expect(result.success).toBe(false);
+  if (!result.success) {
+    expect(result.error.issues[0]?.message).toBe("Unbekannte Sprache.");
+  }
+});
+
+it("akzeptiert ein gueltiges BCP-47-Sprachtag", () => {
+  expect(updateOrganizationSchema.safeParse({ locale: "en-GB" }).success).toBe(true);
+});
+
+it("weist bei der Anlage eine unbekannte Zeitzone oder Sprache zurueck", () => {
+  expect(
+    createOrganizationSchema.safeParse({
+      name: "Neuer Verein",
+      slug: "neuer-verein",
+      timezone: "Mars/Olympus",
+      locale: "de-CH",
+    }).success,
+  ).toBe(false);
+  expect(
+    createOrganizationSchema.safeParse({
+      name: "Neuer Verein",
+      slug: "neuer-verein",
+      timezone: "Europe/Zurich",
+      locale: "nicht-existent!!",
+    }).success,
+  ).toBe(false);
 });
 
 it("nimmt den Faehigkeitsbescheid nur als echten Wahrheitswert entgegen", () => {

@@ -1,5 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { ForbiddenException } from "@nestjs/common";
+import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
@@ -8,9 +9,12 @@ import {
   type ApplicationEnvironment,
 } from "@darts-platform/config";
 import { auditEvents, memberships, organizations, users } from "@darts-platform/database";
+import { apiErrorSchema } from "@darts-platform/schemas";
 
+import { AuthService } from "../auth/auth.service.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { DatabaseService } from "../database/database.service.js";
+import { createApiTestApplication } from "../testing/api-harness.js";
 import { OrganizationAccessService } from "./organization-access.service.js";
 import { OrganizationsRepository } from "./organizations.repository.js";
 import { OrganizationsService } from "./organizations.service.js";
@@ -239,5 +243,85 @@ describe("Stammdaten der Organisation", () => {
       .from(organizations)
       .where(eq(organizations.id, organizationId));
     expect(row?.name).not.toBe("Hijack");
+  }, 30_000);
+});
+
+/**
+ * Die Zeitzonen-/Sprachpruefung (Task 3) sitzt im Schema, das erst
+ * `parseBody` in der Route auswertet — `OrganizationsService.update` nimmt
+ * bereits geparste Eingaben entgegen und wuerde eine unbekannte Zeitzone
+ * unbesehen durchreichen. Ein echter HTTP-Aufruf ist deshalb noetig, um die
+ * Ablehnung an der tatsaechlichen Grenze zu belegen (Muster:
+ * `http-boundary.integration.spec.ts`).
+ */
+describe("PATCH /organizations/:id ueber HTTP (Zeitzone/Sprache)", () => {
+  const httpOwnerId = randomUUID();
+  const httpOwnerAuth: AuthContext = {
+    user: { id: httpOwnerId, email: `http-owner-${httpOwnerId}@example.test`, name: "HTTP Owner" },
+    session: { id: randomUUID(), expiresAt: new Date(Date.now() + 60_000) },
+  };
+  let httpOrganizationId: string;
+  let app: NestFastifyApplication;
+
+  beforeAll(async () => {
+    await databaseService.database.insert(users).values({
+      id: httpOwnerId,
+      email: httpOwnerAuth.user.email,
+      displayName: "HTTP Owner",
+    });
+    const organization = await serviceWithFlag(true).create({
+      data: {
+        name: "HTTP Validierungs-Verein",
+        slug: `http-validierung-${randomUUID()}`,
+        timezone: "Europe/Zurich",
+        locale: "de-CH",
+      },
+      auth: httpOwnerAuth,
+      audit,
+    });
+    httpOrganizationId = organization.id;
+    createdOrganizationIds.push(httpOrganizationId);
+
+    app = await createApiTestApplication({
+      RATE_LIMIT_MAX_PER_MINUTE: 1000,
+      RATE_LIMIT_PUBLIC_MAX_PER_MINUTE: 1000,
+      RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: 1000,
+    });
+    vi.spyOn(app.get(AuthService), "getSession").mockResolvedValue(httpOwnerAuth);
+  }, 60_000);
+
+  afterAll(async () => {
+    await app.close();
+    await databaseService.database.delete(users).where(eq(users.id, httpOwnerId));
+  });
+
+  it("weist eine unbekannte Zeitzone mit 400 VALIDATION_ERROR ab", async () => {
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/organizations/${httpOrganizationId}`,
+      payload: { timezone: "Mars/Olympus" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    const parsed = apiErrorSchema.parse(response.json());
+    expect(parsed.error.code).toBe("VALIDATION_ERROR");
+    expect(parsed.error.message).toContain("Unbekannte Zeitzone.");
+
+    const [row] = await databaseService.database
+      .select({ timezone: organizations.timezone })
+      .from(organizations)
+      .where(eq(organizations.id, httpOrganizationId));
+    expect(row?.timezone).toBe("Europe/Zurich");
+  }, 30_000);
+
+  it("uebernimmt eine gueltige Zeitzone mit 200", async () => {
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/organizations/${httpOrganizationId}`,
+      payload: { timezone: "Europe/Berlin" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ timezone: "Europe/Berlin" });
   }, 30_000);
 });

@@ -1,5 +1,43 @@
 import { z } from "zod";
 
+/**
+ * `Intl.supportedValuesOf("timeZone")` fehlt in dieser Node-Version "UTC" —
+ * deshalb keine Listenpruefung, sondern der Praxistest ueber eine echte
+ * `Intl.DateTimeFormat`-Instanziierung, die jede gueltige IANA-Zeitzone
+ * (inklusive "UTC") annimmt und jede unbekannte mit einer Exception quittiert.
+ */
+function isKnownTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isKnownLocale(value: string): boolean {
+  try {
+    Intl.getCanonicalLocales(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const timezoneValueSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  .refine(isKnownTimeZone, { message: "Unbekannte Zeitzone." });
+
+const localeValueSchema = z
+  .string()
+  .trim()
+  .min(2)
+  .max(35)
+  .refine(isKnownLocale, { message: "Unbekannte Sprache." });
+
 export const organizationRoleSchema = z.enum([
   "OWNER",
   "ADMIN",
@@ -34,8 +72,8 @@ export const createOrganizationSchema = z.object({
     .min(2)
     .max(100)
     .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u),
-  timezone: z.string().trim().min(1).max(100).default("Europe/Zurich"),
-  locale: z.string().trim().min(2).max(35).default("de-CH"),
+  timezone: timezoneValueSchema.default("Europe/Zurich"),
+  locale: localeValueSchema.default("de-CH"),
 });
 
 /**
@@ -46,8 +84,8 @@ export const createOrganizationSchema = z.object({
 export const updateOrganizationSchema = z
   .object({
     name: z.string().trim().min(2).max(255).optional(),
-    timezone: z.string().trim().min(1).max(100).optional(),
-    locale: z.string().trim().min(2).max(35).optional(),
+    timezone: timezoneValueSchema.optional(),
+    locale: localeValueSchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one organization field must be provided.",

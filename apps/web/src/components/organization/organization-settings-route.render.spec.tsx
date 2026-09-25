@@ -98,12 +98,49 @@ describe("OrganizationSettingsRoute", () => {
     renderRoute();
 
     expect((await screen.findByLabelText("Name") as HTMLInputElement).value).toBe("VFC Musterstadt");
-    expect((screen.getByLabelText("Zeitzone") as HTMLInputElement).value).toBe("Europe/Zurich");
-    expect((screen.getByLabelText("Sprache") as HTMLInputElement).value).toBe("de-CH");
+    const timezoneSelect = screen.getByLabelText("Zeitzone") as HTMLSelectElement;
+    expect(timezoneSelect.tagName).toBe("SELECT");
+    expect(timezoneSelect.value).toBe("Europe/Zurich");
+    const localeSelect = screen.getByLabelText("Sprache") as HTMLSelectElement;
+    expect(localeSelect.tagName).toBe("SELECT");
+    expect(localeSelect.value).toBe("de-CH");
     expect(screen.getByText("vfc-musterstadt")).not.toBeNull();
     expect(
       screen.getByText("Der Kurzname steht in Links und Einladungen und lässt sich nicht ändern."),
     ).not.toBeNull();
+  });
+
+  it("bietet Zeitzonen aus Intl.supportedValuesOf sowie UTC zur Auswahl an", async () => {
+    renderRoute();
+
+    const timezoneSelect = await screen.findByLabelText("Zeitzone") as HTMLSelectElement;
+    const options = [...timezoneSelect.options].map((option) => option.value);
+    expect(options).toContain("UTC");
+    expect(options).toContain("Europe/Zurich");
+    expect(options).toContain("Pacific/Auckland");
+  });
+
+  it("bietet die vier Amtssprachen-Gebietsschemas zur Auswahl an", async () => {
+    renderRoute();
+
+    const localeSelect = await screen.findByLabelText("Sprache") as HTMLSelectElement;
+    const options = [...localeSelect.options].map((option) => option.value);
+    expect(options).toEqual(["de-CH", "fr-CH", "it-CH", "en-GB"]);
+  });
+
+  it("ergaenzt einen gespeicherten, aber nicht gelisteten Zeitzonen- oder Sprachwert als zusaetzliche Option", async () => {
+    server.organizations = [
+      { ...organization, timezone: "US/Pacific", locale: "de-DE" },
+    ];
+    renderRoute();
+
+    const timezoneSelect = await screen.findByLabelText("Zeitzone") as HTMLSelectElement;
+    expect(timezoneSelect.value).toBe("US/Pacific");
+    expect([...timezoneSelect.options].map((option) => option.value)).toContain("US/Pacific");
+
+    const localeSelect = screen.getByLabelText("Sprache") as HTMLSelectElement;
+    expect(localeSelect.value).toBe("de-DE");
+    expect([...localeSelect.options].map((option) => option.value)).toContain("de-DE");
   });
 
   it("zeigt die Stammdaten nur lesend ohne organization:update", async () => {

@@ -25,6 +25,29 @@ const inputClassName =
 const labelClassName = "block text-body font-medium text-slate-300";
 const readOnlyLabelClassName = "block text-caption font-semibold tracking-[0.14em] text-slate-500 uppercase";
 
+/**
+ * `Intl.supportedValuesOf("timeZone")` fehlt "UTC" (siehe
+ * `packages/schemas/src/organization.ts`) — hier deshalb von Hand ergaenzt.
+ * Modul-Konstante statt Neuberechnung bei jedem Render.
+ */
+const TIMEZONE_OPTIONS = [...Intl.supportedValuesOf("timeZone"), "UTC"];
+
+/**
+ * Nur die vier Sprachen, in denen die Plattform bisher denkbar ist. Weitere
+ * Gebietsschemas kommen dazu, sobald sie tatsaechlich benutzt werden.
+ */
+const LOCALE_OPTIONS = [
+  { value: "de-CH", label: "Deutsch (Schweiz)" },
+  { value: "fr-CH", label: "Französisch (Schweiz)" },
+  { value: "it-CH", label: "Italienisch (Schweiz)" },
+  { value: "en-GB", label: "Englisch" },
+] as const;
+
+/** Haengt einen gespeicherten, aber nicht gelisteten Wert als weitere Option an. */
+function withStoredValue(options: readonly string[], storedValue: string): readonly string[] {
+  return options.includes(storedValue) ? options : [...options, storedValue];
+}
+
 export function OrganizationSettingsRoute({ requestedOrganizationId }: {
   readonly requestedOrganizationId: string | undefined;
 }) {
@@ -122,6 +145,11 @@ function OrganizationDetails({ organization, canUpdate }: {
 
   const { errors, isDirty } = form.formState;
   const { name: nameError, timezone: timezoneError, locale: localeError } = errors;
+  const timezoneOptions = withStoredValue(TIMEZONE_OPTIONS, organization.timezone);
+  const localeOptions = withStoredValue(
+    LOCALE_OPTIONS.map((option) => option.value),
+    organization.locale,
+  );
 
   return (
     <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/80 p-5 sm:p-6">
@@ -147,31 +175,41 @@ function OrganizationDetails({ organization, canUpdate }: {
         </div>
         <div className="space-y-2">
           <label className={labelClassName} htmlFor="organization-timezone">Zeitzone</label>
-          <input
+          <select
             aria-describedby={timezoneError ? "organization-timezone-error" : undefined}
             aria-invalid={timezoneError ? true : undefined}
             className={inputClassName}
             id="organization-timezone"
             {...form.register("timezone")}
-          />
+          >
+            {timezoneOptions.map((timezone) => (
+              <option key={timezone} value={timezone}>{timezone}</option>
+            ))}
+          </select>
           {timezoneError ? (
             <p className="text-body text-rose-300" id="organization-timezone-error" role="alert">
-              Bitte eine Zeitzone angeben.
+              {timezoneError.message ?? "Bitte eine Zeitzone angeben."}
             </p>
           ) : null}
         </div>
         <div className="space-y-2">
           <label className={labelClassName} htmlFor="organization-locale">Sprache</label>
-          <input
+          <select
             aria-describedby={localeError ? "organization-locale-error" : undefined}
             aria-invalid={localeError ? true : undefined}
             className={inputClassName}
             id="organization-locale"
             {...form.register("locale")}
-          />
+          >
+            {localeOptions.map((locale) => (
+              <option key={locale} value={locale}>
+                {LOCALE_OPTIONS.find((option) => option.value === locale)?.label ?? locale}
+              </option>
+            ))}
+          </select>
           {localeError ? (
             <p className="text-body text-rose-300" id="organization-locale-error" role="alert">
-              Bitte eine Sprache mit mindestens 2 Zeichen angeben.
+              {localeError.message ?? "Bitte eine Sprache angeben."}
             </p>
           ) : null}
         </div>
