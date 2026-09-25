@@ -133,13 +133,23 @@ function Members({ currentUserId, organization }: {
         method: "DELETE",
         schema: z.undefined(),
       }),
-    onSuccess: async () => {
-      const removedName = removeTarget?.displayName ?? "Das Mitglied";
-      await invalidateMembers();
-      setRemoveTarget(null);
-      setRemovedAnnouncement(`${removedName} wurde aus der Organisation entfernt.`);
-    },
   });
+
+  // Aufrufgebundenes `onSuccess` statt eines globalen (wie
+  // `runArchive`/`runDelete` in `player-list.tsx`, Task 1): `removeTarget`
+  // aus dem Komponenten-State koennte sich zwischen dem Absenden und der
+  // Antwort schon auf ein anderes Mitglied verschieben (Dialog geschlossen,
+  // neu geoeffnet) -- der Name in der Meldung und das bedingte Schliessen
+  // sollen aber zu GENAU diesem Aufruf gehoeren.
+  const runRemove = (target: OrganizationMember) => {
+    removeMember.mutate(target.userId, {
+      onSuccess: async () => {
+        await invalidateMembers();
+        setRemoveTarget((current) => (current !== null && current.userId === target.userId ? null : current));
+        setRemovedAnnouncement(`${target.displayName} wurde aus der Organisation entfernt.`);
+      },
+    });
+  };
   const cancelInvitation = useMutation({
     mutationFn: (invitationId: string) =>
       apiRequest({
@@ -219,9 +229,13 @@ function Members({ currentUserId, organization }: {
         {updateMember.error !== null ? (
           <p className="text-body text-rose-300" role="alert">{messageFrom(updateMember.error)}</p>
         ) : null}
-        {removedAnnouncement !== null ? (
-          <p className="text-body text-slate-300" role="status">{removedAnnouncement}</p>
-        ) : null}
+        {/*
+          Immer gemountet (Whole-Branch-Review, Befund 2, wie in
+          `player-list.tsx`): eine `role="status"`-Region, die erst nach dem
+          Einhaengen befuellt wird, kuendigt Screenreadern nicht zuverlaessig
+          an. Leer statt fehlend, solange nichts zu melden ist.
+        */}
+        <p className="text-body text-slate-300" role="status">{removedAnnouncement ?? ""}</p>
         {membersQuery.isPending ? (
           <p className="text-body text-slate-400">Mitglieder werden geladen …</p>
         ) : membersQuery.isError ? (
@@ -494,7 +508,7 @@ function Members({ currentUserId, organization }: {
         onCancel={() => setRemoveTarget(null)}
         onConfirm={() => {
           if (removeTarget === null) return;
-          removeMember.mutate(removeTarget.userId);
+          runRemove(removeTarget);
         }}
         open={removeTarget !== null}
         pending={removeMember.isPending}

@@ -117,6 +117,17 @@ afterEach(() => {
 });
 
 describe("MembersRoute", () => {
+  it("haelt die Statusregion fuer 'Entfernen' dauerhaft im DOM, auch leer (Whole-Branch-Review, Befund 2)", async () => {
+    // Eine `role="status"`-Region, die erst NACH dem Einhaengen befuellt
+    // wird, kuendigt Screenreadern nicht zuverlaessig an. Vor jeder Aktion
+    // muss sie also schon existieren, nur eben leer.
+    renderRoute();
+
+    await screen.findByText("Bruno Beispiel");
+
+    expect(screen.getByRole("status").textContent).toBe("");
+  });
+
   it("fokussiert nach erfolgreichem Entfernen die Ueberschrift und zeigt eine Statusmeldung (Task 2)", async () => {
     renderRoute();
 
