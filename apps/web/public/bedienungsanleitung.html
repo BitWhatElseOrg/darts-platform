@@ -28,6 +28,25 @@
         --shadow: 0 20px 55px rgb(0 0 0 / 0.22);
       }
 
+      /* Dieselben Schriften wie die App (apps/web/src/app/layout.tsx), selbst
+         gehostet unter /fonts, weil die statische Seite next/font nicht nutzen
+         kann und die CSP nur font-src 'self' erlaubt. Lizenz: SIL OFL 1.1,
+         siehe /fonts/OFL-*.txt. */
+      @font-face {
+        font-family: "Archivo";
+        font-style: normal;
+        font-weight: 100 900;
+        font-display: swap;
+        src: url("/fonts/archivo-latin-variable.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Saira Condensed";
+        font-style: normal;
+        font-weight: 700;
+        font-display: swap;
+        src: url("/fonts/saira-condensed-latin-700.woff2") format("woff2");
+      }
+
       * { box-sizing: border-box; }
       html {
         scroll-behavior: smooth;
@@ -41,8 +60,7 @@
           radial-gradient(circle at 84% 2%, rgb(16 185 129 / 0.12), transparent 26rem),
           var(--bg);
         color: var(--text);
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-          "Segoe UI", sans-serif;
+        font-family: "Archivo", system-ui, sans-serif;
         font-size: 16px;
         line-height: 1.65;
       }
@@ -118,7 +136,11 @@
         line-height: 1.18;
         text-wrap: balance;
       }
-      h1 { margin: 0; font-size: clamp(2.2rem, 6vw, 4.8rem); letter-spacing: -0.04em; }
+      h1, h2 {
+        font-family: "Saira Condensed", "Arial Narrow", sans-serif;
+        font-weight: 700;
+      }
+      h1 { margin: 0; font-size: clamp(2.2rem, 6vw, 4.8rem); letter-spacing: -0.01em; }
       .lead { max-width: 760px; margin: 1rem 0 0; color: var(--muted); font-size: 1.08rem; }
       .meta { margin: 1.2rem 0 0; color: var(--muted); font-size: 0.88rem; }
 
@@ -157,7 +179,7 @@
       main > section > ul,
       main > section > ol,
       main > section > dl { max-width: 75ch; }
-      h2 { margin: 0 0 1rem; font-size: clamp(1.65rem, 3vw, 2.35rem); letter-spacing: -0.025em; }
+      h2 { margin: 0 0 1rem; font-size: clamp(1.65rem, 3vw, 2.35rem); letter-spacing: -0.005em; }
       h3 { margin: 2rem 0 0.65rem; font-size: 1.15rem; }
       p { margin: 0.7rem 0; }
       ul, ol { padding-left: 1.35rem; }
