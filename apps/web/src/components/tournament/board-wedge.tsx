@@ -11,7 +11,7 @@ import {
   StateTag,
   Wedge,
 } from "@darts-platform/ui";
-import type { BoardSlot, QueueEntry } from "@darts-platform/schemas";
+import type { BoardSlot, QueueEntry, TournamentStatus } from "@darts-platform/schemas";
 
 import { boardStateLabel, minutesBetween, runtimeLabel } from "@/lib/tournament-format";
 
@@ -23,6 +23,8 @@ interface BoardWedgeProps {
   /** Keyboard digit that assigns to this board. */
   readonly shortcut: string;
   readonly pending: boolean;
+  /** Nach `COMPLETED` wartet eine freie Kachel auf nichts mehr (Befund 8, 25.09.2026). */
+  readonly tournamentStatus: TournamentStatus;
   /**
    * Ein Befehl der Zentrale laeuft gerade: Zuweisen und Freigeben sind
    * gesperrt. Echtes `disabled` statt einer blossen Wache im Handler -- sonst
@@ -45,6 +47,7 @@ export function BoardWedge({
   pending,
   shortcut,
   slot,
+  tournamentStatus,
 }: BoardWedgeProps) {
   const tone = slot.state === "FREE" ? "free" : slot.state === "BLOCKED" ? "blocked" : "ink";
   const onGround = slot.state === "FREE" ? "sisal" : "ink";
@@ -182,6 +185,11 @@ export function BoardWedge({
           >
             Auf {slot.boardName} starten
           </Control>
+        </div>
+      ) : tournamentStatus === "COMPLETED" ? (
+        <div className="flex flex-col gap-2 px-4 py-4">
+          <p className="font-plate text-body text-sisal-500">Turnier beendet.</p>
+          <p className="font-plate text-caption text-sisal-500">Alle Matches sind gespielt.</p>
         </div>
       ) : (
         <div className="flex flex-col gap-2 px-4 py-4">
