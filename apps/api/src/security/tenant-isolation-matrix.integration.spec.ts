@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import {
   auditEvents,
+  boardDevices,
   boards,
   competitions,
   encounters,
@@ -73,6 +74,7 @@ const bodies: Record<string, object> = {
   // jemals hinter die Berechtigungspruefung vordraenge.
   "DELETE /api/v1/organizations/:organizationId": { confirmName: "Verein B" },
   "POST /api/v1/organizations/:organizationId/boards": { name: "Board 1" },
+  "POST /api/v1/organizations/:organizationId/boards/:boardId/devices": { label: "Matrix" },
   "POST /api/v1/organizations/:organizationId/players": { displayName: "Fremde Spielerin", status: "ACTIVE" },
   "PATCH /api/v1/organizations/:organizationId/players/:playerId": { displayName: "Umbenannt" },
   "POST /api/v1/organizations/:organizationId/matches": {
@@ -242,6 +244,9 @@ async function createResourcesInB(): Promise<Record<string, string>> {
     playerIds.push(player.id);
   }
   const board = await createAsOwnerB<{ id: string }>("POST", `${base}/boards`, { name: "B-Scheibe" });
+  const device = await createAsOwnerB<{ device: { id: string } }>(
+    "POST", `${base}/boards/${board.id}/devices`, { label: "B-Tablet" },
+  );
   const match = await createAsOwnerB<{ id: string }>("POST", `${base}/matches`, {
     playerOneId: playerIds[4], playerTwoId: playerIds[5], boardId: null, bestOfLegs: 1, bestOfSets: 1,
   });
@@ -304,6 +309,8 @@ async function createResourcesInB(): Promise<Record<string, string>> {
     competitionId: competition.id,
     encounterId: encounter.id,
     slotId,
+    boardId: board.id,
+    deviceId: device.device.id,
   };
 }
 
@@ -330,6 +337,8 @@ async function snapshotOrganizationB() {
       .from(players).where(inB(players.organizationId)).orderBy(players.id),
     boards: await database.select({ id: boards.id, name: boards.name, status: boards.status, updatedAt: boards.updatedAt })
       .from(boards).where(inB(boards.organizationId)).orderBy(boards.id),
+    boardDevices: await database.select({ id: boardDevices.id, revokedAt: boardDevices.revokedAt, lastSeenAt: boardDevices.lastSeenAt })
+      .from(boardDevices).where(inB(boardDevices.organizationId)).orderBy(boardDevices.id),
     matches: await database.select({ id: matches.id, status: matches.status, version: matches.version, updatedAt: matches.updatedAt })
       .from(matches).where(inB(matches.organizationId)).orderBy(matches.id),
     teams: await database.select({ id: teams.id, name: teams.name, status: teams.status, updatedAt: teams.updatedAt })

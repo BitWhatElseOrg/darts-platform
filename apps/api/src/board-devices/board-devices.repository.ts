@@ -1,15 +1,144 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
-import { boardDevices, boards, matches, organizations } from "@darts-platform/database";
+import { auditEvents, boardDevices, boards, matches, organizations, type BoardDevice } from "@darts-platform/database";
 import type { BoardDeviceSelf } from "@darts-platform/schemas";
 
 import type { AuthenticatedDevice } from "../auth/auth.types.js";
+import type { AuditContext } from "../common/audit-context.js";
 import { DatabaseService } from "../database/database.service.js";
 
 @Injectable()
 export class BoardDevicesRepository {
   public constructor(@Inject(DatabaseService) private readonly databaseService: DatabaseService) {}
+
+  /**
+   * Nur eine Scheibe darf zeitgleich ein aktives Geraet haben
+   * (`board_devices_board_active_unique`). Ein erneutes Einrichten widerruft
+   * das bisherige Geraet darum in derselben Transaktion, statt den
+   * Unique-Constraint scheitern zu lassen -- beide Aenderungen (Widerruf und
+   * Neuanlage) landen atomar oder gar nicht.
+   */
+  public pair(input: {
+    readonly organizationId: string;
+    readonly boardId: string;
+    readonly label: string;
+    readonly secretHash: string;
+    readonly createdBy: string;
+    readonly audit: AuditContext;
+  }): Promise<BoardDevice | "board-not-found"> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [board] = await transaction
+        .select({ id: boards.id })
+        .from(boards)
+        .where(and(eq(boards.organizationId, input.organizationId), eq(boards.id, input.boardId)))
+        .for("update")
+        .limit(1);
+      if (board === undefined) return "board-not-found";
+
+      const replaced = await transaction
+        .update(boardDevices)
+        .set({ revokedAt: new Date(), updatedAt: new Date() })
+        .where(and(
+          eq(boardDevices.organizationId, input.organizationId),
+          eq(boardDevices.boardId, input.boardId),
+          isNull(boardDevices.revokedAt),
+        ))
+        .returning();
+      for (const old of replaced) {
+        await transaction.insert(auditEvents).values({
+          organizationId: input.organizationId,
+          actorUserId: input.createdBy,
+          action: "BOARD_DEVICE_REVOKED",
+          entityType: "BoardDevice",
+          entityId: old.id,
+          oldValue: { label: old.label, boardId: old.boardId },
+          newValue: { revokedAt: old.revokedAt, reason: "REPLACED" },
+          ip: input.audit.ip,
+          userAgent: input.audit.userAgent,
+          correlationId: input.audit.correlationId,
+        });
+      }
+
+      const [created] = await transaction
+        .insert(boardDevices)
+        .values({
+          organizationId: input.organizationId,
+          boardId: input.boardId,
+          label: input.label,
+          secretHash: input.secretHash,
+          createdBy: input.createdBy,
+        })
+        .returning();
+      if (created === undefined) throw new Error("Board device insert did not return a row.");
+      await transaction.insert(auditEvents).values({
+        organizationId: input.organizationId,
+        actorUserId: input.createdBy,
+        action: "BOARD_DEVICE_PAIRED",
+        entityType: "BoardDevice",
+        entityId: created.id,
+        newValue: { label: created.label, boardId: created.boardId },
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+      return created;
+    });
+  }
+
+  /**
+   * Widerruft idempotent: fehlt das Geraet (falsche Scheibe oder falsche
+   * Organisation), `"not-found"`; ist es bereits widerrufen, `"ok"` ohne
+   * weiteren Schreibvorgang und ohne zweiten Audit-Eintrag.
+   */
+  public revoke(input: {
+    readonly organizationId: string;
+    readonly boardId: string;
+    readonly deviceId: string;
+    readonly actorUserId: string;
+    readonly audit: AuditContext;
+  }): Promise<"ok" | "not-found"> {
+    return this.databaseService.database.transaction(async (transaction) => {
+      const [device] = await transaction
+        .select()
+        .from(boardDevices)
+        .where(and(
+          eq(boardDevices.organizationId, input.organizationId),
+          eq(boardDevices.boardId, input.boardId),
+          eq(boardDevices.id, input.deviceId),
+        ))
+        .for("update")
+        .limit(1);
+      if (device === undefined) return "not-found";
+      if (device.revokedAt !== null) return "ok";
+
+      await transaction
+        .update(boardDevices)
+        .set({ revokedAt: new Date(), updatedAt: new Date() })
+        .where(eq(boardDevices.id, device.id));
+      await transaction.insert(auditEvents).values({
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        action: "BOARD_DEVICE_REVOKED",
+        entityType: "BoardDevice",
+        entityId: device.id,
+        oldValue: { label: device.label, boardId: device.boardId },
+        newValue: { revokedAt: new Date(), reason: "MANUAL" },
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+      return "ok";
+    });
+  }
+
+  public async list(organizationId: string): Promise<BoardDevice[]> {
+    return this.databaseService.database
+      .select()
+      .from(boardDevices)
+      .where(and(eq(boardDevices.organizationId, organizationId), isNull(boardDevices.revokedAt)))
+      .orderBy(boardDevices.createdAt);
+  }
 
   public async getSelf(device: AuthenticatedDevice): Promise<BoardDeviceSelf | null> {
     const database = this.databaseService.database;
