@@ -41,14 +41,17 @@ let bearer: { readonly authorization: string };
 /** Legt ein Match ueber die echte Route an, damit die Fixture einer echten Spielanlage entspricht. */
 async function createMatchOnBoard(targetBoardId: string): Promise<string> {
   vi.spyOn(app.get(AuthService), "getSession").mockResolvedValue(ownerAuth);
-  const response = await app.inject({
-    method: "POST",
-    url: `/api/v1/organizations/${organizationId}/matches`,
-    payload: { playerOneId, playerTwoId, boardId: targetBoardId, bestOfLegs: 1, bestOfSets: 1 },
-  });
-  vi.restoreAllMocks();
-  expect(response.statusCode).toBe(201);
-  return response.json().id as string;
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/organizations/${organizationId}/matches`,
+      payload: { playerOneId, playerTwoId, boardId: targetBoardId, bestOfLegs: 1, bestOfSets: 1 },
+    });
+    expect(response.statusCode).toBe(201);
+    return response.json().id as string;
+  } finally {
+    vi.restoreAllMocks();
+  }
 }
 
 beforeAll(async () => {
@@ -185,5 +188,33 @@ describe("GET /api/v1/board-devices/me", () => {
 
     expect(response.statusCode).toBe(401);
     expect(response.json().error.code).toBe("DEVICE_REVOKED");
+  });
+
+  it("lehnt eine gültige Benutzer-Session ohne Bearer mit DEVICE_REQUIRED ab", async () => {
+    vi.spyOn(app.get(AuthService), "getSession").mockResolvedValue(ownerAuth);
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/v1/board-devices/me" });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.code).toBe("DEVICE_REQUIRED");
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("lehnt einen unbekannten Geräteschlüssel neben einer gültigen Session ab, ohne auf die Session zurückzufallen", async () => {
+    vi.spyOn(app.get(AuthService), "getSession").mockResolvedValue(ownerAuth);
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/v1/organizations/${organizationId}/players`,
+        headers: { authorization: "Bearer bd_unbekannt" },
+      });
+
+      expect(response.statusCode).toBe(401);
+      expect(response.json().error.code).toBe("DEVICE_REVOKED");
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });
