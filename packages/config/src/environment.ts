@@ -82,6 +82,11 @@ export const applicationEnvironmentSchema = z.object({
    */
   RATE_LIMIT_SOCKET_MAX_PER_MINUTE: rateLimitMaxSchema.default(60),
   /**
+   * Je Scheiben-Tablet; ein Tablet erzeugt im Match rund 35 Anfragen pro
+   * Minute (Lease-Heartbeat 3 s, Kiosk-Polling 5 s, Wuerfe).
+   */
+  RATE_LIMIT_DEVICE_MAX_PER_MINUTE: rateLimitMaxSchema.default(120),
+  /**
    * Anzahl vertrauter Reverse-Proxy-Hops vor der Anwendung — lokal `0`
    * (kein Proxy), hinter Railway `1`. Bestimmt, welcher Eintrag der
    * `X-Forwarded-For`-Kette als tatsaechliche Client-Adresse gilt

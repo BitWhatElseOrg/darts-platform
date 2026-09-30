@@ -5,6 +5,7 @@ import type { FastifyRequest } from "fastify";
 
 import type { ApplicationEnvironment } from "@darts-platform/config";
 
+import { readDeviceBearer } from "../auth/device-bearer.js";
 import { resolveClientAddress } from "./client-address.js";
 
 const RATE_LIMIT_WINDOW = "1 minute";
@@ -38,7 +39,7 @@ const SENSITIVE_PATH_PATTERNS: readonly RegExp[] = [
   /^\/api\/v1\/auth\/request-password-reset$/u,
 ];
 
-type RateLimitTier = "general" | "public" | "sensitive";
+type RateLimitTier = "general" | "public" | "sensitive" | "device";
 
 function pathOf(request: FastifyRequest): string {
   const queryIndex = request.url.indexOf("?");
@@ -110,10 +111,25 @@ function maxFor(tier: RateLimitTier, environment: ApplicationEnvironment): numbe
  * `resolveClientAddress`, das mit einem vertrauten Hop `X-Real-IP`
  * bevorzugt (von Railway ueberschrieben, siehe dort) und sonst auf
  * `request.ip` zurueckfaellt.
+ *
+ * Vierte Stufe `device` (Task 7, Scheiben-Tablets): alle Tablets eines
+ * Dartraums teilen sich meist eine oeffentliche NAT-Adresse, ein IP-Eimer
+ * wuerde also ein Tablet gegen die uebrigen desselben Raums aussperren.
+ * Traegt eine Anfrage einen gueltigen Geraeteschluessel
+ * (`Authorization: Bearer bd_...`, `readDeviceBearer`) und liegt sie auf der
+ * allgemeinen Stufe, zaehlt sie stattdessen gegen ihr eigenes Geraet
+ * (`device:<geraete-id>`) mit der eigenen Obergrenze
+ * `RATE_LIMIT_DEVICE_MAX_PER_MINUTE`. Anmeldung, Passwort-Reset und
+ * Einladungen (`sensitive`) bleiben bewusst bei der Adresse, auch mit
+ * gueltigem Geraeteschluessel — sonst bekaeme jede Person am Tablet 120 statt
+ * 10 Anmeldeversuche pro Minute. `classifyDevice` prueft den Schluessel
+ * gegen die Datenbank (`BoardDeviceAuthenticator.classify`, 30-s-Cache); ein
+ * unbekannter oder fehlender Schluessel faellt auf die Adresse zurueck.
  */
 export async function registerRateLimit(
   app: NestFastifyApplication,
   environment: ApplicationEnvironment,
+  classifyDevice: (secret: string) => Promise<string | null>,
 ): Promise<void> {
   await app.register(rateLimit, {
     global: true,
@@ -125,10 +141,22 @@ export async function registerRateLimit(
     // der generierte Zaehler-Schluessel (`keyGenerator`) die Stufe
     // enthaelt, nicht den nackten Pfad.
     allowList: (request: FastifyRequest): boolean => pathOf(request) === HEALTH_PATH,
-    max: (request: FastifyRequest): number =>
-      maxFor(resolveRateLimitTier(pathOf(request)), environment),
-    keyGenerator: (request: FastifyRequest): string =>
-      `${resolveRateLimitTier(pathOf(request))}:${resolveClientAddress(request, environment.TRUST_PROXY_HOPS)}`,
+    max: (request: FastifyRequest, key: string): number =>
+      key.startsWith("device:")
+        ? environment.RATE_LIMIT_DEVICE_MAX_PER_MINUTE
+        : maxFor(resolveRateLimitTier(pathOf(request)), environment),
+    keyGenerator: async (request: FastifyRequest): Promise<string> => {
+      const tier = resolveRateLimitTier(pathOf(request));
+      // Nur die allgemeine Stufe zaehlt pro Geraet. Anmeldung, Passwort-Reset
+      // und Einladungen (sensitive) behalten ihre enge Grenze pro IP, auch
+      // mit gueltigem Geraeteschluessel.
+      const secret = tier === "general" ? readDeviceBearer(request.headers) : null;
+      if (secret !== null) {
+        const deviceId = await classifyDevice(secret);
+        if (deviceId !== null) return `device:${deviceId}`;
+      }
+      return `${tier}:${resolveClientAddress(request, environment.TRUST_PROXY_HOPS)}`;
+    },
     // `@fastify/rate-limit` wirft den Rueckgabewert aus einem
     // `onRequest`-Hook, der vor dem Nest-Routing laeuft. Trotzdem faengt
     // Nests globaler `ApiExceptionFilter` ihn ab — jede unbehandelte

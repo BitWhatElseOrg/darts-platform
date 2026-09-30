@@ -3,6 +3,7 @@ import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 
 import type { ApplicationEnvironment } from "@darts-platform/config";
 
+import { BoardDeviceAuthenticator } from "../auth/board-device-authenticator.js";
 import { ApiExceptionFilter } from "./api-exception.filter.js";
 import { ApiLoggingInterceptor } from "./api-logging.interceptor.js";
 import { registerRateLimit } from "./rate-limit.js";
@@ -88,7 +89,7 @@ export async function configureApplication(
   registerCspReportContentTypes(app);
   registerImageUploadContentType(app);
   await registerSecurityHeaders(app);
-  await registerRateLimit(app, environment);
+  await registerRateLimit(app, environment, (secret) => app.get(BoardDeviceAuthenticator).classify(secret));
   app.useGlobalFilters(new ApiExceptionFilter(environment.TRUST_PROXY_HOPS));
   app.useGlobalInterceptors(
     new ApiLoggingInterceptor(
