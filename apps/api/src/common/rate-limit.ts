@@ -1,5 +1,5 @@
 import rateLimit from "@fastify/rate-limit";
-import { HttpException, HttpStatus } from "@nestjs/common";
+import { HttpException, HttpStatus, Logger } from "@nestjs/common";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import type { FastifyRequest } from "fastify";
 
@@ -125,12 +125,18 @@ function maxFor(tier: RateLimitTier, environment: ApplicationEnvironment): numbe
  * 10 Anmeldeversuche pro Minute. `classifyDevice` prueft den Schluessel
  * gegen die Datenbank (`BoardDeviceAuthenticator.classify`, 30-s-Cache); ein
  * unbekannter oder fehlender Schluessel faellt auf die Adresse zurueck.
+ * Wirft `classifyDevice` (z. B. DB-Stoerung), faellt der Schluessel ebenso
+ * auf die Adresse zurueck, statt den `onRequest`-Hook ungefangen scheitern
+ * zu lassen — die Einordnung fuers Rate-Limit darf keine Anfrage mit einem
+ * 500 abbrechen.
  */
 export async function registerRateLimit(
   app: NestFastifyApplication,
   environment: ApplicationEnvironment,
   classifyDevice: (secret: string) => Promise<string | null>,
 ): Promise<void> {
+  const logger = new Logger("RateLimitDevice");
+
   await app.register(rateLimit, {
     global: true,
     hook: "onRequest",
@@ -152,8 +158,20 @@ export async function registerRateLimit(
       // mit gueltigem Geraeteschluessel.
       const secret = tier === "general" ? readDeviceBearer(request.headers) : null;
       if (secret !== null) {
-        const deviceId = await classifyDevice(secret);
-        if (deviceId !== null) return `device:${deviceId}`;
+        try {
+          const deviceId = await classifyDevice(secret);
+          if (deviceId !== null) return `device:${deviceId}`;
+        } catch (error: unknown) {
+          // Die Einordnung darf eine Anfrage nie scheitern lassen (z. B. bei
+          // einer DB-Stoerung) — sonst wirft der `onRequest`-Hook ungefangen
+          // und die Anfrage bekaeme ein 500 statt eines Rate-Limits. Faellt
+          // still auf den IP-Schluessel zurueck; der Guard dahinter urteilt
+          // ueber den Schluessel ohnehin selbst noch einmal frisch.
+          logger.error(
+            "Geraete-Einordnung fuer das Rate-Limit fehlgeschlagen; falle auf die IP-Adresse zurueck",
+            error instanceof Error ? error.stack : undefined,
+          );
+        }
       }
       return `${tier}:${resolveClientAddress(request, environment.TRUST_PROXY_HOPS)}`;
     },

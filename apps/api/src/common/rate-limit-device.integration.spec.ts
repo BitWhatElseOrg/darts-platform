@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import { boardDevices, boards, organizations, users } from "@darts-platform/database";
 import { createBoardDeviceSecret, hashBoardDeviceSecret } from "@darts-platform/domain/board-device-secret";
 
+import { BoardDeviceAuthenticator } from "../auth/board-device-authenticator.js";
 import { DatabaseService } from "../database/database.service.js";
 import { createApiTestApplication } from "../testing/api-harness.js";
 
@@ -115,5 +116,34 @@ describe("Rate-Limit-Stufe fuer Scheiben-Tablets", () => {
     }
 
     expect(statuses.at(-1)).toBe(429);
+  });
+
+  it("faellt bei einer werfenden Geraete-Einordnung auf die IP-Adresse zurueck, statt mit 500 zu scheitern", async () => {
+    const classifySpy = vi
+      .spyOn(app.get(BoardDeviceAuthenticator), "classify")
+      .mockRejectedValue(new Error("Datenbank nicht erreichbar"));
+
+    try {
+      const statuses: number[] = [];
+      for (let index = 0; index < 6; index += 1) {
+        statuses.push(
+          (
+            await app.inject({
+              method: "GET",
+              url: "/api/v1/board-devices/me",
+              headers: bearer,
+              remoteAddress: "203.0.113.42",
+            })
+          ).statusCode,
+        );
+      }
+
+      // Faellt auf die allgemeine IP-Grenze (5) zurueck statt auf die
+      // Geraete-Grenze (8) oder ein 500: kein einziger der sechs Versuche
+      // wirft, und der sechste (ueber der IP-Grenze) wird abgelehnt.
+      expect(statuses).toEqual([200, 200, 200, 200, 200, 429]);
+    } finally {
+      classifySpy.mockRestore();
+    }
   });
 });
