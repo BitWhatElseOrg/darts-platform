@@ -60,6 +60,8 @@ const boardId = randomUUID();
 const otherBoardId = randomUUID();
 const playerOneId = randomUUID();
 const playerTwoId = randomUUID();
+/** Person der Organisation, die an keinem Match der Geraetescheibe teilnimmt. */
+const bystanderPlayerId = randomUUID();
 
 const ownerAuth: AuthContext = {
   user: { id: ownerId, email: `device-scoring-${ownerId}@example.test`, name: "Device Scoring Owner" },
@@ -220,6 +222,7 @@ beforeAll(async () => {
   await database.insert(players).values([
     { id: playerOneId, organizationId, displayName: "Player One", status: "ACTIVE" },
     { id: playerTwoId, organizationId, displayName: "Player Two", status: "ACTIVE" },
+    { id: bystanderPlayerId, organizationId, displayName: "Bystander Player", status: "ACTIVE" },
   ]);
   const secret = createBoardDeviceSecret();
   const [device] = await database
@@ -555,5 +558,55 @@ describe("Match-Routen über HTTP mit Geräteschlüssel", () => {
 
     expect(response.statusCode).toBe(403);
     expect(response.json().error.code).toBe("DEVICE_BOARD_MISMATCH");
+  }, 30_000);
+});
+
+describe("Schnellwerte am Tablet", () => {
+  let app: NestFastifyApplication;
+
+  beforeAll(async () => {
+    app = await createApiTestApplication();
+  }, 60_000);
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it("liefert Schnellwerte für eine Person im laufenden Match der Scheibe", async () => {
+    await createFreeMatch(boardId);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/organizations/${organizationId}/players/${playerOneId}/statistics/frequent-scores`,
+      headers: bearer,
+    });
+
+    expect(response.statusCode).toBe(200);
+  }, 30_000);
+
+  it("verweigert Schnellwerte für eine Person, die nicht an der Scheibe spielt", async () => {
+    await createFreeMatch(boardId);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/organizations/${organizationId}/players/${bystanderPlayerId}/statistics/frequent-scores`,
+      headers: bearer,
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.code).toBe("DEVICE_BOARD_MISMATCH");
+  }, 30_000);
+
+  it("verweigert das Statistikprofil", async () => {
+    await createFreeMatch(boardId);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/organizations/${organizationId}/players/${playerOneId}/statistics`,
+      headers: bearer,
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().error.code).toBe("DEVICE_NOT_ALLOWED");
   }, 30_000);
 });
