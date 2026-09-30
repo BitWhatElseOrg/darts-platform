@@ -18,6 +18,7 @@ export {
   type AdvancedFormatPreviewInput,
 } from "./advanced-tournament";
 export { boardListSchema, boardSchema, boardStatusSchema, createBoardSchema, type BoardResponse, type CreateBoardInput } from "./board";
+export { boardDeviceSelfSchema, type BoardDeviceSelf } from "./board-device";
 export {
   abortMatchResponseSchema, abortMatchSchema, boardControllerLeaseRequestSchema, boardControllerLeaseSchema, createMatchSchema, dartSchema, decideLegByBullSchema, decideLegStartSchema, matchListSchema, matchLiveTargetSchema, matchStateSchema, matchStatusSchema, matchVisitSchema,
   submitVisitSchema, undoVisitSchema, visitOutcomeSchema,

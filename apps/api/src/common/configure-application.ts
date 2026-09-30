@@ -78,7 +78,12 @@ export async function configureApplication(
       "Content-Type",
       "X-Correlation-Id",
       "X-Dartbase-Invitation-Claim",
+      "Authorization",
     ],
+    // `Authorization` erzwingt einen CORS-Preflight (Scheiben-Tablets senden
+    // ihn bei fast jeder Anfrage). Ohne `maxAge` cacht Chrome den Preflight
+    // nur 5 s, und das Tablet schickt fast jede Anfrage doppelt.
+    maxAge: 600,
   });
   registerCspReportContentTypes(app);
   registerImageUploadContentType(app);
