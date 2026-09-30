@@ -7,11 +7,12 @@ import {
   tournaments, tournamentStages,
   visitDarts, visits,
 } from "@darts-platform/database";
-import { matchTargets } from "@darts-platform/domain";
+import { decideDeviceMatchAccess, matchTargets, type DeviceMatchAction } from "@darts-platform/domain";
 import { ScoringValidationError, createX01Match, defaultCheckoutAttempts, executeX01Command, projectX01Match, type InRule, type LegStartRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
 import type { AbortMatchInput, AbortMatchResponse, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
-import type { AuthContext } from "../auth/auth.types.js";
+import { isDevicePrincipal, type AuthContext, type Principal } from "../auth/auth.types.js";
 import { isBoardInProgressConflict, isBoardOccupied } from "../boards/board-occupancy.js";
+import { auditActor, leaseActor } from "../common/audit-actor.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
 import { DatabaseService } from "../database/database.service.js";
@@ -26,24 +27,51 @@ import { abortScoringMatch } from "./abort-match.js";
 import { lockEncounterScoringContext } from "./encounter-scoring-lock.js";
 import { lockTournamentScoringContext } from "./tournament-scoring-lock.js";
 
-export type MutationResult = "ok" | "not-found" | "version-conflict" | "controller-conflict";
+/** Ein Scheiben-Tablet schreibt nur in das laufende Match seiner Scheibe. */
+export type DeviceDenial = "device-board-mismatch" | "device-match-not-active";
+export type MutationResult = "ok" | "not-found" | "version-conflict" | "controller-conflict" | DeviceDenial;
 /**
  * Ein Undo eroeffnet ein beendetes Match wieder. Steht auf seiner Scheibe
  * inzwischen ein anderes Spiel, ist das keine ungueltige Eingabe, sondern ein
  * Zustand — er wird wie ueberall als belegte Scheibe beantwortet.
  */
 export type UndoMutationResult = MutationResult | "board-unavailable";
-export type AbortMutationResult = AbortMatchResponse | Exclude<MutationResult, "ok">;
+export type AbortMutationResult = AbortMatchResponse | Exclude<MutationResult, "ok" | DeviceDenial>;
 export type TournamentCorrectionResult =
-  | Exclude<MutationResult, "controller-conflict">
+  | Exclude<MutationResult, "controller-conflict" | DeviceDenial>
   | "result-not-correctable"
   | "downstream-started"
   | "board-unavailable";
-type ActorInput = { readonly organizationId: string; readonly matchId: string; readonly auth: AuthContext; readonly audit: AuditContext };
+type ActorInput = { readonly organizationId: string; readonly matchId: string; readonly auth: Principal; readonly audit: AuditContext };
+/** Nur fuer Personen: das Geraet darf nicht abbrechen (devicePermissions). */
+type UserActorInput = Omit<ActorInput, "auth"> & { readonly auth: AuthContext };
 /** Der Transaktionsrumpf, wie ihn Drizzle an den Callback uebergibt. */
 type DatabaseTransaction = Parameters<Parameters<DatabaseService["database"]["transaction"]>[0]>[0];
 /** Der Live-Bezug eines Matches ohne den Fall "kein Bezug" (das traegt `null`). */
 type LiveTarget = NonNullable<MatchStateResponse["liveTarget"]>;
+
+/**
+ * Bindung eines Scheiben-Tablets an das Match seiner Scheibe. Laeuft in der
+ * schreibenden Transaktion, nachdem das Match gesperrt ist: eine Freigabe der
+ * Scheibe zwischen Pruefung und Schreibzugriff rutscht so nicht durch
+ * (Spec 2026-09-30-scheiben-tablet, Abschnitt 3).
+ */
+function deviceDenial(auth: Principal, action: DeviceMatchAction, match: { readonly boardId: string | null; readonly status: string }): DeviceDenial | null {
+  if (!isDevicePrincipal(auth)) return null;
+  const decision = decideDeviceMatchAccess({ action, deviceBoardId: auth.device.boardId, matchBoardId: match.boardId, matchStatus: match.status });
+  switch (decision) {
+    case "ALLOWED":
+      return null;
+    case "BOARD_MISMATCH":
+      return "device-board-mismatch";
+    case "MATCH_NOT_ACTIVE":
+      return "device-match-not-active";
+    default: {
+      const exhaustive: never = decision;
+      return exhaustive;
+    }
+  }
+}
 
 const seatSchema = z.union([z.literal(1), z.literal(2)]);
 // `playerId` stammt aus Kommandos, die vor dem Seitenmodell geschrieben wurden;
@@ -373,10 +401,12 @@ export class MatchesRepository {
     });
   }
 
-  public acquireControllerLease(input: ActorInput & { readonly controllerId: string; readonly force: boolean }): Promise<{ readonly controllerId: string; readonly owned: boolean; readonly expiresAt: Date } | null> {
+  public acquireControllerLease(input: ActorInput & { readonly controllerId: string; readonly force: boolean }): Promise<{ readonly controllerId: string; readonly owned: boolean; readonly expiresAt: Date } | null | DeviceDenial> {
     return this.databaseService.database.transaction(async (transaction) => {
-      const [match] = await transaction.select({ id: matches.id, status: matches.status }).from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
+      const [match] = await transaction.select({ id: matches.id, status: matches.status, boardId: matches.boardId }).from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
       if (match === undefined) return null;
+      const denied = deviceDenial(input.auth, "write", match);
+      if (denied !== null) return denied;
       const [current] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
       const now = new Date();
       const expiresAt = new Date(now.getTime() + LEASE_TTL_MS);
@@ -388,20 +418,20 @@ export class MatchesRepository {
       const mayOwn = match.status === "IN_PROGRESS" && (input.force || current === undefined || current.controllerId === input.controllerId || abandoned);
       if (!mayOwn && current !== undefined) return { controllerId: current.controllerId, owned: false, expiresAt: current.expiresAt };
       if (!mayOwn) return { controllerId: input.controllerId, owned: false, expiresAt: now };
-      await transaction.insert(boardControllerLeases).values({ matchId: input.matchId, organizationId: input.organizationId, controllerId: input.controllerId, userId: input.auth.user.id, expiresAt })
-        .onConflictDoUpdate({ target: boardControllerLeases.matchId, set: { controllerId: input.controllerId, userId: input.auth.user.id, expiresAt, updatedAt: now } });
+      await transaction.insert(boardControllerLeases).values({ matchId: input.matchId, organizationId: input.organizationId, controllerId: input.controllerId, ...leaseActor(input.auth), expiresAt })
+        .onConflictDoUpdate({ target: boardControllerLeases.matchId, set: { controllerId: input.controllerId, ...leaseActor(input.auth), expiresAt, updatedAt: now } });
       if (current === undefined || current.controllerId !== input.controllerId) {
-        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: current === undefined ? "BOARD_CONTROLLER_ACQUIRED" : "BOARD_CONTROLLER_TAKEN_OVER", entityType: "Match", entityId: input.matchId, oldValue: current ?? null, newValue: { controllerId: input.controllerId, expiresAt }, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
+        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, ...auditActor(input.auth), action: current === undefined ? "BOARD_CONTROLLER_ACQUIRED" : "BOARD_CONTROLLER_TAKEN_OVER", entityType: "Match", entityId: input.matchId, oldValue: current ?? null, newValue: { controllerId: input.controllerId, expiresAt }, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
       }
       return { controllerId: input.controllerId, owned: true, expiresAt };
     });
   }
 
-  public abort(input: ActorInput & { readonly data: AbortMatchInput }): Promise<AbortMutationResult> {
+  public abort(input: UserActorInput & { readonly data: AbortMatchInput }): Promise<AbortMutationResult> {
     return retryOnDeadlock<AbortMutationResult>(() => this.abortInTransaction(input), "version-conflict");
   }
 
-  private abortInTransaction(input: ActorInput & { readonly data: AbortMatchInput }): Promise<AbortMutationResult> {
+  private abortInTransaction(input: UserActorInput & { readonly data: AbortMatchInput }): Promise<AbortMutationResult> {
     return this.databaseService.database.transaction(async (transaction): Promise<AbortMutationResult> => {
       await transaction.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.data.commandId}, 0))`);
       const [duplicate] = await transaction.select({ organizationId: scoreCommands.organizationId, matchId: scoreCommands.matchId, payload: scoreCommands.payload }).from(scoreCommands).where(eq(scoreCommands.commandId, input.data.commandId)).limit(1);
@@ -457,6 +487,11 @@ export class MatchesRepository {
       // Bestaetigung bekommt und nicht den Konflikt.
       if (await this.findDuplicateScoreCommand(transaction, input.organizationId, input.matchId, input.data.commandId) !== null) return "ok";
       if (match === undefined) return "not-found";
+      // Vor der Versionspruefung: ein Geraet erfaehrt ueber einen Konflikt
+      // nichts ueber ein Match einer anderen Scheibe. Beim Undo steht die
+      // Pruefung vor dem Zweig, der ein beendetes Match wieder eroeffnet.
+      const denied = deviceDenial(input.auth, "write", match);
+      if (denied !== null) return denied;
       if (match.version !== input.data.expectedVersion) return "version-conflict";
       const [lease] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
       if (lease !== undefined && lease.expiresAt > new Date() && lease.controllerId !== input.data.controllerId) return "controller-conflict";
@@ -559,7 +594,7 @@ export class MatchesRepository {
       }
       await transaction.insert(scoreCommands).values({ commandId: input.data.commandId, organizationId: input.organizationId, matchId: input.matchId, type: command.type, payload: command, resultingVersion: nextVersion });
       await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Match", aggregateId: input.matchId, eventType: result.state.status === "COMPLETED" ? "MATCH_COMPLETED" : "VISIT_RECORDED", payload: { matchId: input.matchId, commandId: input.data.commandId, version: nextVersion } });
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: "SCORE_VISIT_RECORDED", entityType: "Match", entityId: input.matchId, newValue: createdVisit, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, ...auditActor(input.auth), action: "SCORE_VISIT_RECORDED", entityType: "Match", entityId: input.matchId, newValue: createdVisit, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
       return "ok";
     });
   }
@@ -940,6 +975,11 @@ export class MatchesRepository {
       // Bestaetigung bekommt und nicht den Konflikt.
       if (await this.findDuplicateScoreCommand(transaction, input.organizationId, input.matchId, input.data.commandId) !== null) return "ok";
       if (match === undefined) return "not-found";
+      // Vor der Versionspruefung: ein Geraet erfaehrt ueber einen Konflikt
+      // nichts ueber ein Match einer anderen Scheibe. Beim Undo steht die
+      // Pruefung vor dem Zweig, der ein beendetes Match wieder eroeffnet.
+      const denied = deviceDenial(input.auth, "write", match);
+      if (denied !== null) return denied;
       if (match.version !== input.data.expectedVersion) return "version-conflict";
       const [lease] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
       if (lease !== undefined && lease.expiresAt > new Date() && lease.controllerId !== input.data.controllerId) return "controller-conflict";
@@ -996,7 +1036,7 @@ export class MatchesRepository {
       await this.syncProjection(transaction, input, match.boardId, nextVersion, result.state);
       await transaction.insert(scoreCommands).values({ commandId: input.data.commandId, organizationId: input.organizationId, matchId: input.matchId, type: command.type, payload: command, resultingVersion: nextVersion });
       await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Match", aggregateId: input.matchId, eventType: "VISIT_REVERTED", payload: { matchId: input.matchId, visitId: latest.id, commandId: input.data.commandId, version: nextVersion } });
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: "SCORE_VISIT_REVERTED", entityType: "Visit", entityId: latest.id, oldValue: latest, newValue: { revertedByCommandId: input.data.commandId }, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, ...auditActor(input.auth), action: "SCORE_VISIT_REVERTED", entityType: "Visit", entityId: latest.id, oldValue: latest, newValue: { revertedByCommandId: input.data.commandId }, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
       return "ok";
     });
   }
@@ -1051,6 +1091,8 @@ export class MatchesRepository {
       // Bestaetigung bekommt und nicht den Konflikt.
       if (await this.findDuplicateScoreCommand(transaction, input.organizationId, input.matchId, envelope.commandId) !== null) return "ok";
       if (match === undefined) return "not-found";
+      const denied = deviceDenial(input.auth, "write", match);
+      if (denied !== null) return denied;
       if (match.version !== envelope.expectedVersion) return "version-conflict";
       const [lease] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
       if (lease !== undefined && lease.expiresAt > new Date() && lease.controllerId !== envelope.controllerId) return "controller-conflict";
@@ -1091,7 +1133,7 @@ export class MatchesRepository {
       }
       await transaction.insert(scoreCommands).values({ commandId: envelope.commandId, organizationId: input.organizationId, matchId: input.matchId, type: command.type, payload: command, resultingVersion: nextVersion });
       await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Match", aggregateId: input.matchId, eventType: result.state.status === "COMPLETED" ? "MATCH_COMPLETED" : "LEG_DECIDED", payload: { matchId: input.matchId, commandId: envelope.commandId, type: command.type, version: nextVersion } });
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: command.type, entityType: "Match", entityId: input.matchId, oldValue: match, newValue: command, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, ...auditActor(input.auth), action: command.type, entityType: "Match", entityId: input.matchId, oldValue: match, newValue: command, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
       return "ok";
     });
   }
