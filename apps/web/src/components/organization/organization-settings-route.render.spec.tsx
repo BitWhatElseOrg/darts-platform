@@ -43,6 +43,17 @@ const client = vi.hoisted(() => ({
       if (path === "/organizations" && (method === undefined || method === "GET")) {
         return Promise.resolve(server.organizations);
       }
+      // Das Scheiben-Tablet-Panel (Task 10) fragt beide Endpunkte bei jedem
+      // Rendern der Seite ab; ohne diese Zweige liefe jeder Testfall hier in
+      // "Unerwarteter Aufruf" und zeigte ein zusaetzliches `role="alert"`, das
+      // die uebrigen, gezielten `findByRole("alert")`-Zusicherungen in dieser
+      // Datei zum Scheitern brächte.
+      if (path.endsWith("/boards") && (method === undefined || method === "GET")) {
+        return Promise.resolve([]);
+      }
+      if (path.endsWith("/board-devices") && (method === undefined || method === "GET")) {
+        return Promise.resolve([]);
+      }
       if (path.startsWith("/organizations/") && method === "PATCH") {
         if (server.updateRejection !== null) return Promise.reject(server.updateRejection);
         const id = path.slice("/organizations/".length);

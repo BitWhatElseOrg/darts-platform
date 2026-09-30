@@ -19,6 +19,8 @@ import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { WorkspaceShell } from "@/components/workspace-shell";
 
+import { BoardDevicesSection } from "./board-devices-section";
+
 const inputClassName =
   "min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-body text-white outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30";
 const labelClassName = "block text-body font-medium text-slate-300";
@@ -98,6 +100,12 @@ function OrganizationSettings({ organization }: { readonly organization: Organiz
         angezeigt bleiben.
       */}
       <OrganizationDetails canUpdate={canUpdate} key={`details-${organization.id}`} organization={organization} />
+      <BoardDevicesSection
+        key={`board-devices-${organization.id}`}
+        organizationId={organization.id}
+        organizationName={organization.name}
+        role={organization.role}
+      />
       {canDelete ? <DangerZone key={`danger-${organization.id}`} organization={organization} /> : null}
     </div>
   );
