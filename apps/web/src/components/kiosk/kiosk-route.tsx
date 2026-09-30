@@ -25,6 +25,21 @@ function isApiError(error: unknown): error is ApiClientError {
   return error instanceof ApiClientError;
 }
 
+function isRevoked(error: unknown): boolean {
+  return isApiError(error) && error.code === "DEVICE_REVOKED";
+}
+
+/**
+ * Widerrufen: kein weiterer Poll lohnt sich mit einem Schluessel, den dieses
+ * Tablet gleich vergisst (Task-Review IMPORTANT 3). Die Funktion liest den
+ * Fehler des `query`-Objekts selbst statt eines aeusseren `revoked`, damit sie
+ * als `refetchInterval`-Callback direkt in dieselbe `useQuery`-Definition
+ * passt, deren Ergebnis `revoked` erst danach berechnet.
+ */
+function selfRefetchInterval(error: unknown): number | false {
+  return isRevoked(error) ? false : KIOSK_POLL_MS;
+}
+
 /**
  * Ob ein Fehler beim Lesen des Matches bedeutet, dass es fuer dieses Geraet
  * nicht mehr gueltig ist: abgebrochen (404), auf eine andere Scheibe
@@ -51,32 +66,24 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
     queryKey: ["board-device-self"],
     queryFn: ({ signal }) =>
       apiRequest({ path: "/board-devices/me", schema: boardDeviceSelfSchema, signal, deviceSecret }),
-    refetchInterval: KIOSK_POLL_MS,
+    refetchInterval: (query) => selfRefetchInterval(query.state.error),
     // Nur Netzfehler wiederholen: ein Fehlercode ist ein Urteil des Servers
     // (etwa `DEVICE_REVOKED`), das eine Wiederholung nicht aendert.
     retry: (failureCount, error) => !isApiError(error) && failureCount < 3,
   });
-  const revoked = isApiError(selfQuery.error) && selfQuery.error.code === "DEVICE_REVOKED";
+  const { refetch: refetchSelf } = selfQuery;
+  const revoked = isRevoked(selfQuery.error);
 
-  // Bleibt ueber transiente Fehler der Selbstauskunft hinweg bestehen: ein
-  // einzelner ausgefallener Poll soll die Flaeche nicht zurueck in den
-  // Leerlauf werfen, waehrend ein Match laeuft. Aktualisiert nur bei einer
-  // tatsaechlich NEUEN Antwort -- reine Anpassung waehrend des Renders
-  // (`react-hooks/set-state-in-effect`), kein Effect.
   const [organizationId, setOrganizationId] = useState<string | null>(null);
-  const [currentMatchId, setCurrentMatchId] = useState<string | null>(null);
   if (selfQuery.data !== undefined && selfQuery.data.organization.id !== organizationId) {
     setOrganizationId(selfQuery.data.organization.id);
-  }
-  if (selfQuery.data !== undefined && selfQuery.data.currentMatchId !== currentMatchId) {
-    setCurrentMatchId(selfQuery.data.currentMatchId);
   }
   const boardName = selfQuery.data?.board.name ?? stored.boardName;
   const organizationName = selfQuery.data?.organization.name ?? stored.organizationName;
 
   // Einmaliges Vergessen bei Widerruf: ein echter Seiteneffekt (Schreiben in
   // `localStorage`), kein abgeleiteter Zustand -- deshalb im Effect, nicht in
-  // der Render-Anpassung oben.
+  // der Render-Anpassung unten.
   const forgottenRef = useRef(false);
   useEffect(() => {
     if (!revoked || forgottenRef.current) return;
@@ -84,23 +91,79 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
     forgetBoardDevice();
   }, [revoked]);
 
-  // Zustand des Endstands: wann das zuletzt gezeigte Match beendet wurde, und
-  // ob die Person schon "Weiter" getippt hat.
-  const [lastMatchId, setLastMatchId] = useState<string | null>(null);
-  const [lastMatchCompletedAt, setLastMatchCompletedAt] = useState<number | null>(null);
-  const [dismissedMatchId, setDismissedMatchId] = useState<string | null>(null);
+  // `currentMatchId`: das laufende Match der Scheibe, wie zuletzt von `/me`
+  // gemeldet. Bleibt ueber einen einzelnen ausgefallenen Poll hinweg
+  // bestehen (siehe unten).
+  //
+  // `endedMatch`: ein Match, dessen Ausgang noch zu klaeren oder bereits
+  // geklaert ist. `completedAt === null` heisst "unklar, wird gerade
+  // nachgeladen" (Task-Review IMPORTANT 2); erst ein beobachteter
+  // COMPLETED-Uebergang traegt eine Zeit ein, ab der `kioskView` den
+  // Endstand zeigt. Ein einziges Objekt statt zweier Felder, damit beide
+  // immer gemeinsam (atomar) geloescht werden -- getrennte States liefen
+  // sonst auseinander, wenn ein voellig ANDERES Match abgelehnt wird,
+  // waehrend noch ein frueherer Endstand steht (siehe Kommentar beim
+  // Ablehnungs-Effect unten).
+  const [currentMatchId, setCurrentMatchId] = useState<string | null>(null);
+  const [endedMatch, setEndedMatch] = useState<{ readonly matchId: string; readonly completedAt: number | null } | null>(
+    null,
+  );
+  // Ein Match, das auf dem Lesepfad als fuer dieses Geraet ungueltig erkannt
+  // wurde (404/403/409) -- und wie viele Aufnahmen dafuer noch in der
+  // Warteschlange lagen (Task-Review GAP 4). Bleibt stehen, bis ein neues
+  // Match beginnt.
+  const [rejectedMatchId, setRejectedMatchId] = useState<string | null>(null);
+  const [rejectedQueueCount, setRejectedQueueCount] = useState<number | null>(null);
 
-  // Meldet `/me` ein ANDERES laufendes Match, ist ein fruehrer Endstand
-  // hinfaellig -- sonst koennte ein spaeterer Ausfall dieses neuen Matches
-  // faelschlich den alten Endstand wieder zeigen.
-  if (currentMatchId !== null && currentMatchId !== lastMatchId) {
-    if (lastMatchId !== null) setLastMatchId(null);
-    if (lastMatchCompletedAt !== null) setLastMatchCompletedAt(null);
+  // Reine Anpassung waehrend des Renders (`react-hooks/set-state-in-effect`),
+  // kein Effect: `/me` treibt drei Faelle.
+  if (selfQuery.data !== undefined) {
+    const reported = selfQuery.data.currentMatchId;
+    // Meldet `/me` noch immer dasselbe (nicht-leere) Match, das der Lesepfad
+    // GERADE als ungueltig abgelehnt hat, ist das kein neuer Stand, sondern
+    // derselbe veraltete Poll, der den Server noch nicht eingeholt hat. Ihn
+    // trotzdem zu uebernehmen setzte `currentMatchId` sofort wieder auf diese
+    // ID, der naechste Render lehnt sie ueber die (weiterhin gecachte) 404
+    // erneut ab -- eine synchrone Render-Schleife ("Too many re-renders",
+    // Task-Review CRITICAL 1). `null` ist dagegen NIE "derselbe abgelehnte
+    // Stand": ein `/me` ohne laufendes Match ist ein eigener, legitimer
+    // Zustand (etwa der ganz normale Uebergang in den Endstand, IMPORTANT 2)
+    // und muss immer verarbeitet werden, auch wenn `rejectedMatchId` zufaellig
+    // ebenfalls `null` ist.
+    const isStaleRejectedReport = reported !== null && reported === rejectedMatchId;
+    if (!isStaleRejectedReport && reported !== currentMatchId) {
+      if (currentMatchId !== null && reported === null) {
+        // Das bisher laufende Match ist nicht mehr "aktuell" -- ob es
+        // regulaer beendet oder abgebrochen wurde, weiss noch niemand hier.
+        // Vormerken (`completedAt: null`) und ueber denselben
+        // Match-Query-Schluessel noch einmal laden (Task-Review IMPORTANT 2):
+        // ohne diesen Schritt spraenge die Flaeche sofort in den Leerlauf,
+        // bevor sie je einen COMPLETED-Status gesehen hat, und der Endstand
+        // erschiene nie.
+        setEndedMatch({ matchId: currentMatchId, completedAt: null });
+      } else if (endedMatch !== null) {
+        // Ein neues, anderes Match (oder der Wechsel von "kein Match" auf ein
+        // neues) macht einen noch offenen oder ungeklaerten Endstand
+        // hinfaellig.
+        setEndedMatch(null);
+      }
+      if (reported !== null && rejectedMatchId !== null) {
+        // Ein neues Match beginnt -- eine gemeldete Ablehnung des vorigen ist
+        // damit erledigt. Bewusst NICHT bei `reported === null` geloescht:
+        // die Meldung (Task-Review GAP 4) soll im Leerlauf stehen bleiben,
+        // nicht schon beim naechsten Poll ohne neues Match verschwinden.
+        setRejectedMatchId(null);
+        setRejectedQueueCount(null);
+      }
+      setCurrentMatchId(reported);
+    }
   }
 
   // Wie viele Aufnahmen des zuletzt gezeigten Matches bei Widerruf noch in
   // der Warteschlange lagen -- best effort, `null` solange unbekannt oder
   // nicht zutreffend.
+  const lastMatchId = endedMatch?.matchId ?? null;
+  const lastMatchCompletedAt = endedMatch?.completedAt ?? null;
   const [revokedQueueCount, setRevokedQueueCount] = useState<number | null>(null);
   const lastShownMatchId = currentMatchId ?? lastMatchId;
   useEffect(() => {
@@ -121,6 +184,7 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
   // Tickt nur im Zustand "ended" (siehe Effect unten), haelt aber immer einen
   // Wert bereit.
   const [now, setNow] = useState(() => Date.now());
+  const [dismissedMatchId, setDismissedMatchId] = useState<string | null>(null);
   const view = kioskView({ currentMatchId, lastMatchId, lastMatchCompletedAt, dismissedMatchId, now });
   useEffect(() => {
     if (view.kind !== "ended") return;
@@ -130,7 +194,13 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
     };
   }, [view.kind]);
 
-  const matchId = view.kind === "idle" ? null : view.matchId;
+  // Im Leerlauf, aber mit einem noch ungeklaerten Match (`completedAt ===
+  // null`): genau dieses Match weiter laden, um seinen Ausgang zu erfahren
+  // (Task-Review IMPORTANT 2). Derselbe Query-Schluessel wie im Zustand
+  // "match" -- die Abfrage laeuft ununterbrochen weiter, unabhaengig davon,
+  // wie `kioskView` den Zwischenstand gerade einordnet.
+  const pendingRecheckId = lastMatchCompletedAt === null ? lastMatchId : null;
+  const matchId = view.kind === "idle" ? pendingRecheckId : view.matchId;
   const matchQuery = useQuery({
     queryKey: ["match", organizationId, matchId],
     queryFn: ({ signal }) =>
@@ -140,7 +210,9 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
         signal,
         deviceSecret,
       }),
-    enabled: organizationId !== null && matchId !== null,
+    // Widerrufen: auch die Match-Query stellt ein -- ein Geraet ohne
+    // gueltigen Schluessel hat nichts mehr zu laden (Task-Review IMPORTANT 3).
+    enabled: !revoked && organizationId !== null && matchId !== null,
     refetchInterval: (query) => matchRefetchInterval(query.state.error),
     retry: shouldRetryMatchLoad,
   });
@@ -162,21 +234,37 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
       previous.status === "IN_PROGRESS" &&
       matchQuery.data.status === "COMPLETED"
     ) {
-      setLastMatchId(matchQuery.data.id);
-      setLastMatchCompletedAt(Date.now());
+      setEndedMatch({ matchId: matchQuery.data.id, completedAt: Date.now() });
     }
   }, [matchQuery.data]);
 
   // Das Match ist fuer dieses Geraet nicht mehr gueltig (abgebrochen, auf
   // eine andere Scheibe verschoben, nicht mehr aktiv): zurueck in den
-  // Leerlauf, ohne Fehlermeldung -- die naechste `/me`-Antwort entscheidet.
-  if (matchNoLongerValid(matchQuery.error)) {
-    if (currentMatchId === matchId) setCurrentMatchId(null);
-    if (lastMatchId === matchId) {
-      setLastMatchId(null);
-      setLastMatchCompletedAt(null);
-    }
-  }
+  // Leerlauf. Ein Effect mit Einmal-Wache (`handledRejectionRef`) statt einer
+  // Render-Anpassung: ein `.refetch()` ist ein echter Seiteneffekt (Netzwerk),
+  // und ohne die ID-gebundene Wache wuerde dieselbe, weiterhin gecachte 404
+  // bei jedem Render erneut greifen (Task-Review CRITICAL 1). Zusaetzlich
+  // wird gezaehlt, wie viele Aufnahmen dieses Matches noch in der
+  // Warteschlange lagen -- sichtbar gemeldet, nicht geloescht
+  // (Task-Review GAP 4).
+  const handledRejectionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (matchId === null || organizationId === null || !matchNoLongerValid(matchQuery.error)) return;
+    if (handledRejectionRef.current === matchId) return;
+    handledRejectionRef.current = matchId;
+    const rejected = matchId;
+    setRejectedMatchId(rejected);
+    setRejectedQueueCount(null);
+    setCurrentMatchId((current) => (current === rejected ? null : current));
+    setEndedMatch((current) => (current !== null && current.matchId === rejected ? null : current));
+    // Die naechste `/me`-Antwort soll nicht erst in bis zu `KIOSK_POLL_MS`
+    // ankommen -- ein sofortiger, gezielter Refetch beschleunigt die
+    // Rueckkehr in einen stimmigen Zustand (Spec §5).
+    void refetchSelf();
+    listOfflineCommands(`match:${organizationId}:${rejected}`)
+      .then((commands) => setRejectedQueueCount(commands.length))
+      .catch(() => setRejectedQueueCount(0));
+  }, [matchId, matchQuery.error, organizationId, refetchSelf]);
 
   const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
   useEffect(() => {
@@ -248,8 +336,14 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
       />
       <div className="flex flex-1 flex-col">
         {view.kind === "idle" ? (
-          <div className="flex flex-1 items-center justify-center px-4 text-center">
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
             <p className="font-numerals text-title font-bold text-chalk">{boardName} – wartet auf nächstes Match</p>
+            {rejectedMatchId !== null && rejectedQueueCount !== null && rejectedQueueCount > 0 ? (
+              <p className="text-body text-spider" role="alert">
+                {rejectedQueueCount} Aufnahme{rejectedQueueCount === 1 ? "" : "n"} des abgebrochenen Matches{" "}
+                {rejectedQueueCount === 1 ? "konnte" : "konnten"} nicht mehr übertragen werden.
+              </p>
+            ) : null}
           </div>
         ) : matchQuery.data === undefined || organizationId === null ? (
           <div className="flex flex-1 items-center justify-center px-4 text-center">
