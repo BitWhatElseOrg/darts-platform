@@ -28,8 +28,31 @@ vi.mock("@/lib/auth-client", () => ({
   authClient: { signOut: () => signOut() },
 }));
 
-const rememberBoardDevice = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/device-key-storage", () => ({ rememberBoardDevice }));
+// `recallBoardDevice` liest per Default zurueck, was `rememberBoardDevice`
+// zuletzt "gespeichert" hat -- simuliert erfolgreiches `localStorage`. Der
+// Task-Review-Fix (Speicherung vor dem Abmelden gegenpruefen) braucht einen
+// Weg, genau das scheitern zu lassen: `deviceKeyStorage.recallBoardDevice`
+// bleibt dafuer direkt ueberschreibbar (`mockReturnValueOnce`).
+const deviceKeyStorage = vi.hoisted(() => {
+  let stored: { readonly secret: string; readonly boardName: string; readonly organizationName: string } | null =
+    null;
+  return {
+    rememberBoardDevice: vi.fn(
+      (device: { readonly secret: string; readonly boardName: string; readonly organizationName: string }) => {
+        stored = device;
+      },
+    ),
+    recallBoardDevice: vi.fn(() => stored),
+    reset: () => {
+      stored = null;
+    },
+  };
+});
+vi.mock("@/lib/device-key-storage", () => ({
+  rememberBoardDevice: deviceKeyStorage.rememberBoardDevice,
+  recallBoardDevice: deviceKeyStorage.recallBoardDevice,
+}));
+const rememberBoardDevice = deviceKeyStorage.rememberBoardDevice;
 
 const server = vi.hoisted(() => ({
   boards: [] as unknown[],
@@ -127,6 +150,14 @@ beforeEach(() => {
   routerReplace.mockReset();
   signOut.mockClear();
   rememberBoardDevice.mockClear();
+  deviceKeyStorage.recallBoardDevice.mockClear();
+  deviceKeyStorage.reset();
+  // `client.apiRequest.mock.calls` sammelt sonst fuer den ganzen Dateilauf
+  // (wie in `organization-settings-route.render.spec.tsx`): die
+  // Entkoppeln-Spec prueft "noch kein DELETE passiert" -- ohne `mockClear`
+  // wuerde sie an einem DELETE aus einem fruehreren Testfall scheitern (hier
+  // dem Best-effort-Widerruf bei gescheiterter Speicherung).
+  client.apiRequest.mockClear();
 });
 
 afterEach(() => {
@@ -183,6 +214,39 @@ describe("BoardDevicesSection", () => {
     const replaceOrder = routerReplace.mock.invocationCallOrder[0]!;
     expect(rememberOrder).toBeLessThan(signOutOrder);
     expect(signOutOrder).toBeLessThan(replaceOrder);
+  });
+
+  it("bricht ab und meldet sichtbar, wenn die Kopplung nicht lokal gespeichert werden konnte", async () => {
+    // Task-Review-Befund: `rememberBoardDevice` schluckt Schreibfehler
+    // intern (privates Fenster, gesperrte Website-Daten). Ungeprueft
+    // weiterzufahren wuerde die Person abmelden und in den Kiosk schicken,
+    // obwohl das Tablet den Schluessel nie hatte -- waehrend der Server das
+    // neue Geraet schon gekoppelt haette. `recallBoardDevice` liefert hier
+    // `null`, um genau das zu simulieren.
+    environment.standalone = true;
+    deviceKeyStorage.recallBoardDevice.mockReturnValueOnce(null);
+    renderSection();
+
+    const setupButton = await screen.findByRole("button", { name: "Dieses Gerät einrichten" });
+    fireEvent.click(setupButton);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(
+      "Dieses Tablet konnte die Kopplung nicht speichern. Erlaube Website-Daten für DartBase und richte das Tablet erneut ein.",
+    );
+    expect(signOut).not.toHaveBeenCalled();
+    expect(routerReplace).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(
+        client.apiRequest.mock.calls.some(
+          ([input]: [{ readonly path: string; readonly method?: string }]) =>
+            input.method === "DELETE" &&
+            input.path ===
+              `/organizations/${organizationId}/boards/${boardA.id}/devices/dddddddd-dddd-4ddd-8ddd-dddddddddddd`,
+        ),
+      ).toBe(true);
+    });
   });
 
   it("entkoppelt ein Tablet erst nach Bestaetigung", async () => {

@@ -17,9 +17,12 @@ import { Button } from "@darts-platform/ui";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { authClient } from "@/lib/auth-client";
-import { rememberBoardDevice } from "@/lib/device-key-storage";
+import { recallBoardDevice, rememberBoardDevice } from "@/lib/device-key-storage";
 import { isStandaloneDisplay } from "@/lib/standalone-display";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+
+const STORAGE_FAILED_MESSAGE =
+  "Dieses Tablet konnte die Kopplung nicht speichern. Erlaube Website-Daten für DartBase und richte das Tablet erneut ein.";
 
 const relativeTime = new Intl.RelativeTimeFormat("de-CH", { numeric: "auto" });
 const dateFormat = new Intl.DateTimeFormat("de-CH");
@@ -58,6 +61,11 @@ function subscribeStandaloneDisplay(): () => void {
  * `localStorage` von einem Browser-Tab getrennt ist (`isStandaloneDisplay`,
  * `device-key-storage.ts`) -- danach verlaesst das Geraet die Admin-Sitzung
  * (`authClient.signOut`) und wechselt in den Kiosk (`/scheibe`, Task 11).
+ *
+ * Vor dem Abmelden wird `recallBoardDevice()` gegengeprueft (Task-Review-Fix):
+ * schlaegt das Schreiben in `localStorage` fehl, bleibt die Sitzung bestehen,
+ * die eben angelegte Kopplung wird best effort zurueckgezogen, und die Person
+ * sieht eine sichtbare Meldung statt unbemerkt abgemeldet im Kiosk zu landen.
  */
 export function BoardDevicesSection({ organizationId, organizationName, role }: {
   readonly organizationId: string;
@@ -100,8 +108,30 @@ export function BoardDevicesSection({ organizationId, organizationName, role }: 
         body: { label: `Tablet ${board.name}` },
         schema: createdBoardDeviceSchema,
       }),
-    onSuccess: async ({ secret }, board) => {
+    onSuccess: async ({ secret, device }, board) => {
       rememberBoardDevice({ secret, boardName: board.name, organizationName });
+      // `rememberBoardDevice` schluckt Schreibfehler intern (privates Fenster,
+      // gesperrte Website-Daten, voller Speicher) -- ungeprueft weiter zu
+      // fahren hiesse: die Person wird abgemeldet und landet im Kiosk, ohne
+      // dass das Tablet den Schluessel je hatte, waehrend der Server das neue
+      // Geraet schon gekoppelt und ein etwaiges altes widerrufen hat. Ein
+      // unsichtbarer Datenverlust (AGENTS.md §18). Deshalb erst verifizieren.
+      const stored = recallBoardDevice();
+      if (stored === null || stored.secret !== secret) {
+        try {
+          await apiRequest({
+            path: `/organizations/${organizationId}/boards/${board.id}/devices/${device.id}`,
+            method: "DELETE",
+            schema: z.undefined(),
+          });
+        } catch {
+          // Best effort: selbst wenn der Widerruf scheitert, bricht die
+          // Einrichtung sichtbar ab, statt die Person unbemerkt abzumelden.
+        }
+        await invalidateDevices();
+        setStorageFailed(true);
+        return;
+      }
       await authClient.signOut();
       router.replace("/scheibe");
     },
@@ -123,6 +153,7 @@ export function BoardDevicesSection({ organizationId, organizationName, role }: 
     readonly board: BoardResponse;
     readonly device: BoardDeviceResponse;
   } | null>(null);
+  const [storageFailed, setStorageFailed] = useState(false);
 
   if (!mayManage) return null;
 
@@ -132,6 +163,7 @@ export function BoardDevicesSection({ organizationId, organizationName, role }: 
     devices.find((device) => device.boardId === board.id);
 
   const startPairing = (board: BoardResponse) => {
+    setStorageFailed(false);
     pairDevice.reset();
     pairDevice.mutate(board);
   };
@@ -143,7 +175,9 @@ export function BoardDevicesSection({ organizationId, organizationName, role }: 
         Ein Tablet an der Scheibe scort die dort zugewiesenen Matches ohne Anmeldung. Richte es direkt auf dem
         Tablet ein, in der installierten App.
       </p>
-      {pairDevice.isError ? (
+      {storageFailed ? (
+        <p className="text-body text-rose-300" role="alert">{STORAGE_FAILED_MESSAGE}</p>
+      ) : pairDevice.isError ? (
         <p className="text-body text-rose-300" role="alert">{userFacingErrorMessage(pairDevice.error)}</p>
       ) : null}
       {boardsQuery.isPending || devicesQuery.isPending ? (
