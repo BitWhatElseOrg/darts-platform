@@ -3,6 +3,7 @@
 import { boardControllerLeaseSchema } from "@darts-platform/schemas";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiRequest } from "./api-client";
+import { useDeviceSecret } from "./device-credential-context";
 import { generateId } from "./id";
 
 const HEARTBEAT_MS = 3_000;
@@ -13,6 +14,7 @@ export function useBoardControllerLock(organizationId: string, matchId: string, 
   const stateRef = useRef<BoardLockState>("WIRD_ÜBERNOMMEN");
   const [state, setState] = useState<BoardLockState>("WIRD_ÜBERNOMMEN");
   const updateState = useCallback((next: BoardLockState) => { stateRef.current = next; setState(next); }, []);
+  const deviceSecret = useDeviceSecret();
 
   const claim = useCallback(async (force = false) => {
     try {
@@ -21,12 +23,13 @@ export function useBoardControllerLock(organizationId: string, matchId: string, 
         method: "POST",
         body: { controllerId, force },
         schema: boardControllerLeaseSchema,
+        deviceSecret,
       });
       updateState(lease.owned ? "EIGEN" : "FREMD");
     } catch {
       if (stateRef.current !== "EIGEN") updateState("WIRD_ÜBERNOMMEN");
     }
-  }, [controllerId, matchId, organizationId, updateState]);
+  }, [controllerId, deviceSecret, matchId, organizationId, updateState]);
 
   useEffect(() => {
     if (!enabled) return undefined;

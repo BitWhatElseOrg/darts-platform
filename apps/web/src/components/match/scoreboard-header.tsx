@@ -46,21 +46,29 @@ function HelpIcon() {
  * Runde, in der Mitte Startscore und Spielart, rechts der Weg zur
  * öffentlichen Live-Ansicht (nur mit Wettbewerbsbezug) und die
  * Einstellungen.
+ *
+ * Ein Scheiben-Tablet (Spec 2026-09-30-scheiben-tablet) hat weder einen
+ * Rückweg noch einen Grund, die Fläche zu verlassen: ohne `backHref` bleibt
+ * der Rückweg-Link weg, und `showHeaderLinks={false}` blendet auch „LIVE“
+ * und „Bedienungsanleitung“ aus. Aus dem Kiosk führt so kein Link hinaus.
  */
-export function ScoreboardHeader({ backHref, backLabel, match, onOpenSettings }: {
-  readonly backHref: string;
-  readonly backLabel: string;
+export function ScoreboardHeader({ backHref, backLabel, match, onOpenSettings, showHeaderLinks = true }: {
+  readonly backHref?: string | undefined;
+  readonly backLabel?: string | undefined;
   readonly match: MatchStateResponse;
   readonly onOpenSettings: () => void;
+  readonly showHeaderLinks?: boolean | undefined;
 }) {
   const round = currentRoundNumber({ currentLegNumber: match.currentLegNumber, visits: match.visits });
   const live = liveHref({ boardId: match.boardId, liveTarget: match.liveTarget });
   return (
     <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-sisal-300 bg-sisal-200 px-3 py-2 sm:px-4">
       <div>
-        <Link aria-label={backLabel} className={iconButtonClassName} href={backHref}>
-          <BackArrowIcon />
-        </Link>
+        {backHref !== undefined ? (
+          <Link aria-label={backLabel} className={iconButtonClassName} href={backHref}>
+            <BackArrowIcon />
+          </Link>
+        ) : null}
         {/* Leg und Runde sind die einzigen veraenderlichen Werte dieser Zeile
             und standen auf 10 px, waehrend der konstante Startscore auf
             1,5 rem sitzt. Die Ziffer traegt jetzt den `counter`-Schritt
@@ -80,7 +88,7 @@ export function ScoreboardHeader({ backHref, backLabel, match, onOpenSettings }:
         </p>
       </div>
       <div className="flex items-center justify-end gap-1">
-        {live !== null ? (
+        {showHeaderLinks && live !== null ? (
           <Link
             className="inline-flex min-h-11 items-center rounded-lg px-2 text-label font-semibold text-ring-green transition hover:bg-sisal-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
             href={live}
@@ -88,9 +96,11 @@ export function ScoreboardHeader({ backHref, backLabel, match, onOpenSettings }:
             LIVE
           </Link>
         ) : null}
-        <Link aria-label="Bedienungsanleitung" className={iconButtonClassName} href="/bedienungsanleitung.html">
-          <HelpIcon />
-        </Link>
+        {showHeaderLinks ? (
+          <Link aria-label="Bedienungsanleitung" className={iconButtonClassName} href="/bedienungsanleitung.html">
+            <HelpIcon />
+          </Link>
+        ) : null}
         <button aria-label="Einstellungen" className={iconButtonClassName} onClick={onOpenSettings} type="button">
           <GearIcon />
         </button>
