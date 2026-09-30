@@ -115,7 +115,9 @@ Migration wird geändert.
   ebenfalls `204` (idempotent) ohne zweiten Audit-Eintrag.
 - Board-Verwaltung zeigt pro Scheibe «Gekoppelt · zuletzt gesehen vor …» oder
   «Kein Gerät» und den Button «Entkoppeln» mit Bestätigung. Die Liste kommt aus
-  `GET …/boards` (erweitert um `device: { id, label, lastSeenAt } | null`).
+  `GET /api/v1/organizations/:organizationId/board-devices` (erfordert
+  `board:manage`; aktive Geräte mit `id`, `boardId`, `label`, `createdAt`,
+  `lastSeenAt`). Das bestehende `boardSchema` bleibt unverändert.
 
 ### Lokales Zurücksetzen
 
@@ -276,7 +278,7 @@ installierten App dorthin weiter.
 | Zustand | Anzeige |
 |---|---|
 | Laden | Scheibenname aus dem lokalen Speicher, Ladeindikator |
-| Leerlauf | «Scheibe 3 – wartet auf nächstes Match». `GET /board-devices/me` alle 5 s, nur solange kein Match läuft und die Seite sichtbar ist (`visibilitychange`). |
+| Leerlauf | «Scheibe 3 – wartet auf nächstes Match». `GET /board-devices/me` alle 5 s, solange die Seite sichtbar ist – auch während eines Matches, damit ein Abbruch oder eine Freigabe durch die Leitung auffällt. |
 | Match läuft | Bestehende `MatchScoreboard`-Komponente. Organisation und Rechte kommen aus `/board-devices/me`. Das Abbrechen-Menü ist ausgeblendet. |
 | Match beendet | Endstand mit Undo-Knopf bleibt 30 s stehen oder bis jemand «Weiter» tippt, dann zurück in den Leerlauf. Ein Undo in dieser Zeit öffnet das Match wieder. |
 | Nicht mehr gekoppelt | «Dieses Tablet ist nicht mehr gekoppelt – bitte in der Board-Verwaltung neu einrichten.» Offene Einträge der Offline-Queue bleiben sichtbar. |
