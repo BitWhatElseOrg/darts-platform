@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { boardDeviceSelfSchema, matchStateSchema, type MatchStateResponse } from "@darts-platform/schemas";
 
@@ -10,7 +10,12 @@ import { apiRequest } from "@/lib/api-client";
 import { ApiClientError } from "@/lib/api-error";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DeviceCredentialProvider, useDeviceSecret } from "@/lib/device-credential-context";
-import { forgetBoardDevice, recallBoardDevice, type StoredBoardDevice } from "@/lib/device-key-storage";
+import {
+  forgetBoardDevice,
+  getBoardDeviceSnapshot,
+  subscribeBoardDeviceChanges,
+  type StoredBoardDevice,
+} from "@/lib/device-key-storage";
 import { matchRefetchInterval, shouldRetryMatchLoad } from "@/lib/match-load-state";
 import { listOfflineCommands } from "@/lib/offline-command-queue";
 import { MatchScoreboard } from "@/components/match/match-scoreboard";
@@ -394,16 +399,55 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
 }
 
 /**
+ * Waehrend der Server-Render und der allererste Client-Render (Hydration)
+ * gilt der Geraeteschluessel als unbekannt -- `getBoardDeviceSnapshot` liest
+ * `window.localStorage`, das es auf dem Server nicht gibt. Ein fester Wert
+ * statt eines Zugriffsversuchs: React zieht diese Funktion beim Hydrieren
+ * heran, um den allerersten Client-Render deckungsgleich mit dem
+ * Server-Render zu halten (`react-dom-client.development.js`,
+ * `mountSyncExternalStore`), sonst meldet React einen Hydration-Mismatch
+ * (Task-12-Review-Befund).
+ */
+function getServerBoardDeviceSnapshot(): StoredBoardDevice | null | undefined {
+  return undefined;
+}
+
+/**
  * Kiosk-Wurzel (`/scheibe`, Spec 2026-09-30-scheiben-tablet, Task 11). Ohne
  * gespeicherten Geraeteschluessel gibt es nichts zu zeigen -- kein
  * `DeviceCredentialProvider`, keine Anfragen.
  *
- * `useState(() => recallBoardDevice())` liest genau EINMAL beim Mount: der
- * Schluessel aendert sich nicht waehrend die Seite offen bleibt (ausser durch
- * eigenes Handeln dieser Komponente, das ohnehin zur Startseite navigiert).
+ * `useSyncExternalStore` statt eines rohen `useState(() => recallBoardDevice())`:
+ * der Server rendert (mangels `localStorage`) immer `undefined` ("wird
+ * geladen"), der erste Client-Render muss damit uebereinstimmen, sonst
+ * verwirft React den Baum wegen eines Hydration-Mismatch und baut ihn neu
+ * auf (sichtbares Aufblitzen des falschen Bildschirms, Task-12-Review-Befund
+ * -- Muster wie `isStandaloneDisplay`/`subscribeStandaloneDisplay` in
+ * `board-devices-section.tsx`). Gleich nach dem Mount korrigiert React selbst
+ * auf den echten Wert aus `getBoardDeviceSnapshot`.
+ *
+ * `subscribeBoardDeviceChanges` meldet nur Aenderungen aus ANDEREN
+ * Tabs/Fenstern (siehe dort) -- ein `forgetBoardDevice()` im Widerrufs-Zweig
+ * von `KioskContent` bleibt dadurch ohne Rueckwirkung auf diese Komponente
+ * und unmountet nicht mitten in der bewusst weiter angezeigten
+ * Widerrufsmeldung.
  */
 export function KioskRoute() {
-  const [stored] = useState(() => recallBoardDevice());
+  const stored = useSyncExternalStore(
+    subscribeBoardDeviceChanges,
+    getBoardDeviceSnapshot,
+    getServerBoardDeviceSnapshot,
+  );
+
+  if (stored === undefined) {
+    return (
+      <main className="sektorenring flex min-h-screen items-center justify-center bg-sisal-200 px-4 py-6 text-chalk">
+        <p className="text-body text-spider" role="status">
+          Wird geladen …
+        </p>
+      </main>
+    );
+  }
 
   if (stored === null) {
     return (

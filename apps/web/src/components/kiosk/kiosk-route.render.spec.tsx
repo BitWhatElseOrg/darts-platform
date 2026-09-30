@@ -24,7 +24,17 @@ const deviceKeyStorage = vi.hoisted(() => ({
   forgetBoardDevice: vi.fn(),
 }));
 vi.mock("@/lib/device-key-storage", () => ({
-  recallBoardDevice: () => deviceKeyStorage.stored,
+  // `getBoardDeviceSnapshot`/`subscribeBoardDeviceChanges` ersetzen das
+  // fruehere `recallBoardDevice()` in `kiosk-route.tsx` (Task 12,
+  // Hydration-Review-Fix) -- `deviceKeyStorage.stored` ist hier bereits eine
+  // stabile Referenz (von `beforeEach`/den einzelnen Faellen gesetzt), die
+  // Attrappe braucht also keinen eigenen Cache. `subscribeBoardDeviceChanges`
+  // bleibt ein No-op: ReactDOMs `createRoot` (das diese Tests ueber
+  // `@testing-library/react` verwenden) zieht `getServerSnapshot` nur beim
+  // echten Hydrieren heran, ein Abonnement auf Aenderungen ist fuer die
+  // Faelle hier nicht noetig.
+  getBoardDeviceSnapshot: () => deviceKeyStorage.stored,
+  subscribeBoardDeviceChanges: () => () => {},
   forgetBoardDevice: deviceKeyStorage.forgetBoardDevice,
 }));
 
