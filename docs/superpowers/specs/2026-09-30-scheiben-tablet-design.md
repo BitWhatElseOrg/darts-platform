@@ -128,19 +128,27 @@ neues Einrichten ersetzt wird. Der Dialog sagt das so.
 
 ### Principal
 
-`AuthContext` wird zur discriminated union:
+`AuthContext` bleibt der Benutzer-Kontext wie heute (Better-Auth-Session).
+Dazu kommt ein Geräte-Kontext, beide zusammen bilden die Union `Principal`:
 
 ```ts
-type AuthContext =
-  | { readonly kind: "user"; readonly user: AuthenticatedUser; readonly session: AuthenticatedSession }
-  | { readonly kind: "device"; readonly device: AuthenticatedDevice };
+interface DeviceAuthContext {
+  readonly device: AuthenticatedDevice;
+}
 
 interface AuthenticatedDevice {
   readonly id: string;
   readonly organizationId: string;
   readonly boardId: string;
 }
+
+type Principal = AuthContext | DeviceAuthContext;
 ```
+
+Unterschieden wird über `isDevicePrincipal(principal)` (`"device" in
+principal`). So bleiben die bestehenden Services, Tests und Aufrufer, die
+`AuthContext` erzeugen, unverändert gültig. Nur die freigegebenen Pfade nehmen
+`Principal` entgegen.
 
 ### Guard
 
@@ -156,7 +164,7 @@ Damit ist jeder neue Endpunkt für Geräte gesperrt, bis er ausdrücklich
 freigegeben wird.
 
 - `@CurrentAuth()` liefert in Handlern ohne `@AllowDevice()` weiterhin den
-  Benutzer-Kontext (Typ `UserAuthContext`), damit bestehender Code die Union
+  Benutzer-Kontext (`AuthContext`), damit bestehender Code die Union
   nicht auswerten muss.
 - In freigegebenen Handlern liefert `@CurrentPrincipal()` die Union.
 - `last_seen_at` wird im Guard aktualisiert, wenn der gespeicherte Wert älter
@@ -172,20 +180,19 @@ der Leitung im selben WLAN wäre die Grenze erreicht.
 
 Entscheid:
 
-- Anfragen mit einem Bearer-Schlüssel `bd_…` zählen in einer eigenen Stufe
-  `device`. Der Zähler-Schlüssel ist der Hash des Geheimnisses, nicht die IP.
-  Die Grenze ist `RATE_LIMIT_DEVICE_MAX_PER_MINUTE`, Vorgabe 120 pro Gerät.
-- Ob der Schlüssel gültig ist, spielt für die Stufe keine Rolle. Die Stufe
-  entscheidet der Rate-Limiter, bevor der Guard läuft. Ein Angreifer, der
-  zufällige Schlüssel schickt, bekommt pro erfundenem Schlüssel 120 Versuche;
-  bei 256 bit Zufall ist das bedeutungslos.
-- Wer sehr viele verschiedene falsche Schlüssel von einer IP schickt, umgeht
-  damit die IP-Grenze. Deshalb zählen Anfragen mit `bd_…`-Header
-  zusätzlich in der bestehenden allgemeinen Stufe pro IP, aber mit einem
-  eigenen, höheren Wert `RATE_LIMIT_DEVICE_IP_MAX_PER_MINUTE`, Vorgabe 1200.
-  Das reicht für rund 40 Tablets hinter einer IP.
-- Die Werte werden im Plan gegen die tatsächliche Anfragenzahl eines Kiosk-
-  Tablets gemessen und bei Bedarf angepasst.
+- Anfragen mit einem **gültigen** Geräteschlüssel zählen in einer eigenen Stufe
+  `device`. Der Zähler-Schlüssel ist die Geräte-ID, nicht die IP. Die Grenze ist
+  `RATE_LIMIT_DEVICE_MAX_PER_MINUTE`, Vorgabe 120 pro Gerät.
+- Der Rate-Limiter läuft vor dem Guard. Er ordnet einen `bd_…`-Schlüssel
+  deshalb über einen eigenen Nachschlag ein, der das Ergebnis (Gerät oder
+  «unbekannt») 30 s im Prozess zwischenspeichert. Dieser Speicher dient nur der
+  Einordnung. Der Guard prüft jede Anfrage frisch gegen die Datenbank, damit
+  ein Widerruf sofort wirkt.
+- Ein unbekannter oder widerrufener Schlüssel zählt wie eine Anfrage ohne
+  Schlüssel in der bestehenden Stufe pro IP. Zufällige Schlüssel umgehen die
+  IP-Grenze damit nicht.
+- Die Vorgabe 120 wird im Plan gegen die tatsächliche Anfragenzahl eines
+  Kiosk-Tablets gemessen und bei Bedarf angepasst.
 
 ### Freigegebene Routen
 
@@ -196,13 +203,21 @@ Entscheid:
 | `POST …/matches/:matchId/visits` | `match:score` | wie oben und Match `IN_PROGRESS` |
 | `POST …/matches/:matchId/leg-start` | `match:score` | wie oben |
 | `POST …/matches/:matchId/leg-by-bull` | `match:score` | wie oben |
-| `POST …/matches/:matchId/undo` | `match:undo` | wie oben |
+| `POST …/matches/:matchId/undo` | `match:undo` | eigene Scheibe, Match `IN_PROGRESS` oder `COMPLETED` (siehe unten) |
 | `POST …/matches/:matchId/controller-lease` | `match:score` | wie oben |
 | `GET …/players/:playerId/statistics/frequent-scores` | `statistics:read` | Spieler nimmt am laufenden Match der Scheibe teil |
 
 Nicht freigegeben, unter anderem: `POST …/matches` (anlegen), `…/abort`,
 jede Turnier-, Encounter-, Spieler-, Board- und Mitgliederroute, der
 Statistik-Gesamtabruf.
+
+Undo ist auch für ein beendetes Match der eigenen Scheibe erlaubt. Sonst
+liesse sich ein falsch eingetragener Checkout, der das Match beendet hat, am
+Tablet nicht korrigieren. Die bestehende Undo-Logik öffnet ein beendetes
+Match nur wieder, wenn die Scheibe frei und nicht belegt ist, und lehnt
+veröffentlichte Turnierresultate ab (`TOURNAMENT_RESULT_REQUIRES_CORRECTION`).
+Sobald auf der Scheibe das nächste Match läuft, ist Undo für das alte also
+ausgeschlossen.
 
 Der Match-Abruf ist bewusst auch für beendete Matches der eigenen Scheibe
 erlaubt, damit die Endstand-Ansicht nach einem Neuladen funktioniert. Beendete
@@ -212,19 +227,22 @@ Matches anderer Scheiben bleiben gesperrt.
 
 - Im Domain-Paket: `devicePermissions = ["match:read", "match:score",
   "match:undo", "statistics:read"] as const` und eine reine Funktion
-  `decideDeviceAccess({ permission, deviceBoardId, resourceBoardId,
-  matchStatus })` mit exhaustive Ergebnis-Union (`ALLOWED`,
-  `PERMISSION_NOT_GRANTED`, `BOARD_MISMATCH`, `MATCH_NOT_ACTIVE`).
+  `decideDeviceMatchAccess({ action, deviceBoardId, matchBoardId,
+  matchStatus })` mit `action` aus `"read" | "score" | "undo"` und exhaustive
+  Ergebnis-Union (`ALLOWED`, `BOARD_MISMATCH`, `MATCH_NOT_ACTIVE`).
+  Statusregel: `read` jeder Status; `score` (Wurf, Leg-Entscheid, Lease) nur
+  `IN_PROGRESS`; `undo` `IN_PROGRESS` oder `COMPLETED`.
 - `requirePermission` in den Services erhält einen zweiten Zweig: Beim Benutzer
-  wie heute über die Mitgliedschaft, beim Gerät über `decideDeviceAccess`.
+  wie heute über die Mitgliedschaft, beim Gerät über `devicePermissions`
+  und `decideDeviceMatchAccess`.
 - Die Bindung an die Scheibe wird bei schreibenden Aktionen innerhalb
   derselben Transaktion geprüft, in der das Match gesperrt und geschrieben
   wird. So kann eine Freigabe der Scheibe zwischen Prüfung und Schreibzugriff
   nicht durchrutschen.
 - `organizationId` im Pfad ungleich `device.organizationId` → `404`, wie bei
   fremden Tenants heute.
-- Match gehört nicht zur Scheibe → `403 DEVICE_BOARD_MISMATCH`. Match nicht
-  mehr `IN_PROGRESS` → bestehende Fehlerantwort für beendete Matches.
+- Match gehört nicht zur Scheibe → `403 DEVICE_BOARD_MISMATCH`. Status passt
+  nicht zur Aktion → `409 DEVICE_MATCH_NOT_ACTIVE`.
 
 ### Audit und Lease
 
@@ -260,7 +278,7 @@ installierten App dorthin weiter.
 | Laden | Scheibenname aus dem lokalen Speicher, Ladeindikator |
 | Leerlauf | «Scheibe 3 – wartet auf nächstes Match». `GET /board-devices/me` alle 5 s, nur solange kein Match läuft und die Seite sichtbar ist (`visibilitychange`). |
 | Match läuft | Bestehende `MatchScoreboard`-Komponente. Organisation und Rechte kommen aus `/board-devices/me`. Das Abbrechen-Menü ist ausgeblendet. |
-| Match beendet | Endstand bleibt 30 s stehen oder bis jemand tippt, dann zurück in den Leerlauf. |
+| Match beendet | Endstand mit Undo-Knopf bleibt 30 s stehen oder bis jemand «Weiter» tippt, dann zurück in den Leerlauf. Ein Undo in dieser Zeit öffnet das Match wieder. |
 | Nicht mehr gekoppelt | «Dieses Tablet ist nicht mehr gekoppelt – bitte in der Board-Verwaltung neu einrichten.» Offene Einträge der Offline-Queue bleiben sichtbar. |
 
 Kopfzeile in allen Zuständen: Name der Scheibe, Name der Organisation und der
@@ -311,7 +329,7 @@ nachrüsten lässt er sich später ohne Bruch.
 
 ## 6. Tests
 
-- **Domain (Vitest):** Inhalt von `devicePermissions`; `decideDeviceAccess`
+- **Domain (Vitest):** Inhalt von `devicePermissions`; `decideDeviceMatchAccess`
   für alle Ergebnisse, inklusive Negativfälle.
 - **API-Integration (Testcontainers):**
   - Einrichten erfordert `board:manage`, gibt das Geheimnis einmal zurück und
@@ -326,8 +344,11 @@ nachrüsten lässt er sich später ohne Bruch.
     einem beendeten Match schlägt fehl.
   - `abort` und `POST …/matches` sind verboten.
   - `frequent-scores` nur für Teilnehmende des laufenden Matches.
-  - Rate-Limit: Anfragen mit `bd_…` zählen pro Schlüssel in der Stufe
-    `device`, nicht gegen die allgemeine Grenze der IP.
+  - Rate-Limit: Anfragen mit gültigem `bd_…` zählen pro Gerät in der Stufe
+    `device`, nicht gegen die allgemeine Grenze der IP; ein unbekannter
+    Schlüssel zählt pro IP.
+  - Undo nach Match-Ende auf der eigenen Scheibe gelingt; nachdem das nächste
+    Match auf der Scheibe gestartet ist, nicht mehr.
   - Gleiche `commandId` vom Gerät erzeugt keinen zweiten Visit.
   - Lease mit `device_id`; Audit-Einträge tragen `actor_device_id`.
   - Constraints: ein aktives Gerät je Scheibe, genau ein Akteur bei der Lease,
