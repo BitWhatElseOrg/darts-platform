@@ -77,7 +77,7 @@
   - `devicePermissions: readonly ["match:read","match:score","match:undo","statistics:read"]`
   - `type DevicePermission`
   - `isDevicePermission(permission: OrganizationPermission): permission is DevicePermission`
-  - `type DeviceMatchAction = "read" | "score" | "undo"`
+  - `type DeviceMatchAction = "read" | "write"`
   - `type DeviceMatchAccess = "ALLOWED" | "BOARD_MISMATCH" | "MATCH_NOT_ACTIVE"`
   - `decideDeviceMatchAccess(input: { action: DeviceMatchAction; deviceBoardId: string; matchBoardId: string | null; matchStatus: string }): DeviceMatchAccess`
   - Aus `@darts-platform/domain/board-device-secret`: `BOARD_DEVICE_SECRET_PREFIX = "bd_"`, `createBoardDeviceSecret(): string`, `hashBoardDeviceSecret(secret: string): string`
@@ -109,7 +109,7 @@ describe("decideDeviceMatchAccess", () => {
   const board = "board-a";
 
   it("lehnt ein Match einer anderen Scheibe für jede Aktion ab", () => {
-    for (const action of ["read", "score", "undo"] as const) {
+    for (const action of ["read", "write"] as const) {
       expect(decideDeviceMatchAccess({ action, deviceBoardId: board, matchBoardId: "board-b", matchStatus: "IN_PROGRESS" })).toBe("BOARD_MISMATCH");
     }
   });
@@ -124,20 +124,14 @@ describe("decideDeviceMatchAccess", () => {
     }
   });
 
-  it("erlaubt Scoren nur im laufenden Match", () => {
-    expect(decideDeviceMatchAccess({ action: "score", deviceBoardId: board, matchBoardId: board, matchStatus: "IN_PROGRESS" })).toBe("ALLOWED");
-    expect(decideDeviceMatchAccess({ action: "score", deviceBoardId: board, matchBoardId: board, matchStatus: "COMPLETED" })).toBe("MATCH_NOT_ACTIVE");
-    expect(decideDeviceMatchAccess({ action: "score", deviceBoardId: board, matchBoardId: board, matchStatus: "ABORTED" })).toBe("MATCH_NOT_ACTIVE");
-  });
-
-  it("erlaubt Undo im laufenden und im beendeten Match, nicht im abgebrochenen", () => {
-    expect(decideDeviceMatchAccess({ action: "undo", deviceBoardId: board, matchBoardId: board, matchStatus: "IN_PROGRESS" })).toBe("ALLOWED");
-    expect(decideDeviceMatchAccess({ action: "undo", deviceBoardId: board, matchBoardId: board, matchStatus: "COMPLETED" })).toBe("ALLOWED");
-    expect(decideDeviceMatchAccess({ action: "undo", deviceBoardId: board, matchBoardId: board, matchStatus: "ABORTED" })).toBe("MATCH_NOT_ACTIVE");
+  it("erlaubt Schreiben (Wurf, Undo, Leg-Entscheid, Lease) nur im laufenden Match", () => {
+    expect(decideDeviceMatchAccess({ action: "write", deviceBoardId: board, matchBoardId: board, matchStatus: "IN_PROGRESS" })).toBe("ALLOWED");
+    expect(decideDeviceMatchAccess({ action: "write", deviceBoardId: board, matchBoardId: board, matchStatus: "COMPLETED" })).toBe("MATCH_NOT_ACTIVE");
+    expect(decideDeviceMatchAccess({ action: "write", deviceBoardId: board, matchBoardId: board, matchStatus: "ABORTED" })).toBe("MATCH_NOT_ACTIVE");
   });
 
   it("behandelt einen unbekannten Status beim Schreiben als nicht aktiv", () => {
-    expect(decideDeviceMatchAccess({ action: "score", deviceBoardId: board, matchBoardId: board, matchStatus: "SOMETHING" })).toBe("MATCH_NOT_ACTIVE");
+    expect(decideDeviceMatchAccess({ action: "write", deviceBoardId: board, matchBoardId: board, matchStatus: "SOMETHING" })).toBe("MATCH_NOT_ACTIVE");
   });
 });
 ```
@@ -198,15 +192,15 @@ export function isDevicePermission(permission: OrganizationPermission): permissi
   return devicePermissionSet.has(permission);
 }
 
-export type DeviceMatchAction = "read" | "score" | "undo";
+export type DeviceMatchAction = "read" | "write";
 export type DeviceMatchAccess = "ALLOWED" | "BOARD_MISMATCH" | "MATCH_NOT_ACTIVE";
 
 /**
- * Bindung eines Geraets an das Match seiner Scheibe. `score` umfasst Wurf,
- * Leg-Entscheid und Controller-Lease. `undo` darf auch ein beendetes Match
- * wieder oeffnen – sonst liesse sich ein falscher Checkout am Tablet nicht
- * korrigieren; ob die Scheibe dafuer noch frei ist, prueft die bestehende
- * Undo-Logik.
+ * Bindung eines Geraets an das Match seiner Scheibe. `write` umfasst Wurf,
+ * Undo, Leg-Entscheid und Controller-Lease und gilt nur im laufenden Match:
+ * ein Undo nach Match-Ende liesse einen Liga-Slot auf COMPLETED stehen und
+ * waere am offenen Tablet ohne Zeitgrenze moeglich. Korrekturen nach
+ * Match-Ende bleiben bei der Leitung (Spec 2026-09-30-scheiben-tablet).
  */
 export function decideDeviceMatchAccess(input: {
   readonly action: DeviceMatchAction;
@@ -218,10 +212,8 @@ export function decideDeviceMatchAccess(input: {
   switch (input.action) {
     case "read":
       return "ALLOWED";
-    case "score":
+    case "write":
       return input.matchStatus === "IN_PROGRESS" ? "ALLOWED" : "MATCH_NOT_ACTIVE";
-    case "undo":
-      return input.matchStatus === "IN_PROGRESS" || input.matchStatus === "COMPLETED" ? "ALLOWED" : "MATCH_NOT_ACTIVE";
     default: {
       const exhaustive: never = input.action;
       return exhaustive;
@@ -456,7 +448,7 @@ Die SQL-Datei lesen. Sie muss enthalten:
 - `ALTER TABLE "board_controller_leases" ALTER COLUMN "user_id" DROP NOT NULL`, `ADD COLUMN "device_id"`, Check
 - `ALTER TABLE "audit_events" ADD COLUMN "actor_device_id"`, Check
 
-Steht der Unique-Index nach dem Fremdschlüssel, die Anweisungen von Hand umsortieren (die Datei ist noch nicht deployt).
+drizzle-kit erzeugt die Reihenfolge CREATE TABLE → ADD CONSTRAINT (FK) → CREATE INDEX. Der Unique-Index steht damit nach dem Fremdschlüssel, und die Migration scheitert. Deshalb die Anweisung `CREATE UNIQUE INDEX "boards_id_organization_unique" …` von Hand vor das `ALTER TABLE "board_devices" ADD CONSTRAINT "board_devices_board_organization_fk" …` verschieben. Die Datei ist noch nicht deployt, Umsortieren ist zulässig; die Meta-Snapshots bleiben unverändert.
 
 Run: `pnpm --filter @darts-platform/database db:migrate` (mit `.env`: `npx dotenv -e .env -- pnpm --filter @darts-platform/database db:migrate`)
 Expected: Migration läuft durch.
@@ -738,22 +730,24 @@ export class BoardDeviceAuthenticator {
    */
   public async classify(secret: string): Promise<string | null> {
     const now = Date.now();
-    const cached = this.classified.get(secret);
+    // Schluessel ist der Hash, nie der Klartext.
+    const secretHash = hashBoardDeviceSecret(secret);
+    const cached = this.classified.get(secretHash);
     if (cached !== undefined && cached.until > now) return cached.deviceId;
     const [device] = await this.databaseService.database
       .select({ id: boardDevices.id })
       .from(boardDevices)
-      .where(and(eq(boardDevices.secretHash, hashBoardDeviceSecret(secret)), isNull(boardDevices.revokedAt)))
+      .where(and(eq(boardDevices.secretHash, secretHash), isNull(boardDevices.revokedAt)))
       .limit(1);
     const deviceId = device?.id ?? null;
     if (this.classified.size > 10_000) this.classified.clear();
-    this.classified.set(secret, { deviceId, until: now + CLASSIFY_CACHE_MS });
+    this.classified.set(secretHash, { deviceId, until: now + CLASSIFY_CACHE_MS });
     return deviceId;
   }
 }
 ```
 
-Die Cache-Grenze `10_000` schützt gegen eine Flut zufälliger Schlüssel. Das SQL für das Intervall darf der Implementer vereinfachen (z. B. JS-Datum `new Date(Date.now() - LAST_SEEN_RESOLUTION_MS)` mit `lt(...)`), solange das Verhalten gleich bleibt. Die JS-Variante ist vorzuziehen.
+Die Cache-Grenze `10_000` schützt den Speicher gegen eine Flut zufälliger Schlüssel. Jeder neue unbekannte Schlüssel kostet trotzdem einen Nachschlag über den Unique-Index, bevor gezählt wird. Das ist eine bewusste Grenze und steht so im Kommentar über `classify`. Das SQL für das Intervall darf der Implementer vereinfachen (z. B. JS-Datum `new Date(Date.now() - LAST_SEEN_RESOLUTION_MS)` mit `lt(...)`), solange das Verhalten gleich bleibt. Die JS-Variante ist vorzuziehen.
 
 `auth.guard.ts` – neue Logik nach dem `isPublic`-Zweig:
 
@@ -782,7 +776,7 @@ Konstruktor erhält `@Inject(BoardDeviceAuthenticator) private readonly devices:
 
 Hinweis: Ist ein Bearer vorhanden, wird die Session **nicht** gelesen. Ein ungültiger Schlüssel neben einem gültigen Cookie ergibt `401`.
 
-In `configure-application.ts` `allowedHeaders` um `"Authorization"` ergänzen.
+In `configure-application.ts` `allowedHeaders` um `"Authorization"` ergänzen und `maxAge: 600` setzen. `Authorization` erzwingt einen CORS-Preflight; ohne `maxAge` cacht Chrome ihn nur 5 s, und das Tablet schickt fast jede Anfrage doppelt. Im CORS-Test zusätzlich `expect(response.headers["access-control-max-age"]).toBe("600")`.
 
 - [ ] **Step 5: Schema, Repository, Controller `/board-devices/me`**
 
@@ -1020,7 +1014,7 @@ Kein `@AllowDevice()` an diesen Routen.
 - [ ] **Step 4: Tenant-Isolationsmatrix nachziehen**
 
 In `tenant-isolation-matrix.integration.spec.ts`:
-- `createResourcesInB` richtet für die Scheibe von B ein Gerät ein (über den Service mit `ownerBAuth` oder per Insert mit Hash) und gibt `deviceId` im Rückgabeobjekt zurück. Existiert dort noch kein `boardId`-Eintrag, ebenfalls ergänzen.
+- `createResourcesInB` gibt heute kein `boardId` zurück (Z. 295–307). Ergänzen: `boardId: board.id`. Das Gerät im Fixture-Stil der Datei anlegen: `createAsOwnerB("POST", `${base}/boards/${board.id}/devices`, { label: "B-Tablet" })` (Helfer Z. 215–226). `deviceId` aus der Antwort (`device.id`) ebenfalls zurückgeben.
 - `bodies` erhält `"POST /api/v1/organizations/:organizationId/boards/:boardId/devices": { label: "Matrix" }`.
 - `snapshotOrganizationB` erhält `boardDevices: … select({ id, revokedAt, lastSeenAt }) … where organizationId = B`.
 
@@ -1054,6 +1048,7 @@ git commit -m "feat(api): Scheiben-Tablets einrichten, entkoppeln und auflisten"
   - `leaseActor(principal: Principal): { userId: string | null; deviceId: string | null }`
   - `MatchesService.get|submitVisit|undo|decideLegStart|decideLegByBull|acquireControllerLease` nehmen `auth: Principal`
   - Repository-Ergebnisse erweitert um `"device-board-mismatch" | "device-match-not-active"`
+  - `type UserActorInput = Omit<ActorInput, "auth"> & { readonly auth: AuthContext }` für `abort`
 
 - [ ] **Step 1: Failing Tests schreiben**
 
@@ -1091,8 +1086,10 @@ it("scort, nimmt zurück und entscheidet den Anwurf im freien Match der eigenen 
   const match = await matchesService.create({ organizationId, data: { playerOneId, playerTwoId, boardId, bestOfLegs: 1, bestOfSets: 1 }, auth: ownerAuth, audit });
   const controllerId = randomUUID();
   await matchesService.acquireControllerLease({ organizationId, matchId: match.id, controllerId, force: false, auth: deviceAuth, audit });
-  // Falls das Match mit einem Anwurf-Entscheid beginnt: decideLegStart/decideLegByBull mit deviceAuth zuerst.
-  const scored = await matchesService.submitVisit({ organizationId, matchId: match.id, data: { commandId: randomUUID(), expectedVersion: match.version, playerId: playerOneId, points: 60, dartsThrown: 3, controllerId }, auth: deviceAuth, audit });
+  // Ein freies Match beginnt mit BULL_FIRST_LEG: der Anwurf wird zuerst entschieden
+  // (Muster matches.integration.spec.ts Z. 714/749, legStartPending: true).
+  const started = await matchesService.decideLegStart({ organizationId, matchId: match.id, data: { commandId: randomUUID(), expectedVersion: match.version, legNumber: 1, startingSeat: 1, controllerId }, auth: deviceAuth, audit });
+  const scored = await matchesService.submitVisit({ organizationId, matchId: match.id, data: { commandId: randomUUID(), expectedVersion: started.version, playerId: playerOneId, points: 60, dartsThrown: 3, controllerId }, auth: deviceAuth, audit });
   const undone = await matchesService.undo({ organizationId, matchId: match.id, data: { commandId: randomUUID(), expectedVersion: scored.version, controllerId }, auth: deviceAuth, audit });
   expect(undone.version).toBe(scored.version + 1);
   const events = await database.select().from(auditEvents).where(and(eq(auditEvents.entityId, match.id), eq(auditEvents.action, "SCORE_VISIT_RECORDED")));
@@ -1118,20 +1115,26 @@ it("verbietet Abbrechen und Anlegen", async () => {
   // Controller-Ebene: siehe Step 6 (HTTP), weil der Service diese Methoden nur mit AuthContext kennt.
 });
 
-it("erlaubt Undo nach dem Match-Ende, solange die Scheibe frei ist", async () => {
-  // Match mit bestOfLegs 1 und startingScore 2 anlegen (Checkout mit D1), Checkout durch das Gerät,
-  // Status COMPLETED, dann undo mit deviceAuth -> Status IN_PROGRESS.
+it("lehnt Scoren und Undo in einem beendeten Match mit DEVICE_MATCH_NOT_ACTIVE ab", async () => {
+  // Match anlegen, danach `database.update(matches).set({ startingScore: 2 })` (Check >= 2, schema.ts:406;
+  // das Aggregat liest startingScore aus der Zeile). Anwurf entscheiden, Checkout D1 durch das Gerät
+  // (points 2, dartsThrown 1, checkoutDouble 1) -> COMPLETED.
+  // submitVisit und undo mit deviceAuth -> 409, response.code DEVICE_MATCH_NOT_ACTIVE.
 });
 
-it("lehnt Undo nach dem Match-Ende ab, sobald das nächste Match auf der Scheibe läuft", async () => {
-  // Nach Match-Ende neues Match auf boardId anlegen; undo auf das alte -> 409 (bestehende Belegungsprüfung, "board-unavailable" -> BOARD_NOT_AVAILABLE).
+it("gibt bei wiederholter commandId eines fremden Scheiben-Matches keinen Zustand heraus", async () => {
+  // Owner scort ein Match auf otherBoardId mit commandId X; das Gerät sendet submitVisit mit derselben
+  // commandId auf dieses Match -> 403 DEVICE_BOARD_MISMATCH (nicht 200 mit fremdem Zustand).
 });
 
-it("lehnt Scoren in einem beendeten Match mit DEVICE_MATCH_NOT_ACTIVE ab", async () => { /* submitVisit auf COMPLETED -> 409, code DEVICE_MATCH_NOT_ACTIVE */ });
+it("scort ein Turniermatch auf der zugewiesenen Scheibe", async () => {
+  /* assign -> scoringMatchId; Turniermatches beginnen ebenfalls mit BULL_FIRST_LEG: decideLegStart
+     mit deviceAuth, dann submitVisit mit deviceAuth ok */
+});
 
-it("scort ein Turniermatch auf der zugewiesenen Scheibe", async () => { /* assign -> scoringMatchId -> submitVisit mit deviceAuth ok */ });
-
-it("scort einen Liga-Slot auf der zugewiesenen Scheibe", async () => { /* assignSlot -> matchId -> submitVisit mit deviceAuth ok */ });
+it("scort einen Liga-Slot auf der zugewiesenen Scheibe", async () => {
+  /* assignSlot -> matchId; Liga (LEAGUE) braucht in Leg 1 keinen Entscheid: submitVisit mit deviceAuth ok */
+});
 ```
 
 Die Fälle mit Kommentar im Körper vollständig ausschreiben, nach dem Muster des ersten Falls. `startingScore` ist ein Feld von `CreateMatchInput`, falls es existiert (in `packages/schemas` nachlesen). Sonst den Checkout mit 501 über mehrere Visits herbeiführen, wie `matches.integration.spec.ts` es tut.
@@ -1188,11 +1191,17 @@ function deviceMismatch(auth: Principal, action: DeviceMatchAction, match: { rea
 }
 ```
 
-- In `submitVisitInTransaction` direkt nach `if (match === undefined) return "not-found";` und **vor** der Versionsprüfung: `const denied = deviceMismatch(input.auth, "score", match); if (denied !== null) return denied;`. Gleich im Undo-Pfad mit `"undo"` und in beiden Leg-Entscheid-Pfaden mit `"score"`.
-- `acquireControllerLease`: Die Auswahl muss `boardId` mitlesen (`select({ id, status, boardId })`). Nach `if (match === undefined) return null;` bei `deviceMismatch(input.auth, "score", match) !== null` den Wert zurückgeben. Der Rückgabetyp wird `… | null | "device-board-mismatch" | "device-match-not-active"`.
+- In `submitVisitInTransaction` direkt nach `if (match === undefined) return "not-found";` und **vor** der Versionsprüfung: `const denied = deviceMismatch(input.auth, "write", match); if (denied !== null) return denied;`. Gleich im Undo-Pfad und in beiden Leg-Entscheid-Pfaden, jeweils mit `"write"`. Beim Undo steht die Prüfung vor dem Zweig, der ein beendetes Match wieder öffnet (Z. ~946–981): ein Gerät erreicht ihn damit nie.
+- `acquireControllerLease`: Die Auswahl muss `boardId` mitlesen (`select({ id, status, boardId })`). Nach `if (match === undefined) return null;` bei `deviceMismatch(input.auth, "write", match) !== null` den Wert zurückgeben. Der Rückgabetyp wird `… | null | "device-board-mismatch" | "device-match-not-active"`.
 - Alle `actorUserId: input.auth.user.id` in den geräte-fähigen Pfaden (Lease-Audit, `SCORE_VISIT_RECORDED`, `SCORE_VISIT_REVERTED`, Leg-Entscheid `command.type`) durch `...auditActor(input.auth)` ersetzen. In der Lease `userId: input.auth.user.id` durch `...leaseActor(input.auth)` ersetzen, im `insert` wie im `onConflictDoUpdate.set`.
-- `create`, `abort`, `correctTournamentResult` behalten `AuthContext` und `input.auth.user.id`.
-- `syncProjection` bekommt `input` mit `auth: Principal`. Liest es `input.auth.user`, dort ebenfalls `auditActor` nutzen (Z. 571–760 prüfen).
+- `create` und `correctTournamentResult` haben eigene Eingabetypen mit `AuthContext` und bleiben unverändert. `abort`/`abortInTransaction` nutzen heute `ActorInput` und lesen `input.auth.user.id` (Z. 400–437). Für sie einen eigenen Typ einführen und die beiden Signaturen darauf umstellen:
+
+```ts
+/** Nur fuer Personen: das Geraet darf nicht abbrechen (devicePermissions). */
+type UserActorInput = Omit<ActorInput, "auth"> & { readonly auth: AuthContext };
+```
+
+- `syncProjection` liest `auth` nicht (Z. 1239–1249) und bleibt unverändert.
 - Das Repository ist ~1400 Zeilen lang. Nur die genannten Stellen ändern.
 
 - [ ] **Step 5: Service**
@@ -1212,8 +1221,8 @@ private async require(input: { readonly organizationId: string; readonly auth: P
 ```
 
 - `get`, `submitVisit`, `undo`, `decideLegStart`, `decideLegByBull`, `acquireControllerLease`: Typ `auth: Principal`. `list`, `create`, `abort` bleiben bei `AuthContext`.
-- `get`: Beim Gerät nach dem Laden `decideDeviceMatchAccess({ action: "read", deviceBoardId, matchBoardId: state.boardId, matchStatus: state.status })` prüfen; bei `BOARD_MISMATCH` → `ForbiddenException({ code: "DEVICE_BOARD_MISMATCH", message: "This match is not on this device's board." })`. `state.boardId` muss im Zustand vorhanden sein (in `getState` nachlesen). Fehlt das Feld, im Repository eine schmale Abfrage `getBoardFacts(organizationId, matchId): Promise<{ boardId: string | null; status: string } | null>` ergänzen.
-- In `mutate` die neuen Ergebnisse zuordnen, **vor** dem Laden des Zustands:
+- `get`: Beim Gerät nach dem Laden `decideDeviceMatchAccess({ action: "read", deviceBoardId, matchBoardId: state.boardId, matchStatus: state.status })` prüfen; bei `BOARD_MISMATCH` → `ForbiddenException({ code: "DEVICE_BOARD_MISMATCH", message: "This match is not on this device's board." })`. `MatchStateResponse.boardId` existiert (`packages/schemas/src/match.ts:146`). Ein abgebrochenes Match liefert `getState` als `null` (404), das bleibt so.
+- `mutate` erhält `input.auth` (Signatur `{ organizationId, matchId, auth: Principal }`). Die neuen Ergebnisse vor dem Laden des Zustands zuordnen:
 
 ```ts
 if (result === "device-board-mismatch") throw new ForbiddenException({ code: "DEVICE_BOARD_MISMATCH", message: "This match is not on this device's board." });
@@ -1221,6 +1230,8 @@ if (result === "device-match-not-active") throw new ConflictException({ code: "D
 ```
 
 Dasselbe in `acquireControllerLease`.
+
+Zusätzlich in `mutate`, nachdem der Zustand geladen ist und bevor er zurückgegeben wird: Ist `input.auth` ein Gerät, `decideDeviceMatchAccess({ action: "read", deviceBoardId: input.auth.device.boardId, matchBoardId: state.boardId, matchStatus: state.status })` prüfen und bei `BOARD_MISMATCH` `ForbiddenException({ code: "DEVICE_BOARD_MISMATCH", … })` werfen. Grund: Eine wiederholte `commandId` gibt im Repository `"ok"` zurück, noch bevor das Match gelesen und die Scheibe geprüft ist (Z. 448, 458). Ohne diese Prüfung bekäme ein Gerät den Zustand eines Matches einer anderen Scheibe.
 
 - [ ] **Step 6: Controller**
 
@@ -1338,7 +1349,7 @@ git commit -m "feat(api): Schnellwerte fuer Personen am Scheiben-Tablet"
 
 `environment.spec.ts`: `expect(environment.RATE_LIMIT_DEVICE_MAX_PER_MINUTE).toBe(120);` neben den bestehenden Default-Erwartungen.
 
-`rate-limit-device.integration.spec.ts` mit `createApiTestApplication({ RATE_LIMIT_MAX_PER_MINUTE: 5, RATE_LIMIT_DEVICE_MAX_PER_MINUTE: 8 })` und einem echten Gerät (Insert mit Hash):
+`rate-limit-device.integration.spec.ts` mit `createApiTestApplication({ RATE_LIMIT_MAX_PER_MINUTE: 5, RATE_LIMIT_DEVICE_MAX_PER_MINUTE: 8, RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: 2 })` und einem echten Gerät (Insert mit Hash):
 
 ```ts
 it("zählt ein gültiges Gerät pro Gerät, nicht gegen die Grenze der IP", async () => {
@@ -1359,6 +1370,16 @@ it("zählt einen unbekannten Schlüssel gegen die Grenze der IP", async () => {
 });
 ```
 
+```ts
+it("lässt die enge Grenze für Passwort-Reset auch mit gültigem Geräteschlüssel stehen", async () => {
+  const statuses: number[] = [];
+  for (let index = 0; index < 3; index += 1) {
+    statuses.push((await app.inject({ method: "POST", url: "/api/v1/auth/request-password-reset", headers: { ...bearer, "content-type": "application/json" }, payload: { email: "niemand@example.test" }, remoteAddress: "203.0.113.20" })).statusCode);
+  }
+  expect(statuses.at(-1)).toBe(429);
+});
+```
+
 `remoteAddress` im ersten Fall gleich lassen, im zweiten eine andere Adresse verwenden, damit sich die Fälle nicht gegenseitig zählen. Wie `resolveClientAddress` die Adresse bei `TRUST_PROXY_HOPS` bestimmt, in `client-address.ts` nachlesen und den Override danach setzen.
 
 - [ ] **Step 2: Tests laufen lassen, Fehlschlag prüfen.** Expected: FAIL.
@@ -1370,12 +1391,17 @@ it("zählt einen unbekannten Schlüssel gegen die Grenze der IP", async () => {
 
 ```ts
 keyGenerator: async (request: FastifyRequest): Promise<string> => {
-  const secret = readDeviceBearer(request.headers);
+  const tier = resolveRateLimitTier(pathOf(request));
+  // Nur die allgemeine Stufe zaehlt pro Geraet. Anmeldung, Passwort-Reset und
+  // Einladungen (sensitive) behalten ihre enge Grenze pro IP, auch mit
+  // gueltigem Geraeteschluessel – sonst bekaeme jede Person am Tablet 120
+  // statt 10 Anmeldeversuche pro Minute.
+  const secret = tier === "general" ? readDeviceBearer(request.headers) : null;
   if (secret !== null) {
     const deviceId = await classifyDevice(secret);
     if (deviceId !== null) return `device:${deviceId}`;
   }
-  return `${resolveRateLimitTier(pathOf(request))}:${resolveClientAddress(request, environment.TRUST_PROXY_HOPS)}`;
+  return `${tier}:${resolveClientAddress(request, environment.TRUST_PROXY_HOPS)}`;
 },
 max: (request: FastifyRequest, key: string): number =>
   key.startsWith("device:") ? environment.RATE_LIMIT_DEVICE_MAX_PER_MINUTE : maxFor(resolveRateLimitTier(pathOf(request)), environment),
@@ -1409,13 +1435,14 @@ git commit -m "feat(api): eigene Rate-Limit-Stufe fuer Scheiben-Tablets"
 
 Neuer `describe("Tenant-Isolation: Scheiben-Tablet von A", …)`:
 
+- Die `collectRoutes`-Overrides (Z. 199–201) um `RATE_LIMIT_DEVICE_MAX_PER_MINUTE: 100_000` ergänzen. Sonst zählen die rund 90 Anfragen derselben Geräte-Zeile gegen die Vorgabe 120, und eine Wiederholung im selben Prozess kippt die Matrix in 429.
 - Organisation A erhält eine Scheibe und ein Gerät mit echtem Geheimnis (`createBoardDeviceSecret`).
 - Für **jede** Route aus `routes` (nicht nur `:organizationId`), ausser `@Public`-Routen: Anfrage mit `authorization: Bearer <geheimnis>`, Parameter mit `fillRealParams(route.url, realIdsOfB)` gefüllt.
 - Erwartet:
   - `GET /api/v1/board-devices/me` → 200
   - die sechs geräte-fähigen Match-Routen und `frequent-scores` gegen Ressourcen von B → 404
   - jede andere Route → 403 mit `DEVICE_NOT_ALLOWED`
-- Öffentliche Routen erkennt der Test an ihrem Präfix `/api/v1/public/`, `/api/v1/health`, `/api/v1/auth/`, `/api/v1/invitations/`, `/api/v1/csp-reports`. Antworten dort werden übersprungen, nicht bewertet.
+- Übersprungen (nicht bewertet) werden nur die öffentlichen Routen: Präfixe `/api/v1/public/`, `/api/v1/auth/`, `/api/v1/csp-reports`, die Route `/api/v1/health` und die `@Public()`-Routen aus `organizations/invitation-preview.controller.ts`. Die übrigen `/api/v1/invitations/…`-Routen (`invitations.controller.ts`, nicht öffentlich) werden bewertet und müssen `403 DEVICE_NOT_ALLOWED` liefern. Die öffentlichen Einladungsrouten als explizite Liste `method + url` im Test führen, nicht über ein Präfix.
 - Danach `snapshotOrganizationB()` unverändert.
 
 Die Liste der erlaubten Routen steht im Test als Konstante:
@@ -1464,7 +1491,7 @@ git commit -m "test(api): Scheiben-Tablet in der Tenant-Isolationsmatrix"
   - `rememberBoardDevice(device: StoredBoardDevice): void`, `recallBoardDevice(): StoredBoardDevice | null`, `forgetBoardDevice(): void`
   - `DeviceCredentialProvider({ secret, children })`, `useDeviceSecret(): string | undefined`
   - `apiRequest({ …, deviceSecret?: string | undefined })`
-  - `MatchScoreboard`: `backHref?: string`, `backLabel?: string`, `undoAfterEnd?: boolean`
+  - `MatchScoreboard`: `backHref?: string`, `backLabel?: string`, `showHeaderLinks?: boolean` (Default `true`)
 
 - [ ] **Step 1: Failing Tests schreiben**
 
@@ -1489,7 +1516,7 @@ it("sendet ohne Geräteschlüssel keinen Authorization-Header", async () => {
 
 `match-scoreboard.render.spec.tsx` ergänzen:
 - Ohne `backHref` rendert die Kopfzeile keinen Zurück-Link.
-- Bei `status: "COMPLETED"` und `undoAfterEnd` erscheint der Knopf «Letzte Aufnahme zurücknehmen». Ohne `undoAfterEnd` erscheint er nicht.
+- Mit `showHeaderLinks={false}` rendert die Kopfzeile weder «LIVE» noch «Bedienungsanleitung».
 
 - [ ] **Step 2: Tests laufen lassen, Fehlschlag prüfen**
 
@@ -1587,24 +1614,12 @@ export function useDeviceSecret(): string | undefined {
 
 Hooks: In `useBoardControllerLock`, `useMatchScoring` (alle `apiRequest`-Aufrufe inklusive der Queue-Wiedergabe ~Z. 194 und Visits ~Z. 316) und `useQuickScores` jeweils `const deviceSecret = useDeviceSecret();` und `deviceSecret` an `apiRequest` übergeben. Wo ein Aufruf in `useCallback`/`useMutation` steckt, gehört `deviceSecret` in dessen Abhängigkeiten.
 
-`offline-replay.ts` erhält in `replayFailure` bzw. der Code-Tabelle (Z. ~35) die vier Codes als `REJECTED`, nicht `RETRY`. Die bestehende Zuordnung lesen und so einsortieren, dass ein `401 DEVICE_REVOKED` einen Eintrag nicht endlos wiederholt, ihn aber auch nicht löscht.
+`offline-replay.ts` bleibt im Code unverändert. `401` ist dort bewusst `RETRY` (Z. 26–27, 64–72): ein widerrufenes Gerät urteilt nicht über das Kommando, und nach erneutem Einrichten darf der Eintrag noch durchgehen. Im Zustand «nicht gekoppelt» mountet der Kiosk kein Scoreboard, also läuft keine Wiedergabe. `403 DEVICE_BOARD_MISMATCH` und `409 DEVICE_MATCH_NOT_ACTIVE` sind über `retryableStatus` bereits `REJECTED`. In `offline-replay.spec.ts` drei Fälle ergänzen, die genau das festhalten: `DEVICE_REVOKED`/401 → `RETRY`, `DEVICE_BOARD_MISMATCH`/403 → `REJECTED`, `DEVICE_MATCH_NOT_ACTIVE`/409 → `REJECTED`.
 
 `MatchScoreboard`:
-- `backHref?: string`, `backLabel?: string`, `undoAfterEnd?: boolean` (Default `false`).
+- `backHref?: string`, `backLabel?: string`, `showHeaderLinks?: boolean` (Default `true`).
 - Die beiden Effekte, die nach Abbruch bzw. Match-Ende `router.push(backHref)` aufrufen, laufen nur, wenn `backHref !== undefined`. Der Hinweis «… geht es gleich von selbst» erscheint nur dann.
-- `ScoreboardHeader` rendert den Zurück-Link nur mit `backHref`.
-- Im COMPLETED-Band bei `undoAfterEnd && canScore`:
-
-```tsx
-{undoAfterEnd && canScore && revertableVisit !== undefined ? (
-  <Button className="mt-4 min-h-12" disabled={!online || scoring.undoPending} onClick={() => scoring.undoVisit()} variant="secondary">
-    {scoring.undoPending ? "Rücknahme läuft …" : "Letzte Aufnahme zurücknehmen"}
-  </Button>
-) : null}
-```
-
-  `Button`-Varianten in `packages/ui` nachlesen und die passende wählen. `undoVisit` sendet `lock.controllerId`. Nach Match-Ende ist die Lease abgelaufen oder gehört noch derselben `controllerId`, der Server akzeptiert beides.
-
+- `ScoreboardHeader` rendert den Zurück-Link nur mit `backHref`, und die Links «LIVE» und «Bedienungsanleitung» (Z. 78–96) nur bei `showHeaderLinks`. Aus dem Kiosk führt so kein Link hinaus.
 - [ ] **Step 4: Tests laufen lassen**
 
 Run: die drei Dateien aus Step 2, dann `pnpm --filter @darts-platform/web test` und `pnpm --filter @darts-platform/web typecheck`.
@@ -1742,7 +1757,7 @@ describe("kioskView", () => {
 `kiosk-route.render.spec.tsx` (`apiRequest` gemockt, Storage vorbelegt):
 - Ohne gespeicherten Schlüssel: Text «Dieses Tablet ist nicht gekoppelt» und ein Link zur Startseite.
 - Mit Schlüssel und `currentMatchId: null`: «Scheibe 1 – wartet auf nächstes Match», Organisationsname in der Kopfzeile.
-- Mit `currentMatchId`: rendert `MatchScoreboard` (Mock) mit `canScore`, ohne `canAbort`, ohne `backHref`, mit `undoAfterEnd`.
+- Mit `currentMatchId`: rendert `MatchScoreboard` (Mock) mit `canScore`, ohne `canAbort`, ohne `backHref`, mit `showHeaderLinks={false}`.
 - `apiRequest` wirft `ApiClientError` mit Code `DEVICE_REVOKED`: `forgetBoardDevice` wird aufgerufen, Text «Dieses Tablet ist nicht mehr gekoppelt – bitte in der Organisationsverwaltung unter «Scheiben-Tablets» neu einrichten.»
 - Jede `apiRequest` erhält `deviceSecret`.
 
@@ -1764,8 +1779,7 @@ export type KioskView =
 /**
  * Was das Tablet zeigt. Ein laufendes Match der Scheibe hat immer Vorrang;
  * ein gerade beendetes bleibt `KIOSK_END_HOLD_MS` stehen, damit die
- * Spielenden das Ergebnis sehen und einen falschen Checkout noch
- * zuruecknehmen koennen – oder bis jemand «Weiter» tippt.
+ * Spielenden das Ergebnis sehen – oder bis jemand «Weiter» tippt.
  */
 export function kioskView(input: {
   readonly currentMatchId: string | null;
@@ -1795,12 +1809,12 @@ export function kioskView(input: {
   - Lokaler State `lastMatchId`, `lastMatchCompletedAt`, `dismissedMatchId`. Ein Ticker (`setInterval` 1 s, nur im Zustand `ended`) hält `now` aktuell.
   - Match-Query `["match", organizationId, matchId]` → `apiRequest({ path: /organizations/${organizationId}/matches/${matchId}, schema: matchStateSchema, deviceSecret })`, `refetchInterval: (query) => matchRefetchInterval(query.state.error)`, `retry: shouldRetryMatchLoad` (wie `match-scoreboard-route.tsx`).
   - Wechselt der geladene Match-Status auf `COMPLETED`, `lastMatchId` und `lastMatchCompletedAt = Date.now()` setzen. Liefert `/me` ein anderes `currentMatchId`, den letzten Stand verwerfen.
-  - Fehler `DEVICE_BOARD_MISMATCH` oder 404 beim Match → `lastMatchId` auf `null`, zurück in den Leerlauf (die nächste `/me`-Antwort entscheidet).
+  - Beim Match-Lesen 404 (abgebrochenes Match) oder `403 DEVICE_BOARD_MISMATCH`, bei einer Mutation `409 DEVICE_MATCH_NOT_ACTIVE` → `lastMatchId` auf `null`, zurück in den Leerlauf (die nächste `/me`-Antwort entscheidet). `matches.board_id` wird nie genullt; nach Walkover, Slot-Freigabe oder Abbruch kommt deshalb 404 bzw. 409, nicht 403.
 - Darstellung:
   - Vollbild `main` wie `match-scoreboard-route.tsx` (`sektorenring bg-sisal-200`).
   - Kopfzeile: Scheibenname (`self.board.name`, vor der ersten Antwort `stored.boardName`), Organisationsname, Verbindungsindikator. Die bestehende Komponente für den Online-Status aus dem Scoreboard verwenden (`scoreboard-status.tsx` nachlesen).
   - `idle`: grosser Text «{Scheibe} – wartet auf nächstes Match».
-  - `match` und `ended`: `<MatchScoreboard canAbort={false} canScore match={match} organizationId={self.organization.id} undoAfterEnd />`. Im Zustand `ended` darunter ein Knopf «Weiter» (`min-h-12`), der `dismissedMatchId` setzt.
+  - `match` und `ended`: `<MatchScoreboard canAbort={false} canScore match={match} organizationId={self.organization.id} showHeaderLinks={false} />`. Im Zustand `ended` darunter ein Knopf «Weiter» (`min-h-12`), der `dismissedMatchId` setzt.
   - Langes Drücken (800 ms, Pointer-Events) auf den Scheibennamen öffnet `ConfirmDialog` «Gerät zurücksetzen?» mit dem Text «Löscht die Kopplung nur auf diesem Tablet. Entkoppeln kannst du es in der Organisationsverwaltung.» Nach Bestätigen: `forgetBoardDevice()`, `router.replace("/")`.
 - Alle Texte Deutsch (Schweiz), Touch-Ziele mindestens 48 px.
 
@@ -1821,7 +1835,7 @@ export default function ScheibePage() {
 }
 ```
 
-`kiosk-redirect.tsx`: Client-Komponente, die im `useEffect` bei `recallBoardDevice() !== null` `router.replace("/scheibe")` aufruft und `null` rendert. In `app/page.tsx` am Anfang von `<main>` einbinden.
+`kiosk-redirect.tsx`: Client-Komponente, die im `useEffect` bei `isStandaloneDisplay() && recallBoardDevice() !== null` `router.replace("/scheibe")` aufruft und `null` rendert. Ohne die Standalone-Prüfung landete ein Admin, der auf dem Android-Tablet den normalen Browser öffnet, immer im Kiosk (Chrome teilt `localStorage` zwischen Tab und App). In `app/page.tsx` am Anfang von `<main>` einbinden.
 
 CSP: Die Seite nutzt keine Inline-Skripte. Das Root-Layout ist seit ADR 0014 dynamisch, eine zusätzliche Einstellung ist nicht nötig.
 
@@ -1854,7 +1868,7 @@ Zwei Fälle, jeder mit eigenem `browser.newContext()` für Admin und Tablet:
    - Tablet-Kontext: Anmeldung als Admin. `page.addInitScript(() => { window.matchMedia = ((query: string) => ({ matches: query.includes("standalone"), media: query, addEventListener() {}, removeEventListener() {}, onchange: null, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia; })` simuliert die installierte App.
    - Organisationsverwaltung → «Dieses Gerät einrichten» für Scheibe 1. Erwartet: URL `/scheibe`, «Scheibe 1 – wartet auf nächstes Match».
    - Admin-Kontext: Turnier mit Scheibe 1 anlegen und das erste Match der Scheibe zuweisen.
-   - Tablet: innerhalb von 10 s erscheint das Scoreboard. Ein Leg zu Ende scoren (Hilfen aus `scoreboard-entry.ts`). Erwartet: «Match beendet», «Letzte Aufnahme zurücknehmen», «Weiter».
+   - Tablet: innerhalb von 10 s erscheint das Scoreboard. Ein Leg zu Ende scoren (Hilfen aus `scoreboard-entry.ts`). Erwartet: «Match beendet» und «Weiter»; nach «Weiter» «Scheibe 1 – wartet auf nächstes Match».
    - Admin: Organisationsverwaltung → «Entkoppeln» → bestätigen.
    - Tablet: innerhalb von 10 s «Dieses Tablet ist nicht mehr gekoppelt».
 2. **Liga-Slot:** gleich, aber Zuweisung über die Begegnung (Muster `team-encounter.spec.ts`). Nur bis «Scoreboard erscheint, eine Aufnahme wird angenommen».
@@ -1890,7 +1904,7 @@ Aufbau wie ADR 0017/0018 (Status, Datum 30.09.2026, Kontext, Entscheid, Konseque
 - `@AllowDevice()` als geschlossene Standardeinstellung
 - Katalog `devicePermissions`
 - Bindung an `matches.board_id` in der Transaktion
-- Undo nach Match-Ende
+- kein Undo nach Match-Ende durch das Gerät (Liga-Slot bliebe COMPLETED, keine Zeitgrenze am offenen Tablet)
 - Rate-Limit-Stufe mit Einordnungs-Cache
 - `localStorage` statt Cookie, mit der offenen iPad-Prüfung (Spec Abschnitt 7)
 - Konsequenzen: Wer ein Tablet stiehlt, kann bis zum Widerruf die Matches dieser Scheibe scoren, sonst nichts.

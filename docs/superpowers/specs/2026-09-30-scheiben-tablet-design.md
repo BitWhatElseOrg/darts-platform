@@ -64,7 +64,7 @@ Constraints und Indexe:
   nur `boards_organization_name_unique`.
 
 Kein Ablaufdatum: Die Geräte sind fest montiert. Geschützt wird über Widerruf
-und die Sichtbarkeit von `last_seen_at` in der Board-Verwaltung.
+und die Sichtbarkeit von `last_seen_at` in der Organisationsverwaltung (Abschnitt «Scheiben-Tablets»).
 
 ### Geheimnis
 
@@ -93,7 +93,7 @@ Migration wird geändert.
 
 1. Die Admin-Person öffnet auf dem Tablet die installierte Web-App und meldet
    sich an.
-2. Board-Verwaltung → Scheibe → «Dieses Gerät einrichten». Der Button ist nur
+2. Organisationsverwaltung (Abschnitt «Scheiben-Tablets») → Scheibe → «Dieses Gerät einrichten». Der Button ist nur
    aktiv, wenn die App installiert läuft (`display-mode: standalone`). Im
    normalen Browser steht dort ein Hinweis, die App zuerst zu installieren,
    weil iOS die Daten von Browser und installierter App trennt.
@@ -113,7 +113,7 @@ Migration wird geändert.
   erfordert `board:manage`, setzt `revoked_at`, Audit `BOARD_DEVICE_REVOKED`.
   Antwort `204`. Ein bereits widerrufenes Gerät erneut zu widerrufen ist
   ebenfalls `204` (idempotent) ohne zweiten Audit-Eintrag.
-- Board-Verwaltung zeigt pro Scheibe «Gekoppelt · zuletzt gesehen vor …» oder
+- Organisationsverwaltung (Abschnitt «Scheiben-Tablets») zeigt pro Scheibe «Gekoppelt · zuletzt gesehen vor …» oder
   «Kein Gerät» und den Button «Entkoppeln» mit Bestätigung. Die Liste kommt aus
   `GET /api/v1/organizations/:organizationId/board-devices` (erfordert
   `board:manage`; aktive Geräte mit `id`, `boardId`, `label`, `createdAt`,
@@ -123,7 +123,7 @@ Migration wird geändert.
 
 Auf dem Tablet: langes Drücken auf den Scheibennamen → «Gerät zurücksetzen».
 Löscht nur den lokalen Schlüssel und führt zur Startseite. Der Schlüssel bleibt
-serverseitig gültig, bis er in der Board-Verwaltung entkoppelt oder durch ein
+serverseitig gültig, bis er in der Organisationsverwaltung (Abschnitt «Scheiben-Tablets») entkoppelt oder durch ein
 neues Einrichten ersetzt wird. Der Dialog sagt das so.
 
 ## 3. Autorisierung
@@ -182,8 +182,10 @@ der Leitung im selben WLAN wäre die Grenze erreicht.
 
 Entscheid:
 
-- Anfragen mit einem **gültigen** Geräteschlüssel zählen in einer eigenen Stufe
-  `device`. Der Zähler-Schlüssel ist die Geräte-ID, nicht die IP. Die Grenze ist
+- Anfragen mit einem **gültigen** Geräteschlüssel auf Pfaden der allgemeinen
+  Stufe zählen in einer eigenen Stufe `device`. Auf Pfaden der Stufen
+  `sensitive` (Anmeldung, Passwort-Reset, Einladungen) und `public` bleibt der
+  IP-Schlüssel, sonst hebelte ein Geräteschlüssel deren enge Grenzen aus. Der Zähler-Schlüssel ist die Geräte-ID, nicht die IP. Die Grenze ist
   `RATE_LIMIT_DEVICE_MAX_PER_MINUTE`, Vorgabe 120 pro Gerät.
 - Der Rate-Limiter läuft vor dem Guard. Er ordnet einen `bd_…`-Schlüssel
   deshalb über einen eigenen Nachschlag ein, der das Ergebnis (Gerät oder
@@ -205,7 +207,7 @@ Entscheid:
 | `POST …/matches/:matchId/visits` | `match:score` | wie oben und Match `IN_PROGRESS` |
 | `POST …/matches/:matchId/leg-start` | `match:score` | wie oben |
 | `POST …/matches/:matchId/leg-by-bull` | `match:score` | wie oben |
-| `POST …/matches/:matchId/undo` | `match:undo` | eigene Scheibe, Match `IN_PROGRESS` oder `COMPLETED` (siehe unten) |
+| `POST …/matches/:matchId/undo` | `match:undo` | wie oben und Match `IN_PROGRESS` |
 | `POST …/matches/:matchId/controller-lease` | `match:score` | wie oben |
 | `GET …/players/:playerId/statistics/frequent-scores` | `statistics:read` | Spieler nimmt am laufenden Match der Scheibe teil |
 
@@ -213,13 +215,11 @@ Nicht freigegeben, unter anderem: `POST …/matches` (anlegen), `…/abort`,
 jede Turnier-, Encounter-, Spieler-, Board- und Mitgliederroute, der
 Statistik-Gesamtabruf.
 
-Undo ist auch für ein beendetes Match der eigenen Scheibe erlaubt. Sonst
-liesse sich ein falsch eingetragener Checkout, der das Match beendet hat, am
-Tablet nicht korrigieren. Die bestehende Undo-Logik öffnet ein beendetes
-Match nur wieder, wenn die Scheibe frei und nicht belegt ist, und lehnt
-veröffentlichte Turnierresultate ab (`TOURNAMENT_RESULT_REQUIRES_CORRECTION`).
-Sobald auf der Scheibe das nächste Match läuft, ist Undo für das alte also
-ausgeschlossen.
+Undo ist für das Gerät nur im laufenden Match erlaubt. Ein Undo nach
+Match-Ende würde bei einem Liga-Slot das Match wieder öffnen, den Slot aber
+auf `COMPLETED` stehen lassen (`completeEncounterSlotForMatch` greift beim
+nächsten Checkout nicht mehr), und wäre am offen zugänglichen Tablet ohne
+Zeitgrenze möglich. Korrekturen nach Match-Ende bleiben bei der Leitung.
 
 Der Match-Abruf ist bewusst auch für beendete Matches der eigenen Scheibe
 erlaubt, damit die Endstand-Ansicht nach einem Neuladen funktioniert. Beendete
@@ -230,10 +230,10 @@ Matches anderer Scheiben bleiben gesperrt.
 - Im Domain-Paket: `devicePermissions = ["match:read", "match:score",
   "match:undo", "statistics:read"] as const` und eine reine Funktion
   `decideDeviceMatchAccess({ action, deviceBoardId, matchBoardId,
-  matchStatus })` mit `action` aus `"read" | "score" | "undo"` und exhaustive
+  matchStatus })` mit `action` aus `"read" | "write"` und exhaustive
   Ergebnis-Union (`ALLOWED`, `BOARD_MISMATCH`, `MATCH_NOT_ACTIVE`).
-  Statusregel: `read` jeder Status; `score` (Wurf, Leg-Entscheid, Lease) nur
-  `IN_PROGRESS`; `undo` `IN_PROGRESS` oder `COMPLETED`.
+  Statusregel: `read` jeder Status; `write` (Wurf, Undo, Leg-Entscheid, Lease)
+  nur `IN_PROGRESS`.
 - `requirePermission` in den Services erhält einen zweiten Zweig: Beim Benutzer
   wie heute über die Mitgliedschaft, beim Gerät über `devicePermissions`
   und `decideDeviceMatchAccess`.
@@ -265,23 +265,27 @@ Matches anderer Scheiben bleiben gesperrt.
 
 `allowedHeaders` in `apps/api/src/common/configure-application.ts` lässt heute
 nur `Content-Type`, `X-Correlation-Id` und `X-Dartbase-Invitation-Claim` zu.
-`Authorization` kommt dazu. Cookies bleiben wie heute `credentials: include`.
+`Authorization` kommt dazu, ausserdem `maxAge: 600`, damit der Browser den
+Preflight, den `Authorization` erzwingt, zehn Minuten zwischenspeichert. Cookies bleiben wie heute `credentials: include`.
 
 ## 4. Kiosk-Oberfläche
 
 ### Route `/scheibe`
 
 Eigene Seite ohne App-Navigation, Organisationswechsel und Login-Hinweise.
-Ist ein Geräteschlüssel gespeichert, leitet die Startseite in der
-installierten App dorthin weiter.
+Ist ein Geräteschlüssel gespeichert und läuft die Seite als installierte App,
+leitet die Startseite dorthin weiter. Im normalen Browser nicht: Android teilt
+den Speicher zwischen Tab und App, und ein Admin am Tablet soll die normale
+Oberfläche erreichen. Die Scoreboard-Kopfzeile zeigt im Kiosk keine Links
+(«LIVE», «Bedienungsanleitung»), die aus dem Kiosk hinausführen.
 
 | Zustand | Anzeige |
 |---|---|
 | Laden | Scheibenname aus dem lokalen Speicher, Ladeindikator |
 | Leerlauf | «Scheibe 3 – wartet auf nächstes Match». `GET /board-devices/me` alle 5 s, solange die Seite sichtbar ist – auch während eines Matches, damit ein Abbruch oder eine Freigabe durch die Leitung auffällt. |
 | Match läuft | Bestehende `MatchScoreboard`-Komponente. Organisation und Rechte kommen aus `/board-devices/me`. Das Abbrechen-Menü ist ausgeblendet. |
-| Match beendet | Endstand mit Undo-Knopf bleibt 30 s stehen oder bis jemand «Weiter» tippt, dann zurück in den Leerlauf. Ein Undo in dieser Zeit öffnet das Match wieder. |
-| Nicht mehr gekoppelt | «Dieses Tablet ist nicht mehr gekoppelt – bitte in der Board-Verwaltung neu einrichten.» Offene Einträge der Offline-Queue bleiben sichtbar. |
+| Match beendet | Endstand bleibt 30 s stehen oder bis jemand «Weiter» tippt, dann zurück in den Leerlauf. |
+| Nicht mehr gekoppelt | «Dieses Tablet ist nicht mehr gekoppelt – bitte in der Organisationsverwaltung unter «Scheiben-Tablets» neu einrichten.» Offene Einträge der Offline-Queue bleiben sichtbar. |
 
 Kopfzeile in allen Zuständen: Name der Scheibe, Name der Organisation und der
 bestehende Verbindungsindikator.
@@ -321,7 +325,7 @@ nachrüsten lässt er sich später ohne Bruch.
 | Situation | Verhalten |
 |---|---|
 | Gerät widerrufen oder Schlüssel unbekannt | `401 DEVICE_REVOKED`. Das Tablet löscht den lokalen Schlüssel und zeigt den Zustand «Nicht mehr gekoppelt». Queue-Einträge bleiben sichtbar. |
-| Match während des Scorens von der Scheibe genommen (Freigabe, Walkover, Abbruch durch die Leitung) | `403 DEVICE_BOARD_MISMATCH` bzw. Match nicht aktiv. Das Tablet lädt `/board-devices/me` neu und wechselt in den Leerlauf oder zum neuen Match. Offene Queue-Einträge für das alte Match werden als abgelehnt angezeigt, nicht still verworfen. |
+| Match während des Scorens beendet oder abgebrochen (Walkover, Slot-Freigabe, Abbruch durch die Leitung) | Match lesen liefert `404` (abgebrochene Matches sind nicht lesbar), Schreiben `409 DEVICE_MATCH_NOT_ACTIVE`. `matches.board_id` wird nie genullt, `403 DEVICE_BOARD_MISMATCH` entsteht nur bei einem Match einer anderen Scheibe. Das Tablet lädt `/board-devices/me` neu und wechselt in den Leerlauf oder zum neuen Match. Offene Queue-Einträge für das alte Match werden als abgelehnt angezeigt, nicht still verworfen. |
 | Versionskonflikt | Wie heute: `409` mit Serverzustand, Client synchronisiert. |
 | Anderes Gerät oder Handy hält die Controller-Lease | Wie heute: «Ein anderes Gerät steuert dieses Board», Übernahme möglich. |
 | Scheibe gelöscht | Gerät fällt per `cascade` weg, nächste Anfrage `401`. |
@@ -349,8 +353,8 @@ nachrüsten lässt er sich später ohne Bruch.
   - Rate-Limit: Anfragen mit gültigem `bd_…` zählen pro Gerät in der Stufe
     `device`, nicht gegen die allgemeine Grenze der IP; ein unbekannter
     Schlüssel zählt pro IP.
-  - Undo nach Match-Ende auf der eigenen Scheibe gelingt; nachdem das nächste
-    Match auf der Scheibe gestartet ist, nicht mehr.
+  - Undo und Scoren in einem beendeten Match schlagen mit
+    `DEVICE_MATCH_NOT_ACTIVE` fehl.
   - Gleiche `commandId` vom Gerät erzeugt keinen zweiten Visit.
   - Lease mit `device_id`; Audit-Einträge tragen `actor_device_id`.
   - Constraints: ein aktives Gerät je Scheibe, genau ein Akteur bei der Lease,
