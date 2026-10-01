@@ -17,6 +17,7 @@ import {
   defaultScoreboardSettings, readScoreboardSettings, subscribeScoreboardSettings, writeScoreboardSettings,
 } from "@/lib/scoreboard-settings";
 import { pendingLegDecision } from "@/lib/scoreboard-view";
+import { sideNames, sideNamesWithClub } from "@/lib/side-names";
 import { AbortMatchDialog } from "./abort-match-dialog";
 import { LegDecisionDialog } from "./leg-decision-dialog";
 import { CheckoutDialog } from "./checkout-dialog";
@@ -29,11 +30,6 @@ import { ScoreboardStatus } from "./scoreboard-status";
 import { useMatchScoring } from "./use-match-scoring";
 import { useQuickScores } from "./use-quick-scores";
 import { VisitConfirmation } from "./visit-confirmation";
-
-/** Eine Seite kann zwei Personen tragen; ihr Name ist beider Name. */
-function sideNames(participant: MatchStateResponse["participants"][number]): string {
-  return participant.players.map((person) => person.displayName).join(" und ");
-}
 
 function winnerName(match: MatchStateResponse): string {
   const side = match.participants.find((participant) =>
@@ -407,7 +403,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
           zu hören bekommen. `sr-only` ist `position: absolute` und nimmt
           deshalb keine eigene Grid-Zeile ein. */}
       <h1 className="sr-only">
-        {sideNames(match.participants[0])} – {sideNames(match.participants[1])}
+        {sideNamesWithClub(match.participants[0])} – {sideNamesWithClub(match.participants[1])}
       </h1>
       <ScoreboardHeader
         backHref={backHref}
@@ -599,7 +595,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
               else scoring.decideLegByBull(seat);
             }}
             pending={scoring.legDecisionPending}
-            sideNames={[sideNames(match.participants[0]), sideNames(match.participants[1])]}
+            sideNames={[sideNamesWithClub(match.participants[0]), sideNamesWithClub(match.participants[1])]}
           />
           <AbortMatchDialog error={scoring.abortError !== null ? mutationMessage(scoring.abortError) : null} onCancel={() => { scoring.resetAbort(); setAbortOpen(false); }} onSubmit={(reason) => scoring.abortMatch(reason)} open={abortOpen} pending={scoring.abortPending} queuedCount={queued.length} />
           <ScoreboardSettingsDialog abortDisabled={!online || lock.state !== "EIGEN" || scoring.abortPending} canAbort={canAbort && match.status === "IN_PROGRESS"} lockState={lock.state} onAbort={() => { scoring.resetAbort(); setAbortOpen(true); }} onChange={(next) => writeScoreboardSettings(next)} onClose={() => setSettingsOpen(false)} onTakeOver={lock.takeOver} open={settingsOpen} settings={settings} visits={match.visits} />

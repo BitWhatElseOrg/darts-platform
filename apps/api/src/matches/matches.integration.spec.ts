@@ -632,6 +632,8 @@ describe("persistent X01 match", () => {
     });
     const state = await repository.getState(organizationId, created.id);
     expect(state?.liveTarget).toBeNull();
+    // Ohne Vereinsduell trägt keine Person ein Vereinskürzel.
+    expect(state?.participants.flatMap((participant) => participant.players.map((player) => player.clubLabel))).toEqual([null, null]);
   });
 
   /**

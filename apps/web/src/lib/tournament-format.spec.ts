@@ -62,4 +62,10 @@ describe("statusLabel", () => {
     expect(statusLabel("FINAL_ROUND")).toBe("Finalrunde");
     expect(formatLabel("CLUB_DUEL")).toBe("Vereinsduell");
   });
+
+  it("benennt die Phasen des Vereinsduells", () => {
+    expect(statusLabel("GROUP_STAGE", "CLUB_DUEL")).toBe("Qualifikation");
+    expect(statusLabel("FINAL_ROUND", "CLUB_DUEL")).toBe("Finalrunde");
+    expect(statusLabel("KNOCKOUT", "CLUB_DUEL")).toBe("Final");
+  });
 });
