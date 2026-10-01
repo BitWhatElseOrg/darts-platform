@@ -50,7 +50,7 @@ export function ClubDuelTabs({ tabs, initial }: {
               aria-selected={selected}
               className={cn(
                 "min-h-11 rounded-lg border px-4 font-plate text-body font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green",
-                selected ? "border-ring-green bg-ring-green text-chalk" : "border-sisal-400 bg-sisal-100 text-spider hover:bg-wedge-900",
+                selected ? "border-ring-green bg-ring-green text-chalk" : "border-sisal-400 bg-sisal-100 text-spider hover:bg-wedge-800",
               )}
               id={`${baseId}-${tab.id}-tab`}
               key={tab.id}

@@ -52,7 +52,7 @@ export function ClubStandings({ clubDuel }: { readonly clubDuel: ClubDuelDashboa
               aria-checked={checked}
               className={cn(
                 "inline-flex min-h-11 items-center gap-1.5 rounded-lg px-4 font-plate text-body font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green",
-                checked ? "bg-ring-green text-chalk" : "bg-sisal-100 text-spider hover:bg-wedge-900",
+                checked ? "bg-ring-green text-chalk" : "bg-sisal-100 text-spider hover:bg-wedge-800",
               )}
               key={option.id}
               onClick={() => setView(option.id)}

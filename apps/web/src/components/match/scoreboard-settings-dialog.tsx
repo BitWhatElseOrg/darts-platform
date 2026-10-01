@@ -41,7 +41,7 @@ function InputModeSwitch({ mode, onChange }: {
           aria-label={option.label}
           className={cn(
             "min-h-14 rounded-lg text-title-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green",
-            mode === option.value ? "bg-ring-green text-chalk" : "bg-sisal-100 text-spider hover:bg-wedge-900",
+            mode === option.value ? "bg-ring-green text-chalk" : "bg-sisal-100 text-spider hover:bg-wedge-800",
           )}
           key={option.value}
           onClick={() => onChange(option.value)}
