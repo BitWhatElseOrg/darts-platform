@@ -6,7 +6,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { TournamentDashboard } from "@darts-platform/schemas";
+import type { ClubDuelDashboard, TournamentDashboard } from "@darts-platform/schemas";
 
 import { DashboardHeader } from "./dashboard-header";
 
@@ -43,6 +43,52 @@ function dashboard(status: "KNOCKOUT" | "COMPLETED"): TournamentDashboard {
   };
 }
 
+const playerA = "55555555-5555-4555-8555-555555555555";
+const playerB = "66666666-6666-4666-8666-666666666666";
+
+// Minimales Vereinsduell: zwei Spieler, das Final hat Seite B gewonnen.
+function clubDuelBlock(finalStatus: "WAITING" | "COMPLETED"): ClubDuelDashboard {
+  return {
+    sideAName: "VFC",
+    sideBName: "DC Musterdorf",
+    qualifyingRounds: 1,
+    finalRoundSize: 1,
+    thirdPlaceMatch: false,
+    currentRound: 1,
+    rounds: [],
+    standings: { overall: [], sideA: [], sideB: [] },
+    finalRound: { sideA: [], sideB: [], matches: [] },
+    finals: {
+      final: {
+        matchId: "77777777-7777-4777-8777-777777777777",
+        position: 1,
+        playerAId: playerA,
+        playerBId: playerB,
+        status: finalStatus,
+        resultType: finalStatus === "COMPLETED" ? "PLAYED" : null,
+        winnerPlayerId: finalStatus === "COMPLETED" ? playerB : null,
+        legs: finalStatus === "COMPLETED" ? [1, 3] : null,
+      },
+      thirdPlace: null,
+    },
+    score: { pointsA: 1, pointsB: 1, legDifferenceA: 0, leader: "TIED" },
+  };
+}
+
+function clubDuelDashboard(status: "GROUP_STAGE" | "COMPLETED"): TournamentDashboard {
+  const base = dashboard("COMPLETED");
+  return {
+    ...base,
+    tournament: { ...base.tournament, status, format: "CLUB_DUEL", stageLabel: status === "COMPLETED" ? "Turnier beendet" : "Runde 1" },
+    participants: [
+      { playerId: playerA, displayName: "Adrian Oberholzer", seed: 1, status: "ACTIVE", withdrawnAt: null, withdrawalReason: null, side: "A" },
+      { playerId: playerB, displayName: "Melanie Lüthi", seed: 2, status: "ACTIVE", withdrawnAt: null, withdrawalReason: null, side: "B" },
+    ],
+    bracket: [],
+    clubDuel: clubDuelBlock(status === "COMPLETED" ? "COMPLETED" : "WAITING"),
+  };
+}
+
 afterEach(() => {
   cleanup();
 });
@@ -55,6 +101,18 @@ describe("DashboardHeader", () => {
 
   it("nennt waehrend des Turniers keinen Sieg", () => {
     render(createElement(DashboardHeader, { connection: "live", dashboard: dashboard("KNOCKOUT"), pendingCount: 0 }));
+    expect(screen.queryByText(/Turniersieg/u)).toBeNull();
+  });
+
+  it("nennt im beendeten Vereinsduell den Finalsieger und den Zustand beendet", () => {
+    render(createElement(DashboardHeader, { connection: "live", dashboard: clubDuelDashboard("COMPLETED"), pendingCount: 0 }));
+    expect(screen.getByText(/Turniersieg: Melanie Lüthi/u)).toBeTruthy();
+    expect(screen.getByText("beendet")).toBeTruthy();
+  });
+
+  it("nennt im laufenden Vereinsduell den Zustand Qualifikation und keinen Sieg", () => {
+    render(createElement(DashboardHeader, { connection: "live", dashboard: clubDuelDashboard("GROUP_STAGE"), pendingCount: 0 }));
+    expect(screen.getByText("Qualifikation")).toBeTruthy();
     expect(screen.queryByText(/Turniersieg/u)).toBeNull();
   });
 });
