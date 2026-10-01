@@ -1,5 +1,8 @@
+import type { Page } from "@playwright/test";
+
 import { expect, test } from "./fixtures";
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 
 import { createRegistrationInvitation, type RegistrationInvitationSeed } from "./registration-invitation";
 import { decideLegStart, setScoreboardSwitch, switchInputMode, typeRoundScore } from "./scoreboard-entry";
@@ -11,6 +14,19 @@ import { signUpWithOrganization } from "./sign-up";
  * paart der Server Runde 2; die Vereinswertung steht im Banner.
  */
 const registrationSeeds: RegistrationInvitationSeed[] = [];
+
+/**
+ * Opt-in-Bildschirmfotos für die Sichtprüfung: nur mit
+ * `CLUB_DUEL_SCREENSHOTS=1`, sonst läuft der Fall unverändert. Achtung:
+ * Playwright leert `test-results/` zu Beginn jedes Laufs.
+ */
+const screenshots = Boolean(process.env.CLUB_DUEL_SCREENSHOTS);
+const screenshotDir = path.join(__dirname, "..", "test-results", "club-duel");
+
+async function snap(page: Page, name: string): Promise<void> {
+  if (!screenshots) return;
+  await page.screenshot({ fullPage: true, path: path.join(screenshotDir, `${name}.png`) });
+}
 
 test.afterEach(async () => {
   await Promise.all(registrationSeeds.splice(0).map((seed) => seed.cleanup()));
@@ -64,6 +80,7 @@ test("Vereinsduell: Gäste erfassen, Runde 1 spielen, Runde 2 erscheint", async 
   await page.getByLabel("Quali-Runden", { exact: true }).selectOption("2");
   await page.getByLabel("Finalrunde (Spieler je Verein)").selectOption("2");
   await expect(page.getByText("Spiele insgesamt", { exact: true })).toBeVisible();
+  await snap(page, "01-anlage");
   // Das Formular sendet nicht auf Enter ab (Task 4) – immer über den Knopf.
   // Die Anlageseite selbst (/turniere/neu?organisation=…) passt sonst schon.
   await Promise.all([
@@ -103,6 +120,13 @@ test("Vereinsduell: Gäste erfassen, Runde 1 spielen, Runde 2 erscheint", async 
       await expect(page.getByRole("button", { name: "Ziffer 0" })).toBeEnabled();
       await expect(page.getByRole("button", { name: "Aufnahme erfassen" })).toBeDisabled();
     }
+    if (played === 0 && screenshots) {
+      // Telefonbreite: die Scoring-Fläche mitten im Match.
+      const viewport = page.viewportSize();
+      await page.setViewportSize({ width: 360, height: 780 });
+      await snap(page, "05-scoreboard-360");
+      if (viewport !== null) await page.setViewportSize(viewport);
+    }
     await typeRoundScore(page, 141);
     const dialog = page.getByRole("dialog", { name: "Checkout erfassen" });
     await expect(dialog).toBeVisible();
@@ -117,6 +141,22 @@ test("Vereinsduell: Gäste erfassen, Runde 1 spielen, Runde 2 erscheint", async 
   await expect(page.getByRole("heading", { name: "Runde 2", exact: true })).toBeVisible();
   await expect(page.getByText("Runde 1", { exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Vereinswertung" })).toContainText(`VFC 4 : 0 ${guestClub}`);
+  await snap(page, "02-kommandozentrale-runde-1");
   await page.getByRole("tab", { name: "Rangliste", exact: true }).click();
   await expect(page.getByRole("radio", { name: "VFC", exact: true })).toBeVisible();
+
+  if (screenshots) {
+    // Die Live-Ansicht ist erst nach der Freigabe erreichbar; die Adresse
+    // steht danach im Link der Kommandozentrale.
+    await page.getByRole("switch", { name: "Öffentliche Freigabe: NEIN" }).click();
+    await expect(page.getByRole("switch", { name: "Öffentliche Freigabe: JA" })).toBeVisible();
+    const liveHref = await page.getByRole("link", { name: "Öffentliche Live-Ansicht" }).first().getAttribute("href");
+    if (liveHref === null) throw new Error("Expected a live link in the command centre navigation.");
+    await page.goto(liveHref);
+    await expect(page.getByRole("region", { name: "Vereinswertung" })).toBeVisible();
+    await snap(page, "03-live-publikum");
+    await page.goto(`${liveHref}/tv`);
+    await expect(page.getByRole("heading", { name: "Laufende Spiele" })).toBeVisible();
+    await snap(page, "04-live-tv");
+  }
 });
