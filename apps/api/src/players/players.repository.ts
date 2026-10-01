@@ -232,6 +232,28 @@ interface TenantActorInput {
   readonly audit: AuditContext;
 }
 
+/** Ergebnis der Gastspieler-Erfassung; `PAYLOAD_MISMATCH` bei bekannter commandId mit anderen Nutzdaten. */
+export type CreateGuestsResult =
+  | { readonly type: "OK"; readonly players: ReturnType<typeof toPlayerResponse>[] }
+  | { readonly type: "PAYLOAD_MISMATCH" };
+
+function normalizedGuestKey(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+/** Vergleicht die gespeicherten Gaeste einer commandId mit den neuen Nutzdaten. */
+function replayResult(
+  existing: ReturnType<typeof toPlayerResponse>[],
+  data: CreateGuestPlayersInput,
+): CreateGuestsResult {
+  const clubName = normalizedGuestKey(data.clubName);
+  const storedNames = new Set(existing.map((player) => normalizedGuestKey(player.displayName)));
+  const requestedNames = new Set(data.names.map(normalizedGuestKey));
+  const sameClub = existing.every((player) => player.guestClubName !== null && normalizedGuestKey(player.guestClubName) === clubName);
+  const sameNames = storedNames.size === requestedNames.size && [...requestedNames].every((name) => storedNames.has(name));
+  return sameClub && sameNames ? { type: "OK", players: existing } : { type: "PAYLOAD_MISMATCH" };
+}
+
 @Injectable()
 export class PlayersRepository {
   public constructor(
@@ -329,12 +351,19 @@ export class PlayersRepository {
    * vereinsduell). Idempotent ueber `guest_command_id`: der partielle Unique-
    * Index `players_guest_command_name_unique` laesst dieselbe commandId keine
    * zweite Reihe je Name anlegen; bei Kollision wird der Bestand gelesen.
+   *
+   * Replay-Semantik: Eine bekannte commandId liefert die damals angelegten
+   * Gaeste in ihrem heutigen Zustand (nicht die urspruengliche Antwort) und
+   * schreibt kein zweites Audit. Das gilt nur bei gleichen Nutzdaten (Verein
+   * und Namensmenge, ohne Gross-/Kleinschreibung und Randleerzeichen);
+   * abweichende Nutzdaten ergeben `PAYLOAD_MISMATCH`. Wurde ein Gast seither
+   * umbenannt, gilt der Replay mit dem alten Namen ebenfalls als abweichend.
    */
   public async createGuests(
     input: TenantActorInput & { readonly data: CreateGuestPlayersInput },
-  ): Promise<ReturnType<typeof toPlayerResponse>[]> {
+  ): Promise<CreateGuestsResult> {
     const existing = await this.guestsByCommand(input.organizationId, input.data.commandId);
-    if (existing.length > 0) return existing;
+    if (existing.length > 0) return replayResult(existing, input.data);
     try {
       return await this.databaseService.database.transaction(async (transaction) => {
         const rows = await transaction
@@ -365,12 +394,12 @@ export class PlayersRepository {
           userAgent: input.audit.userAgent,
           correlationId: input.audit.correlationId,
         });
-        return rows.map((row) => toPlayerResponse(row, null));
+        return { type: "OK" as const, players: rows.map((row) => toPlayerResponse(row, null)) };
       });
     } catch (error) {
       // Zwei gleichzeitige Wiederholungen: die zweite laeuft in den Unique-Index.
       if (isUniqueViolation(error, "players_guest_command_name_unique")) {
-        return this.guestsByCommand(input.organizationId, input.data.commandId);
+        return replayResult(await this.guestsByCommand(input.organizationId, input.data.commandId), input.data);
       }
       throw error;
     }

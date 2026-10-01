@@ -110,6 +110,42 @@ describe("Gastspieler-Schnellerfassung", () => {
     expect(await service.list({ organizationId, auth, kind: "ALL" })).toHaveLength(3);
   }, 30_000);
 
+  it("lehnt dieselbe commandId mit anderen Nutzdaten mit 409 COMMAND_PAYLOAD_MISMATCH ab", async () => {
+    const commandId = randomUUID();
+    const first = await service.createGuests({ organizationId, data: { commandId, clubName: "DC Payload", names: ["Anna Payload"] }, auth, audit });
+    expect(first).toHaveLength(1);
+    await expect(
+      service.createGuests({ organizationId, data: { commandId, clubName: "DC Payload", names: ["Anna Payload", "Beat Payload"] }, auth, audit }),
+    ).rejects.toMatchObject({ status: 409, response: { code: "COMMAND_PAYLOAD_MISMATCH" } });
+    await expect(
+      service.createGuests({ organizationId, data: { commandId, clubName: "DC Anders", names: ["Anna Payload"] }, auth, audit }),
+    ).rejects.toMatchObject({ response: { code: "COMMAND_PAYLOAD_MISMATCH" } });
+    await expect(
+      service.createGuests({ organizationId, data: { commandId, clubName: "DC Payload", names: ["Carla Payload"] }, auth, audit }),
+    ).rejects.toMatchObject({ response: { code: "COMMAND_PAYLOAD_MISMATCH" } });
+    // Gleiche Nutzdaten (Gross-/Kleinschreibung und Leerzeichen egal) liefern das fruehere Ergebnis.
+    const replay = await service.createGuests({ organizationId, data: { commandId, clubName: "dc payload ", names: [" anna payload"] }, auth, audit });
+    expect(replay.map((player) => player.id)).toEqual(first.map((player) => player.id));
+    const rows = await databaseService.database
+      .select()
+      .from(players)
+      .where(and(eq(players.organizationId, organizationId), eq(players.guestCommandId, commandId)));
+    expect(rows).toHaveLength(1);
+  });
+
+  it("prueft die Nutzdaten auch bei gleichzeitigen Wiederholungen", async () => {
+    const commandId = randomUUID();
+    const results = await Promise.allSettled([
+      service.createGuests({ organizationId, data: { commandId, clubName: "DC Race", names: ["Dora Race"] }, auth, audit }),
+      service.createGuests({ organizationId, data: { commandId, clubName: "DC Race", names: ["Dora Race", "Emil Race"] }, auth, audit }),
+    ]);
+    const fulfilled = results.filter((result) => result.status === "fulfilled");
+    const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.reason).toMatchObject({ response: { code: "COMMAND_PAYLOAD_MISMATCH" } });
+  });
+
   it("verlangt player:create", async () => {
     const strangerId = randomUUID();
     const stranger: AuthContext = {
