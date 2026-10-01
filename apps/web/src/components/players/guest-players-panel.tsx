@@ -121,6 +121,9 @@ export function GuestPlayersPanel({
   });
 
   function createFromForm(values: GuestPlayersFormValues) {
+    // Alte Erfolgs- oder Netzfehlermeldungen gehören nicht neben eine neue Eingabe.
+    setNotice(null);
+    createGuests.reset();
     const names = parseNames(values.namesText);
     const payload = JSON.stringify([values.clubName.trim(), names]);
     if (pending.current?.payload !== payload) {
@@ -133,11 +136,13 @@ export function GuestPlayersPanel({
     });
     if (!parsed.success) {
       const errors = formErrors(parsed.error.issues);
-      if (errors.clubName) form.setError("clubName", { message: errors.clubName });
-      if (errors.namesText) form.setError("namesText", { message: errors.namesText });
+      // Der Fokus springt auf das erste fehlerhafte Feld (Tastatur, Screenreader).
+      if (errors.clubName) form.setError("clubName", { message: errors.clubName }, { shouldFocus: true });
+      if (errors.namesText) {
+        form.setError("namesText", { message: errors.namesText }, { shouldFocus: errors.clubName === undefined });
+      }
       return;
     }
-    setNotice(null);
     createGuests.mutate(parsed.data);
   }
 

@@ -159,6 +159,28 @@ describe("GuestPlayersPanel", () => {
     expect(club.value).toBe("Eigener Verein");
   });
 
+  it("raeumt alte Meldungen weg und fokussiert das fehlerhafte Feld", async () => {
+    client.apiRequest
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce([guest("00000000-0000-4000-8000-000000000010", "Anna Muster")]);
+    renderPanel();
+
+    const names = screen.getByLabelText("Gastspieler (ein Name pro Zeile)");
+    fireEvent.change(names, { target: { value: "Anna Muster" } });
+    fireEvent.click(screen.getByRole("button", { name: "Gastspieler erfassen" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("offline"));
+    fireEvent.click(screen.getByRole("button", { name: "Gastspieler erfassen" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("1 Gastspieler erfasst."));
+
+    fireEvent.change(names, { target: { value: "Beat\nbeat" } });
+    fireEvent.click(screen.getByRole("button", { name: "Gastspieler erfassen" }));
+    expect(await screen.findByText("Jeder Name darf nur einmal vorkommen.")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(document.activeElement).toBe(names);
+    expect(client.apiRequest).toHaveBeenCalledTimes(2);
+  });
+
   it("weist doppelte Namen vor dem Senden ab", async () => {
     renderPanel();
     fireEvent.change(screen.getByLabelText("Gastspieler (ein Name pro Zeile)"), { target: { value: "Anna\nanna" } });
