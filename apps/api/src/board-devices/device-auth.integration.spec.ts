@@ -154,9 +154,9 @@ describe("GET /api/v1/board-devices/me", () => {
     expect(after?.lastSeenAt?.getTime()).toBe(before?.lastSeenAt?.getTime());
   });
 
-  // B3 (Nacharbeit-Brief Paket B): die Kehrseite des Tests oben -- ein
-  // `last_seen_at`, das aelter als die Aufloesung ist, muss die naechste
-  // Anfrage wieder frisch schreiben, sonst bliebe der Wert nach einem langen
+  // Kehrseite des Tests oben -- ein `last_seen_at`, das aelter als die
+  // Aufloesung (`LAST_SEEN_RESOLUTION_MS`) ist, muss die naechste Anfrage
+  // wieder frisch schreiben, sonst bliebe der Wert nach einem langen
   // Leerlauf fuer immer stehen.
   it("aktualisiert last_seen_at wieder, sobald der gespeicherte Wert aelter als 60 Sekunden ist", async () => {
     await app.inject({ method: "GET", url: "/api/v1/board-devices/me", headers: bearer });

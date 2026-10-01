@@ -89,10 +89,12 @@ function createFreeMatch(targetBoardId: string) {
  * Baut einen laufenden Ligaslot auf der Scheibe des Geraets -- ueber den
  * echten `EncountersService.assignSlot` (Muster
  * `encounters/encounter-undo.integration.spec.ts`), nicht mehr ueber eine
- * handgebaute Kopie dessen, was dieser Weg in der Datenbank hinterlaesst
- * (Nacharbeit-Brief Paket B, B3). Ein Wettbewerb mit genau einer
- * Aufstellungsposition und ohne Doppel/Decider liefert genau den einen
- * Einzelslot, den dieser Test braucht.
+ * handgebaute Kopie dessen, was dieser Weg in der Datenbank hinterlaesst:
+ * eine Abweichung vom echten Aufbau haette hier eine Liga-Besonderheit
+ * (z. B. `legStartRule: "LEAGUE"`) verdecken koennen, ohne dass ein Test das
+ * bemerkt. Ein Wettbewerb mit genau einer Aufstellungsposition und ohne
+ * Doppel/Decider liefert genau den einen Einzelslot, den dieser Test
+ * braucht.
  */
 async function startLeagueSlot(): Promise<string> {
   const homeTeamId = randomUUID();

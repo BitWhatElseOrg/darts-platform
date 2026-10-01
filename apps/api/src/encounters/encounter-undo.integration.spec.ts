@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, desc, eq, ne } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
@@ -15,9 +15,11 @@ import {
   organizations,
   outboxEvents,
   players,
+  scoreCommands,
   teamPlayers,
   teams,
   users,
+  visits,
 } from "@darts-platform/database";
 import type { CompetitionSlotInput, EncounterDetail, EncounterSide } from "@darts-platform/schemas";
 
@@ -266,6 +268,32 @@ async function matchRow(matchId: string): Promise<typeof matchesTable.$inferSele
     .where(and(eq(matchesTable.organizationId, organizationId), eq(matchesTable.id, matchId)));
   if (row === undefined) throw new Error("Match row is missing.");
   return row;
+}
+
+/** Zuletzt gescorter Visit (hoechste Sequenz), unabhaengig vom Leg. */
+async function lastVisitRow(matchId: string): Promise<typeof visits.$inferSelect> {
+  const [row] = await databaseService.database
+    .select()
+    .from(visits)
+    .where(and(eq(visits.organizationId, organizationId), eq(visits.matchId, matchId)))
+    .orderBy(desc(visits.sequence))
+    .limit(1);
+  if (row === undefined) throw new Error("Visit row is missing.");
+  return row;
+}
+
+async function undoScoreCommandCount(matchId: string): Promise<number> {
+  const rows = await databaseService.database
+    .select({ commandId: scoreCommands.commandId })
+    .from(scoreCommands)
+    .where(
+      and(
+        eq(scoreCommands.organizationId, organizationId),
+        eq(scoreCommands.matchId, matchId),
+        eq(scoreCommands.type, "UNDO_LAST_VISIT"),
+      ),
+    );
+  return rows.length;
 }
 
 async function reopenedEvents(encounterId: string): Promise<readonly unknown[]> {
@@ -554,10 +582,10 @@ describe("undo of a completed league match", () => {
     expect(await reopenedEvents(encounter.id)).toEqual([]);
   });
 
-  // B3-Ergaenzung (Nacharbeit-Brief Paket B, aus Review Paket A): der
-  // Spielerbelegt-Einwand oben greift unabhaengig von einem Encounter-Slot --
-  // dieselbe Pruefung lehnt auch das Undo eines FREIEN, slotlosen Matches ab,
-  // wenn eine beteiligte Person laengst an einer anderen Scheibe steht.
+  // Der Spielerbelegt-Einwand oben (AGENTS.md 9) greift unabhaengig von
+  // einem Encounter-Slot -- dieselbe Pruefung lehnt auch das Undo eines
+  // FREIEN, slotlosen Matches ab, wenn eine beteiligte Person laengst an
+  // einer anderen Scheibe steht.
   it("rejects the undo of a free match while one of its players already plays on another board", async () => {
     const created = await matchesService.create({
       organizationId,
@@ -602,6 +630,8 @@ describe("undo of a completed league match", () => {
     });
 
     const matchBefore = await matchRow(created.id);
+    const visitBefore = await lastVisitRow(created.id);
+    expect(visitBefore.revertedAt).toBeNull();
 
     await expect(undo(created.id)).rejects.toMatchObject({
       status: 409,
@@ -609,13 +639,18 @@ describe("undo of a completed league match", () => {
     });
 
     expect(await matchRow(created.id)).toEqual(matchBefore);
+    // Der Einwand greift, bevor der Undo-Befehl ueberhaupt ausgefuehrt wird:
+    // kein Visit wird zurueckgenommen, und es entsteht kein score_command
+    // fuer diesen (abgelehnten) Undo.
+    expect(await lastVisitRow(created.id)).toEqual(visitBefore);
+    expect(await undoScoreCommandCount(created.id)).toBe(0);
   }, 30_000);
 
-  // B3-Ergaenzung (Nacharbeit-Brief Paket B, aus Review Paket A): ein
-  // inkonsistenter Stand -- Match COMPLETED, zugehoeriger Slot aber (noch)
-  // nicht als gespielt abgeschlossen -- darf das Undo nicht still
-  // durchlassen. Herbeigefuehrt per direktem Update in der Fixture, weil kein
-  // regulaerer Ablauf diesen Zwischenstand erzeugt.
+  // Zweig `slot-not-completed` aus `reopenEncounterSlotForMatch`
+  // (`sync-encounter-slot.ts`): ein inkonsistenter Stand -- Match COMPLETED,
+  // zugehoeriger Slot aber (noch) nicht als gespielt abgeschlossen -- darf
+  // das Undo nicht still durchlassen. Herbeigefuehrt per direktem Update in
+  // der Fixture, weil kein regulaerer Ablauf diesen Zwischenstand erzeugt.
   it("rejects the undo with ENCOUNTER_RESULT_REQUIRES_CORRECTION when the matching slot is not completed as played", async () => {
     const encounter = await openEncounter();
     const slotId = slotIdOf(encounter, 1);
