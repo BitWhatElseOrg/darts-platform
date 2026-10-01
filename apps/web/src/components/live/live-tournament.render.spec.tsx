@@ -71,7 +71,7 @@ const clubDuel: ClubDuelDashboard = {
 };
 const clubDuelDashboard = {
   ...dashboard,
-  tournament: { ...dashboard.tournament, name: "Vereinsduell VFC", stageLabel: "Quali-Runde 2" },
+  tournament: { ...dashboard.tournament, name: "Vereinsduell VFC", stageLabel: "Qualifikation · Runde 2" },
   participants: [
     { playerId: id(1), displayName: "Anna", status: "ACTIVE", side: "A" },
     { playerId: id(2), displayName: "Aron", status: "ACTIVE", side: "A" },
@@ -136,11 +136,15 @@ describe("LiveTournament – Vereinsduell", () => {
 
     const running = screen.getByRole("heading", { name: "Laufende Spiele" }).closest("section") as HTMLElement;
     expect(within(running).getByText("Anna – Bia")).toBeTruthy();
+    // Die Namen brechen um statt abgeschnitten zu werden (Beamer bei 1280px).
+    expect(within(running).getByText("Anna – Bia").className).not.toContain("truncate");
+    expect(within(running).getByRole("list").className).not.toContain("grid-cols-3");
     expect(within(running).getByText("läuft")).toBeTruthy();
     expect(within(running).queryByText("Aron – Beat")).toBeNull();
 
     const next = screen.getByRole("heading", { name: "Nächste Spiele" }).closest("section") as HTMLElement;
     expect(within(next).getByText("Aron – Beat")).toBeTruthy();
+    expect(within(next).getByText("Aron – Beat").className).not.toContain("truncate");
     expect(within(next).getByText("bereit")).toBeTruthy();
     expect(within(next).queryByText("Anna – Bia")).toBeNull();
     expect(screen.queryByText("Anna – Beat")).toBeNull();
@@ -167,7 +171,7 @@ describe("LiveTournament – Vereinsduell", () => {
 describe("LiveTournament – Vereinsduell ohne Projektion", () => {
   const withoutProjection = {
     ...dashboard,
-    tournament: { ...dashboard.tournament, format: "CLUB_DUEL", stageLabel: "Quali-Runde 1" },
+    tournament: { ...dashboard.tournament, format: "CLUB_DUEL", stageLabel: "Qualifikation" },
     clubDuel: null,
   };
 

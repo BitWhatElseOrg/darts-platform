@@ -316,15 +316,19 @@ function ClubMatchList({ clubDuel, empty, participants, status, title }: {
   return (
     <LiveSection title={title}>
       {matches.length === 0 ? <p className="text-body text-sisal-500">{empty}</p> : (
-        <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        // Hoechstens zwei Spalten und die Namen auf eigener Zeile: bei 1280px
+        // und drei Spalten schnitt der Beamer Spielernamen ab.
+        <ul className="grid gap-2 sm:grid-cols-2">
           {matches.map((match) => {
             const walkover = match.resultType === "WALKOVER";
             const state = walkover ? walkoverState : roundMatchStateLabel(match.status);
             return (
-              <li className="flex items-center justify-between gap-3 rounded-lg border border-sisal-400 bg-sisal-100 px-4 py-3 text-title-sm" key={match.matchId}>
-                <span className="min-w-0 flex-1 truncate">{name(match.playerAId)} – {name(match.playerBId)}</span>
-                <span className="shrink-0 font-numerals tabular">{matchOutcomeText(match, walkover, name)}</span>
-                <StateTag label={state.label} tone={state.tone} />
+              <li className="flex flex-col gap-2 rounded-lg border border-sisal-400 bg-sisal-100 px-4 py-3 text-title-sm" key={match.matchId}>
+                <span className="min-w-0 whitespace-normal break-words">{name(match.playerAId)} – {name(match.playerBId)}</span>
+                <span className="flex items-center justify-between gap-3">
+                  <span className="font-numerals tabular">{matchOutcomeText(match, walkover, name)}</span>
+                  <StateTag label={state.label} tone={state.tone} />
+                </span>
               </li>
             );
           })}
