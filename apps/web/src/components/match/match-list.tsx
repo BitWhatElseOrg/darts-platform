@@ -6,7 +6,6 @@ import type { MatchStateResponse } from "@darts-platform/schemas";
 import { cn } from "@darts-platform/ui";
 import { sideNamesWithClub } from "@/lib/side-names";
 
-
 function byLiveFirst(left: MatchStateResponse, right: MatchStateResponse): number {
   return Number(right.status === "IN_PROGRESS") - Number(left.status === "IN_PROGRESS");
 }

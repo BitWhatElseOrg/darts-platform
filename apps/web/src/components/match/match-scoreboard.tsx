@@ -31,7 +31,6 @@ import { useMatchScoring } from "./use-match-scoring";
 import { useQuickScores } from "./use-quick-scores";
 import { VisitConfirmation } from "./visit-confirmation";
 
-
 function winnerName(match: MatchStateResponse): string {
   const side = match.participants.find((participant) =>
     participant.players.some((person) => person.playerId === match.winnerPlayerId),

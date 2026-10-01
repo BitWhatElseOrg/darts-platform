@@ -98,10 +98,18 @@ export function ScoreboardSides({ match, pendingDarts, showDartBand }: {
                     className={cn("mr-1.5 inline-block h-2 w-2 rounded-full align-middle", person.isThrowing ? "bg-ring-green" : "bg-transparent")}
                   />
                   {person.displayName}
+                  {/* Das Praefix «Verein» steht als Text fuer Screenreader statt
+                      als `aria-label` auf einem generischen span (ARIA 1.2
+                      verbietet dort die Namensvergabe). `sr-only` ist absolut
+                      positioniert, deshalb haelt `ml-1.5` den sichtbaren
+                      Abstand. */}
                   {person.clubLabel !== null ? (
-                    <span aria-label={`Verein ${person.clubLabel}`} className="ml-1.5 font-plate text-caption font-semibold uppercase tracking-[0.12em] text-sisal-500">
-                      {person.clubLabel}
-                    </span>
+                    <>
+                      <span className="sr-only"> Verein </span>
+                      <span className="ml-1.5 font-plate text-caption font-semibold uppercase tracking-[0.12em] text-sisal-500">
+                        {person.clubLabel}
+                      </span>
+                    </>
                   ) : null}
                   {person.isThrowing ? <span className="sr-only"> (am Wurf)</span> : null}
                 </span>

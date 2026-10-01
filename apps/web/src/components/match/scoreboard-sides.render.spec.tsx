@@ -90,7 +90,7 @@ describe("ScoreboardSides", () => {
   /**
    * Im Vereinsduell steht das Vereinskuerzel neben dem Namen, nie an seiner
    * Stelle. Der Matchzustand kennt nur das Kuerzel, deshalb benennt ein
-   * `aria-label` es als Verein; der `title` des Namens traegt es mit.
+   * Screenreader-Praefix es als Verein; der `title` des Namens traegt es mit.
    */
   it("zeigt im Vereinsduell das Vereinskuerzel neben jedem Namen", () => {
     const [home, away] = match.participants;
@@ -102,15 +102,15 @@ describe("ScoreboardSides", () => {
       ],
     } as unknown as MatchStateResponse;
     render(<ScoreboardSides match={duel} pendingDarts={[]} showDartBand={false} />);
-    expect(screen.getByLabelText("Verein VFC").textContent).toBe("VFC");
-    expect(screen.getByLabelText("Verein DM").textContent).toBe("DM");
-    expect(screen.getByTitle("Alex Muster (VFC)").textContent).toContain("Alex Muster");
-    expect(screen.getByTitle("Jordan Beispiel (DM)").textContent).toContain("Jordan Beispiel");
+    expect(screen.getByText("VFC")).toBeTruthy();
+    expect(screen.getByText("DM")).toBeTruthy();
+    expect(screen.getByTitle("Alex Muster (VFC)").textContent).toContain("Alex Muster Verein VFC");
+    expect(screen.getByTitle("Jordan Beispiel (DM)").textContent).toContain("Jordan Beispiel Verein DM");
   });
 
   it("zeigt ohne Verein kein Kuerzel", () => {
     render(<ScoreboardSides match={match} pendingDarts={[]} showDartBand={false} />);
-    expect(screen.queryByLabelText(/^Verein /u)).toBeNull();
+    expect(screen.queryByText(/Verein/u)).toBeNull();
     expect(screen.getByTitle("Alex Muster")).toBeTruthy();
   });
 });
