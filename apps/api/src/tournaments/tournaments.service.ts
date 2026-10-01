@@ -367,6 +367,13 @@ export class TournamentsService {
           details: { currentState: current },
         });
       }
+      if (result === "club-duel-round-paired") {
+        throw new ConflictException({
+          code: "CLUB_DUEL_ROUND_ALREADY_PAIRED",
+          message: "Die nächste Runde ist bereits gepaart. Dieses Resultat kann nicht mehr korrigiert werden.",
+          details: { currentState: current },
+        });
+      }
       if (result === "downstream-started") {
         throw new ConflictException({
           code: "TOURNAMENT_DEPENDENT_MATCH_STARTED",

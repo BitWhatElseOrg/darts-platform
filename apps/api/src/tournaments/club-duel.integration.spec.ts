@@ -181,35 +181,57 @@ describe("Vereinsduell anlegen", () => {
   });
 });
 
+type ScoringState = Awaited<ReturnType<MatchesService["get"]>>;
+interface VisitStep { readonly playerId: string; readonly points: number; readonly finish: boolean }
+
 /**
- * Spielt ein READY-Turniermatch auf `boardId` bis zum Sieg von `winnerPlayerId`
- * durch (501, Double Out, Best of 1). Turniermatches bullen den Anwurf von Leg
- * eins aus (`legStartPending`): Sitz 1 beginnt per `decideLegStart`, die
- * Reihenfolge folgt der Sitzbelegung aus dem Scoring-Zustand.
+ * Belegt ein READY-Turniermatch mit `boardId` und entscheidet den Anwurf von Leg
+ * eins (Turniermatches bullen aus, `legStartPending`): Sitz 1 beginnt.
  */
-async function playMatch(tournamentId: string, tournamentMatchId: string, winnerPlayerId: string, boardId: string): Promise<void> {
+async function startOnBoard(tournamentId: string, tournamentMatchId: string, boardId: string): Promise<ScoringState> {
   const dashboard = await service.dashboard({ organizationId, tournamentId, auth });
   await service.assign({ organizationId, tournamentId, data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, matchId: tournamentMatchId, boardId }, auth, audit });
   const [scheduled] = await databaseService.database.select().from(tournamentMatches).where(eq(tournamentMatches.id, tournamentMatchId));
   if (!scheduled?.scoringMatchId) throw new Error("Expected an active scoring match.");
-  let state = await matchesService.get({ organizationId, matchId: scheduled.scoringMatchId, auth });
-  if (state.legStartPending) {
-    state = await matchesService.decideLegStart({ organizationId, matchId: state.id, auth, audit, data: { commandId: randomUUID(), expectedVersion: state.version, legNumber: 1, startingSeat: 1 } });
-  }
+  const state = await matchesService.get({ organizationId, matchId: scheduled.scoringMatchId, auth });
+  if (!state.legStartPending) return state;
+  return matchesService.decideLegStart({ organizationId, matchId: state.id, auth, audit, data: { commandId: randomUUID(), expectedVersion: state.version, legNumber: 1, startingSeat: 1 } });
+}
+
+/**
+ * Wuerfelt den Rest-Score des Gewinners herunter: Visits zu hoechstens 180,
+ * zuletzt 40 per D20. Der Verlierer wirft jeweils 0; wer dran ist, folgt aus
+ * `isActive`.
+ */
+function scriptToFinish(state: ScoringState, winnerPlayerId: string): VisitStep[] {
+  const winner = state.participants.find((participant) => participant.playerId === winnerPlayerId);
+  if (winner === undefined) throw new Error("Winner is not a participant.");
   const order = [...state.participants].sort((left, right) => left.seat - right.seat).map((participant) => participant.playerId);
-  const winnerVisits = [180, 180, 101];
-  const script: { playerId: string; points: number; finish: boolean }[] = [];
-  for (let turn = 0, winnerTurns = 0; winnerTurns <= 3; turn += 1) {
+  const active = state.participants.find((participant) => participant.isActive)?.playerId ?? order[0];
+  let turn = Math.max(0, order.findIndex((playerId) => playerId === active));
+  let remaining = winner.remaining;
+  const script: VisitStep[] = [];
+  for (;;) {
     const playerId = order[turn % 2];
     if (playerId === undefined) throw new Error("Turn order invariant violated.");
     if (playerId === winnerPlayerId) {
-      script.push(winnerTurns < 3 ? { playerId, points: winnerVisits[winnerTurns] ?? 0, finish: false } : { playerId, points: 40, finish: true });
-      winnerTurns += 1;
+      if (remaining <= 40) {
+        script.push({ playerId, points: remaining, finish: true });
+        return script;
+      }
+      const points = Math.min(180, remaining - 40);
+      script.push({ playerId, points, finish: false });
+      remaining -= points;
     } else {
       script.push({ playerId, points: 0, finish: false });
     }
+    turn += 1;
   }
-  for (const step of script) {
+}
+
+async function submitSteps(initial: ScoringState, steps: readonly VisitStep[]): Promise<ScoringState> {
+  let state = initial;
+  for (const step of steps) {
     state = await matchesService.submitVisit({
       organizationId, matchId: state.id, auth, audit,
       data: {
@@ -219,7 +241,33 @@ async function playMatch(tournamentId: string, tournamentMatchId: string, winner
       },
     });
   }
-  expect(state.status).toBe("COMPLETED");
+  return state;
+}
+
+/** Spielt ein READY-Turniermatch auf `boardId` bis zum Sieg von `winnerPlayerId` durch (501, Double Out, Best of 1). */
+async function playMatch(tournamentId: string, tournamentMatchId: string, winnerPlayerId: string, boardId: string): Promise<void> {
+  const state = await startOnBoard(tournamentId, tournamentMatchId, boardId);
+  const final = await submitSteps(state, scriptToFinish(state, winnerPlayerId));
+  expect(final.status).toBe("COMPLETED");
+}
+
+/** Spielt bis vor den letzten Wurf; die Rueckgabe schickt den Checkout. */
+async function bringToCheckout(tournamentId: string, tournamentMatchId: string, winnerPlayerId: string, boardId: string): Promise<() => Promise<ScoringState>> {
+  const state = await startOnBoard(tournamentId, tournamentMatchId, boardId);
+  const script = scriptToFinish(state, winnerPlayerId);
+  const last = script.at(-1);
+  if (last === undefined) throw new Error("Empty script.");
+  const before = await submitSteps(state, script.slice(0, -1));
+  return () => submitSteps(before, [last]);
+}
+
+/** Spielt ein per Korrektur wieder geoeffnetes Match anhand des laufenden Zustands zu Ende. */
+async function finishReopenedMatch(tournamentMatchId: string, winnerPlayerId: string): Promise<void> {
+  const [scheduled] = await databaseService.database.select().from(tournamentMatches).where(eq(tournamentMatches.id, tournamentMatchId));
+  if (!scheduled?.scoringMatchId) throw new Error("Expected a scoring match.");
+  const state = await matchesService.get({ organizationId, matchId: scheduled.scoringMatchId, auth });
+  const final = await submitSteps(state, scriptToFinish(state, winnerPlayerId));
+  expect(final.status).toBe("COMPLETED");
 }
 
 /** Deterministische, aber durchmischte Siegerwahl: wer den kleineren Wert hat, gewinnt. */
@@ -399,4 +447,66 @@ describe("Vereinsduell Ablauf", () => {
     expect(all.some((match) => match.status === "WAITING" || match.status === "READY")).toBe(false);
     expect(all.filter((match) => match.stageLabel === "Final" || match.stageLabel === "Spiel um Platz 3").every((match) => match.status === "COMPLETED" && match.resultType === "WALKOVER")).toBe(true);
   }, 120_000);
+});
+
+describe("Vereinsduell Korrektur und Rueckzug", () => {
+  it("sperrt die Korrektur eines Quali-Resultats, sobald die Folgerunde gepaart ist", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
+    const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    const [first, second] = roundOne;
+    if (!first?.participantOneId || !second?.participantTwoId || !first.participantTwoId || !second.participantOneId) throw new Error("unexpected");
+    await playMatch(created.id, first.id, first.participantOneId, boardIds[0]);
+    // Runde noch offen: Korrektur erlaubt
+    let dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    dashboard = await service.correctResult({ organizationId, tournamentId: created.id, data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, matchId: first.id, reason: "Falsch erfasst" }, auth, audit });
+    expect(dashboard.boards.some((board) => board.match?.matchId === first.id)).toBe(true);
+    expect(dashboard.tournament.status).toBe("GROUP_STAGE");
+    await finishReopenedMatch(first.id, first.participantOneId);
+    await playMatch(created.id, second.id, second.participantTwoId, boardIds[0]);
+    // Runde 2 ist gepaart: gesperrt
+    dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    await expect(service.correctResult({ organizationId, tournamentId: created.id, data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, matchId: first.id, reason: "Zu spaet" }, auth, audit }))
+      .rejects.toMatchObject({ response: { code: "CLUB_DUEL_ROUND_ALREADY_PAIRED" } });
+  }, 60_000);
+
+  it("paart bei zwei gleichzeitig abgeschlossenen letzten Spielen genau eine Folgerunde", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
+    const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    const [first, second] = roundOne;
+    if (!first?.participantOneId || !second?.participantOneId) throw new Error("unexpected");
+    const firstFinish = await bringToCheckout(created.id, first.id, first.participantOneId, boardIds[0]);
+    const secondFinish = await bringToCheckout(created.id, second.id, second.participantOneId, boardIds[1]);
+    const [firstResult, secondResult] = await Promise.all([firstFinish(), secondFinish()]);
+    expect([firstResult.status, secondResult.status]).toEqual(["COMPLETED", "COMPLETED"]);
+    const roundTwo = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 2")));
+    expect(roundTwo).toHaveLength(2);
+    const audits = await databaseService.database.select().from(auditEvents).where(and(eq(auditEvents.entityId, created.id), eq(auditEvents.action, "TOURNAMENT_ROUND_PAIRED")));
+    expect(audits).toHaveLength(1);
+    const events = await databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_ROUND_PAIRED")));
+    expect(events).toHaveLength(1);
+  }, 60_000);
+
+  it("Rueckzug in der Quali: offenes Spiel wird Walkover, Spieler wird nicht mehr gepaart, fehlender Finalrunden-Platz wird Walkover", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 3, sideBCount: 2 }), auth, audit });
+    const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    const victimMatch = roundOne[0];
+    const victim = victimMatch?.participantTwoId;
+    if (!victimMatch || !victim) throw new Error("unexpected");
+    await service.withdrawParticipant({ organizationId, tournamentId: created.id, data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, playerId: victim, reason: "Verletzung" }, auth, audit });
+    const [walkover] = await databaseService.database.select().from(tournamentMatches).where(eq(tournamentMatches.id, victimMatch.id));
+    expect(walkover?.status).toBe("COMPLETED");
+    expect(walkover?.resultType).toBe("WALKOVER");
+    const other = roundOne[1];
+    if (!other?.participantOneId || !other.participantTwoId) throw new Error("unexpected");
+    await playMatch(created.id, other.id, other.participantOneId, boardIds[0]);
+    const roundTwo = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 2")));
+    expect(roundTwo).toHaveLength(1);
+    expect(roundTwo.some((match) => match.participantTwoId === victim || match.participantOneId === victim)).toBe(false);
+    await playOut(created.id);
+    const finalRound = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Finalrunde · Runde 1")));
+    expect(finalRound.filter((match) => match.resultType === "WALKOVER" && match.participantTwoId === null)).toHaveLength(1);
+    const [tournament] = await databaseService.database.select().from(tournaments).where(eq(tournaments.id, created.id));
+    expect(tournament?.status).toBe("COMPLETED");
+  }, 90_000);
 });
