@@ -93,7 +93,8 @@ export function ClubFinalRound({ clubDuel, names }: {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="overflow-x-auto">
+      {/* Fokussierbar, damit sich eine breite Tabelle per Tastatur scrollen lässt. */}
+      <div aria-label="Kreuztabelle (scrollbar)" className="overflow-x-auto rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green" role="region" tabIndex={0}>
         <Table aria-label="Kreuztabelle">
           {/* Der Name bleibt «Kreuztabelle»; die Legende nennt die Achsen. */}
           <caption className="sr-only">Zeilen: {sideA.name}, Spalten: {sideB.name}</caption>

@@ -68,6 +68,17 @@ describe("ClubDuelPanel", () => {
     expect(within(screen.getByRole("tabpanel", { name: "Rangliste" })).getByText(/Bia/).closest("tr")?.textContent).toContain("Ausgefallen");
   });
 
+  it("macht breite Tabellen als benannte, fokussierbare Bereiche scrollbar", () => {
+    render(createElement(ClubDuelPanel, { clubDuel, participants, defaultTab: "standings" }));
+    const standings = screen.getByRole("region", { name: "Rangliste (scrollbar)" });
+    expect(standings.getAttribute("tabindex")).toBe("0");
+    expect(within(standings).getByRole("table")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Finalrunde" }));
+    const cross = screen.getByRole("region", { name: "Kreuztabelle (scrollbar)" });
+    expect(cross.getAttribute("tabindex")).toBe("0");
+    expect(within(cross).getByRole("table", { name: "Kreuztabelle" })).toBeTruthy();
+  });
+
   it("behält die Ranglisten-Ansicht über einen Tabwechsel", () => {
     render(createElement(ClubDuelPanel, { clubDuel, participants, defaultTab: "standings" }));
     fireEvent.click(screen.getByRole("radio", { name: "DC Musterdorf" }));

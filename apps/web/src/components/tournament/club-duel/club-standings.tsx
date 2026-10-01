@@ -71,7 +71,8 @@ export function ClubStandings({ clubDuel }: { readonly clubDuel: ClubDuelDashboa
           );
         })}
       </div>
-      <div className="overflow-x-auto">
+      {/* Fokussierbar, damit sich eine breite Tabelle per Tastatur scrollen lässt. */}
+      <div aria-label="Rangliste (scrollbar)" className="overflow-x-auto rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green" role="region" tabIndex={0}>
         <Table aria-label={`Rangliste ${current?.label ?? ""}`.trim()}>
           <thead>
             <tr>
