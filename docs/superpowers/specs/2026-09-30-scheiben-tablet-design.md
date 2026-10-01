@@ -179,9 +179,10 @@ Alle Tablets eines Dartraums teilen sich eine öffentliche IP. Ein Tablet
 erzeugte nach rechnerischer Schätzung während eines Matches rund 55
 Anfragen pro Minute (Heartbeat 3 s = 20, Selbstauskunft `/me` 5 s = 12,
 Match-Poll 4 s = 15, Würfe/Nachladen ~6–10), im Leerlauf rund 12. Live
-gemessen (E2E-Fall `board-device-kiosk.spec.ts`, Nacharbeit-Brief Paket B,
-B1): rund 46 Anfragen pro Minute im Match ohne Eingaben, rund 12 im
-Leerlauf. Bei acht
+gemessen (E2E-Fall `board-device-kiosk.spec.ts`): rund 46 Anfragen pro
+Minute im Match OHNE Eingaben, rund 12 im Leerlauf — mit tatsächlich
+geworfenen Darts bleibt die rechnerische Schätzung von rund 52–56 pro
+Minute die beste verfügbare Zahl, nicht separat gemessen. Bei acht
 Scheiben und den Handys der Leitung im selben WLAN wäre die Grenze erreicht.
 
 Entscheid:
@@ -200,8 +201,9 @@ Entscheid:
   Schlüssel in der bestehenden Stufe pro IP. Zufällige Schlüssel umgehen die
   IP-Grenze damit nicht.
 - Die Vorgabe 120 wurde gegen die gemessene Anfragenzahl eines Kiosk-Tablets
-  geprüft (siehe oben, B1): mit rund 46/min im Match und rund 12/min im
-  Leerlauf bleibt komfortabel Abstand, eine Anpassung ist nicht nötig.
+  geprüft (siehe oben): mit rund 46/min im Match ohne Eingaben, rechnerisch
+  rund 52–56/min mit Würfen, und rund 12/min im Leerlauf bleibt Abstand nach
+  oben, eine Anpassung ist nicht nötig.
 
 ### Freigegebene Routen
 
