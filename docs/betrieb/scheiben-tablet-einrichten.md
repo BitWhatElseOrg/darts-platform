@@ -12,8 +12,8 @@ Match abbrechen) bleibt gesperrt.
 ## 1. Was es braucht
 
 - Ein Tablet (iPad oder Android) mit funktionierendem WLAN.
-- Ein Benutzerkonto mit Berechtigung «Boards verwalten» (in der Regel Owner
-  oder Admin der Organisation).
+- Ein Benutzerkonto mit Berechtigung «Boards verwalten»: Inhaber, Admin oder
+  Turnierleitung der Organisation (Recht `board:manage`).
 - Die Scheibe muss in der Plattform bereits als Board angelegt sein.
 
 ## 2. App auf dem Tablet installieren

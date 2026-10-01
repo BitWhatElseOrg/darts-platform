@@ -82,8 +82,10 @@ export const applicationEnvironmentSchema = z.object({
    */
   RATE_LIMIT_SOCKET_MAX_PER_MINUTE: rateLimitMaxSchema.default(60),
   /**
-   * Je Scheiben-Tablet; ein Tablet erzeugt im Match rund 35 Anfragen pro
-   * Minute (Lease-Heartbeat 3 s, Kiosk-Polling 5 s, Wuerfe).
+   * Je Scheiben-Tablet; ein Tablet erzeugt im Match rechnerisch rund 55
+   * Anfragen pro Minute (Heartbeat 3 s = 20, Selbstauskunft `/me` 5 s = 12,
+   * Match-Poll 4 s = 15, Wuerfe/Nachladen ~6-10), im Leerlauf rund 12 --
+   * nicht live gemessen.
    */
   RATE_LIMIT_DEVICE_MAX_PER_MINUTE: rateLimitMaxSchema.default(120),
   /**

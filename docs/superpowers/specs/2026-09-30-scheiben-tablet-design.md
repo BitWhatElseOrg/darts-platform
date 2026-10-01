@@ -176,9 +176,10 @@ freigegeben wird.
 Das bestehende Rate-Limiting (`apps/api/src/common/rate-limit.ts`) zählt je
 Stufe und Client-IP, die allgemeine Stufe erlaubt 300 Anfragen pro Minute.
 Alle Tablets eines Dartraums teilen sich eine öffentliche IP. Ein Tablet
-erzeugt während eines Matches rund 25 Anfragen pro Minute (Lease-Heartbeat
-alle 3 s, Würfe, Nachladen), im Leerlauf 12. Bei acht Scheiben und den Handys
-der Leitung im selben WLAN wäre die Grenze erreicht.
+erzeugt während eines Matches rechnerisch rund 55 Anfragen pro Minute
+(Heartbeat 3 s = 20, Selbstauskunft `/me` 5 s = 12, Match-Poll 4 s = 15,
+Würfe/Nachladen ~6–10), im Leerlauf rund 12 — nicht live gemessen. Bei acht
+Scheiben und den Handys der Leitung im selben WLAN wäre die Grenze erreicht.
 
 Entscheid:
 
