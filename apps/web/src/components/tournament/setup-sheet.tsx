@@ -295,6 +295,12 @@ export function SetupSheet({ organizationId, organizationName, players, boards }
     setValue(own, nextSelection(getValues(own), id), { shouldDirty: true });
   };
 
+  /** «Alle»/«Keinen» in Spalte A; wer dazukommt, verlässt Seite B. */
+  const selectSideA = (ids: readonly string[]) => {
+    setValue("sideBIds", getValues("sideBIds").filter((entry) => !ids.includes(entry)), { shouldDirty: true });
+    setValue("sideAIds", [...ids], { shouldDirty: true });
+  };
+
   const addGuestsToSideB = (created: readonly PlayerResponse[]) => {
     const createdIds = created.map((player) => player.id);
     setValue("sideAIds", getValues("sideAIds").filter((entry) => !createdIds.includes(entry)), { shouldDirty: true });
@@ -459,6 +465,7 @@ export function SetupSheet({ organizationId, organizationName, players, boards }
                   guests={guests}
                   members={members}
                   onGuestsCreated={addGuestsToSideB}
+                  onSelectAllA={selectSideA}
                   onToggle={toggleSide}
                   organizationId={organizationId}
                   sideAIds={sideAIds}

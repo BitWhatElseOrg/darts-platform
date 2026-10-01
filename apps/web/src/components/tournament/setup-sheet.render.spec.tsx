@@ -296,4 +296,21 @@ describe("SetupSheet: Vereinsduell", () => {
     expect(within(screen.getByRole("group", { name: "Spieler DC Musterdorf" })).queryByRole("checkbox", { name: "Gast 3" })).toBeNull();
     expect(screen.getByText("Weitere Gastspieler (1)")).toBeTruthy();
   });
+
+  it("wählt mit «Alle»/«Keinen» alle Mitglieder für Seite A aus und wieder ab", () => {
+    renderSheet({ players: [...players.slice(0, 2), ...guests], organizationName: "VFC Testverein" });
+    client.apiRequest.mockImplementation(() => Promise.resolve(clubPreview));
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "CLUB_DUEL" } });
+    const counter = screen.getByLabelText(/gegen .* Spieler/u);
+    const columnA = screen.getByRole("group", { name: "Spieler VFC Testverein" });
+
+    fireEvent.click(within(columnA).getByRole("button", { name: "Alle" }));
+    expect(counter.textContent).toBe("2 : 0");
+    expect(within(columnA).getByRole("checkbox", { name: "Spielerin 1" })).toHaveProperty("checked", true);
+    expect(within(columnA).getByRole("checkbox", { name: "Spielerin 2" })).toHaveProperty("checked", true);
+
+    fireEvent.click(within(columnA).getByRole("button", { name: "Keinen" }));
+    expect(counter.textContent).toBe("0 : 0");
+    expect(within(columnA).getByRole("button", { name: "Alle" })).toBeTruthy();
+  });
 });

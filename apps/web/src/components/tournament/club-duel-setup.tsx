@@ -1,7 +1,7 @@
 "use client";
 
 import type { ClubDuelPreviewResponse, PlayerResponse } from "@darts-platform/schemas";
-import { Field, Rule, SelectInput, SheetLabel, StateTag, TextInput, Wedge } from "@darts-platform/ui";
+import { Control, Field, Rule, SelectInput, SheetLabel, StateTag, TextInput, Wedge } from "@darts-platform/ui";
 import type { ReactNode } from "react";
 import type { UseFormRegister } from "react-hook-form";
 
@@ -51,6 +51,7 @@ export function ClubParticipantsSection({
   guests,
   members,
   onGuestsCreated,
+  onSelectAllA,
   onToggle,
   organizationId,
   sideAIds,
@@ -67,6 +68,8 @@ export function ClubParticipantsSection({
   readonly sideAIds: readonly string[];
   readonly sideBIds: readonly string[];
   readonly onToggle: (side: "A" | "B", playerId: string) => void;
+  /** «Alle»/«Keinen» für Spalte A: setzt die Mitglieder-Auswahl als Ganzes. */
+  readonly onSelectAllA: (playerIds: readonly string[]) => void;
   readonly onGuestsCreated: (players: readonly PlayerResponse[]) => void;
 }) {
   const club = sideBName.trim().toLowerCase();
@@ -78,6 +81,7 @@ export function ClubParticipantsSection({
       (guest.guestClubName ?? "").trim().toLowerCase() === club || sideBIds.includes(guest.id));
   const otherGuests = guests.filter((guest) => !mainGuests.includes(guest));
   const describedBy = error !== null ? "participants-error" : undefined;
+  const allMembersSelected = members.length > 0 && members.every((member) => sideAIds.includes(member.id));
   return (
     <section aria-labelledby="setup-club-participants">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -97,6 +101,15 @@ export function ClubParticipantsSection({
       ) : null}
       <div className="mt-4 grid gap-6 lg:grid-cols-2">
         <PlayerColumn
+          action={members.length > 0 ? (
+            <Control
+              density="tight"
+              onClick={() => onSelectAllA(allMembersSelected ? [] : members.map((member) => member.id))}
+              variant="wire"
+            >
+              {allMembersSelected ? "Keinen" : "Alle"}
+            </Control>
+          ) : null}
           describedBy={describedBy}
           heading={`Spieler ${sideAName.trim() || "Verein A"}`}
           onToggle={(playerId) => onToggle("A", playerId)}
@@ -132,7 +145,8 @@ export function ClubParticipantsSection({
   );
 }
 
-function PlayerColumn({ describedBy, heading, onToggle, players, selected }: {
+function PlayerColumn({ action = null, describedBy, heading, onToggle, players, selected }: {
+  readonly action?: ReactNode;
   readonly describedBy: string | undefined;
   readonly heading: string;
   readonly players: readonly PlayerResponse[];
@@ -144,6 +158,7 @@ function PlayerColumn({ describedBy, heading, onToggle, players, selected }: {
       <legend className="font-plate text-label font-semibold uppercase tracking-[0.14em] text-sisal-500">
         {heading}
       </legend>
+      {action !== null ? <div className="mt-2">{action}</div> : null}
       {players.length === 0 ? (
         <p className="mt-2 font-plate text-caption text-sisal-500">Noch keine Spieler.</p>
       ) : null}
