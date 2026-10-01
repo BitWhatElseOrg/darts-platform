@@ -458,21 +458,24 @@ test(
 );
 
 /**
- * B1 (Nacharbeit-Brief Paket B): bis hierher war die Anfragenzahl eines
- * Kiosk-Tablets nur gerechnet (Spec §3, ADR 0019, Kommentar bei
+ * Bis hierher war die Anfragenzahl eines Kiosk-Tablets nur gerechnet
+ * (Spec §3, ADR 0019, Kommentar bei
  * `RATE_LIMIT_DEVICE_MAX_PER_MINUTE`), nicht live gemessen. Dieser Fall
- * zaehlt tatsaechliche Anfragen ueber zwei 30s-Fenster -- einmal waehrend ein
- * Match laeuft (ohne Eingaben), einmal im Leerlauf -- und rechnet sie auf
- * eine Minute hoch.
+ * zaehlt tatsaechliche Anfragen -- ein 30s-Fenster waehrend ein Match laeuft
+ * (ohne Eingaben), ein 60s-Fenster im Leerlauf -- und rechnet sie auf eine
+ * Minute hoch. Prueft dabei auch Ober- UND Untergrenze: eine zu niedrige
+ * Zahl waere genauso ein Befund (URL-Filter greift nicht mehr, Polling
+ * faellt aus) wie eine zu hohe.
  */
 test(
   "measures the request rate of a paired board tablet during a match and while idle",
   async ({ browser, page }) => {
     test.slow();
-    // Zwei 30s-Messfenster plus Turnieraufbau, Zuweisung und ein komplettes
-    // Leg (siehe Kommentar beim ersten Fall dieser Datei zum kalten `next
-    // dev`) brauchen deutlich mehr als das Standardbudget.
-    test.setTimeout(300_000);
+    // Ein 30s-Messfenster im Match, ein 60s-Fenster im Leerlauf (siehe
+    // Kommentar bei dessen Grenze unten) plus Turnieraufbau, Zuweisung und
+    // ein komplettes Leg (siehe Kommentar beim ersten Fall dieser Datei zum
+    // kalten `next dev`) brauchen deutlich mehr als das Standardbudget.
+    test.setTimeout(330_000);
 
     const suffix = randomUUID();
     const short = suffix.slice(0, 8);
@@ -517,12 +520,23 @@ test(
       // Web-Server auf `NEXT_PUBLIC_API_URL` mit demselben Port (Muster wie
       // `foundation.spec.ts`).
       const apiOrigin = `http://localhost:${process.env.PLAYWRIGHT_API_PORT ?? 3_101}/api/v1`;
-      let nonOptionsCount = 0;
-      let optionsCount = 0;
+      // CORS-Preflights (`OPTIONS`) werden bewusst NICHT separat gezaehlt:
+      // ein gezielter Vorabtest (Fetch mit `Authorization` plus einem
+      // zusaetzlichen, nicht erlaubten Header auf eine frische Seite ohne
+      // jede vorherige Anfrage) erzeugte serverseitig nachweislich einen
+      // Preflight, `page.on("request")` meldete dafuer aber kein `OPTIONS`-
+      // Ereignis -- Playwright/Chromium geben vom Browser selbst erzeugte
+      // CORS-Preflights ueber dieses Ereignis nicht zuverlaessig weiter. Eine
+      // Zaehlung waere damit nicht belegbar. Fuer das Rate-Limit selbst ist
+      // das ohne Belang: `app.enableCors(...)` registriert NestJS/Fastify vor
+      // `registerRateLimit(...)` (`configure-application.ts`), ein Preflight
+      // bekommt seine Antwort also bereits dort und erreicht den
+      // Rate-Limit-Hook nie.
+      let requestCount = 0;
       const onRequest = (request: Request) => {
         if (!request.url().startsWith(apiOrigin)) return;
-        if (request.method() === "OPTIONS") optionsCount += 1;
-        else nonOptionsCount += 1;
+        if (request.method() === "OPTIONS") return;
+        requestCount += 1;
       };
       tabletPage.on("request", onRequest);
 
@@ -547,16 +561,14 @@ test(
       await decideLegStart(tabletPage);
       await switchInputMode(tabletPage, "Runde");
 
-      // Messfenster 1: Match laeuft, keine Eingaben am Tablet.
-      nonOptionsCount = 0;
-      optionsCount = 0;
+      // Messfenster 1: Match laeuft, keine Eingaben am Tablet. 30s wie im
+      // Brief -- bei einer nominell zweistelligen Anfragenzahl pro Fenster
+      // ist eine einzelne Anfrage Unterschied beim Hochrechnen auf eine
+      // Minute kein nennenswertes Rauschen.
+      requestCount = 0;
       await tabletPage.waitForTimeout(30_000);
-      const matchNonOptionsPerMinute = nonOptionsCount * 2;
-      const matchOptionsPerMinute = optionsCount * 2;
-      console.log(
-        `[B1] Match-Phase: ${nonOptionsCount} Anfragen/30s (${matchNonOptionsPerMinute}/min, ohne OPTIONS), ` +
-          `${optionsCount} OPTIONS/30s (${matchOptionsPerMinute}/min)`,
-      );
+      const matchPerMinute = requestCount * 2;
+      console.log(`Match-Phase: ${requestCount} Anfragen/30s (${matchPerMinute}/min, ohne OPTIONS)`);
 
       // Leg zuegig beenden (wie im ersten Fall dieser Datei): 180 / 0 / 180 /
       // 0 / 141 (Checkout T20 T19 D12) -- diese Eingaben liegen bewusst
@@ -592,23 +604,30 @@ test(
         timeout: 10_000,
       });
 
-      // Messfenster 2: Leerlauf, keine Eingaben.
-      nonOptionsCount = 0;
-      optionsCount = 0;
-      await tabletPage.waitForTimeout(30_000);
-      const idleNonOptionsPerMinute = nonOptionsCount * 2;
-      const idleOptionsPerMinute = optionsCount * 2;
-      console.log(
-        `[B1] Leerlauf-Phase: ${nonOptionsCount} Anfragen/30s (${idleNonOptionsPerMinute}/min, ohne OPTIONS), ` +
-          `${optionsCount} OPTIONS/30s (${idleOptionsPerMinute}/min)`,
-      );
+      // Messfenster 2: Leerlauf, keine Eingaben. 60s statt 30s: die
+      // Leerlauf-Grenze (<= 15/min) liegt mit nominell rund 6 Anfragen pro
+      // 30s so knapp an der Hochrechnung (7 statt 6 waeren bereits 14/min,
+      // 8 schon 16/min), dass ein einzelnes zusaetzliches Poll am
+      // Fensterrand den Fall faelschlich rot faerben koennte. Ueber 60s
+      // gemessen zaehlt die rohe Anzahl direkt als Anfragen pro Minute, ohne
+      // Verdopplung und ohne dieses Rundungsrisiko.
+      requestCount = 0;
+      await tabletPage.waitForTimeout(60_000);
+      const idlePerMinute = requestCount;
+      console.log(`Leerlauf-Phase: ${idlePerMinute} Anfragen/min (ohne OPTIONS)`);
 
       tabletPage.off("request", onRequest);
 
-      // Grenzen aus dem Brief: im Match <= 60/min, im Leerlauf <= 15/min
-      // (jeweils ohne OPTIONS-Preflights).
-      expect(matchNonOptionsPerMinute).toBeLessThanOrEqual(60);
-      expect(idleNonOptionsPerMinute).toBeLessThanOrEqual(15);
+      // Grenzen aus dem Brief: im Match 30-60/min, im Leerlauf 8-15/min
+      // (jeweils ohne OPTIONS-Preflights). Die Untergrenzen sind ein eigener
+      // Befund wert: faellt die Zahl darunter, hat entweder der URL-Filter
+      // (`apiOrigin`) aufgehoert zu greifen oder das Polling ist ausgefallen
+      // -- ein stummes "0 Anfragen" waere sonst ebenso gruen wie ein
+      // korrekter Lauf.
+      expect(matchPerMinute).toBeGreaterThanOrEqual(30);
+      expect(matchPerMinute).toBeLessThanOrEqual(60);
+      expect(idlePerMinute).toBeGreaterThanOrEqual(8);
+      expect(idlePerMinute).toBeLessThanOrEqual(15);
     } finally {
       await tabletContext.close();
     }
