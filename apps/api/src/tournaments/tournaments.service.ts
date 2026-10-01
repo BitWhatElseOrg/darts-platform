@@ -48,6 +48,7 @@ import { rethrowScoringError } from "../common/scoring-error.js";
 import { MatchesRepository } from "../matches/matches.repository.js";
 import type { TournamentCorrectionResult } from "../matches/matches.repository.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
+import { projectClubDuel } from "./club-duel-projection.js";
 import { DisplayKeysService } from "./display-keys.service.js";
 import { isMatchOverrunning } from "./match-overrun.js";
 
@@ -415,6 +416,9 @@ export class TournamentsService {
       data.tournament.organizationId,
       data.matches.flatMap((match) => (match.scoringMatchId === null ? [] : [match.scoringMatchId])),
     );
+    const legsOf = (scoringMatchId: string, playerId: string): number | undefined =>
+      scoringById.get(scoringMatchId)?.participants.find((participant) => participant.playerId === playerId)?.legsWon;
+    const clubDuel = projectClubDuel({ data, legsOf });
     const names = new Map(
       data.participants.map((participant) => [participant.playerId, participant.displayName]),
     );
@@ -700,7 +704,7 @@ export class TournamentsService {
         withdrawalReason: participant.withdrawalReason,
         side: participant.side === "A" || participant.side === "B" ? participant.side : null,
       })),
-      clubDuel: null,
+      clubDuel,
       boards,
       queue,
       conflicts,

@@ -15,6 +15,7 @@ import type { Principal } from "../auth/auth.types.js";
 import { auditActor } from "../common/audit-actor.js";
 import type { AuditContext } from "../common/audit-context.js";
 import type { DatabaseService } from "../database/database.service.js";
+import { occupiedFinalRoundEntrants, projectedQualifiers } from "./club-duel-entrants.js";
 import { qualifyingRoundLabel } from "./club-duel-labels.js";
 import { loadCompletedMatchResults } from "./completed-match-results.js";
 
@@ -106,10 +107,7 @@ async function advanceClubDuelOnce(transaction: DatabaseTransaction, input: Adva
   // Quali fertig → Finalrunde besetzen (Spec: fehlende Plaetze → Walkover fuer den Gegner)
   const finalRoundMatches = matchRows.filter((match) => match.stageId === finalRound.id);
   if (finalRoundMatches.some((match) => match.status === "WAITING")) {
-    const qualifiers = {
-      A: standings.sideA.filter((row) => !row.withdrawn).slice(0, tournament.finalRoundSize).map((row) => row.playerId),
-      B: standings.sideB.filter((row) => !row.withdrawn).slice(0, tournament.finalRoundSize).map((row) => row.playerId),
-    };
+    const qualifiers = projectedQualifiers(standings, tournament.finalRoundSize);
     const ready = await resolveSideRanks(transaction, input, CLUB_DUEL_STAGE_KEYS.qualifying, qualifiers, finalRoundMatches);
     // Waren alle Plaetze unbesetzt oder kampflos, gibt es keinen offenen Abschluss mehr, der weitertreibt.
     return ready === 0 ? "RERUN" : "DONE";
@@ -121,14 +119,7 @@ async function advanceClubDuelOnce(transaction: DatabaseTransaction, input: Adva
   if (!finalMatches.some((match) => match.status === "WAITING")) return "DONE";
   const crossResults = await loadCompletedMatchResults(transaction, input.organizationId, finalRoundMatches);
   // Die Finalisten stehen mit der Besetzung fest; ein Rueckzug waehrend der Finalrunde aendert sie nicht.
-  const finalists = (side: ClubSide) => {
-    const ids = new Set(finalRoundMatches.flatMap((match) => [match.participantOneId, match.participantTwoId]).filter((id): id is string => id !== null && sideOf.get(id) === side));
-    return [...ids].map((playerId) => {
-      const rank = (side === "A" ? standings.sideA : standings.sideB).find((row) => row.playerId === playerId)?.position;
-      if (rank === undefined) throw new Error("Qualifier rank invariant violated.");
-      return { playerId, qualifyingRank: rank };
-    });
-  };
+  const finalists = (side: ClubSide) => occupiedFinalRoundEntrants(finalRoundMatches, sideOf, standings, side);
   const cross = calculateCrossRoundStandings({
     sideA: finalists("A"),
     sideB: finalists("B"),

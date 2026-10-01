@@ -1,3 +1,4 @@
+import { NotFoundException } from "@nestjs/common";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
@@ -276,6 +277,19 @@ describe("Vereinsduell Ablauf", () => {
     const pairedAudits = await databaseService.database.select().from(auditEvents).where(and(eq(auditEvents.entityId, created.id), eq(auditEvents.action, "TOURNAMENT_ROUND_PAIRED")));
     expect(pairedAudits).toHaveLength(1);
 
+    const afterRoundOne = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    const block = afterRoundOne.clubDuel;
+    if (block === null) throw new Error("clubDuel block missing");
+    expect(block.sideAName).toBe("VFC");
+    expect(block.currentRound).toBe(2);
+    expect(block.rounds.map((round) => [round.round, round.matchIds.length, round.pausedPlayerIds.length])).toEqual([[1, 9, 4], [2, 9, 4]]);
+    expect(block.standings.overall).toHaveLength(22);
+    expect(block.standings.sideA.filter((row) => row.qualified)).toHaveLength(2);
+    expect(block.standings.sideB.filter((row) => row.qualified)).toHaveLength(2);
+    expect(block.score.pointsA + block.score.pointsB).toBe(9);
+    expect(block.finalRound.matches).toHaveLength(4);
+    expect(block.finalRound.matches.every((match) => match.playerAId === null)).toBe(true);
+
     const total = 9 + await playOut(created.id);
     expect(total).toBe(18 + 4 + 2);
     const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
@@ -284,6 +298,18 @@ describe("Vereinsduell Ablauf", () => {
     expect(finalMatches[0]?.status).toBe("COMPLETED");
     expect(sideOf(finalMatches[0]?.participantOneId ?? null)).toBe("A");
     expect(sideOf(finalMatches[0]?.participantTwoId ?? null)).toBe("B");
+
+    const finalBlock = dashboard.clubDuel;
+    if (finalBlock === null) throw new Error("clubDuel block missing");
+    expect(finalBlock.score.pointsA + finalBlock.score.pointsB).toBe(24);
+    expect(finalBlock.finalRound.sideA.map((row) => row.position)).toEqual([1, 2]);
+    expect(finalBlock.finalRound.matches.every((match) => match.status === "COMPLETED" && match.legs !== null)).toBe(true);
+    // Öffentliche Sicht: erst nach Freigabe, dann mit demselben Block
+    await expect(service.publicDashboard(dashboard.tournament.publicId)).rejects.toBeInstanceOf(NotFoundException);
+    await service.setVisibility({ organizationId, tournamentId: created.id, data: { visibility: "PUBLIC" }, auth, audit });
+    const publicView = await service.publicDashboard(dashboard.tournament.publicId);
+    expect(publicView.clubDuel?.score).toEqual(finalBlock.score);
+    expect(publicView.participants.every((participant) => participant.side === "A" || participant.side === "B")).toBe(true);
   }, 300_000);
 
   it("wechselt den Status: GROUP_STAGE → FINAL_ROUND → KNOCKOUT", async () => {
@@ -336,6 +362,11 @@ describe("Vereinsduell Ablauf", () => {
       await playMatch(created.id, match.id, finalist, boardIds[0]);
     }
     await withdraw(created.id, finalist);
+    // Die Projektion folgt der besetzten Finalrunde: der Zurueckgezogene bleibt Finalrunden-Teilnehmer.
+    const afterWithdrawal = (await service.dashboard({ organizationId, tournamentId: created.id, auth })).clubDuel;
+    expect(afterWithdrawal?.finalRound.sideA.map((row) => row.playerId)).toContain(finalist);
+    expect(afterWithdrawal?.standings.sideA.find((row) => row.playerId === finalist)?.qualified).toBe(true);
+    expect(afterWithdrawal?.finalRound.sideA).toHaveLength(2);
     expect(await playOut(created.id)).toBe(3);
     const finalStage = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.round, 1), eq(tournamentMatches.status, "COMPLETED")));
     const finals = finalStage.filter((match) => match.stageLabel === "Final" || match.stageLabel === "Spiel um Platz 3");
