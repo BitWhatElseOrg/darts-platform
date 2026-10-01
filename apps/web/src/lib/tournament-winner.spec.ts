@@ -36,4 +36,32 @@ describe("tournamentWinner", () => {
     const open = bracket.map((match) => (match.round === 2 ? { ...match, status: "IN_PROGRESS" as const, winnerDisplayName: null } : match));
     expect(tournamentWinner({ tournament: { status: "COMPLETED" }, bracket: open, groups })).toBeNull();
   });
+
+  it("nennt im Vereinsduell den Sieger des Finals", () => {
+    expect(
+      tournamentWinner({
+        tournament: { status: "COMPLETED" },
+        bracket: [],
+        groups: [],
+        participants: [{ playerId: "a-1", displayName: "Anna" }, { playerId: "b-1", displayName: "Beat" }],
+        clubDuel: { finals: { final: { status: "COMPLETED", winnerPlayerId: "b-1" } } },
+      }),
+    ).toBe("Beat");
+  });
+
+  it("bleibt im Vereinsduell unbestimmt, solange das Final offen ist", () => {
+    expect(
+      tournamentWinner({
+        tournament: { status: "COMPLETED" },
+        bracket: [],
+        groups: [],
+        participants: [{ playerId: "a-1", displayName: "Anna" }],
+        clubDuel: { finals: { final: { status: "IN_PROGRESS", winnerPlayerId: null } } },
+      }),
+    ).toBeNull();
+  });
+
+  it("nimmt im klassischen Tableau ohne Vereinsduell den Sieger der letzten Runde", () => {
+    expect(tournamentWinner({ tournament: { status: "COMPLETED" }, bracket, groups, clubDuel: null })).toBe("Melanie Lüthi");
+  });
 });

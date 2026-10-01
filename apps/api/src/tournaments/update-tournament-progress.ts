@@ -1,7 +1,11 @@
 import { and, eq, notInArray } from "drizzle-orm";
 
 import { tournamentMatches, tournaments, tournamentStages } from "@darts-platform/database";
-import { calculateTournamentLifecycle } from "@darts-platform/tournament-engine";
+import {
+  calculateTournamentLifecycle,
+  type PlannedStageType,
+  type TournamentFormatKey,
+} from "@darts-platform/tournament-engine";
 
 import type { DatabaseService } from "../database/database.service.js";
 
@@ -31,10 +35,10 @@ export async function updateTournamentProgress(
   if (tournament === undefined) throw new Error("Tournament progression invariant violated.");
   const openStageIds = new Set(openMatches.map((match) => match.stageId));
   const lifecycle = calculateTournamentLifecycle({
-    format: tournament.format as "GROUPS_THEN_KNOCKOUT" | "ROUND_ROBIN" | "SINGLE_ELIMINATION",
+    format: tournament.format as TournamentFormatKey,
     stages: stages.map((stage) => ({
       id: stage.id,
-      type: stage.type as "GROUP" | "ROUND_ROBIN" | "SINGLE_ELIMINATION",
+      type: stage.type as PlannedStageType,
       hasOpenMatches: openStageIds.has(stage.id),
     })),
   });

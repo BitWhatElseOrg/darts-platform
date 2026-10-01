@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { calendarDate, calendarDateNumeric, clockTime, statusLabel } from "./tournament-format";
+import { calendarDate, calendarDateNumeric, clockTime, formatLabel, statusLabel } from "./tournament-format";
 
 /**
  * Die Anwurfzeit wird als Lokalzeit erfasst (`datetime-local`) und muss als
@@ -56,5 +56,16 @@ describe("statusLabel", () => {
     expect(statusLabel("GROUP_STAGE", "GROUPS_THEN_KNOCKOUT")).toBe("Gruppenphase");
     expect(statusLabel("GROUP_STAGE", "ROUND_ROBIN")).toBe("läuft");
     expect(statusLabel("COMPLETED", "ROUND_ROBIN")).toBe("beendet");
+  });
+
+  it("benennt die Finalrunde des Vereinsduells", () => {
+    expect(statusLabel("FINAL_ROUND")).toBe("Finalrunde");
+    expect(formatLabel("CLUB_DUEL")).toBe("Vereinsduell");
+  });
+
+  it("benennt die Phasen des Vereinsduells", () => {
+    expect(statusLabel("GROUP_STAGE", "CLUB_DUEL")).toBe("Qualifikation");
+    expect(statusLabel("FINAL_ROUND", "CLUB_DUEL")).toBe("Finalrunde");
+    expect(statusLabel("KNOCKOUT", "CLUB_DUEL")).toBe("Final");
   });
 });

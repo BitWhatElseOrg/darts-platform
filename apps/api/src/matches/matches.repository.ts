@@ -3,11 +3,12 @@ import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzl
 import { z } from "zod";
 import {
   auditEvents, boardControllerLeases, boards, encounterCommands, encounters, encounterSlots, legs, matches, matchParticipantPlayers, matchParticipants, outboxEvents, players, scoreCommands,
-  tournamentCommands, tournamentGroups, tournamentMatches,
+  tournamentCommands, tournamentGroups, tournamentMatches, tournamentParticipants,
   tournaments, tournamentStages,
   visitDarts, visits,
 } from "@darts-platform/database";
-import { decideDeviceMatchAccess, matchTargets, type DeviceMatchAction } from "@darts-platform/domain";
+import { clubAbbreviation, decideDeviceMatchAccess, matchTargets, type DeviceMatchAction } from "@darts-platform/domain";
+import { CLUB_DUEL_STAGE_KEYS } from "@darts-platform/tournament-engine";
 import { ScoringValidationError, createX01Match, defaultCheckoutAttempts, executeX01Command, projectX01Match, type InRule, type LegStartRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
 import type { AbortMatchInput, AbortMatchResponse, CorrectEncounterResultInput, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
 import { isDevicePrincipal, type AuthContext, type Principal } from "../auth/auth.types.js";
@@ -16,6 +17,8 @@ import { auditActor, leaseActor } from "../common/audit-actor.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
 import { DatabaseService } from "../database/database.service.js";
+import { isClubDuelResultLocked } from "../tournaments/club-duel-correction-lock.js";
+import { advanceClubDuel } from "../tournaments/advance-club-duel.js";
 import { applyWithdrawalPropagation } from "../tournaments/apply-withdrawal-propagation.js";
 import { resolveCompletedTournamentGroup } from "../tournaments/resolve-completed-group.js";
 import { updateTournamentProgress } from "../tournaments/update-tournament-progress.js";
@@ -51,6 +54,7 @@ export type TournamentCorrectionResult =
   | Exclude<MutationResult, "controller-conflict" | DeviceDenial>
   | "result-not-correctable"
   | "downstream-started"
+  | "club-duel-round-paired"
   | "board-unavailable";
 /**
  * Die Ergebnisse der Resultatkorrektur einer Liga-Begegnung tragen die Namen
@@ -85,6 +89,15 @@ type UserActorInput = Omit<ActorInput, "auth"> & { readonly auth: AuthContext };
 type DatabaseTransaction = Parameters<Parameters<DatabaseService["database"]["transaction"]>[0]>[0];
 /** Der Live-Bezug eines Matches ohne den Fall "kein Bezug" (das traegt `null`). */
 type LiveTarget = NonNullable<MatchStateResponse["liveTarget"]>;
+/** Turnierangaben fuer die Vereinskuerzel; nur intern, nicht Teil von `LiveTarget`. */
+interface TournamentLabelInfo { readonly format: string; readonly sideAName: string | null; readonly sideBName: string | null }
+/** Turnier -> (Person -> Vereinskuerzel). */
+type ClubLabelsByTournament = Map<string, Map<string, string>>;
+const noClubLabels: ReadonlyMap<string, string> = new Map();
+/** Kuerzel fuer das Turnier des Matches; ausserhalb eines Vereinsduells leer. */
+function clubLabelsOf(labels: ClubLabelsByTournament, liveTarget: LiveTarget | null): ReadonlyMap<string, string> {
+  return liveTarget?.kind === "TOURNAMENT" ? labels.get(liveTarget.tournamentId) ?? noClubLabels : noClubLabels;
+}
 
 /**
  * Bindung eines Scheiben-Tablets an das Match seiner Scheibe. Laeuft in der
@@ -231,16 +244,68 @@ export class MatchesRepository {
    * abgebrochene Matches fehlen in der Map.
    */
   public async getStates(organizationId: string, matchIds: readonly string[]): Promise<Map<string, MatchStateResponse>> {
-    const liveTargets = await this.loadLiveTargets(organizationId, matchIds);
-    const entries = await Promise.all(matchIds.map(async (matchId) =>
-      [matchId, await this.buildState(organizationId, matchId, liveTargets.get(matchId) ?? null)] as const,
-    ));
+    const { liveTargets, clubLabels } = await this.loadStateContext(organizationId, matchIds);
+    const entries = await Promise.all(matchIds.map(async (matchId) => {
+      const liveTarget = liveTargets.get(matchId) ?? null;
+      return [matchId, await this.buildState(organizationId, matchId, liveTarget, clubLabelsOf(clubLabels, liveTarget))] as const;
+    }));
     return new Map(entries.filter((entry): entry is readonly [string, MatchStateResponse] => entry[1] !== null));
   }
 
   public async getState(organizationId: string, matchId: string): Promise<MatchStateResponse | null> {
-    const liveTargets = await this.loadLiveTargets(organizationId, [matchId]);
-    return this.buildState(organizationId, matchId, liveTargets.get(matchId) ?? null);
+    const { liveTargets, clubLabels } = await this.loadStateContext(organizationId, [matchId]);
+    const liveTarget = liveTargets.get(matchId) ?? null;
+    return this.buildState(organizationId, matchId, liveTarget, clubLabelsOf(clubLabels, liveTarget));
+  }
+
+  /**
+   * Live-Bezug und Vereinskuerzel fuer alle angefragten Matches auf einmal:
+   * die Live-Abfragen wie bisher, dazu hoechstens eine Abfrage fuer die
+   * Seiten aller beteiligten Personen in Vereinsduellen -- unabhaengig von
+   * der Zahl der Matches.
+   */
+  private async loadStateContext(organizationId: string, matchIds: readonly string[]): Promise<{
+    readonly liveTargets: Map<string, LiveTarget>;
+    readonly clubLabels: ClubLabelsByTournament;
+  }> {
+    const { targets, tournamentInfo } = await this.loadLiveTargets(organizationId, matchIds);
+    const clubLabels = await this.loadClubLabels(organizationId, matchIds, tournamentInfo);
+    return { liveTargets: targets, clubLabels };
+  }
+
+  /**
+   * Vereinsduell: Kuerzel je Person aus Seite und Vereinsnamen des Turniers,
+   * gruppiert nach Turnier (eine Person kann in mehreren Turnieren stehen).
+   * Nur Vereinsduelle mit beiden Seitennamen tragen Kuerzel.
+   */
+  private async loadClubLabels(organizationId: string, matchIds: readonly string[], tournamentInfo: ReadonlyMap<string, TournamentLabelInfo>): Promise<ClubLabelsByTournament> {
+    const sideNames = new Map<string, { readonly A: string; readonly B: string }>();
+    for (const [tournamentId, info] of tournamentInfo) {
+      if (info.format !== "CLUB_DUEL" || info.sideAName === null || info.sideBName === null) continue;
+      sideNames.set(tournamentId, { A: clubAbbreviation(info.sideAName), B: clubAbbreviation(info.sideBName) });
+    }
+    const labels: ClubLabelsByTournament = new Map();
+    if (sideNames.size === 0 || matchIds.length === 0) return labels;
+    const matchPlayers = this.databaseService.database
+      .select({ playerId: matchParticipantPlayers.playerId })
+      .from(matchParticipantPlayers)
+      .where(and(eq(matchParticipantPlayers.organizationId, organizationId), inArray(matchParticipantPlayers.matchId, [...matchIds])));
+    const rows = await this.databaseService.database
+      .select({ tournamentId: tournamentParticipants.tournamentId, playerId: tournamentParticipants.playerId, side: tournamentParticipants.side })
+      .from(tournamentParticipants)
+      .where(and(
+        eq(tournamentParticipants.organizationId, organizationId),
+        inArray(tournamentParticipants.tournamentId, [...sideNames.keys()]),
+        inArray(tournamentParticipants.playerId, matchPlayers),
+      ));
+    for (const row of rows) {
+      const names = sideNames.get(row.tournamentId);
+      if (names === undefined || (row.side !== "A" && row.side !== "B")) continue;
+      const perTournament = labels.get(row.tournamentId) ?? new Map<string, string>();
+      perTournament.set(row.playerId, names[row.side]);
+      labels.set(row.tournamentId, perTournament);
+    }
+    return labels;
   }
 
   /**
@@ -250,21 +315,30 @@ export class MatchesRepository {
    * Begegnungsabfrage nur noch fuer die verbleibenden Matches gestellt --
    * und gar nicht, wenn keins uebrig bleibt.
    */
-  private async loadLiveTargets(organizationId: string, matchIds: readonly string[]): Promise<Map<string, LiveTarget>> {
+  private async loadLiveTargets(organizationId: string, matchIds: readonly string[]): Promise<{
+    readonly targets: Map<string, LiveTarget>;
+    readonly tournamentInfo: Map<string, TournamentLabelInfo>;
+  }> {
     const targets = new Map<string, LiveTarget>();
-    if (matchIds.length === 0) return targets;
+    // Intern fuer die Vereinskuerzel; bleibt ausserhalb des LiveTarget-Vertrags.
+    const tournamentInfo = new Map<string, TournamentLabelInfo>();
+    if (matchIds.length === 0) return { targets, tournamentInfo };
     const ids = [...matchIds];
     const tournamentRows = await this.databaseService.database
-      .select({ matchId: tournamentMatches.scoringMatchId, tournamentId: tournamentMatches.tournamentId, publicId: tournaments.publicId })
+      .select({
+        matchId: tournamentMatches.scoringMatchId, tournamentId: tournamentMatches.tournamentId, publicId: tournaments.publicId,
+        format: tournaments.format, sideAName: tournaments.sideAName, sideBName: tournaments.sideBName,
+      })
       .from(tournamentMatches)
       .innerJoin(tournaments, and(eq(tournaments.id, tournamentMatches.tournamentId), eq(tournaments.organizationId, organizationId)))
       .where(and(eq(tournamentMatches.organizationId, organizationId), inArray(tournamentMatches.scoringMatchId, ids)));
     for (const row of tournamentRows) {
       if (row.matchId === null || targets.has(row.matchId)) continue;
       targets.set(row.matchId, { kind: "TOURNAMENT", tournamentId: row.tournamentId, publicId: row.publicId });
+      tournamentInfo.set(row.tournamentId, { format: row.format, sideAName: row.sideAName, sideBName: row.sideBName });
     }
     const remaining = ids.filter((id) => !targets.has(id));
-    if (remaining.length === 0) return targets;
+    if (remaining.length === 0) return { targets, tournamentInfo };
     const encounterRows = await this.databaseService.database
       .select({ matchId: encounterSlots.matchId, publicId: encounters.publicId })
       .from(encounterSlots)
@@ -274,10 +348,10 @@ export class MatchesRepository {
       if (row.matchId === null || targets.has(row.matchId)) continue;
       targets.set(row.matchId, { kind: "ENCOUNTER", publicId: row.publicId });
     }
-    return targets;
+    return { targets, tournamentInfo };
   }
 
-  private async buildState(organizationId: string, matchId: string, liveTarget: LiveTarget | null): Promise<MatchStateResponse | null> {
+  private async buildState(organizationId: string, matchId: string, liveTarget: LiveTarget | null, clubLabels: ReadonlyMap<string, string>): Promise<MatchStateResponse | null> {
     const [matchRow] = await this.databaseService.database
       .select({ match: matches, boardName: boards.name })
       .from(matches).leftJoin(boards, and(eq(boards.id, matches.boardId), eq(boards.organizationId, organizationId)))
@@ -332,7 +406,7 @@ export class MatchesRepository {
       if (lead === undefined || projected === undefined) throw new Error("Scoring side invariant violated.");
       return {
         seat,
-        players: rows.map((row) => ({ playerId: row.playerId, displayName: row.displayName, isThrowing: projection.activeThrowerPlayerId === row.playerId })),
+        players: rows.map((row) => ({ playerId: row.playerId, displayName: row.displayName, isThrowing: projection.activeThrowerPlayerId === row.playerId, clubLabel: clubLabels.get(row.playerId) ?? null })),
         playerId: lead.playerId, displayName: lead.displayName, remaining: projected.remaining, legsWon: projected.totalLegsWon, legsWonInSet: projected.legsWonInSet, setsWon: projected.setsWon,
         isActive: rows.some((row) => projection.activeThrowerPlayerId === row.playerId),
         // Direkt aus der Projektion: die Flaeche verlangt unter Double In vor
@@ -617,6 +691,7 @@ export class MatchesRepository {
           input.organizationId,
           input.matchId,
           matchWinnerPlayerId,
+          { principal: input.auth, audit: input.audit },
         );
       }
       if (result.state.status === "COMPLETED" && result.state.winnerSeat !== null) {
@@ -679,6 +754,8 @@ export class MatchesRepository {
         scheduled.scoringMatchId === null ||
         scheduled.winnerPlayerId === null
       ) return "result-not-correctable";
+      // Vereinsduell: nach der Paarung der Folgephase steht das Resultat fest.
+      if (await isClubDuelResultLocked(transaction, input.organizationId, input.tournamentId, scheduled)) return "club-duel-round-paired";
 
       const [scoringMatch] = await transaction
         .select()
@@ -814,9 +891,11 @@ export class MatchesRepository {
       }
 
       const reopenedStatus =
-        scheduled.groupId !== null || tournament.format === "ROUND_ROBIN"
-          ? "GROUP_STAGE"
-          : "KNOCKOUT";
+        tournament.format === "CLUB_DUEL"
+          ? await this.clubDuelStatusForStage(transaction, input.organizationId, scheduled.stageId)
+          : scheduled.groupId !== null || tournament.format === "ROUND_ROBIN"
+            ? "GROUP_STAGE"
+            : "KNOCKOUT";
       await transaction
         .update(tournamentStages)
         .set({ status: "OPEN", updatedAt: new Date() })
@@ -887,6 +966,22 @@ export class MatchesRepository {
       });
       return "ok";
     });
+  }
+
+  /** Turnierstatus eines Vereinsduells, dessen Spiel in `stageId` wieder geoeffnet wird. */
+  private async clubDuelStatusForStage(
+    transaction: Parameters<Parameters<DatabaseService["database"]["transaction"]>[0]>[0],
+    organizationId: string,
+    stageId: string,
+  ): Promise<"GROUP_STAGE" | "FINAL_ROUND" | "KNOCKOUT"> {
+    const [stage] = await transaction
+      .select({ key: tournamentStages.key })
+      .from(tournamentStages)
+      .where(and(eq(tournamentStages.organizationId, organizationId), eq(tournamentStages.id, stageId)))
+      .limit(1);
+    if (stage?.key === CLUB_DUEL_STAGE_KEYS.qualifying) return "GROUP_STAGE";
+    if (stage?.key === CLUB_DUEL_STAGE_KEYS.finalRound) return "FINAL_ROUND";
+    return "KNOCKOUT";
   }
 
   /**
@@ -1490,7 +1585,7 @@ export class MatchesRepository {
       await this.syncProjection(transaction, input, match.boardId, nextVersion, result.state);
       const matchWinnerPlayerId = playerOfSeat(result.state, result.state.winnerSeat);
       if (result.state.status === "COMPLETED" && matchWinnerPlayerId !== null) {
-        await this.syncTournamentProgress(transaction, input.organizationId, input.matchId, matchWinnerPlayerId);
+        await this.syncTournamentProgress(transaction, input.organizationId, input.matchId, matchWinnerPlayerId, { principal: input.auth, audit: input.audit });
       }
       if (result.state.status === "COMPLETED" && result.state.winnerSeat !== null) {
         await completeEncounterSlotForMatch(transaction, {
@@ -1665,6 +1760,7 @@ export class MatchesRepository {
     organizationId: string,
     scoringMatchId: string,
     winnerPlayerId: string,
+    actor: { readonly principal: Principal; readonly audit: AuditContext },
   ): Promise<void> {
     const [scheduled] = await transaction
       .select()
@@ -1751,6 +1847,7 @@ export class MatchesRepository {
 
     const now = new Date();
     await applyWithdrawalPropagation(transaction, organizationId, scheduled.tournamentId, now);
+    await advanceClubDuel(transaction, { organizationId, tournamentId: scheduled.tournamentId, now, actor });
     await updateTournamentProgress(transaction, organizationId, scheduled.tournamentId, now);
     await transaction
       .update(tournaments)

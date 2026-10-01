@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 
 import {
   auditEvents,
@@ -17,11 +17,14 @@ import {
   type DatabaseExecutor,
 } from "@darts-platform/database";
 import type {
+  CreateGuestPlayersInput,
   CreatePlayerInput,
+  PlayerKindFilter,
   UpdatePlayerInput,
 } from "@darts-platform/schemas";
 
 import type { AuditContext } from "../common/audit-context.js";
+import { isUniqueViolation } from "../common/postgres-error.js";
 import { DatabaseService } from "../database/database.service.js";
 
 type PlayerRow = typeof players.$inferSelect;
@@ -45,6 +48,8 @@ function toPlayerResponse(row: PlayerRow, avatarChecksum: string | null) {
     email: row.email,
     externalReference: row.externalReference,
     status: row.status,
+    kind: row.kind,
+    guestClubName: row.guestClubName,
     hasAccount: row.userId !== null,
     avatarChecksum,
     createdAt: row.createdAt,
@@ -221,10 +226,34 @@ async function findAvatarChecksum(
   return avatar?.checksum ?? null;
 }
 
+type DatabaseTransaction = Parameters<Parameters<DatabaseService["database"]["transaction"]>[0]>[0];
+
 interface TenantActorInput {
   readonly organizationId: string;
   readonly userId: string;
   readonly audit: AuditContext;
+}
+
+/** Ergebnis der Gastspieler-Erfassung; `PAYLOAD_MISMATCH` bei bekannter commandId mit anderen Nutzdaten. */
+export type CreateGuestsResult =
+  | { readonly type: "OK"; readonly players: ReturnType<typeof toPlayerResponse>[] }
+  | { readonly type: "PAYLOAD_MISMATCH" };
+
+function normalizedGuestKey(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+/** Vergleicht die gespeicherten Gaeste einer commandId mit den neuen Nutzdaten. */
+function replayResult(
+  existing: ReturnType<typeof toPlayerResponse>[],
+  data: CreateGuestPlayersInput,
+): CreateGuestsResult {
+  const clubName = normalizedGuestKey(data.clubName);
+  const storedNames = new Set(existing.map((player) => normalizedGuestKey(player.displayName)));
+  const requestedNames = new Set(data.names.map(normalizedGuestKey));
+  const sameClub = existing.every((player) => player.guestClubName !== null && normalizedGuestKey(player.guestClubName) === clubName);
+  const sameNames = storedNames.size === requestedNames.size && [...requestedNames].every((name) => storedNames.has(name));
+  return sameClub && sameNames ? { type: "OK", players: existing } : { type: "PAYLOAD_MISMATCH" };
 }
 
 @Injectable()
@@ -233,12 +262,17 @@ export class PlayersRepository {
     @Inject(DatabaseService) private readonly databaseService: DatabaseService,
   ) {}
 
-  public async list(organizationId: string) {
+  public async list(organizationId: string, kind: PlayerKindFilter = "ALL") {
     const rows = await this.databaseService.database
       .select({ player: players, avatarChecksum: playerAvatars.checksum })
       .from(players)
       .leftJoin(playerAvatars, eq(playerAvatars.playerId, players.id))
-      .where(eq(players.organizationId, organizationId))
+      .where(
+        and(
+          eq(players.organizationId, organizationId),
+          kind === "ALL" ? undefined : eq(players.kind, kind),
+        ),
+      )
       .orderBy(players.displayName);
 
     return rows.map((row) =>
@@ -312,6 +346,92 @@ export class PlayersRepository {
       // Ein frisch angelegter Spieler kann noch kein Profilbild haben.
       return toPlayerResponse(player, null);
     });
+  }
+
+  /**
+   * Schnellerfassung von Gastspielern eines anderen Vereins (Spec 2026-10-01-
+   * vereinsduell). Idempotent ueber `guest_command_id`: der partielle Unique-
+   * Index `players_guest_command_name_unique` laesst dieselbe commandId keine
+   * zweite Reihe je Name anlegen. Eine transaktionsgebundene Advisory-Sperre
+   * je Organisation und commandId reiht gleichzeitige Anfragen, damit auch
+   * disjunkte Namensmengen nie zwei Gastsets ergeben; nach der Sperre wird der
+   * Bestand erneut gelesen.
+   *
+   * Replay-Semantik: Eine bekannte commandId liefert die damals angelegten
+   * Gaeste in ihrem heutigen Zustand (nicht die urspruengliche Antwort) und
+   * schreibt kein zweites Audit. Das gilt nur bei gleichen Nutzdaten (Verein
+   * und Namensmenge, ohne Gross-/Kleinschreibung und Randleerzeichen);
+   * abweichende Nutzdaten ergeben `PAYLOAD_MISMATCH`. Wurde ein Gast seither
+   * umbenannt, gilt der Replay mit dem alten Namen ebenfalls als abweichend.
+   */
+  public async createGuests(
+    input: TenantActorInput & { readonly data: CreateGuestPlayersInput },
+  ): Promise<CreateGuestsResult> {
+    // Schneller Weg ohne Sperre fuer die uebliche Wiederholung.
+    const existing = await this.guestsByCommand(this.databaseService.database, input.organizationId, input.data.commandId);
+    if (existing.length > 0) return replayResult(existing, input.data);
+    try {
+      return await this.databaseService.database.transaction(async (transaction) => {
+        // Gleichzeitige Anfragen derselben commandId nacheinander: der Unique-
+        // Index greift nur je Name, disjunkte Namensmengen kaemen sonst beide durch.
+        await transaction.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${input.organizationId}:${input.data.commandId}`}, 0))`);
+        const locked = await this.guestsByCommand(transaction, input.organizationId, input.data.commandId);
+        if (locked.length > 0) return replayResult(locked, input.data);
+        const rows = await transaction
+          .insert(players)
+          .values(
+            input.data.names.map((displayName) => ({
+              organizationId: input.organizationId,
+              displayName,
+              status: "ACTIVE" as const,
+              kind: "GUEST" as const,
+              guestClubName: input.data.clubName,
+              guestCommandId: input.data.commandId,
+            })),
+          )
+          .returning();
+        await transaction.insert(auditEvents).values({
+          organizationId: input.organizationId,
+          actorUserId: input.userId,
+          action: "PLAYERS_GUESTS_CREATED",
+          entityType: "Player",
+          entityId: input.data.commandId,
+          newValue: {
+            clubName: input.data.clubName,
+            playerIds: rows.map((row) => row.id),
+            names: input.data.names,
+          },
+          ip: input.audit.ip,
+          userAgent: input.audit.userAgent,
+          correlationId: input.audit.correlationId,
+        });
+        return { type: "OK" as const, players: rows.map((row) => toPlayerResponse(row, null)) };
+      });
+    } catch (error) {
+      // Zwei gleichzeitige Wiederholungen: die zweite laeuft in den Unique-Index.
+      if (isUniqueViolation(error, "players_guest_command_name_unique")) {
+        return replayResult(await this.guestsByCommand(this.databaseService.database, input.organizationId, input.data.commandId), input.data);
+      }
+      throw error;
+    }
+  }
+
+  private async guestsByCommand(
+    executor: DatabaseService["database"] | DatabaseTransaction,
+    organizationId: string,
+    commandId: string,
+  ) {
+    const rows = await executor
+      .select()
+      .from(players)
+      .where(
+        and(
+          eq(players.organizationId, organizationId),
+          eq(players.guestCommandId, commandId),
+        ),
+      )
+      .orderBy(players.displayName);
+    return rows.map((row) => toPlayerResponse(row, null));
   }
 
   public async update(

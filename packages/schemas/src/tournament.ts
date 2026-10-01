@@ -1,17 +1,27 @@
 import { z } from "zod";
 
+import { clubDuelDashboardSchema, clubDuelParticipantInputSchema, clubDuelSettingsSchema, clubSideSchema } from "./club-duel";
+
 export const tournamentStatusSchema = z.enum([
   "DRAFT",
   "READY",
   "GROUP_STAGE",
+  "FINAL_ROUND",
   "KNOCKOUT",
   "COMPLETED",
+]);
+
+export const classicTournamentFormatSchema = z.enum([
+  "GROUPS_THEN_KNOCKOUT",
+  "ROUND_ROBIN",
+  "SINGLE_ELIMINATION",
 ]);
 
 export const tournamentFormatSchema = z.enum([
   "GROUPS_THEN_KNOCKOUT",
   "ROUND_ROBIN",
   "SINGLE_ELIMINATION",
+  "CLUB_DUEL",
 ]);
 
 export const seedingModeSchema = z.enum(["SEEDED", "RANDOM"]);
@@ -175,6 +185,8 @@ const tournamentDashboardParticipantSchema = z.object({
   status: tournamentParticipantStatusSchema,
   withdrawnAt: z.coerce.date().nullable(),
   withdrawalReason: z.string().nullable(),
+  /** Vereinsduell: Seite des Spielers; sonst `null`. */
+  side: clubSideSchema.nullable(),
 });
 
 /**
@@ -211,6 +223,7 @@ export const tournamentDashboardSchema = z.object({
   groups: z.array(groupStandingSchema),
   bracket: z.array(bracketMatchSchema),
   recentResults: z.array(tournamentResultSchema),
+  clubDuel: clubDuelDashboardSchema.nullable(),
   generatedAt: z.coerce.date(),
 });
 
@@ -262,6 +275,7 @@ export const publicTournamentDashboardSchema = z.object({
   groups: tournamentDashboardSchema.shape.groups,
   bracket: tournamentDashboardSchema.shape.bracket,
   recentResults: tournamentDashboardSchema.shape.recentResults,
+  clubDuel: tournamentDashboardSchema.shape.clubDuel,
   generatedAt: tournamentDashboardSchema.shape.generatedAt,
 });
 
@@ -278,7 +292,7 @@ export const tournamentStructurePreviewSchema = z.object({
 });
 
 export const tournamentStructurePreviewInputSchema = z.object({
-  format: tournamentFormatSchema.default("GROUPS_THEN_KNOCKOUT"),
+  format: classicTournamentFormatSchema.default("GROUPS_THEN_KNOCKOUT"),
   participantCount: z.number().int().min(2).max(256),
   groupCount: z.number().int().min(1).max(32),
   qualifyPerGroup: z.number().int().min(1).max(8),
@@ -292,28 +306,32 @@ export const tournamentStructurePreviewInputSchema = z.object({
   ]),
 });
 
-export const createTournamentSchema = z
-  .object({
-    name: z.string().trim().min(1).max(120),
-    startsAt: z.coerce.date(),
-    format: tournamentFormatSchema,
-    startingScore: z.union([z.literal(301), z.literal(501), z.literal(701)]),
-    inRule: inRuleSchema,
-    outRule: outRuleSchema,
-    maxRounds: z.number().int().min(1).max(99).nullable().default(null),
-    bestOfLegs: z
-      .number()
-      .int()
-      .min(1)
-      .max(21)
-      .refine((value) => value % 2 === 1, "Best of legs must be odd."),
-    bestOfSets: z
-      .number()
-      .int()
-      .min(1)
-      .max(21)
-      .refine((value) => value % 2 === 1, "Best of sets must be odd.")
-      .default(1),
+const tournamentMatchSettingsSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  startsAt: z.coerce.date(),
+  startingScore: z.union([z.literal(301), z.literal(501), z.literal(701)]),
+  inRule: inRuleSchema,
+  outRule: outRuleSchema,
+  maxRounds: z.number().int().min(1).max(99).nullable().default(null),
+  bestOfLegs: z
+    .number()
+    .int()
+    .min(1)
+    .max(21)
+    .refine((value) => value % 2 === 1, "Best of legs must be odd."),
+  bestOfSets: z
+    .number()
+    .int()
+    .min(1)
+    .max(21)
+    .refine((value) => value % 2 === 1, "Best of sets must be odd.")
+    .default(1),
+  boardIds: z.array(z.uuid()).min(1).max(64),
+});
+
+export const createClassicTournamentSchema = tournamentMatchSettingsSchema
+  .extend({
+    format: classicTournamentFormatSchema,
     participantIds: z.array(z.uuid()).min(4).max(256),
     groupCount: z.number().int().min(1).max(32),
     qualifyPerGroup: z.number().int().min(1).max(8),
@@ -326,7 +344,6 @@ export const createTournamentSchema = z
       z.literal(64),
     ]),
     seeding: seedingModeSchema,
-    boardIds: z.array(z.uuid()).min(1).max(64),
   })
   .refine((value) => new Set(value.participantIds).size === value.participantIds.length, {
     message: "A participant may only be entered once.",
@@ -394,6 +411,34 @@ export const createTournamentSchema = z
       path: ["knockoutSize"],
     },
   );
+
+export const createClubDuelTournamentSchema = tournamentMatchSettingsSchema
+  .extend({
+    format: z.literal("CLUB_DUEL"),
+    participants: z.array(clubDuelParticipantInputSchema).min(2).max(256),
+  })
+  .extend(clubDuelSettingsSchema.shape)
+  .refine((value) => new Set(value.participants.map((entry) => entry.playerId)).size === value.participants.length, {
+    message: "A participant may only be entered once.",
+    path: ["participants"],
+  })
+  .refine((value) => new Set(value.boardIds).size === value.boardIds.length, {
+    message: "A board may only be selected once.",
+    path: ["boardIds"],
+  })
+  .refine(
+    (value) => {
+      const sideA = value.participants.filter((entry) => entry.side === "A").length;
+      const sideB = value.participants.length - sideA;
+      return Math.min(sideA, sideB) >= value.finalRoundSize;
+    },
+    { message: "Jeder Verein braucht mindestens so viele Spieler wie die Finalrunde Plätze hat.", path: ["participants"] },
+  );
+
+export const createTournamentSchema = z.discriminatedUnion("format", [
+  createClassicTournamentSchema,
+  createClubDuelTournamentSchema,
+]);
 
 /** Board assignment is a mutation: idempotent by commandId, guarded by version. */
 export const assignMatchSchema = z.object({
@@ -473,6 +518,9 @@ export type TournamentStructurePreview = z.infer<typeof tournamentStructurePrevi
 export type TournamentStructurePreviewInput = z.infer<
   typeof tournamentStructurePreviewInputSchema
 >;
+export type ClassicTournamentFormat = z.infer<typeof classicTournamentFormatSchema>;
+export type CreateClassicTournamentInput = z.infer<typeof createClassicTournamentSchema>;
+export type CreateClubDuelTournamentInput = z.infer<typeof createClubDuelTournamentSchema>;
 export type CreateTournamentInput = z.infer<typeof createTournamentSchema>;
 export type AssignMatchInput = z.infer<typeof assignMatchSchema>;
 export type ReleaseBoardInput = z.infer<typeof releaseBoardSchema>;

@@ -4,6 +4,7 @@ import type { FastifyRequest } from "fastify";
 import {
   assignMatchSchema,
   advancedFormatPreviewInputSchema,
+  clubDuelPreviewInputSchema,
   correctTournamentResultSchema,
   createTournamentSchema,
   releaseBoardSchema,
@@ -13,6 +14,8 @@ import {
   type AssignMatchInput,
   type AdvancedFormatPreview,
   type AdvancedFormatPreviewInput,
+  type ClubDuelPreviewInput,
+  type ClubDuelPreviewResponse,
   type CorrectTournamentResultInput,
   type CreateTournamentInput,
   type ReleaseBoardInput,
@@ -70,6 +73,16 @@ export class TournamentsController {
   ): Promise<AdvancedFormatPreview> {
     const data: AdvancedFormatPreviewInput = parseBody(advancedFormatPreviewInputSchema, body);
     return this.service.advancedPreview({ organizationId, data, auth });
+  }
+
+  @Post("club-duel-preview")
+  public clubDuelPreview(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Body() body: unknown,
+    @CurrentAuth() auth: AuthContext,
+  ): Promise<ClubDuelPreviewResponse> {
+    const data: ClubDuelPreviewInput = parseBody(clubDuelPreviewInputSchema, body);
+    return this.service.clubDuelPreview({ organizationId, data, auth });
   }
 
   @Post()

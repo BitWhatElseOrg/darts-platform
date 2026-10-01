@@ -37,12 +37,26 @@ export interface GroupAllocationInput {
 export type KnockoutParticipantReference =
   | { readonly type: "PLAYER"; readonly playerId: string }
   | { readonly type: "GROUP_RANK"; readonly groupKey: string; readonly rank: number }
-  | { readonly type: "MATCH_WINNER"; readonly matchKey: string };
+  | { readonly type: "MATCH_WINNER"; readonly matchKey: string }
+  | {
+      /** Vereinsduell: Rang `rank` der Seite `side` in der Phase `stageKey` (Spec, Datenmodell). */
+      readonly type: "SIDE_RANK";
+      readonly stageKey: string;
+      readonly side: "A" | "B";
+      readonly rank: number;
+    };
+
+export type PlannedStageType =
+  | "GROUP"
+  | "ROUND_ROBIN"
+  | "SINGLE_ELIMINATION"
+  | "CLUB_SWISS"
+  | "CLUB_CROSS_ROUND_ROBIN";
 
 export interface PlannedMatch {
   readonly key: string;
   readonly stageKey: string;
-  readonly stageType: "GROUP" | "ROUND_ROBIN" | "SINGLE_ELIMINATION";
+  readonly stageType: PlannedStageType;
   readonly groupKey: string | null;
   readonly round: number;
   readonly position: number;
@@ -77,24 +91,50 @@ export interface TournamentStructurePreview {
   readonly warnings: readonly string[];
 }
 
+export type TournamentFormatKey = "GROUPS_THEN_KNOCKOUT" | "ROUND_ROBIN" | "SINGLE_ELIMINATION" | "CLUB_DUEL";
+
 export interface TournamentLifecycleStage {
   readonly id: string;
-  readonly type: "GROUP" | "ROUND_ROBIN" | "SINGLE_ELIMINATION";
+  readonly type: PlannedStageType;
   readonly hasOpenMatches: boolean;
 }
 
 export interface TournamentLifecycle {
-  readonly tournamentStatus: "GROUP_STAGE" | "KNOCKOUT" | "COMPLETED";
+  readonly tournamentStatus: "GROUP_STAGE" | "FINAL_ROUND" | "KNOCKOUT" | "COMPLETED";
   readonly stages: readonly {
     readonly id: string;
     readonly status: "OPEN" | "WAITING" | "COMPLETED";
   }[];
 }
 
+/** Phasen eines Vereinsduells in Spielfolge; die erste mit offenen Spielen ist die laufende. */
+const CLUB_DUEL_PHASES: readonly {
+  readonly type: PlannedStageType;
+  readonly status: Exclude<TournamentLifecycle["tournamentStatus"], "COMPLETED">;
+}[] = [
+  { type: "CLUB_SWISS", status: "GROUP_STAGE" },
+  { type: "CLUB_CROSS_ROUND_ROBIN", status: "FINAL_ROUND" },
+  { type: "SINGLE_ELIMINATION", status: "KNOCKOUT" },
+];
+
+function calculateClubDuelLifecycle(stages: readonly TournamentLifecycleStage[]): TournamentLifecycle {
+  const openTypes = new Set(stages.filter((stage) => stage.hasOpenMatches).map((stage) => stage.type));
+  const current = CLUB_DUEL_PHASES.find((phase) => openTypes.has(phase.type));
+  return {
+    tournamentStatus: current === undefined ? "COMPLETED" : current.status,
+    stages: stages.map((stage) => ({
+      id: stage.id,
+      status: !stage.hasOpenMatches ? "COMPLETED" : stage.type === current?.type ? "OPEN" : "WAITING",
+    })),
+  };
+}
+
 export function calculateTournamentLifecycle(input: {
-  readonly format: "GROUPS_THEN_KNOCKOUT" | "ROUND_ROBIN" | "SINGLE_ELIMINATION";
+  readonly format: TournamentFormatKey;
   readonly stages: readonly TournamentLifecycleStage[];
 }): TournamentLifecycle {
+  if (input.format === "CLUB_DUEL") return calculateClubDuelLifecycle(input.stages);
+
   const hasOpenMatches = input.stages.some((stage) => stage.hasOpenMatches);
   const groupsHaveOpenMatches = input.stages.some(
     (stage) => stage.type === "GROUP" && stage.hasOpenMatches,

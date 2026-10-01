@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 
@@ -10,6 +11,7 @@ import { evaluateMatchReadiness } from "@darts-platform/scheduling-engine";
 import {
   calculateGroupStandings,
   generateDoubleElimination,
+  previewClubDuel,
   previewTournamentStructure,
   TournamentValidationError,
   validateStageComposition,
@@ -18,11 +20,16 @@ import {
 import {
   publicTournamentDashboardSchema,
   tournamentDashboardSchema,
+  tournamentFormatSchema,
+  tournamentStatusSchema,
   advancedFormatPreviewSchema,
+  clubDuelPreviewSchema,
   tournamentListSchema,
   tournamentStructurePreviewSchema,
   tournamentSummarySchema,
   type AssignMatchInput,
+  type ClubDuelPreviewInput,
+  type ClubDuelPreviewResponse,
   type AdvancedFormatPreview,
   type AdvancedFormatPreviewInput,
   type CorrectTournamentResultInput,
@@ -44,11 +51,11 @@ import { rethrowScoringError } from "../common/scoring-error.js";
 import { MatchesRepository } from "../matches/matches.repository.js";
 import type { TournamentCorrectionResult } from "../matches/matches.repository.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
+import { projectClubDuel } from "./club-duel-projection.js";
 import { DisplayKeysService } from "./display-keys.service.js";
 import { isMatchOverrunning } from "./match-overrun.js";
+import { ROUND_ROBIN_LABEL, tournamentStageLabel } from "./tournament-stage-label.js";
 
-/** Bezeichnung der einzigen Phase eines Jeder-gegen-jeden-Turniers (auch Match-Stage-Label im Repository). */
-const ROUND_ROBIN_LABEL = "Jeder gegen jeden";
 import {
   TournamentsRepository,
   type TournamentDashboardData,
@@ -67,6 +74,8 @@ export class TournamentVersionConflictException extends ConflictException {
 
 @Injectable()
 export class TournamentsService {
+  private readonly logger = new Logger(TournamentsService.name);
+
   public constructor(
     @Inject(TournamentsRepository) private readonly repository: TournamentsRepository,
     @Inject(MatchesRepository) private readonly matchesRepository: MatchesRepository,
@@ -130,6 +139,19 @@ export class TournamentsService {
       stages: projected,
       warnings,
     });
+  }
+
+  public async clubDuelPreview(input: {
+    readonly organizationId: string;
+    readonly data: ClubDuelPreviewInput;
+    readonly auth: AuthContext;
+  }): Promise<ClubDuelPreviewResponse> {
+    await this.require(input, "tournament:read");
+    try {
+      return clubDuelPreviewSchema.parse(previewClubDuel(input.data));
+    } catch (error) {
+      this.rethrowDomainError(error);
+    }
   }
 
   public async create(input: {
@@ -202,6 +224,7 @@ export class TournamentsService {
         displayName: participant.displayName,
         seed: participant.seed,
         status: participant.status,
+        side: participant.side,
       })),
       boards: dashboard.boards.map(({ blockedReason, ...board }) => {
         void blockedReason;
@@ -214,6 +237,7 @@ export class TournamentsService {
       groups: dashboard.groups,
       bracket: dashboard.bracket,
       recentResults: dashboard.recentResults,
+      clubDuel: dashboard.clubDuel,
       generatedAt: dashboard.generatedAt,
     });
   }
@@ -344,6 +368,13 @@ export class TournamentsService {
           details: { currentState: current },
         });
       }
+      if (result === "club-duel-round-paired") {
+        throw new ConflictException({
+          code: "CLUB_DUEL_ROUND_ALREADY_PAIRED",
+          message: "Die nächste Runde ist bereits gepaart. Dieses Resultat kann nicht mehr korrigiert werden.",
+          details: { currentState: current },
+        });
+      }
       if (result === "downstream-started") {
         throw new ConflictException({
           code: "TOURNAMENT_DEPENDENT_MATCH_STARTED",
@@ -396,6 +427,15 @@ export class TournamentsService {
       data.tournament.organizationId,
       data.matches.flatMap((match) => (match.scoringMatchId === null ? [] : [match.scoringMatchId])),
     );
+    const legsOf = (scoringMatchId: string, playerId: string): number | undefined =>
+      scoringById.get(scoringMatchId)?.participants.find((participant) => participant.playerId === playerId)?.legsWon;
+    // Ruling R11: Lesepfad abschirmen; eine kaputte Projektion darf das Dashboard nicht kippen.
+    let clubDuel: ReturnType<typeof projectClubDuel> = null;
+    try {
+      clubDuel = projectClubDuel({ data, legsOf });
+    } catch (error) {
+      this.logger.error(`Club duel projection failed for tournament ${data.tournament.id}: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
+    }
     const names = new Map(
       data.participants.map((participant) => [participant.playerId, participant.displayName]),
     );
@@ -655,16 +695,12 @@ export class TournamentsService {
         status: data.tournament.status,
         format: data.tournament.format,
         version: data.tournament.version,
-        stageLabel:
-          data.tournament.status === "GROUP_STAGE"
-            ? data.tournament.format === "ROUND_ROBIN"
-              ? ROUND_ROBIN_LABEL
-              : "Gruppenphase"
-            : data.tournament.status === "KNOCKOUT"
-              ? "K.-o.-Runde"
-              : data.tournament.status === "COMPLETED"
-                ? "Turnier beendet"
-                : "Startbereit",
+        stageLabel: tournamentStageLabel({
+          // Die DB-Spalten sind Text; das Dashboard-Schema prueft die Werte ohnehin.
+          status: tournamentStatusSchema.parse(data.tournament.status),
+          format: tournamentFormatSchema.parse(data.tournament.format),
+          clubDuelRound: clubDuel?.currentRound ?? null,
+        }),
         startingScore: data.tournament.startingScore,
         inRule: data.tournament.inRule,
         outRule: data.tournament.outRule,
@@ -679,7 +715,9 @@ export class TournamentsService {
         status: participant.status,
         withdrawnAt: participant.withdrawnAt,
         withdrawalReason: participant.withdrawalReason,
+        side: participant.side === "A" || participant.side === "B" ? participant.side : null,
       })),
+      clubDuel,
       boards,
       queue,
       conflicts,

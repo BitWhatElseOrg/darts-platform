@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -37,6 +37,8 @@ const players = Array.from({ length: 4 }, (_, index) => ({
   status: "ACTIVE" as const,
   hasAccount: false,
   avatarChecksum: null,
+  kind: "MEMBER" as const,
+  guestClubName: null,
   createdAt: now,
   updatedAt: now,
 }));
@@ -51,7 +53,12 @@ const boards = [
   },
 ];
 
-function renderSheet(options: { readonly boards?: typeof boards } = {}) {
+type PlayerFixture = Omit<(typeof players)[number], "kind" | "guestClubName"> & {
+  readonly kind: "MEMBER" | "GUEST";
+  readonly guestClubName: string | null;
+};
+
+function renderSheet(options: { readonly boards?: typeof boards; readonly players?: readonly PlayerFixture[]; readonly organizationName?: string } = {}) {
   client.apiRequest.mockResolvedValue({
     groups: [], groupMatchCount: 0, knockoutSize: 4, knockoutMatchCount: 3, byes: 0, totalMatches: 3, warnings: [],
   });
@@ -62,8 +69,9 @@ function renderSheet(options: { readonly boards?: typeof boards } = {}) {
       { client: queryClient },
       createElement(SetupSheet, {
         organizationId: "00000000-0000-4000-8000-0000000000aa",
-        players,
+        players: options.players ?? players,
         boards: options.boards ?? boards,
+        ...(options.organizationName !== undefined ? { organizationName: options.organizationName } : {}),
       }),
     ),
   );
@@ -122,5 +130,273 @@ describe("SetupSheet: Rueckmeldung bei ungueltigen Eingaben", () => {
     fireEvent.click(screen.getByRole("button", { name: "Turnier starten" }));
 
     await waitFor(() => expect(screen.queryByTestId("submit-errors")).toBeNull());
+  });
+});
+
+const guests: PlayerFixture[] = [1, 2].map((index) => ({
+  ...players[0]!,
+  id: `00000000-0000-4000-8000-0000000000e${index}`,
+  publicId: `00000000-0000-4000-8000-0000000000f${index}`,
+  displayName: `Gast ${index}`,
+  kind: "GUEST",
+  guestClubName: "DC Musterdorf",
+}));
+const clubPreview = {
+  qualifyingMatches: 8, finalRoundMatches: 4, finalMatches: 1, totalMatches: 13,
+  matchesPerPlayer: { sideA: { min: 6, max: 6 }, sideB: { min: 6, max: 6 } },
+  estimatedMinutes: 120, warnings: [],
+};
+
+function tournamentPosts() {
+  return client.apiRequest.mock.calls
+    .map((call) => call[0] as { path: string; method?: string; body?: unknown })
+    .filter((input) => input.method === "POST" && input.path.endsWith("/tournaments"));
+}
+
+describe("SetupSheet: Vereinsduell", () => {
+  it("zeigt im klassischen Format nur Mitglieder, keine Gastspieler", () => {
+    renderSheet({ players: [...players.slice(0, 2), ...guests] });
+    expect(screen.getByRole("checkbox", { name: "Spielerin 1" })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "Gast 1" })).toBeNull();
+  });
+
+  it("legt ein Vereinsduell mit Vereinen, Spielerseiten und Vorschau an", async () => {
+    renderSheet({ players: [...players.slice(0, 2), ...guests], organizationName: "VFC Testverein" });
+    client.apiRequest.mockImplementation((input: { path: string; method?: string }) => {
+      if (input.path.endsWith("/club-duel-preview")) return Promise.resolve(clubPreview);
+      if (input.path.endsWith("/structure-preview")) {
+        return Promise.resolve({ groups: [], groupMatchCount: 0, knockoutSize: 0, knockoutMatchCount: 0, byes: 0, totalMatches: 0, warnings: [] });
+      }
+      if (input.method === "POST" && input.path.endsWith("/tournaments")) {
+        return Promise.resolve({ id: "00000000-0000-4000-8000-0000000000d1" });
+      }
+      return Promise.reject(new Error(`unerwartet: ${input.path}`));
+    });
+
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "CLUB_DUEL" } });
+
+    const ownClub = screen.getByLabelText("Eigener Verein");
+    expect(ownClub).toHaveProperty("value", "VFC Testverein");
+    expect(screen.getByLabelText("Gastverein")).toBeTruthy();
+    expect(screen.getByLabelText("Quali-Runden")).toBeTruthy();
+    expect(screen.getByLabelText("Spiel um Platz 3")).toHaveProperty("checked", true);
+    // Ohne Gastverein-Namen stehen alle Gäste rechts, keine Mitglieder.
+    const guestColumn = screen.getByRole("group", { name: "Spieler Gastverein" });
+    expect(within(guestColumn).getAllByRole("checkbox").map((box) => box.closest("li")?.textContent)).toEqual([
+      "Gast 1DC Musterdorf",
+      "Gast 2DC Musterdorf",
+    ]);
+    expect(within(screen.getByRole("group", { name: "Spieler VFC Testverein" })).getAllByRole("checkbox")).toHaveLength(2);
+
+    // Ohne Vereinsnamen geht nichts an den Server.
+    fireEvent.change(ownClub, { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Vereinsduell Herbst" } });
+    fireEvent.click(screen.getByRole("button", { name: "Turnier starten" }));
+    const summary = await screen.findByTestId("submit-errors");
+    expect(summary.textContent).toContain("Trage den Namen des eigenen Vereins ein.");
+    expect(summary.textContent).toContain("Trage den Namen des Gastvereins ein.");
+    expect(tournamentPosts()).toHaveLength(0);
+
+    fireEvent.change(ownClub, { target: { value: "VFC Testverein" } });
+    fireEvent.change(screen.getByLabelText("Gastverein"), { target: { value: "DC Musterdorf" } });
+    fireEvent.change(screen.getByLabelText("Finalrunde (Spieler je Verein)"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Spielerin 1" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Spielerin 2" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Gast 1" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Gast 2" }));
+
+    const total = await screen.findByText("Spiele insgesamt");
+    expect(total.parentElement?.textContent).toBe("Spiele insgesamt13");
+    const previewBodies = client.apiRequest.mock.calls
+      .map((call) => call[0] as { path: string; body?: unknown })
+      .filter((input) => input.path.endsWith("/club-duel-preview"))
+      .map((input) => input.body);
+    expect(previewBodies.at(-1)).toEqual({
+      sideACount: 2, sideBCount: 2, qualifyingRounds: 4, finalRoundSize: 2, thirdPlaceMatch: true, boardCount: 1, bestOfLegs: 3,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Turnier starten" }));
+    await waitFor(() => expect(tournamentPosts()).toHaveLength(1));
+    const body = tournamentPosts()[0]!.body as { format: string; participants: unknown[]; sideAName: string; finalRoundSize: number };
+    expect(body.format).toBe("CLUB_DUEL");
+    expect(body.sideAName).toBe("VFC Testverein");
+    expect(body.finalRoundSize).toBe(2);
+    expect(body.participants).toEqual([
+      { playerId: players[0]!.id, side: "A" },
+      { playerId: players[1]!.id, side: "A" },
+      { playerId: guests[0]!.id, side: "B" },
+      { playerId: guests[1]!.id, side: "B" },
+    ]);
+    expect(screen.queryByTestId("submit-errors")).toBeNull();
+  });
+
+  it("setzt neu erfasste Gastspieler auf Seite B und fuehrt jede Person nur auf einer Seite", async () => {
+    renderSheet({ players: [...players.slice(0, 2), ...guests], organizationName: "VFC Testverein" });
+    client.apiRequest.mockImplementation((input: { path: string; method?: string }) => {
+      if (input.path.endsWith("/players/guests")) return Promise.resolve([guests[1]]);
+      if (input.path.endsWith("/club-duel-preview")) return Promise.resolve(clubPreview);
+      if (input.method === "POST" && input.path.endsWith("/tournaments")) {
+        return Promise.resolve({ id: "00000000-0000-4000-8000-0000000000d1" });
+      }
+      return Promise.reject(new Error(`unerwartet: ${input.path}`));
+    });
+
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "CLUB_DUEL" } });
+    fireEvent.change(screen.getByLabelText("Gastverein"), { target: { value: "DC Musterdorf" } });
+    const counter = screen.getByLabelText(/gegen .* Spieler/u);
+    expect(counter.textContent).toBe("0 : 0");
+
+    // (a) Gast über das Panel erfassen: er ist danach auf Seite B angekreuzt.
+    const guestCheckbox = screen.getByRole("checkbox", { name: "Gast 2" });
+    expect(guestCheckbox).toHaveProperty("checked", false);
+    fireEvent.change(screen.getByLabelText("Gastspieler (ein Name pro Zeile)"), { target: { value: "Gast 2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Gastspieler erfassen" }));
+    await waitFor(() => expect(guestCheckbox).toHaveProperty("checked", true));
+    expect(counter.textContent).toBe("0 : 1");
+    expect(tournamentPosts()).toHaveLength(0);
+
+    // (b) Weitere Auswahl: zweimal an- und abwählen bleibt eindeutig.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Spielerin 1" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Spielerin 2" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Gast 1" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Gast 2" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Gast 2" }));
+    expect(counter.textContent).toBe("2 : 2");
+    fireEvent.change(screen.getByLabelText("Finalrunde (Spieler je Verein)"), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Vereinsduell Herbst" } });
+    fireEvent.click(screen.getByRole("button", { name: "Turnier starten" }));
+
+    await waitFor(() => expect(tournamentPosts()).toHaveLength(1));
+    const { participants } = tournamentPosts()[0]!.body as { participants: { playerId: string; side: string }[] };
+    expect(new Set(participants.map((entry) => entry.playerId)).size).toBe(participants.length);
+    expect([...participants].sort((a, b) => a.playerId.localeCompare(b.playerId))).toEqual([
+      { playerId: players[0]!.id, side: "A" },
+      { playerId: players[1]!.id, side: "A" },
+      { playerId: guests[0]!.id, side: "B" },
+      { playerId: guests[1]!.id, side: "B" },
+    ]);
+  });
+
+  it("zeigt ausgewählte Gäste anderer Vereine in der Hauptspalte B, nicht nur unter «Weitere Gastspieler»", () => {
+    const otherGuest: PlayerFixture = { ...guests[0]!, id: "00000000-0000-4000-8000-0000000000e3", publicId: "00000000-0000-4000-8000-0000000000f3", displayName: "Gast 3", guestClubName: "DC Mitteldorf" };
+    renderSheet({ players: [...players.slice(0, 2), ...guests, otherGuest], organizationName: "VFC Testverein" });
+    client.apiRequest.mockImplementation(() => Promise.resolve(clubPreview));
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "CLUB_DUEL" } });
+
+    // Ohne Gastverein stehen alle Gäste in der Hauptspalte; Gast 3 auswählen.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Gast 3" }));
+    fireEvent.change(screen.getByLabelText("Gastverein"), { target: { value: "DC Musterdorf" } });
+
+    const main = screen.getByRole("group", { name: "Spieler DC Musterdorf" });
+    expect(within(main).getByRole("checkbox", { name: "Gast 3" })).toHaveProperty("checked", true);
+    expect(screen.queryByRole("group", { name: "Andere Vereine" })).toBeNull();
+
+    // Abgewählt rutscht Gast 3 zurück in den ausklappbaren Bereich.
+    fireEvent.click(within(main).getByRole("checkbox", { name: "Gast 3" }));
+    expect(within(screen.getByRole("group", { name: "Spieler DC Musterdorf" })).queryByRole("checkbox", { name: "Gast 3" })).toBeNull();
+    expect(screen.getByText("Weitere Gastspieler (1)")).toBeTruthy();
+  });
+
+  it("wählt mit «Alle»/«Keinen» alle Mitglieder für Seite A aus und wieder ab", () => {
+    renderSheet({ players: [...players.slice(0, 2), ...guests], organizationName: "VFC Testverein" });
+    client.apiRequest.mockImplementation(() => Promise.resolve(clubPreview));
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "CLUB_DUEL" } });
+    const counter = screen.getByLabelText(/gegen .* Spieler/u);
+    const columnA = screen.getByRole("group", { name: "Spieler VFC Testverein" });
+
+    fireEvent.click(within(columnA).getByRole("button", { name: "Alle" }));
+    expect(counter.textContent).toBe("2 : 0");
+    expect(within(columnA).getByRole("checkbox", { name: "Spielerin 1" })).toHaveProperty("checked", true);
+    expect(within(columnA).getByRole("checkbox", { name: "Spielerin 2" })).toHaveProperty("checked", true);
+
+    fireEvent.click(within(columnA).getByRole("button", { name: "Keinen" }));
+    expect(counter.textContent).toBe("0 : 0");
+    expect(within(columnA).getByRole("button", { name: "Alle" })).toBeTruthy();
+  });
+
+  it("schaltet die Spielerspalten unter lg um: nur die gewählte Seite bleibt sichtbar", () => {
+    renderSheet({ players: [...players.slice(0, 2), ...guests], organizationName: "VFC Testverein" });
+    client.apiRequest.mockImplementation(() => Promise.resolve(clubPreview));
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "CLUB_DUEL" } });
+    fireEvent.change(screen.getByLabelText("Gastverein"), { target: { value: "DC Musterdorf" } });
+
+    // Beide Spalten bleiben gemountet (SSR-stabil); unter lg blendet `hidden` die
+    // nicht gewählte aus, `lg:block`/`lg:flex` holt sie ab lg zurück.
+    const switcher = screen.getByRole("radiogroup", { name: "Spielerspalte" });
+    expect(switcher.className).toContain("lg:hidden");
+    const columnOf = (name: string) => screen.getByRole("group", { name }).closest("[data-side]") as HTMLElement;
+    const sideA = within(switcher).getByRole("radio", { name: "VFC Testverein" });
+    const sideB = within(switcher).getByRole("radio", { name: "DC Musterdorf" });
+    expect(sideA.getAttribute("aria-checked")).toBe("true");
+    expect(columnOf("Spieler VFC Testverein").classList.contains("hidden")).toBe(false);
+    expect(columnOf("Spieler DC Musterdorf").classList.contains("hidden")).toBe(true);
+    expect(columnOf("Spieler DC Musterdorf").classList.contains("lg:flex")).toBe(true);
+    // Die Gastspieler-Erfassung steht unter beiden Spalten, nicht in der ausgeblendeten B.
+    expect(screen.getByRole("button", { name: "Gastspieler erfassen" }).closest("[data-side]")).toBeNull();
+
+    fireEvent.click(sideB);
+    expect(sideB.getAttribute("aria-checked")).toBe("true");
+    expect(columnOf("Spieler DC Musterdorf").classList.contains("hidden")).toBe(false);
+    expect(columnOf("Spieler VFC Testverein").classList.contains("hidden")).toBe(true);
+    expect(columnOf("Spieler VFC Testverein").classList.contains("lg:block")).toBe(true);
+
+    fireEvent.keyDown(sideB, { key: "ArrowLeft" });
+    expect(sideA.getAttribute("aria-checked")).toBe("true");
+    expect(document.activeElement).toBe(sideA);
+    expect(columnOf("Spieler VFC Testverein").classList.contains("hidden")).toBe(false);
+  });
+
+  it("zeigt einen neu erfassten Gast sofort in Spalte B, bevor die Spielerliste nachlädt", async () => {
+    const created: PlayerFixture = { ...guests[0]!, id: "00000000-0000-4000-8000-0000000000e9", publicId: "00000000-0000-4000-8000-0000000000f9", displayName: "Gast 9" };
+    renderSheet({ players: [...players.slice(0, 2), ...guests], organizationName: "VFC Testverein" });
+    client.apiRequest.mockImplementation((input: { path: string }) => {
+      if (input.path.endsWith("/players/guests")) return Promise.resolve([created]);
+      return Promise.resolve(clubPreview);
+    });
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "CLUB_DUEL" } });
+    fireEvent.change(screen.getByLabelText("Gastverein"), { target: { value: "DC Musterdorf" } });
+    expect(screen.queryByRole("checkbox", { name: "Gast 9" })).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Gastspieler (ein Name pro Zeile)"), { target: { value: "Gast 9" } });
+    fireEvent.click(screen.getByRole("button", { name: "Gastspieler erfassen" }));
+
+    const main = screen.getByRole("group", { name: "Spieler DC Musterdorf" });
+    const box = await within(main).findByRole("checkbox", { name: "Gast 9" });
+    expect(box).toHaveProperty("checked", true);
+    expect(screen.getByLabelText(/gegen .* Spieler/u).textContent).toBe("0 : 1");
+  });
+
+  it("unterscheidet bei der Finalrunde Bereich und Seitenprüfung", async () => {
+    renderSheet({ players: [...players.slice(0, 2), ...guests], organizationName: "VFC Testverein" });
+    client.apiRequest.mockImplementation(() => Promise.resolve(clubPreview));
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "CLUB_DUEL" } });
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Vereinsduell Herbst" } });
+    fireEvent.change(screen.getByLabelText("Gastverein"), { target: { value: "DC Musterdorf" } });
+    const select = screen.getByLabelText("Finalrunde (Spieler je Verein)");
+    // Ein Wert ausserhalb 2–6 (etwa aus manipuliertem DOM) trifft den Bereich.
+    const outOfRange = document.createElement("option");
+    outOfRange.value = "7";
+    select.appendChild(outOfRange);
+    fireEvent.change(select, { target: { value: "7" } });
+    fireEvent.click(screen.getByRole("button", { name: "Turnier starten" }));
+    const summary = await screen.findByTestId("submit-errors");
+    expect(summary.textContent).toContain("Die Finalrunde braucht 2 bis 6 Spieler je Verein.");
+
+    fireEvent.change(select, { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Turnier starten" }));
+    await waitFor(() => expect(screen.getByTestId("submit-errors").textContent).toContain("Jeder Verein braucht mindestens so viele Spieler, wie die Finalrunde Plätze hat."));
+    expect(screen.getByTestId("submit-errors").textContent).not.toContain("2 bis 6");
+    expect(tournamentPosts()).toHaveLength(0);
+  });
+
+  it("räumt die Fehlermeldungen beim Wechsel des Formats weg", async () => {
+    renderSheet();
+    fireEvent.click(screen.getByRole("button", { name: "Turnier starten" }));
+    expect((await screen.findByTestId("submit-errors")).textContent).toContain("Das Turnier braucht einen Namen");
+
+    client.apiRequest.mockImplementation(() => Promise.resolve(clubPreview));
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "CLUB_DUEL" } });
+    await waitFor(() => expect(screen.queryByTestId("submit-errors")).toBeNull());
+    expect(screen.queryByText("Das Turnier braucht einen Namen")).toBeNull();
   });
 });

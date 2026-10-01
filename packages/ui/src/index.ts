@@ -12,10 +12,12 @@ export {
   Field,
   FieldRow,
   SelectInput,
+  TextArea,
   TextInput,
   type FieldProps,
   type FieldRowProps,
   type SelectInputProps,
+  type TextAreaProps,
   type TextInputProps,
 } from "./sektorenring/field";
 export {

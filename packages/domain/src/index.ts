@@ -1,3 +1,4 @@
+export { clubAbbreviation } from "./club-label";
 export {
   createEntityId,
   type EntityId,

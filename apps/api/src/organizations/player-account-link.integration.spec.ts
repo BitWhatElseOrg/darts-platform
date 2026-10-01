@@ -317,6 +317,33 @@ describe("Einladung mit Spielerbezug", () => {
     ).rejects.toMatchObject({ response: { code: "PLAYER_NOT_ASSIGNABLE" } });
   }, 30_000);
 
+  it("weist eine Einladung auf einen Gastspieler mit 409 ab", async () => {
+    const [guest] = await databaseService.database
+      .insert(players)
+      .values({
+        organizationId,
+        displayName: "Gast Einladung",
+        status: "ACTIVE",
+        kind: "GUEST",
+        guestClubName: "DC Musterdorf",
+        guestCommandId: randomUUID(),
+      })
+      .returning({ id: players.id });
+
+    await expect(
+      organizationsService.invite({
+        organizationId,
+        data: {
+          email: `gast-${randomUUID()}@example.test`,
+          role: "MEMBER",
+          playerId: guest?.id ?? "",
+        },
+        auth: ownerAuth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ response: { code: "PLAYER_IS_GUEST" } });
+  }, 30_000);
+
   it("laesst die Einladung offen, wenn das Profil inzwischen fremd vergeben ist", async () => {
     const candidate = await freshCandidate("konflikt");
     const invitation = await organizationsService.invite({
@@ -581,6 +608,30 @@ describe("Manuelle Zuordnung", () => {
         audit,
       }),
     ).rejects.toMatchObject({ response: { code: "PLAYER_ALREADY_LINKED" } });
+  }, 30_000);
+
+  it("weist einen Gastspieler mit 409 ab", async () => {
+    const [guest] = await databaseService.database
+      .insert(players)
+      .values({
+        organizationId,
+        displayName: "Gast Zuordnung",
+        status: "ACTIVE",
+        kind: "GUEST",
+        guestClubName: "DC Musterdorf",
+        guestCommandId: randomUUID(),
+      })
+      .returning({ id: players.id });
+
+    await expect(
+      organizationsService.linkMemberPlayer({
+        organizationId,
+        targetUserId,
+        data: { playerId: guest?.id ?? "" },
+        auth: ownerAuth,
+        audit,
+      }),
+    ).rejects.toMatchObject({ response: { code: "PLAYER_IS_GUEST" } });
   }, 30_000);
 
   it("weist ein archiviertes Profil mit 422 ab", async () => {

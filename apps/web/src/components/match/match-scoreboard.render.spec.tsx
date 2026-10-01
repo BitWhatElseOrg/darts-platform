@@ -73,7 +73,7 @@ const match = {
       setsWon: 0,
       isActive: true,
       openedInLeg: true,
-      players: [{ playerId: playerOneId, displayName: "Alex Muster", isThrowing: true }],
+      players: [{ playerId: playerOneId, displayName: "Alex Muster", isThrowing: true, clubLabel: null }],
     },
     {
       seat: 2,
@@ -85,7 +85,7 @@ const match = {
       setsWon: 0,
       isActive: false,
       openedInLeg: true,
-      players: [{ playerId: playerTwoId, displayName: "Jordan Beispiel", isThrowing: false }],
+      players: [{ playerId: playerTwoId, displayName: "Jordan Beispiel", isThrowing: false, clubLabel: null }],
     },
   ],
   visits: [],
@@ -210,5 +210,19 @@ describe("MatchScoreboard", () => {
 
     expect(screen.getByText("LIVE")).toBeTruthy();
     expect(screen.getByLabelText("Bedienungsanleitung")).toBeTruthy();
+  });
+
+  it("nennt in der Ueberschrift im Vereinsduell die Vereinskuerzel", () => {
+    const [home, away] = match.participants;
+    const duel = {
+      ...match,
+      participants: [
+        { ...home, players: [{ ...home.players[0], clubLabel: "VFC" }] },
+        { ...away, players: [{ ...away.players[0], clubLabel: "DM" }] },
+      ],
+    } as unknown as MatchStateResponse;
+    renderScoreboard(duel);
+
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Alex Muster (VFC) – Jordan Beispiel (DM)");
   });
 });

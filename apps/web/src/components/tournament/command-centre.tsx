@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, PageNav } from "@/components/page-nav";
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { ApiClientError } from "@/lib/api-error";
+import { visibleQueue } from "@/lib/club-duel-queue";
 import { generateId } from "@/lib/id";
 import { type OfflineCommand } from "@/lib/offline-command-queue";
 import {
@@ -35,6 +36,7 @@ import {
 } from "@/lib/tournament-assignment-queue";
 import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
 import { BoardWedge } from "./board-wedge";
+import { ClubScoreBanner } from "./club-duel/club-score-banner";
 import { DashboardHeader } from "./dashboard-header";
 import { DeleteTournamentPanel } from "./delete-tournament-panel";
 import { DisplayKeysPanel } from "./display-keys-panel";
@@ -43,7 +45,7 @@ import { QueuePanel } from "./queue-panel";
 import { ParticipantDisruptionPanel } from "./participant-disruption-panel";
 import { ResultsPanel } from "./results-panel";
 import { liveNavTarget, SharePanel } from "./share-panel";
-import { StandingsSheet } from "./standings-sheet";
+import { TournamentStandingsArea } from "./tournament-standings-area";
 import { tournamentDeletionBlocker } from "@/lib/tournament-deletion";
 
 /**
@@ -619,6 +621,11 @@ export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canW
     return <RouteNotice message={dashboardQuery.error?.message ?? "Turnier konnte nicht geladen werden."} />;
   }
 
+  // Im Vereinsduell stehen die N²+2 Platzhalter der Finalrunde schon ab dem
+  // Start in der Warteschlange und verstopfen die Liste. Ausgeblendet wird
+  // nur in der Anzeige; der Server behaelt die Wahrheit.
+  const queueForPanel = visibleQueue(dashboard.queue, dashboard.tournament.format);
+
   return (
     <div className="sektorenring min-h-screen">
       <div className="mx-auto max-w-[1600px] px-5 py-6 xl:px-9">
@@ -635,6 +642,10 @@ export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canW
           dashboard={dashboard}
           pendingCount={pending.length}
         />
+
+        {dashboard.clubDuel !== null ? (
+          <div className="mt-5"><ClubScoreBanner clubDuel={dashboard.clubDuel} /></div>
+        ) : null}
 
         {conflict ? (
           <Wedge className="mt-5 flex flex-wrap items-start gap-4 p-4" tone="alarm">
@@ -766,14 +777,16 @@ export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canW
           </section>
 
           <div className="flex flex-col gap-7">
-            <QueuePanel disabled={commandBusy || assignBlocked} onAssign={(matchId) => void assign({ matchId })} openBoardName={openBoards[0]?.boardName ?? null} queue={dashboard.queue} />
+            <QueuePanel disabled={commandBusy || assignBlocked} onAssign={(matchId) => void assign({ matchId })} openBoardName={openBoards[0]?.boardName ?? null} queue={queueForPanel} />
             <ParticipantDisruptionPanel canWithdraw={canWithdraw} disabled={commandBusy || connection === "offline"} onWithdraw={(playerId, reason) => void withdrawParticipant(playerId, reason)} participants={dashboard.participants} />
             <ResultsPanel busy={commandBusy} canCorrect={canCorrect} onCorrect={(matchId, reason) => void correctResult(matchId, reason)} results={dashboard.recentResults} />
             <DisruptionsPanel conflicts={dashboard.conflicts} />
           </div>
         </div>
 
-        <div className="mt-9"><StandingsSheet format={dashboard.tournament.format} groups={dashboard.groups} /></div>
+        <div className="mt-9">
+          <TournamentStandingsArea dashboard={dashboard} />
+        </div>
         {canDelete ? (
           <DeleteTournamentPanel
             blockedReason={tournamentDeletionBlocker(dashboard)}
