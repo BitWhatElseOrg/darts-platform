@@ -3,10 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   CLUB_DUEL_STAGE_KEYS,
   TournamentValidationError,
+  calculateClubScore,
+  calculateClubStandings,
+  calculateCrossRoundStandings,
   pairClubSwissRound,
   planClubDuel,
   previewClubDuel,
   type ClubDuelParticipant,
+  type ClubMatchResult,
   type ClubRankedPlayer,
   type ClubSwissPairingInput,
   type ClubSwissRound,
@@ -274,5 +278,93 @@ describe("pairClubSwissRound", () => {
       expect(Math.max(...pauseValues) - Math.min(...pauseValues)).toBeLessThanOrEqual(1);
       expect([...pauses.keys()].every((id) => id.startsWith(largerPrefix))).toBe(true);
     }
+  });
+});
+
+const played = (a: string, b: string, legsA: number, legsB: number): ClubMatchResult => ({
+  type: "PLAYED", playerOneId: a, playerTwoId: b, playerOneLegs: legsA, playerTwoLegs: legsB, winnerPlayerId: legsA > legsB ? a : b,
+});
+const walkover = (a: string, b: string, winner: string): ClubMatchResult => ({
+  type: "WALKOVER", playerOneId: a, playerTwoId: b, playerOneLegs: 0, playerTwoLegs: 0, winnerPlayerId: winner,
+});
+
+describe("calculateClubStandings", () => {
+  const participants = clubParticipants(3, 2);
+
+  it("ordnet nach Siegquote, dann Legdifferenz pro Spiel, dann Legs pro Spiel, dann Seed", () => {
+    const standings = calculateClubStandings({
+      participants,
+      results: [
+        played("a-1", "b-1", 2, 0), // a-1: 1/1, +2
+        played("a-2", "b-2", 2, 1), // a-2: 1/1, +1
+        played("a-3", "b-1", 0, 2), // a-3: 0/1
+        played("a-1", "b-2", 0, 2), // a-1: 1/2, Legs 2:2 ; b-2: 1/2, Legs 3:2
+      ],
+    });
+    // Quote 1: a-2. Quote ½: b-2 (+0,5 pro Spiel) vor a-1 und b-1 (je 0, je 1 Leg pro Spiel) → Seed 1 vor Seed 4. Zuletzt a-3 (Quote 0).
+    expect(standings.overall.map((row) => row.playerId)).toEqual(["a-2", "b-2", "a-1", "b-1", "a-3"]);
+    expect(standings.overall[0]).toMatchObject({ position: 1, side: "A", played: 1, won: 1, lost: 0, legsFor: 2, legsAgainst: 1, winRate: 1, legDifferencePerMatch: 1, withdrawn: false });
+    expect(standings.sideA.map((row) => [row.position, row.playerId])).toEqual([[1, "a-2"], [2, "a-1"], [3, "a-3"]]);
+    expect(standings.sideB.map((row) => [row.position, row.playerId])).toEqual([[1, "b-2"], [2, "b-1"]]);
+  });
+
+  it("stellt Spieler ohne Spiel hinter alle mit Spiel und markiert Zurückgezogene", () => {
+    const standings = calculateClubStandings({
+      participants,
+      results: [played("a-3", "b-2", 0, 2)],
+      withdrawnPlayerIds: ["a-3"],
+    });
+    expect(standings.overall.map((row) => row.playerId)).toEqual(["b-2", "a-3", "a-1", "a-2", "b-1"]);
+    expect(standings.overall.find((row) => row.playerId === "a-3")?.withdrawn).toBe(true);
+  });
+
+  it("zählt Walkover als Sieg ohne Legs", () => {
+    const standings = calculateClubStandings({ participants, results: [walkover("a-1", "b-1", "b-1")] });
+    expect(standings.overall[0]).toMatchObject({ playerId: "b-1", won: 1, legsFor: 0, legsAgainst: 0, winRate: 1 });
+    expect(standings.overall.find((row) => row.playerId === "a-1")).toMatchObject({ played: 1, lost: 1, winRate: 0 });
+  });
+
+  it("lehnt ein Resultat innerhalb desselben Vereins oder mit Unbekannten ab", () => {
+    expect(() => calculateClubStandings({ participants, results: [played("a-1", "a-2", 2, 0)] }))
+      .toThrowError(new TournamentValidationError("CLUB_DUEL_SAME_SIDE_PAIRING", "Ein Spiel muss zwischen den beiden Vereinen stattfinden."));
+    expect(() => calculateClubStandings({ participants, results: [played("a-1", "x-9", 2, 0)] }))
+      .toThrowError(TournamentValidationError);
+  });
+});
+
+describe("calculateCrossRoundStandings", () => {
+  it("ordnet je Verein nach Siegen, Legdifferenz, Quali-Rang und zählt kampflose Siege", () => {
+    const standings = calculateCrossRoundStandings({
+      sideA: [{ playerId: "a-1", qualifyingRank: 1 }, { playerId: "a-2", qualifyingRank: 2 }],
+      sideB: [{ playerId: "b-1", qualifyingRank: 1 }, { playerId: "b-2", qualifyingRank: 2 }],
+      results: [
+        played("a-1", "b-1", 2, 1),
+        played("a-2", "b-2", 2, 0),
+        played("a-1", "b-2", 1, 2),
+        played("a-2", "b-1", 0, 2),
+      ],
+      unopposedWalkoverWinnerIds: ["b-2"],
+    });
+    // a-1: 1 Sieg, +0 ; a-2: 1 Sieg, +0 → Quali-Rang entscheidet
+    expect(standings.sideA.map((row) => [row.position, row.playerId])).toEqual([[1, "a-1"], [2, "a-2"]]);
+    // b-2: 2 Siege (1 davon kampflos), b-1: 1 Sieg
+    expect(standings.sideB.map((row) => [row.position, row.playerId, row.won, row.played])).toEqual([[1, "b-2", 2, 3], [2, "b-1", 1, 2]]);
+  });
+});
+
+describe("calculateClubScore", () => {
+  const sideOf = new Map(clubParticipants(2, 2).map((participant) => [participant.playerId, participant.side]));
+
+  it("vergibt einen Punkt pro Spiel und führt die Legdifferenz; Summe = Spiele", () => {
+    const results = [played("a-1", "b-1", 2, 0), played("a-2", "b-2", 1, 2), walkover("a-1", "b-2", "a-1")];
+    const score = calculateClubScore({ sideOf, results });
+    expect(score).toEqual({ pointsA: 2, pointsB: 1, legDifferenceA: 1, leader: "A" });
+    expect(score.pointsA + score.pointsB).toBe(results.length);
+  });
+
+  it("entscheidet Gleichstand über die Legdifferenz, sonst TIED", () => {
+    expect(calculateClubScore({ sideOf, results: [played("a-1", "b-1", 2, 0), played("a-2", "b-2", 1, 2)] }).leader).toBe("A");
+    expect(calculateClubScore({ sideOf, results: [played("a-1", "b-1", 2, 1), played("a-2", "b-2", 1, 2)] })).toEqual({ pointsA: 1, pointsB: 1, legDifferenceA: 0, leader: "TIED" });
+    expect(calculateClubScore({ sideOf, results: [], unopposedWalkoverWinnerIds: ["b-1"] })).toEqual({ pointsA: 0, pointsB: 1, legDifferenceA: 0, leader: "B" });
   });
 });

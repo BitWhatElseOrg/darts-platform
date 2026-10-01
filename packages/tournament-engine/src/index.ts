@@ -41,6 +41,9 @@ export {
 export {
   CLUB_DUEL_LIMITS,
   CLUB_DUEL_STAGE_KEYS,
+  calculateClubScore,
+  calculateClubStandings,
+  calculateCrossRoundStandings,
   pairClubSwissRound,
   planClubDuel,
   plannedQualifyingMatch,
@@ -53,8 +56,13 @@ export {
   type ClubDuelPreviewInput,
   type ClubMatchResult,
   type ClubRankedPlayer,
+  type ClubScore,
   type ClubSide,
+  type ClubStandingRow,
+  type ClubStandings,
   type ClubSwissPairing,
   type ClubSwissPairingInput,
   type ClubSwissRound,
+  type CrossRoundEntrant,
+  type CrossRoundStandingRow,
 } from "./club-duel.js";

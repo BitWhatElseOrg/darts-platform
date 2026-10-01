@@ -376,5 +376,228 @@ export function pairClubSwissRound(input: ClubSwissPairingInput): ClubSwissRound
   return { round: input.round, pairings, pausedPlayerIds, warnings };
 }
 
-// `GroupMatchResult` wird in Task 3 für die Ranglisten wiederverwendet.
 export type ClubMatchResult = GroupMatchResult;
+
+export interface ClubStandingRow {
+  readonly position: number;
+  readonly playerId: string;
+  readonly side: ClubSide;
+  readonly seed: number;
+  readonly played: number;
+  readonly won: number;
+  readonly lost: number;
+  readonly legsFor: number;
+  readonly legsAgainst: number;
+  /** Siege / Spiele; 0 ohne Spiel. */
+  readonly winRate: number;
+  /** (legsFor − legsAgainst) / Spiele; 0 ohne Spiel. */
+  readonly legDifferencePerMatch: number;
+  readonly withdrawn: boolean;
+}
+
+export interface ClubStandings {
+  readonly overall: readonly ClubStandingRow[];
+  readonly sideA: readonly ClubStandingRow[];
+  readonly sideB: readonly ClubStandingRow[];
+}
+
+interface Tally {
+  readonly playerId: string;
+  readonly side: ClubSide;
+  readonly seed: number;
+  played: number;
+  won: number;
+  lost: number;
+  legsFor: number;
+  legsAgainst: number;
+}
+
+function assertClubResult(result: ClubMatchResult, sideOf: ReadonlyMap<string, ClubSide>): void {
+  const sideOne = sideOf.get(result.playerOneId);
+  const sideTwo = sideOf.get(result.playerTwoId);
+  if (sideOne === undefined || sideTwo === undefined) {
+    throw new TournamentValidationError("INVALID_GROUP_RESULT", "A result references an invalid participant.");
+  }
+  if (sideOne === sideTwo) {
+    throw new TournamentValidationError("CLUB_DUEL_SAME_SIDE_PAIRING", "Ein Spiel muss zwischen den beiden Vereinen stattfinden.");
+  }
+  const validWinner = result.winnerPlayerId === result.playerOneId || result.winnerPlayerId === result.playerTwoId;
+  const validScore = result.type === "WALKOVER"
+    ? result.playerOneLegs === 0 && result.playerTwoLegs === 0
+    : result.playerOneLegs >= 0 && result.playerTwoLegs >= 0 && result.playerOneLegs !== result.playerTwoLegs;
+  if (!validWinner || !validScore) {
+    throw new TournamentValidationError("INVALID_GROUP_RESULT", "A result is invalid.");
+  }
+}
+
+function applyResult(tallies: ReadonlyMap<string, Tally>, result: ClubMatchResult): void {
+  const one = tallies.get(result.playerOneId);
+  const two = tallies.get(result.playerTwoId);
+  if (one === undefined || two === undefined) throw new Error("Tally invariant violated.");
+  one.played += 1;
+  two.played += 1;
+  one.legsFor += result.playerOneLegs;
+  one.legsAgainst += result.playerTwoLegs;
+  two.legsFor += result.playerTwoLegs;
+  two.legsAgainst += result.playerOneLegs;
+  const winner = result.winnerPlayerId === one.playerId ? one : two;
+  const loser = winner === one ? two : one;
+  winner.won += 1;
+  loser.lost += 1;
+}
+
+/**
+ * Ganzzahlige Quotenvergleiche (Kreuzmultiplikation) statt Gleitkomma, damit
+ * gleiche Quoten exakt gleich sind. Spieler ohne Spiel stehen hinter allen mit Spiel.
+ */
+function compareTallies(left: Tally, right: Tally): number {
+  if ((left.played === 0) !== (right.played === 0)) return left.played === 0 ? 1 : -1;
+  if (left.played === 0) return left.seed - right.seed;
+  const winRate = right.won * left.played - left.won * right.played;
+  if (winRate !== 0) return winRate;
+  const legDifference = (right.legsFor - right.legsAgainst) * left.played - (left.legsFor - left.legsAgainst) * right.played;
+  if (legDifference !== 0) return legDifference;
+  const legsFor = right.legsFor * left.played - left.legsFor * right.played;
+  if (legsFor !== 0) return legsFor;
+  return left.seed - right.seed;
+}
+
+function toRows(tallies: readonly Tally[], withdrawn: ReadonlySet<string>): readonly ClubStandingRow[] {
+  return [...tallies].sort(compareTallies).map((tally, index) => ({
+    position: index + 1,
+    playerId: tally.playerId,
+    side: tally.side,
+    seed: tally.seed,
+    played: tally.played,
+    won: tally.won,
+    lost: tally.lost,
+    legsFor: tally.legsFor,
+    legsAgainst: tally.legsAgainst,
+    winRate: tally.played === 0 ? 0 : tally.won / tally.played,
+    legDifferencePerMatch: tally.played === 0 ? 0 : (tally.legsFor - tally.legsAgainst) / tally.played,
+    withdrawn: withdrawn.has(tally.playerId),
+  }));
+}
+
+export function calculateClubStandings(input: {
+  readonly participants: readonly ClubDuelParticipant[];
+  readonly results: readonly ClubMatchResult[];
+  readonly withdrawnPlayerIds?: readonly string[];
+}): ClubStandings {
+  assertUniqueClubParticipants(input.participants);
+  const sideOf = new Map(input.participants.map((participant) => [participant.playerId, participant.side]));
+  const tallies = new Map<string, Tally>(
+    input.participants.map((participant) => [
+      participant.playerId,
+      { playerId: participant.playerId, side: participant.side, seed: participant.seed, played: 0, won: 0, lost: 0, legsFor: 0, legsAgainst: 0 },
+    ]),
+  );
+  for (const result of input.results) {
+    assertClubResult(result, sideOf);
+    applyResult(tallies, result);
+  }
+  const withdrawn = new Set(input.withdrawnPlayerIds ?? []);
+  const all = [...tallies.values()];
+  return {
+    overall: toRows(all, withdrawn),
+    sideA: toRows(all.filter((tally) => tally.side === "A"), withdrawn),
+    sideB: toRows(all.filter((tally) => tally.side === "B"), withdrawn),
+  };
+}
+
+export interface CrossRoundEntrant {
+  readonly playerId: string;
+  readonly qualifyingRank: number;
+}
+
+export interface CrossRoundStandingRow {
+  readonly position: number;
+  readonly playerId: string;
+  readonly played: number;
+  readonly won: number;
+  readonly legsFor: number;
+  readonly legsAgainst: number;
+  readonly legDifference: number;
+  readonly qualifyingRank: number;
+}
+
+export function calculateCrossRoundStandings(input: {
+  readonly sideA: readonly CrossRoundEntrant[];
+  readonly sideB: readonly CrossRoundEntrant[];
+  readonly results: readonly ClubMatchResult[];
+  readonly unopposedWalkoverWinnerIds?: readonly string[];
+}): { readonly sideA: readonly CrossRoundStandingRow[]; readonly sideB: readonly CrossRoundStandingRow[] } {
+  const sideOf = new Map<string, ClubSide>([
+    ...input.sideA.map((entrant) => [entrant.playerId, "A"] as const),
+    ...input.sideB.map((entrant) => [entrant.playerId, "B"] as const),
+  ]);
+  const rankOf = new Map([...input.sideA, ...input.sideB].map((entrant) => [entrant.playerId, entrant.qualifyingRank]));
+  const tallies = new Map<string, Tally>(
+    [...sideOf.entries()].map(([playerId, side]) => [playerId, { playerId, side, seed: rankOf.get(playerId) ?? 0, played: 0, won: 0, lost: 0, legsFor: 0, legsAgainst: 0 }]),
+  );
+  for (const result of input.results) {
+    assertClubResult(result, sideOf);
+    applyResult(tallies, result);
+  }
+  for (const playerId of input.unopposedWalkoverWinnerIds ?? []) {
+    const tally = tallies.get(playerId);
+    if (tally === undefined) throw new TournamentValidationError("INVALID_GROUP_RESULT", "A walkover references an invalid participant.");
+    tally.played += 1;
+    tally.won += 1;
+  }
+  const rows = (side: ClubSide): readonly CrossRoundStandingRow[] =>
+    [...tallies.values()]
+      .filter((tally) => tally.side === side)
+      .sort((left, right) =>
+        right.won - left.won ||
+        (right.legsFor - right.legsAgainst) - (left.legsFor - left.legsAgainst) ||
+        left.seed - right.seed,
+      )
+      .map((tally, index) => ({
+        position: index + 1,
+        playerId: tally.playerId,
+        played: tally.played,
+        won: tally.won,
+        legsFor: tally.legsFor,
+        legsAgainst: tally.legsAgainst,
+        legDifference: tally.legsFor - tally.legsAgainst,
+        qualifyingRank: tally.seed,
+      }));
+  return { sideA: rows("A"), sideB: rows("B") };
+}
+
+export interface ClubScore {
+  readonly pointsA: number;
+  readonly pointsB: number;
+  /** Legdifferenz aus Sicht von A; für B ist sie das Negative. */
+  readonly legDifferenceA: number;
+  readonly leader: ClubSide | "TIED";
+}
+
+/** Spec, Vereinswertung: 1 Punkt pro gewonnenem Spiel inkl. Walkover; Gleichstand → Legdifferenz → TIED. */
+export function calculateClubScore(input: {
+  readonly sideOf: ReadonlyMap<string, ClubSide>;
+  readonly results: readonly ClubMatchResult[];
+  readonly unopposedWalkoverWinnerIds?: readonly string[];
+}): ClubScore {
+  let pointsA = 0;
+  let pointsB = 0;
+  let legDifferenceA = 0;
+  for (const result of input.results) {
+    assertClubResult(result, input.sideOf);
+    const winnerSide = input.sideOf.get(result.winnerPlayerId);
+    if (winnerSide === "A") pointsA += 1;
+    else pointsB += 1;
+    const legsA = input.sideOf.get(result.playerOneId) === "A" ? result.playerOneLegs - result.playerTwoLegs : result.playerTwoLegs - result.playerOneLegs;
+    legDifferenceA += legsA;
+  }
+  for (const playerId of input.unopposedWalkoverWinnerIds ?? []) {
+    const side = input.sideOf.get(playerId);
+    if (side === undefined) throw new TournamentValidationError("INVALID_GROUP_RESULT", "A walkover references an invalid participant.");
+    if (side === "A") pointsA += 1;
+    else pointsB += 1;
+  }
+  const leader: ClubSide | "TIED" =
+    pointsA !== pointsB ? (pointsA > pointsB ? "A" : "B") : legDifferenceA !== 0 ? (legDifferenceA > 0 ? "A" : "B") : "TIED";
+  return { pointsA, pointsB, legDifferenceA, leader };
+}
