@@ -1,8 +1,8 @@
 "use client";
 
 import type { ClubDuelPreviewResponse, PlayerResponse } from "@darts-platform/schemas";
-import { Control, Field, Rule, SelectInput, SheetLabel, StateTag, TextInput, Wedge } from "@darts-platform/ui";
-import type { ReactNode } from "react";
+import { cn, Control, Field, MarkCheck, Rule, SelectInput, SheetLabel, StateTag, TextInput, Wedge } from "@darts-platform/ui";
+import { useRef, useState, type ReactNode } from "react";
 import type { UseFormRegister } from "react-hook-form";
 
 import { GuestPlayersPanel } from "@/components/players/guest-players-panel";
@@ -40,8 +40,63 @@ export function ClubSidesSection({ errors, register }: {
   );
 }
 
+type Side = "A" | "B";
+
 /**
- * Abschnitt 3: zwei Spalten A | B, auf dem Telefon untereinander. Links die
+ * Wählt unter `lg` die sichtbare Spielerspalte, Muster `InputModeSwitch`
+ * (scoreboard-settings-dialog.tsx): Radiogroup, Pfeiltasten verschieben
+ * Auswahl und Fokus in einem Schritt.
+ */
+function SideSwitch({ labels, onChange, side }: {
+  readonly labels: Readonly<Record<Side, string>>;
+  readonly side: Side;
+  readonly onChange: (side: Side) => void;
+}) {
+  const buttonRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const options: readonly Side[] = ["A", "B"];
+  const moveTo = (delta: 1 | -1) => {
+    const index = options.indexOf(side);
+    const nextIndex = (index + delta + options.length) % options.length;
+    const next = options[nextIndex];
+    if (next === undefined) return;
+    onChange(next);
+    buttonRefs.current[nextIndex]?.focus();
+  };
+  return (
+    <div aria-label="Spielerspalte" className="mt-4 grid grid-cols-2 gap-2 lg:hidden" role="radiogroup">
+      {options.map((option, index) => {
+        const checked = side === option;
+        return (
+          <button
+            aria-checked={checked}
+            className={cn(
+              "inline-flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-lg px-3 font-plate text-body font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green",
+              checked ? "bg-ring-green text-chalk" : "bg-sisal-100 text-spider hover:bg-wedge-800",
+            )}
+            key={option}
+            onClick={() => onChange(option)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowRight" || event.key === "ArrowDown") { event.preventDefault(); moveTo(1); }
+              if (event.key === "ArrowLeft" || event.key === "ArrowUp") { event.preventDefault(); moveTo(-1); }
+            }}
+            ref={(element) => { buttonRefs.current[index] = element; }}
+            role="radio"
+            tabIndex={checked ? 0 : -1}
+            type="button"
+          >
+            {checked ? <MarkCheck className="h-3 w-3 shrink-0" /> : null}
+            <span className="truncate">{labels[option]}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Abschnitt 3: zwei Spalten A | B. Unter `lg` zeigt ein Umschalter je eine
+ * Spalte (die andere trägt `hidden lg:…`, bleibt also gemountet und SSR-stabil
+ * ohne Media-Query in JS); ab `lg` stehen beide nebeneinander. Links die
  * Mitglieder, rechts die Gäste – zuerst die des eingetragenen Gastvereins
  * und alle bereits ausgewählten, die übrigen ausklappbar. Ohne Gastverein-Namen stehen alle Gäste rechts.
  * Neue Gäste landen über `onGuestsCreated` sofort in der Auswahl.
@@ -82,6 +137,9 @@ export function ClubParticipantsSection({
   const otherGuests = guests.filter((guest) => !mainGuests.includes(guest));
   const describedBy = error !== null ? "participants-error" : undefined;
   const allMembersSelected = members.length > 0 && members.every((member) => sideAIds.includes(member.id));
+  const [visibleSide, setVisibleSide] = useState<Side>("A");
+  const sideALabel = sideAName.trim() || "Verein A";
+  const sideBLabel = sideBName.trim() || "Gastverein";
   return (
     <section aria-labelledby="setup-club-participants">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -99,27 +157,30 @@ export function ClubParticipantsSection({
           {error}
         </p>
       ) : null}
+      <SideSwitch labels={{ A: sideALabel, B: sideBLabel }} onChange={setVisibleSide} side={visibleSide} />
       <div className="mt-4 grid gap-6 lg:grid-cols-2">
-        <PlayerColumn
-          action={members.length > 0 ? (
-            <Control
-              density="tight"
-              onClick={() => onSelectAllA(allMembersSelected ? [] : members.map((member) => member.id))}
-              variant="wire"
-            >
-              {allMembersSelected ? "Keinen" : "Alle"}
-            </Control>
-          ) : null}
-          describedBy={describedBy}
-          heading={`Spieler ${sideAName.trim() || "Verein A"}`}
-          onToggle={(playerId) => onToggle("A", playerId)}
-          players={members}
-          selected={sideAIds}
-        />
-        <div className="flex flex-col gap-4">
+        <div className={cn("min-w-0", visibleSide !== "A" && "hidden lg:block")} data-side="A">
+          <PlayerColumn
+            action={members.length > 0 ? (
+              <Control
+                density="tight"
+                onClick={() => onSelectAllA(allMembersSelected ? [] : members.map((member) => member.id))}
+                variant="wire"
+              >
+                {allMembersSelected ? "Keinen" : "Alle"}
+              </Control>
+            ) : null}
+            describedBy={describedBy}
+            heading={`Spieler ${sideALabel}`}
+            onToggle={(playerId) => onToggle("A", playerId)}
+            players={members}
+            selected={sideAIds}
+          />
+        </div>
+        <div className={cn("flex min-w-0 flex-col gap-4", visibleSide !== "B" && "hidden lg:flex")} data-side="B">
           <PlayerColumn
             describedBy={describedBy}
-            heading={`Spieler ${sideBName.trim() || "Gastverein"}`}
+            heading={`Spieler ${sideBLabel}`}
             onToggle={(playerId) => onToggle("B", playerId)}
             players={mainGuests}
             selected={sideBIds}

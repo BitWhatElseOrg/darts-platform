@@ -314,6 +314,56 @@ describe("SetupSheet: Vereinsduell", () => {
     expect(within(columnA).getByRole("button", { name: "Alle" })).toBeTruthy();
   });
 
+  it("schaltet die Spielerspalten unter lg um: nur die gewählte Seite bleibt sichtbar", () => {
+    renderSheet({ players: [...players.slice(0, 2), ...guests], organizationName: "VFC Testverein" });
+    client.apiRequest.mockImplementation(() => Promise.resolve(clubPreview));
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "CLUB_DUEL" } });
+    fireEvent.change(screen.getByLabelText("Gastverein"), { target: { value: "DC Musterdorf" } });
+
+    // Beide Spalten bleiben gemountet (SSR-stabil); unter lg blendet `hidden` die
+    // nicht gewählte aus, `lg:block`/`lg:flex` holt sie ab lg zurück.
+    const switcher = screen.getByRole("radiogroup", { name: "Spielerspalte" });
+    expect(switcher.className).toContain("lg:hidden");
+    const columnOf = (name: string) => screen.getByRole("group", { name }).closest("[data-side]") as HTMLElement;
+    const sideA = within(switcher).getByRole("radio", { name: "VFC Testverein" });
+    const sideB = within(switcher).getByRole("radio", { name: "DC Musterdorf" });
+    expect(sideA.getAttribute("aria-checked")).toBe("true");
+    expect(columnOf("Spieler VFC Testverein").classList.contains("hidden")).toBe(false);
+    expect(columnOf("Spieler DC Musterdorf").classList.contains("hidden")).toBe(true);
+    expect(columnOf("Spieler DC Musterdorf").classList.contains("lg:flex")).toBe(true);
+
+    fireEvent.click(sideB);
+    expect(sideB.getAttribute("aria-checked")).toBe("true");
+    expect(columnOf("Spieler DC Musterdorf").classList.contains("hidden")).toBe(false);
+    expect(columnOf("Spieler VFC Testverein").classList.contains("hidden")).toBe(true);
+    expect(columnOf("Spieler VFC Testverein").classList.contains("lg:block")).toBe(true);
+
+    fireEvent.keyDown(sideB, { key: "ArrowLeft" });
+    expect(sideA.getAttribute("aria-checked")).toBe("true");
+    expect(document.activeElement).toBe(sideA);
+    expect(columnOf("Spieler VFC Testverein").classList.contains("hidden")).toBe(false);
+  });
+
+  it("zeigt einen neu erfassten Gast sofort in Spalte B, bevor die Spielerliste nachlädt", async () => {
+    const created: PlayerFixture = { ...guests[0]!, id: "00000000-0000-4000-8000-0000000000e9", publicId: "00000000-0000-4000-8000-0000000000f9", displayName: "Gast 9" };
+    renderSheet({ players: [...players.slice(0, 2), ...guests], organizationName: "VFC Testverein" });
+    client.apiRequest.mockImplementation((input: { path: string }) => {
+      if (input.path.endsWith("/players/guests")) return Promise.resolve([created]);
+      return Promise.resolve(clubPreview);
+    });
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "CLUB_DUEL" } });
+    fireEvent.change(screen.getByLabelText("Gastverein"), { target: { value: "DC Musterdorf" } });
+    expect(screen.queryByRole("checkbox", { name: "Gast 9" })).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Gastspieler (ein Name pro Zeile)"), { target: { value: "Gast 9" } });
+    fireEvent.click(screen.getByRole("button", { name: "Gastspieler erfassen" }));
+
+    const main = screen.getByRole("group", { name: "Spieler DC Musterdorf" });
+    const box = await within(main).findByRole("checkbox", { name: "Gast 9" });
+    expect(box).toHaveProperty("checked", true);
+    expect(screen.getByLabelText(/gegen .* Spieler/u).textContent).toBe("0 : 1");
+  });
+
   it("räumt die Fehlermeldungen beim Wechsel des Formats weg", async () => {
     renderSheet();
     fireEvent.click(screen.getByRole("button", { name: "Turnier starten" }));

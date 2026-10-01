@@ -80,7 +80,12 @@ export function SetupSheet({ organizationId, organizationName, players, boards }
   const router = useRouter();
   const [contractErrors, setContractErrors] = useState<Record<string, string>>({});
   const members = players.filter((player) => player.kind === "MEMBER");
-  const guests = players.filter((player) => player.kind === "GUEST");
+  // Neu erfasste Gäste stehen sofort in Spalte B, auch bevor der Refetch der
+  // Spielerliste sie liefert; danach greift die Liste vom Server (Dedupe per id).
+  const [extraGuests, setExtraGuests] = useState<readonly PlayerResponse[]>([]);
+  const serverGuests = players.filter((player) => player.kind === "GUEST");
+  const serverGuestIds = new Set(serverGuests.map((guest) => guest.id));
+  const guests = [...serverGuests, ...extraGuests.filter((guest) => !serverGuestIds.has(guest.id))];
   const defaultParticipantCount = Math.min(members.length, 32);
   const defaultGroupCount = defaultParticipantCount >= 16 ? 8 : defaultParticipantCount >= 8 ? 4 : 2;
   const defaultKnockoutSize = defaultGroupCount * 2;
@@ -313,6 +318,10 @@ export function SetupSheet({ organizationId, organizationName, players, boards }
 
   const addGuestsToSideB = (created: readonly PlayerResponse[]) => {
     const createdIds = created.map((player) => player.id);
+    setExtraGuests((current) => [
+      ...current,
+      ...created.filter((player) => player.kind === "GUEST" && !current.some((entry) => entry.id === player.id)),
+    ]);
     setValue("sideAIds", getValues("sideAIds").filter((entry) => !createdIds.includes(entry)), { shouldDirty: true });
     setValue("sideBIds", [...new Set([...getValues("sideBIds"), ...createdIds])], { shouldDirty: true });
   };
