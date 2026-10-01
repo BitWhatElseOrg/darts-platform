@@ -77,6 +77,23 @@ export const clubCrossMatchSchema = z.object({
   legs: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]).nullable(),
 });
 
+const clubMatchStatusSchema = z.enum(["WAITING", "READY", "IN_PROGRESS", "COMPLETED", "BYE", "CANCELLED"]);
+
+/** Match einer Quali-Runde oder des Finals, immer aus Sicht A/B (nicht participantOne/Two). */
+export const clubRoundMatchSchema = z.object({
+  matchId: z.uuid(),
+  position: z.number().int().positive(),
+  playerAId: z.uuid().nullable(),
+  playerBId: z.uuid().nullable(),
+  status: clubMatchStatusSchema,
+  resultType: z.enum(["PLAYED", "WALKOVER", "BYE"]).nullable(),
+  winnerPlayerId: z.uuid().nullable(),
+  /** Legs [A, B]; null solange nicht gespielt oder Walkover. */
+  legs: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]).nullable(),
+});
+
+export const clubFinalMatchSchema = clubRoundMatchSchema;
+
 export const clubScoreSchema = z.object({
   pointsA: z.number().int().nonnegative(),
   pointsB: z.number().int().nonnegative(),
@@ -90,6 +107,7 @@ export const clubDuelDashboardSchema = clubDuelSettingsSchema.extend({
   rounds: z.array(z.object({
     round: z.number().int().positive(),
     matchIds: z.array(z.uuid()),
+    matches: z.array(clubRoundMatchSchema),
     pausedPlayerIds: z.array(z.uuid()),
   })),
   standings: z.object({
@@ -102,6 +120,10 @@ export const clubDuelDashboardSchema = clubDuelSettingsSchema.extend({
     sideB: z.array(clubCrossStandingRowSchema),
     matches: z.array(clubCrossMatchSchema),
   }),
+  finals: z.object({
+    final: clubFinalMatchSchema.nullable(),
+    thirdPlace: clubFinalMatchSchema.nullable(),
+  }),
   score: clubScoreSchema,
 });
 
@@ -112,4 +134,5 @@ export type ClubDuelDashboard = z.infer<typeof clubDuelDashboardSchema>;
 export type ClubStandingRowResponse = z.infer<typeof clubStandingRowSchema>;
 export type ClubCrossStandingRowResponse = z.infer<typeof clubCrossStandingRowSchema>;
 export type ClubCrossMatchResponse = z.infer<typeof clubCrossMatchSchema>;
+export type ClubRoundMatchResponse = z.infer<typeof clubRoundMatchSchema>;
 export type ClubScoreResponse = z.infer<typeof clubScoreSchema>;

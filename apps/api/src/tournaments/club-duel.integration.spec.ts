@@ -332,6 +332,21 @@ describe("Vereinsduell Ablauf", () => {
     expect(block.sideAName).toBe("VFC");
     expect(block.currentRound).toBe(2);
     expect(block.rounds.map((round) => [round.round, round.matchIds.length, round.pausedPlayerIds.length])).toEqual([[1, 9, 4], [2, 9, 4]]);
+    const roundOneView = block.rounds[0];
+    expect(roundOneView?.matches).toHaveLength(9);
+    expect(roundOneView?.matches.map((match) => match.matchId).sort()).toEqual([...(roundOneView?.matchIds ?? [])].sort());
+    for (const view of roundOneView?.matches ?? []) {
+      expect(sideOf(view.playerAId)).toBe("A");
+      expect(sideOf(view.playerBId)).toBe("B");
+      expect(view.status).toBe("COMPLETED");
+      expect(view.resultType).toBe("PLAYED");
+      expect(view.winnerPlayerId === view.playerAId || view.winnerPlayerId === view.playerBId).toBe(true);
+      expect(view.legs).not.toBeNull();
+      const [legsA, legsB] = view.legs ?? [0, 0];
+      expect(view.winnerPlayerId === view.playerAId ? legsA > legsB : legsB > legsA).toBe(true);
+    }
+    expect(block.rounds[1]?.matches.every((match) => match.status === "READY" && match.legs === null && match.resultType === null)).toBe(true);
+    expect(block.finals).toEqual({ final: expect.objectContaining({ position: 1, status: "WAITING", playerAId: null, playerBId: null, legs: null }), thirdPlace: expect.objectContaining({ position: 2, status: "WAITING" }) });
     expect(block.standings.overall).toHaveLength(22);
     expect(block.standings.sideA.filter((row) => row.qualified)).toHaveLength(2);
     expect(block.standings.sideB.filter((row) => row.qualified)).toHaveLength(2);
@@ -353,6 +368,14 @@ describe("Vereinsduell Ablauf", () => {
     expect(finalBlock.score.pointsA + finalBlock.score.pointsB).toBe(24);
     expect(finalBlock.finalRound.sideA.map((row) => row.position)).toEqual([1, 2]);
     expect(finalBlock.finalRound.matches.every((match) => match.status === "COMPLETED" && match.legs !== null)).toBe(true);
+    for (const view of [finalBlock.finals.final, finalBlock.finals.thirdPlace]) {
+      expect(view?.status).toBe("COMPLETED");
+      expect(view?.resultType).toBe("PLAYED");
+      expect(sideOf(view?.playerAId ?? null)).toBe("A");
+      expect(sideOf(view?.playerBId ?? null)).toBe("B");
+      expect(view?.legs).not.toBeNull();
+    }
+    expect(finalBlock.finals.final?.matchId).toBe(finalMatches[0]?.id);
     // Öffentliche Sicht: erst nach Freigabe, dann mit demselben Block
     await expect(service.publicDashboard(dashboard.tournament.publicId)).rejects.toBeInstanceOf(NotFoundException);
     await service.setVisibility({ organizationId, tournamentId: created.id, data: { visibility: "PUBLIC" }, auth, audit });

@@ -6,7 +6,7 @@ import {
   type ClubMatchResult,
   type ClubSide,
 } from "@darts-platform/tournament-engine";
-import type { ClubDuelDashboard } from "@darts-platform/schemas";
+import type { ClubDuelDashboard, ClubRoundMatchResponse } from "@darts-platform/schemas";
 
 import { isFinalRoundOccupied, occupiedFinalRoundEntrants, projectedQualifiers, type FinalRoundEntrant } from "./club-duel-entrants.js";
 import type { TournamentDashboardData } from "./tournaments.repository.js";
@@ -37,6 +37,30 @@ function resultOf(match: MatchRow, legsOf: LegsOf): ClubMatchResult | "unopposed
   const legsTwo = legsOf(match.scoringMatchId, match.participantTwoId);
   if (legsOne === undefined || legsTwo === undefined) return null;
   return { type: "PLAYED", playerOneId: match.participantOneId, playerTwoId: match.participantTwoId, playerOneLegs: legsOne, playerTwoLegs: legsTwo, winnerPlayerId: match.winnerPlayerId };
+}
+
+function resultTypeOf(match: MatchRow): "PLAYED" | "WALKOVER" | "BYE" | null {
+  return match.resultType === "PLAYED" || match.resultType === "WALKOVER" || match.resultType === "BYE" ? match.resultType : null;
+}
+
+/** Match aus Sicht A/B; die Seite eines vorhandenen Spielers bestimmt die Ausrichtung. */
+function toRoundMatch(match: MatchRow, sideOf: ReadonlyMap<string, ClubSide>, legsOf: LegsOf): ClubRoundMatchResponse {
+  const swapped = match.participantOneId !== null ? sideOf.get(match.participantOneId) === "B" : match.participantTwoId !== null && sideOf.get(match.participantTwoId) === "A";
+  const [playerAId, playerBId] = swapped ? [match.participantTwoId, match.participantOneId] : [match.participantOneId, match.participantTwoId];
+  const result = resultOf(match, legsOf);
+  const legs = typeof result === "object" && result !== null && result.type === "PLAYED"
+    ? (swapped ? [result.playerTwoLegs, result.playerOneLegs] : [result.playerOneLegs, result.playerTwoLegs]) as [number, number]
+    : null;
+  return {
+    matchId: match.id,
+    position: match.position,
+    playerAId,
+    playerBId,
+    status: match.status as ClubRoundMatchResponse["status"],
+    resultType: resultTypeOf(match),
+    winnerPlayerId: match.winnerPlayerId,
+    legs,
+  };
 }
 
 function collect(matches: readonly MatchRow[], legsOf: LegsOf): { results: ClubMatchResult[]; unopposedWalkoverWinnerIds: string[] } {
@@ -73,7 +97,8 @@ export function projectClubDuel(input: {
   const stageByKey = new Map(input.data.stages.map((stage) => [stage.key, stage.id]));
   const qualifyingId = stageByKey.get(CLUB_DUEL_STAGE_KEYS.qualifying);
   const finalRoundId = stageByKey.get(CLUB_DUEL_STAGE_KEYS.finalRound);
-  if (qualifyingId === undefined || finalRoundId === undefined) throw new Error("Club duel stage invariant violated.");
+  const finalId = stageByKey.get(CLUB_DUEL_STAGE_KEYS.final);
+  if (qualifyingId === undefined || finalRoundId === undefined || finalId === undefined) throw new Error("Club duel stage invariant violated.");
 
   const names = new Map(input.data.participants.map((participant) => [participant.playerId, participant.displayName]));
   const nameOf = (playerId: string) => names.get(playerId) ?? "Unbekannter Teilnehmer";
@@ -113,9 +138,16 @@ export function projectClubDuel(input: {
     return {
       round,
       matchIds: inRound.map((match) => match.id),
+      matches: inRound.map((match) => toRoundMatch(match, sideOf, input.legsOf)),
       pausedPlayerIds: [...activeIds].filter((playerId) => !playing.has(playerId)),
     };
   });
+
+  const finalStageMatches = input.data.matches.filter((match) => match.stageId === finalId);
+  const finalMatchAt = (position: number): ClubRoundMatchResponse | null => {
+    const match = finalStageMatches.find((candidate) => candidate.position === position);
+    return match === undefined ? null : toRoundMatch(match, sideOf, input.legsOf);
+  };
 
   const crossResults = collect(finalRoundMatches, input.legsOf);
   const cross = calculateCrossRoundStandings({
@@ -161,6 +193,11 @@ export function projectClubDuel(input: {
           legs: typeof result === "object" && result !== null && result.type === "PLAYED" ? [result.playerOneLegs, result.playerTwoLegs] : null,
         };
       }),
+    },
+    // Position 1 ist das Final, Position 2 das Spiel um Platz 3 (Engine: finalMatches).
+    finals: {
+      final: finalMatchAt(1),
+      thirdPlace: finalMatchAt(2),
     },
     score,
   };
