@@ -31,7 +31,7 @@ function resultTypeOf(match: MatchRow): "PLAYED" | "WALKOVER" | "BYE" | null {
 }
 
 /** Match aus Sicht A/B; die Seite eines vorhandenen Spielers bestimmt die Ausrichtung. */
-function toRoundMatch(match: MatchRow, sideOf: ReadonlyMap<string, ClubSide>, legsOf: LegsOf): ClubRoundMatchResponse {
+function toRoundMatch(match: MatchRow, sideOf: ReadonlyMap<string, ClubSide>, legsOf: LegsOf, boardNameOf: ReadonlyMap<string, string>): ClubRoundMatchResponse {
   const swapped = match.participantOneId !== null ? sideOf.get(match.participantOneId) === "B" : match.participantTwoId !== null && sideOf.get(match.participantTwoId) === "A";
   const [playerAId, playerBId] = swapped ? [match.participantTwoId, match.participantOneId] : [match.participantOneId, match.participantTwoId];
   const result = toCompletedResult(match, legsOf);
@@ -47,6 +47,8 @@ function toRoundMatch(match: MatchRow, sideOf: ReadonlyMap<string, ClubSide>, le
     resultType: resultTypeOf(match),
     winnerPlayerId: match.winnerPlayerId,
     legs,
+    // `boardId` bleibt nach dem Abschluss stehen (nur die Korrektur leert ihn).
+    boardName: match.boardId === null ? null : boardNameOf.get(match.boardId) ?? null,
   };
 }
 
@@ -93,6 +95,7 @@ export function projectClubDuel(input: {
   const withdrawnPlayerIds = input.data.participants.filter((participant) => participant.status === "WITHDRAWN").map((participant) => participant.playerId);
   const activeIds = new Set(input.data.participants.filter((participant) => participant.status === "ACTIVE").map((participant) => participant.playerId));
   const sideOf = new Map(participants.map((participant) => [participant.playerId, participant.side]));
+  const boardNameOf = new Map(input.data.boards.map((board) => [board.boardId, board.boardName]));
 
   const qualifyingMatches = input.data.matches.filter((match) => match.stageId === qualifyingId);
   const finalRoundMatches = input.data.matches.filter((match) => match.stageId === finalRoundId);
@@ -125,7 +128,7 @@ export function projectClubDuel(input: {
     return {
       round,
       matchIds: inRound.map((match) => match.id),
-      matches: inRound.map((match) => toRoundMatch(match, sideOf, input.legsOf)),
+      matches: inRound.map((match) => toRoundMatch(match, sideOf, input.legsOf, boardNameOf)),
       pausedPlayerIds: [...activeIds].filter((playerId) => !playing.has(playerId)),
     };
   });
@@ -133,7 +136,7 @@ export function projectClubDuel(input: {
   const finalStageMatches = input.data.matches.filter((match) => match.stageId === finalId);
   const finalMatchAt = (position: number): ClubRoundMatchResponse | null => {
     const match = finalStageMatches.find((candidate) => candidate.position === position);
-    return match === undefined ? null : toRoundMatch(match, sideOf, input.legsOf);
+    return match === undefined ? null : toRoundMatch(match, sideOf, input.legsOf, boardNameOf);
   };
 
   const crossResults = collect(finalRoundMatches, input.legsOf);

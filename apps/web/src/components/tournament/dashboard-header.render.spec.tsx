@@ -68,6 +68,7 @@ function clubDuelBlock(finalStatus: "WAITING" | "COMPLETED"): ClubDuelDashboard 
         resultType: finalStatus === "COMPLETED" ? "PLAYED" : null,
         winnerPlayerId: finalStatus === "COMPLETED" ? playerB : null,
         legs: finalStatus === "COMPLETED" ? [1, 3] : null,
+        boardName: null,
       },
       thirdPlace: null,
     },

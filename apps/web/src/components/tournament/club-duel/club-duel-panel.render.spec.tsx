@@ -22,12 +22,12 @@ const clubDuel: ClubDuelDashboard = {
   sideAName: "VFC", sideBName: "DC Musterdorf", qualifyingRounds: 2, finalRoundSize: 2, thirdPlaceMatch: true, currentRound: 2,
   rounds: [
     { round: 1, matchIds: [id(10), id(11)], pausedPlayerIds: [], matches: [
-      { matchId: id(10), position: 1, playerAId: id(1), playerBId: id(3), status: "COMPLETED", resultType: "PLAYED", winnerPlayerId: id(1), legs: [2, 0] },
-      { matchId: id(11), position: 2, playerAId: id(2), playerBId: id(4), status: "COMPLETED", resultType: "PLAYED", winnerPlayerId: id(4), legs: [1, 2] },
+      { matchId: id(10), position: 1, playerAId: id(1), playerBId: id(3), status: "COMPLETED", resultType: "PLAYED", winnerPlayerId: id(1), legs: [2, 0], boardName: null },
+      { matchId: id(11), position: 2, playerAId: id(2), playerBId: id(4), status: "COMPLETED", resultType: "PLAYED", winnerPlayerId: id(4), legs: [1, 2], boardName: null },
     ] },
     { round: 2, matchIds: [id(12), id(13)], pausedPlayerIds: [], matches: [
-      { matchId: id(12), position: 1, playerAId: id(1), playerBId: id(4), status: "READY", resultType: null, winnerPlayerId: null, legs: null },
-      { matchId: id(13), position: 2, playerAId: id(2), playerBId: id(3), status: "READY", resultType: null, winnerPlayerId: null, legs: null },
+      { matchId: id(12), position: 1, playerAId: id(1), playerBId: id(4), status: "READY", resultType: null, winnerPlayerId: null, legs: null, boardName: null },
+      { matchId: id(13), position: 2, playerAId: id(2), playerBId: id(3), status: "READY", resultType: null, winnerPlayerId: null, legs: null, boardName: null },
     ] },
   ],
   standings: {
@@ -41,7 +41,7 @@ const clubDuel: ClubDuelDashboard = {
     { matchId: id(22), round: 2, rankA: 1, rankB: 2, playerAId: null, playerBId: null, status: "WAITING", winnerPlayerId: null, legs: null },
     { matchId: id(23), round: 2, rankA: 2, rankB: 1, playerAId: null, playerBId: null, status: "WAITING", winnerPlayerId: null, legs: null },
   ] },
-  finals: { final: { matchId: id(30), position: 1, playerAId: null, playerBId: null, status: "WAITING", resultType: null, winnerPlayerId: null, legs: null }, thirdPlace: null },
+  finals: { final: { matchId: id(30), position: 1, playerAId: null, playerBId: null, status: "WAITING", resultType: null, winnerPlayerId: null, legs: null, boardName: null }, thirdPlace: null },
   score: { pointsA: 1, pointsB: 1, legDifferenceA: 1, leader: "A" },
 };
 

@@ -53,7 +53,7 @@ const dashboard = {
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const roundMatch = (matchId: string, playerAId: string, playerBId: string, status: "READY" | "IN_PROGRESS" | "COMPLETED", legs: [number, number] | null) => ({
-  matchId, position: 1, playerAId, playerBId, status, resultType: status === "COMPLETED" ? "PLAYED" as const : null, winnerPlayerId: status === "COMPLETED" ? playerAId : null, legs,
+  matchId, position: 1, playerAId, playerBId, status, resultType: status === "COMPLETED" ? "PLAYED" as const : null, winnerPlayerId: status === "COMPLETED" ? playerAId : null, legs, boardName: null,
 });
 const clubDuel: ClubDuelDashboard = {
   sideAName: "VFC", sideBName: "DC Musterdorf", qualifyingRounds: 2, finalRoundSize: 2, thirdPlaceMatch: false, currentRound: 2,
