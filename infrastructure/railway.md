@@ -285,7 +285,7 @@ Ablauf:
 **Lastlauf mit vielen Scheiben-Tablets.** Keiner der Fälle A3/A4/A6/B4/B5
 simuliert bisher Kiosk-Tablet-Traffic; sollte ein künftiger Lastlauf das
 tun, gehört `RATE_LIMIT_DEVICE_MAX_PER_MINUTE` (Vorgabe 120, gemessen rund
-46/min pro Tablet im Match — siehe Variablentabelle oben) mit demselben
+46/min pro Tablet im Match — siehe Abschnitt „Variablen" weiter unten) mit demselben
 Ablauf (Schritt 1 setzen, Schritt 4 wieder löschen) zu den hochzusetzenden
 Variablen dazu.
 
