@@ -109,3 +109,17 @@ gleiche Linie wie `player:delete`. Die Turniertabellen kaskadieren auf
 `tournaments.id`; der Audit-Eintrag `TOURNAMENT_DELETED` bleibt im Mandanten
 und trägt Name, Format, Teilnehmer- und Matchzahl. Spec:
 `docs/superpowers/specs/2026-09-25-lease-karenz-turnier-loeschen-design.md`.
+
+## Nachtrag 30.09.2026: Scheiben-Geräte
+
+`board_devices` (ADR 0019) kaskadiert wie jede tenant-bezogene Tabelle direkt
+aus `organizations` (`on delete cascade`) und zusätzlich aus `boards`
+(`on delete cascade`): verschwindet die Scheibe oder die Organisation, fällt
+das gekoppelte Gerät mit weg, die nächste Anfrage des Tablets scheitert mit
+`401 DEVICE_REVOKED`. Die beiden Erweiterungen an bestehenden Tabellen folgen
+demselben Muster wie bei gelöschten Spielern: `board_controller_leases.device_id`
+kaskadiert (`on delete cascade`) — eine Lease ohne ihren Akteur hat keinen
+Sinn —, `audit_events.actor_device_id` wird beim Löschen `null`
+(`on delete set null`), wie schon heute bei einem gelöschten Benutzer-Akteur:
+der Audit-Eintrag bleibt stehen, nur der Verweis auf das inzwischen
+verschwundene Gerät verschwindet mit.

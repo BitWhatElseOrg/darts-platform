@@ -228,6 +228,67 @@
             (Owner) darf eine Organisation löschen.
           </div>
 
+          <h3>Scheiben-Tablets koppeln</h3>
+          <p>
+            Ein an der Scheibe montiertes Tablet kann Matches scoren, ohne dass sich dort
+            jemand anmeldet. Dazu wird es einmal mit der Scheibe gekoppelt — danach erkennt
+            es von selbst jedes Match, das dieser Scheibe zugewiesen wird.
+          </p>
+          <ol class="steps">
+            <li>Auf dem Tablet die App installieren: iPad — Safari öffnen, auf
+              <strong>Teilen</strong> tippen, dann <strong>Zum Home-Bildschirm</strong>.
+              Android — Chrome öffnen, im Menü <strong>App installieren</strong> wählen.</li>
+            <li>Die installierte App vom Home-Bildschirm aus öffnen und sich mit einem
+              Konto mit Board-Verwaltungsrecht anmelden.</li>
+            <li>Zur Organisationsseite wechseln und den Abschnitt
+              <strong>Scheiben-Tablets</strong> öffnen.</li>
+            <li>Bei der gewünschten Scheibe <strong>Dieses Gerät einrichten</strong>
+              wählen.</li>
+            <li>Das Tablet meldet die Admin-Sitzung selbst ab und wechselt in die
+              Kiosk-Ansicht der Scheibe.</li>
+          </ol>
+          <div class="callout">
+            <strong>Nur in der installierten App</strong>
+            <strong>Dieses Gerät einrichten</strong> lässt sich erst anklicken, wenn die
+            Seite als installierte App läuft, nicht im normalen Browser-Tab — iPad und
+            Android trennen deren Speicher, sonst ginge die Kopplung beim nächsten Öffnen
+            verloren.
+          </div>
+          <p>
+            Die Sperre gegen Verlassen der Kiosk-Ansicht liefert das Betriebssystem, nicht
+            die Plattform:
+          </p>
+          <div class="table-wrap">
+            <table>
+              <caption>Kiosk-Sperre je Plattform</caption>
+              <thead><tr><th scope="col">Plattform</th><th scope="col">Weg</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">iPad</th><td>Einstellungen → Bedienungshilfen → Geführter Zugriff aktivieren; in der App dreimal die Seitentaste drücken, um die Sperre zu starten.</td></tr>
+                <tr><th scope="row">Android</th><td>Einstellungen → Sicherheit → App anheften aktivieren; die App aus der Übersicht heraus anheften.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            <strong>Dieses Gerät als Ersatz einrichten</strong> koppelt ein neues Tablet an
+            derselben Scheibe und entkoppelt dabei automatisch das bisherige.
+            <strong>Entkoppeln</strong> entzieht einem Tablet den Zugriff endgültig, bis es
+            neu eingerichtet wird. Zeigt ein Tablet «Dieses Tablet ist nicht mehr gekoppelt»,
+            wurde es entkoppelt oder durch ein Ersatzgerät abgelöst — in der
+            Organisationsverwaltung unter <strong>Scheiben-Tablets</strong> neu einrichten;
+            noch nicht übertragene Aufnahmen bleiben dabei sichtbar angezeigt. Ein langer
+            Druck auf den Scheibennamen oben im Kiosk löscht die Kopplung nur lokal auf
+            diesem Tablet («Gerät zurücksetzen») — serverseitig bleibt sie gültig, bis sie
+            in der Organisationsverwaltung entkoppelt oder durch ein neues Einrichten
+            ersetzt wird.
+          </p>
+          <div class="callout warning">
+            <strong>Wer das Tablet in der Hand hat, kann scoren</strong>
+            Ein Scheiben-Tablet verlangt keine Anmeldung. Wird eines gestohlen oder
+            entwendet, kann damit bis zum Entkoppeln jedes Match dieser Scheibe gescort
+            werden — sonst nichts. Bei Verlust das Tablet sofort in der
+            Organisationsverwaltung entkoppeln.
+          </div>
+
           <h3>Mitglied einladen</h3>
           <ol class="steps">
             <li>Die gewünschte Organisation öffnen und <strong>Mitglieder</strong> wählen.</li>

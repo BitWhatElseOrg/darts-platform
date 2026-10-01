@@ -332,6 +332,10 @@ board:assign
 tournament:update
 ```
 
+Neben Benutzern gibt es Scheiben-Tablets als Principal (ADR 0019). Ein Gerät
+erreicht nur Handler mit `@AllowDevice()`, und jeder solche Handler steht in
+der Geräte-Zeile der Tenant-Isolationsmatrix.
+
 ---
 
 ## 14. Multi-Tenancy
