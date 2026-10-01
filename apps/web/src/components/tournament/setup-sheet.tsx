@@ -67,7 +67,6 @@ const MESSAGES: Record<string, string> = {
   participants: "Jeder Verein braucht mindestens so viele Spieler, wie die Finalrunde Plätze hat.",
 };
 
-
 /** Auswahlfelder ohne fokussierbares Eingabeelement: der Sprung geht zur Meldung. */
 const SELECTION_KEYS = new Set(["participantIds", "participants", "boardIds"]);
 
