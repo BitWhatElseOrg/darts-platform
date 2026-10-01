@@ -187,8 +187,8 @@ describe("Vereinsduell anlegen", () => {
  * Reihenfolge folgt der Sitzbelegung aus dem Scoring-Zustand.
  */
 async function playMatch(tournamentId: string, tournamentMatchId: string, winnerPlayerId: string, boardId: string): Promise<void> {
-  let dashboard = await service.dashboard({ organizationId, tournamentId, auth });
-  dashboard = await service.assign({ organizationId, tournamentId, data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, matchId: tournamentMatchId, boardId }, auth, audit });
+  const dashboard = await service.dashboard({ organizationId, tournamentId, auth });
+  await service.assign({ organizationId, tournamentId, data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, matchId: tournamentMatchId, boardId }, auth, audit });
   const [scheduled] = await databaseService.database.select().from(tournamentMatches).where(eq(tournamentMatches.id, tournamentMatchId));
   if (!scheduled?.scoringMatchId) throw new Error("Expected an active scoring match.");
   let state = await matchesService.get({ organizationId, matchId: scheduled.scoringMatchId, auth });
