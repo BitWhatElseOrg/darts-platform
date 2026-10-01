@@ -37,12 +37,26 @@ export interface GroupAllocationInput {
 export type KnockoutParticipantReference =
   | { readonly type: "PLAYER"; readonly playerId: string }
   | { readonly type: "GROUP_RANK"; readonly groupKey: string; readonly rank: number }
-  | { readonly type: "MATCH_WINNER"; readonly matchKey: string };
+  | { readonly type: "MATCH_WINNER"; readonly matchKey: string }
+  | {
+      /** Vereinsduell: Rang `rank` der Seite `side` in der Phase `stageKey` (Spec, Datenmodell). */
+      readonly type: "SIDE_RANK";
+      readonly stageKey: string;
+      readonly side: "A" | "B";
+      readonly rank: number;
+    };
+
+export type PlannedStageType =
+  | "GROUP"
+  | "ROUND_ROBIN"
+  | "SINGLE_ELIMINATION"
+  | "CLUB_SWISS"
+  | "CLUB_CROSS_ROUND_ROBIN";
 
 export interface PlannedMatch {
   readonly key: string;
   readonly stageKey: string;
-  readonly stageType: "GROUP" | "ROUND_ROBIN" | "SINGLE_ELIMINATION";
+  readonly stageType: PlannedStageType;
   readonly groupKey: string | null;
   readonly round: number;
   readonly position: number;
