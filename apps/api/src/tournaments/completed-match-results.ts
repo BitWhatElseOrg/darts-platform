@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { matchParticipantPlayers, matchParticipants, type tournamentMatches } from "@darts-platform/database";
 import type { GroupMatchResult } from "@darts-platform/tournament-engine";
@@ -24,6 +24,18 @@ export async function loadCompletedMatchResults(
   organizationId: string,
   matches: readonly TournamentMatchRow[],
 ): Promise<CompletedMatchResults> {
+  // Ein Roundtrip fuer alle gespielten Matches statt einer je Match.
+  const playedScoringIds = matches.flatMap((match) =>
+    match.status === "COMPLETED" && match.resultType !== "WALKOVER" && match.participantOneId !== null && match.participantTwoId !== null && match.scoringMatchId !== null
+      ? [match.scoringMatchId]
+      : []);
+  const legRows = playedScoringIds.length === 0
+    ? []
+    : await transaction
+        .select({ matchId: matchParticipants.matchId, playerId: matchParticipantPlayers.playerId, legsWon: matchParticipants.legsWon })
+        .from(matchParticipants)
+        .innerJoin(matchParticipantPlayers, and(eq(matchParticipantPlayers.participantId, matchParticipants.id), eq(matchParticipantPlayers.organizationId, organizationId)))
+        .where(and(eq(matchParticipants.organizationId, organizationId), inArray(matchParticipants.matchId, playedScoringIds)));
   const results: GroupMatchResult[] = [];
   const unopposedWalkoverWinnerIds: string[] = [];
   for (const match of matches) {
@@ -39,11 +51,7 @@ export async function loadCompletedMatchResults(
       continue;
     }
     if (match.scoringMatchId === null) throw new Error("Completed tournament match invariant violated.");
-    const rows = await transaction
-      .select({ playerId: matchParticipantPlayers.playerId, legsWon: matchParticipants.legsWon })
-      .from(matchParticipants)
-      .innerJoin(matchParticipantPlayers, and(eq(matchParticipantPlayers.participantId, matchParticipants.id), eq(matchParticipantPlayers.organizationId, organizationId)))
-      .where(and(eq(matchParticipants.organizationId, organizationId), eq(matchParticipants.matchId, match.scoringMatchId)));
+    const rows = legRows.filter((row) => row.matchId === match.scoringMatchId);
     const first = rows.find((row) => row.playerId === match.participantOneId);
     const second = rows.find((row) => row.playerId === match.participantTwoId);
     if (first === undefined || second === undefined) throw new Error("Completed match participant invariant violated.");
