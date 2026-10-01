@@ -433,7 +433,7 @@ export class TournamentsService {
     try {
       clubDuel = projectClubDuel({ data, legsOf });
     } catch (error) {
-      this.logger.error(`Club duel projection failed for tournament ${data.tournament.id}: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error(`Club duel projection failed for tournament ${data.tournament.id}: ${error instanceof Error ? error.message : String(error)}`, error instanceof Error ? error.stack : undefined);
     }
     const names = new Map(
       data.participants.map((participant) => [participant.playerId, participant.displayName]),
