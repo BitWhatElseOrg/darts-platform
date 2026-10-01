@@ -248,9 +248,6 @@ export function previewClubDuel(input: ClubDuelPreviewInput): ClubDuelPreview {
   };
 }
 
-/** Wiederholung kostet mehr als jede denkbare Summe von Rangabständen (n ≤ 64 → Summe < 64·63). */
-const REPEAT_PENALTY = 10_000;
-
 function numberAt(values: readonly number[], index: number): number {
   const value = values[index];
   if (value === undefined) throw new Error("Assignment index invariant violated.");
@@ -349,9 +346,12 @@ export function pairClubSwissRound(input: ClubSwissPairingInput): ClubSwissRound
   if (playingA.length !== playingB.length) throw new Error("Club duel pause invariant violated.");
 
   const previous = new Set(input.previousPairings.map((pair) => `${pair.playerAId}:${pair.playerBId}`));
+  // Die Summe aller Rangabstände einer Zuordnung ist < n²; eine Wiederholung kostet n²+1
+  // und wiegt damit immer schwerer als jede Rangordnung.
+  const repeatPenalty = playingA.length * playingA.length + 1;
   const cost = playingA.map((playerA, rankA) =>
     playingB.map((playerB, rankB) =>
-      Math.abs(rankA - rankB) + (previous.has(`${playerA.playerId}:${playerB.playerId}`) ? REPEAT_PENALTY : 0),
+      Math.abs(rankA - rankB) + (previous.has(`${playerA.playerId}:${playerB.playerId}`) ? repeatPenalty : 0),
     ),
   );
   const assignment = solveAssignment(cost);
@@ -368,7 +368,11 @@ export function pairClubSwissRound(input: ClubSwissPairingInput): ClubSwissRound
   const repeated = pairings.filter((pairing) => pairing.repeated).length;
   const warnings = repeated === 0
     ? []
-    : [`Runde ${input.round}: ${repeated} Paarungen wiederholen sich, weil keine neuen Gegner mehr frei sind.`];
+    : [
+        repeated === 1
+          ? `Runde ${input.round}: 1 Paarung wiederholt sich, weil keine neuen Gegner mehr frei sind.`
+          : `Runde ${input.round}: ${repeated} Paarungen wiederholen sich, weil keine neuen Gegner mehr frei sind.`,
+      ];
   return { round: input.round, pairings, pausedPlayerIds, warnings };
 }
 

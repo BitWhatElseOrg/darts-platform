@@ -178,6 +178,27 @@ describe("pairClubSwissRound", () => {
     expect(fifth?.warnings).toEqual(["Runde 5: 4 Paarungen wiederholen sich, weil keine neuen Gegner mehr frei sind."]);
   });
 
+  it("meldet eine einzelne erzwungene Wiederholung im Singular", () => {
+    // 2×2: Frei ist nur a-2/b-1. Zuordnung (a-1/b-2, a-2/b-1) hat 1 Wiederholung, (a-1/b-1, a-2/b-2) hätte 2.
+    const paired = pairClubSwissRound({
+      round: 4,
+      sideA: ranked("a", 2),
+      sideB: ranked("b", 2, 2),
+      previousPairings: [
+        { playerAId: "a-1", playerBId: "b-1" },
+        { playerAId: "a-2", playerBId: "b-2" },
+        { playerAId: "a-1", playerBId: "b-2" },
+      ],
+      pauses: new Map(),
+      played: new Map(),
+    });
+    expect(paired.pairings.map((pairing) => [pairing.playerAId, pairing.playerBId, pairing.repeated])).toEqual([
+      ["a-1", "b-2", true],
+      ["a-2", "b-1", false],
+    ]);
+    expect(paired.warnings).toEqual(["Runde 4: 1 Paarung wiederholt sich, weil keine neuen Gegner mehr frei sind."]);
+  });
+
   it("paart nahe Ränge: nach Rang sortierte Seiten ergeben Rang i gegen Rang i, wenn keine Wiederholung droht", () => {
     const paired = pairClubSwissRound({
       round: 2,
