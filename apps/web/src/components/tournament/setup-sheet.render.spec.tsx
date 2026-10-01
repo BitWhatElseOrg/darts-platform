@@ -229,4 +229,51 @@ describe("SetupSheet: Vereinsduell", () => {
     ]);
     expect(screen.queryByTestId("submit-errors")).toBeNull();
   });
+
+  it("setzt neu erfasste Gastspieler auf Seite B und fuehrt jede Person nur auf einer Seite", async () => {
+    renderSheet({ players: [...players.slice(0, 2), ...guests], organizationName: "VFC Testverein" });
+    client.apiRequest.mockImplementation((input: { path: string; method?: string }) => {
+      if (input.path.endsWith("/players/guests")) return Promise.resolve([guests[1]]);
+      if (input.path.endsWith("/club-duel-preview")) return Promise.resolve(clubPreview);
+      if (input.method === "POST" && input.path.endsWith("/tournaments")) {
+        return Promise.resolve({ id: "00000000-0000-4000-8000-0000000000d1" });
+      }
+      return Promise.reject(new Error(`unerwartet: ${input.path}`));
+    });
+
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "CLUB_DUEL" } });
+    fireEvent.change(screen.getByLabelText("Gastverein"), { target: { value: "DC Musterdorf" } });
+    const counter = screen.getByLabelText(/gegen .* Spieler/u);
+    expect(counter.textContent).toBe("0 : 0");
+
+    // (a) Gast über das Panel erfassen: er ist danach auf Seite B angekreuzt.
+    const guestCheckbox = screen.getByRole("checkbox", { name: "Gast 2" });
+    expect(guestCheckbox).toHaveProperty("checked", false);
+    fireEvent.change(screen.getByLabelText("Gastspieler (ein Name pro Zeile)"), { target: { value: "Gast 2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Gastspieler erfassen" }));
+    await waitFor(() => expect(guestCheckbox).toHaveProperty("checked", true));
+    expect(counter.textContent).toBe("0 : 1");
+    expect(tournamentPosts()).toHaveLength(0);
+
+    // (b) Weitere Auswahl: zweimal an- und abwählen bleibt eindeutig.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Spielerin 1" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Spielerin 2" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Gast 1" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Gast 2" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Gast 2" }));
+    expect(counter.textContent).toBe("2 : 2");
+    fireEvent.change(screen.getByLabelText("Finalrunde (Spieler je Verein)"), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Vereinsduell Herbst" } });
+    fireEvent.click(screen.getByRole("button", { name: "Turnier starten" }));
+
+    await waitFor(() => expect(tournamentPosts()).toHaveLength(1));
+    const { participants } = tournamentPosts()[0]!.body as { participants: { playerId: string; side: string }[] };
+    expect(new Set(participants.map((entry) => entry.playerId)).size).toBe(participants.length);
+    expect([...participants].sort((a, b) => a.playerId.localeCompare(b.playerId))).toEqual([
+      { playerId: players[0]!.id, side: "A" },
+      { playerId: players[1]!.id, side: "A" },
+      { playerId: guests[0]!.id, side: "B" },
+      { playerId: guests[1]!.id, side: "B" },
+    ]);
+  });
 });
