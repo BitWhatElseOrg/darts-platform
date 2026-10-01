@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiRequest } from "@/lib/api-client";
 import { ApiClientError } from "@/lib/api-error";
 import { ClubDuelPanel, clubDuelTabForStatus } from "@/components/tournament/club-duel/club-duel-panel";
+import { ClubDuelUnavailableNotice } from "@/components/tournament/club-duel/club-duel-unavailable";
 import { matchOutcomeText, walkoverState } from "@/components/tournament/club-duel/club-match-outcome";
 import { ClubScoreBanner } from "@/components/tournament/club-duel/club-score-banner";
 import { buildBracketRounds, knockoutLeadsLiveView, type BracketNode, type BracketRound, type BracketSlot } from "@/lib/bracket-tree";
@@ -194,7 +195,15 @@ export function LiveTournament({ boardId, displayKeySecret, mode, publicId }: Li
     </LiveSection>
   ) : null;
   const clubDuel = dashboard.clubDuel;
-  const clubDuelSection = clubDuel === null ? null : mode === "tv" ? (
+  // Fehlt die Projektion trotz Vereinsduell-Format, steht ein Hinweis statt
+  // einer leeren klassischen Ansicht.
+  const clubDuelSection = clubDuel === null ? (
+    dashboard.tournament.format === "CLUB_DUEL" ? (
+      <LiveSection title="Vereinsduell">
+        <ClubDuelUnavailableNotice />
+      </LiveSection>
+    ) : null
+  ) : mode === "tv" ? (
     <>
       {/* Der Banner traegt Region und Ueberschrift «Vereinswertung» selbst. */}
       <div className="mx-auto mt-7 max-w-[1500px]"><ClubScoreBanner clubDuel={clubDuel} size="tv" /></div>

@@ -163,3 +163,28 @@ describe("LiveTournament – Vereinsduell", () => {
     expect(within(next).getByText("Aron – Bia")).toBeTruthy();
   });
 });
+
+describe("LiveTournament – Vereinsduell ohne Projektion", () => {
+  const withoutProjection = {
+    ...dashboard,
+    tournament: { ...dashboard.tournament, format: "CLUB_DUEL", stageLabel: "Quali-Runde 1" },
+    clubDuel: null,
+  };
+
+  for (const mode of ["publikum", "tv"] as const) {
+    it(`zeigt im Modus ${mode} einen Hinweis statt einer leeren Rangliste`, async () => {
+      client.apiRequest.mockResolvedValueOnce(withoutProjection);
+      renderLiveTournament(mode);
+      expect(await screen.findByText("Vereinsduell-Ansicht derzeit nicht verfügbar.")).toBeTruthy();
+      expect(screen.queryByRole("heading", { name: "Gruppenranglisten" })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Tabelle" })).toBeNull();
+    });
+  }
+
+  it("zeigt den Hinweis bei klassischen Formaten nicht", async () => {
+    client.apiRequest.mockResolvedValueOnce({ ...dashboard, tournament: { ...dashboard.tournament, format: "GROUPS_THEN_KNOCKOUT" } });
+    renderLiveTournament("publikum");
+    await screen.findByRole("heading", { name: "Herbstcup" });
+    expect(screen.queryByText("Vereinsduell-Ansicht derzeit nicht verfügbar.")).toBeNull();
+  });
+});

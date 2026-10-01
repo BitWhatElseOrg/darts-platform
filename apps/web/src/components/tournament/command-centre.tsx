@@ -35,7 +35,6 @@ import {
 } from "@/lib/tournament-assignment-queue";
 import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
 import { BoardWedge } from "./board-wedge";
-import { ClubDuelPanel, clubDuelTabForStatus } from "./club-duel/club-duel-panel";
 import { ClubScoreBanner } from "./club-duel/club-score-banner";
 import { DashboardHeader } from "./dashboard-header";
 import { DeleteTournamentPanel } from "./delete-tournament-panel";
@@ -45,7 +44,7 @@ import { QueuePanel } from "./queue-panel";
 import { ParticipantDisruptionPanel } from "./participant-disruption-panel";
 import { ResultsPanel } from "./results-panel";
 import { liveNavTarget, SharePanel } from "./share-panel";
-import { StandingsSheet } from "./standings-sheet";
+import { TournamentStandingsArea } from "./tournament-standings-area";
 import { tournamentDeletionBlocker } from "@/lib/tournament-deletion";
 
 /**
@@ -788,16 +787,7 @@ export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canW
         </div>
 
         <div className="mt-9">
-          {dashboard.clubDuel !== null ? (
-            <section aria-labelledby="club-duel-heading">
-              <SheetLabel as="h2" id="club-duel-heading">Vereinsduell</SheetLabel>
-              <Rule className="mt-2" />
-              {/* Kein key auf defaultTab: der Tab springt bei Statuswechsel nicht von selbst um. */}
-              <div className="mt-4"><ClubDuelPanel clubDuel={dashboard.clubDuel} defaultTab={clubDuelTabForStatus(dashboard.tournament.status)} participants={dashboard.participants} /></div>
-            </section>
-          ) : (
-            <StandingsSheet format={dashboard.tournament.format} groups={dashboard.groups} />
-          )}
+          <TournamentStandingsArea dashboard={dashboard} />
         </div>
         {canDelete ? (
           <DeleteTournamentPanel
