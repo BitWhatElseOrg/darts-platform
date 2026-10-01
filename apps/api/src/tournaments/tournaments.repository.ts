@@ -55,6 +55,7 @@ import { DatabaseService } from "../database/database.service.js";
 import { abortScoringMatch } from "../matches/abort-match.js";
 import { clubDuelStageLabel } from "./club-duel-labels.js";
 import { resolveCompletedTournamentGroup } from "./resolve-completed-group.js";
+import { advanceClubDuel } from "./advance-club-duel.js";
 import { updateTournamentProgress } from "./update-tournament-progress.js";
 import { getWalkoverWithdrawnPlayerId } from "./walkover-provenance.js";
 
@@ -1201,6 +1202,7 @@ export class TournamentsRepository {
       const refreshedMatchRows = await transaction.select().from(tournamentMatches).where(and(eq(tournamentMatches.organizationId, input.organizationId), eq(tournamentMatches.tournamentId, input.tournamentId))).for("update");
       const automaticDecisions = resolveTournamentWithdrawals({ withdrawnPlayerIds, matches: snapshots(refreshedMatchRows) });
       await applyDecisions(automaticDecisions, refreshedMatchRows);
+      await advanceClubDuel(transaction, { organizationId: input.organizationId, tournamentId: input.tournamentId, now: withdrawnAt, actor: { principal: input.auth, audit: input.audit } });
       await updateTournamentProgress(transaction, input.organizationId, input.tournamentId, withdrawnAt);
       const nextVersion = tournament.version + 1;
       await transaction.update(tournaments).set({ version: nextVersion, updatedAt: withdrawnAt }).where(and(eq(tournaments.organizationId, input.organizationId), eq(tournaments.id, input.tournamentId)));

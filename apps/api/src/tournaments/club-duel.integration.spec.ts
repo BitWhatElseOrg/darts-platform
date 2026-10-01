@@ -1,15 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import {
+  auditEvents,
   boards,
   memberships,
   organizations,
+  outboxEvents,
   players,
   tournamentMatches,
   tournamentStages,
+  tournaments,
   users,
 } from "@darts-platform/database";
 import type { CreateClubDuelTournamentInput } from "@darts-platform/schemas";
@@ -17,6 +20,7 @@ import type { CreateClubDuelTournamentInput } from "@darts-platform/schemas";
 import type { AuthContext } from "../auth/auth.types.js";
 import { DatabaseService } from "../database/database.service.js";
 import { MatchesRepository } from "../matches/matches.repository.js";
+import { MatchesService } from "../matches/matches.service.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { OrganizationsRepository } from "../organizations/organizations.repository.js";
 import { DisplayKeysRepository } from "./display-keys.repository.js";
@@ -30,6 +34,7 @@ const matchesRepository = new MatchesRepository(databaseService);
 const repository = new TournamentsRepository(databaseService);
 const displayKeys = new DisplayKeysService(new DisplayKeysRepository(databaseService), repository, access);
 const service = new TournamentsService(repository, matchesRepository, access, displayKeys);
+const matchesService = new MatchesService(matchesRepository, access);
 
 const organizationId = randomUUID();
 const foreignOrganizationId = randomUUID();
@@ -172,4 +177,141 @@ describe("Vereinsduell anlegen", () => {
     expect(preview.totalMatches).toBe(54);
     expect(preview.matchesPerPlayer.sideB).toEqual({ min: 4, max: 4 });
   });
+});
+
+/**
+ * Spielt ein READY-Turniermatch auf `boardId` bis zum Sieg von `winnerPlayerId`
+ * durch (501, Double Out, Best of 1). Turniermatches bullen den Anwurf von Leg
+ * eins aus (`legStartPending`): Sitz 1 beginnt per `decideLegStart`, die
+ * Reihenfolge folgt der Sitzbelegung aus dem Scoring-Zustand.
+ */
+async function playMatch(tournamentId: string, tournamentMatchId: string, winnerPlayerId: string, boardId: string): Promise<void> {
+  let dashboard = await service.dashboard({ organizationId, tournamentId, auth });
+  dashboard = await service.assign({ organizationId, tournamentId, data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, matchId: tournamentMatchId, boardId }, auth, audit });
+  const [scheduled] = await databaseService.database.select().from(tournamentMatches).where(eq(tournamentMatches.id, tournamentMatchId));
+  if (!scheduled?.scoringMatchId) throw new Error("Expected an active scoring match.");
+  let state = await matchesService.get({ organizationId, matchId: scheduled.scoringMatchId, auth });
+  if (state.legStartPending) {
+    state = await matchesService.decideLegStart({ organizationId, matchId: state.id, auth, audit, data: { commandId: randomUUID(), expectedVersion: state.version, legNumber: 1, startingSeat: 1 } });
+  }
+  const order = [...state.participants].sort((left, right) => left.seat - right.seat).map((participant) => participant.playerId);
+  const winnerVisits = [180, 180, 101];
+  const script: { playerId: string; points: number; finish: boolean }[] = [];
+  for (let turn = 0, winnerTurns = 0; winnerTurns <= 3; turn += 1) {
+    const playerId = order[turn % 2];
+    if (playerId === undefined) throw new Error("Turn order invariant violated.");
+    if (playerId === winnerPlayerId) {
+      script.push(winnerTurns < 3 ? { playerId, points: winnerVisits[winnerTurns] ?? 0, finish: false } : { playerId, points: 40, finish: true });
+      winnerTurns += 1;
+    } else {
+      script.push({ playerId, points: 0, finish: false });
+    }
+  }
+  for (const step of script) {
+    state = await matchesService.submitVisit({
+      organizationId, matchId: state.id, auth, audit,
+      data: {
+        commandId: randomUUID(), expectedVersion: state.version, playerId: step.playerId, points: step.points,
+        dartsThrown: step.finish ? 1 : 3,
+        ...(step.finish ? { checkoutSegment: { segment: 20, multiplier: 2 } } : {}),
+      },
+    });
+  }
+  expect(state.status).toBe("COMPLETED");
+}
+
+/** Deterministische, aber durchmischte Siegerwahl: wer den kleineren Wert hat, gewinnt. */
+function pickWinner(playerOneId: string, playerTwoId: string): string {
+  const score = (id: string) => ((seedOf.get(id) ?? 0) * 7) % 11;
+  return score(playerOneId) <= score(playerTwoId) ? playerOneId : playerTwoId;
+}
+
+/** Spielt alle READY-Matches, bis das Turnier COMPLETED ist; gibt die Anzahl gespielter Spiele zurueck. */
+async function playOut(tournamentId: string): Promise<number> {
+  let played = 0;
+  for (let guard = 0; guard < 200; guard += 1) {
+    const rows = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, tournamentId), eq(tournamentMatches.status, "READY")));
+    const next = rows[0];
+    if (next === undefined) {
+      const [tournament] = await databaseService.database.select().from(tournaments).where(eq(tournaments.id, tournamentId));
+      if (tournament?.status === "COMPLETED") return played;
+      throw new Error(`Keine READY-Spiele, Turnier aber ${tournament?.status ?? "unbekannt"}.`);
+    }
+    if (!next.participantOneId || !next.participantTwoId) throw new Error("READY match without participants.");
+    await playMatch(tournamentId, next.id, pickWinner(next.participantOneId, next.participantTwoId), boardIds[0]);
+    played += 1;
+  }
+  throw new Error("Durchlauf abgebrochen.");
+}
+
+describe("Vereinsduell Ablauf", () => {
+  it("spielt 13 gegen 9 mit 2 Quali-Runden und Finalrunde 2 bis COMPLETED durch", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2 }), auth, audit });
+    const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.round, 1), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    for (const match of roundOne.slice(0, 8)) {
+      if (!match.participantOneId || !match.participantTwoId) throw new Error("unexpected");
+      await playMatch(created.id, match.id, pickWinner(match.participantOneId, match.participantTwoId), boardIds[0]);
+    }
+    // Vor dem letzten Spiel der Runde gibt es noch keine Runde 2.
+    expect(await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 2")))).toHaveLength(0);
+    const last = roundOne[8];
+    if (!last?.participantOneId || !last.participantTwoId) throw new Error("unexpected");
+    await playMatch(created.id, last.id, pickWinner(last.participantOneId, last.participantTwoId), boardIds[0]);
+
+    const roundTwo = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 2")));
+    expect(roundTwo).toHaveLength(9);
+    expect(roundTwo.every((match) => match.status === "READY")).toBe(true);
+    const pausedRoundOne = new Set(sideA.filter((id) => !roundOne.some((match) => match.participantOneId === id)));
+    const pausedRoundTwo = new Set(sideA.filter((id) => !roundTwo.some((match) => match.participantOneId === id)));
+    expect(pausedRoundOne.size).toBe(4);
+    expect(pausedRoundTwo.size).toBe(4);
+    expect([...pausedRoundTwo].some((id) => pausedRoundOne.has(id))).toBe(false);
+    for (const match of roundTwo) {
+      expect(sideOf(match.participantOneId)).toBe("A");
+      expect(sideOf(match.participantTwoId)).toBe("B");
+      expect(roundOne.some((previous) => previous.participantOneId === match.participantOneId && previous.participantTwoId === match.participantTwoId)).toBe(false);
+    }
+    const pairedEvents = await databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_ROUND_PAIRED")));
+    expect(pairedEvents).toHaveLength(1);
+    const pairedAudits = await databaseService.database.select().from(auditEvents).where(and(eq(auditEvents.entityId, created.id), eq(auditEvents.action, "TOURNAMENT_ROUND_PAIRED")));
+    expect(pairedAudits).toHaveLength(1);
+
+    const total = 9 + await playOut(created.id);
+    expect(total).toBe(18 + 4 + 2);
+    const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    expect(dashboard.tournament.status).toBe("COMPLETED");
+    const finalMatches = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Final")));
+    expect(finalMatches[0]?.status).toBe("COMPLETED");
+    expect(sideOf(finalMatches[0]?.participantOneId ?? null)).toBe("A");
+    expect(sideOf(finalMatches[0]?.participantTwoId ?? null)).toBe("B");
+  }, 300_000);
+
+  it("wechselt den Status: GROUP_STAGE → FINAL_ROUND → KNOCKOUT", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
+    const statuses: string[] = [];
+    for (let guard = 0; guard < 20; guard += 1) {
+      const [tournament] = await databaseService.database.select().from(tournaments).where(eq(tournaments.id, created.id));
+      if (tournament === undefined) throw new Error("unexpected");
+      if (statuses.at(-1) !== tournament.status) statuses.push(tournament.status);
+      if (tournament.status === "COMPLETED") break;
+      const [next] = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.status, "READY")));
+      if (!next?.participantOneId || !next.participantTwoId) throw new Error("unexpected");
+      await playMatch(created.id, next.id, pickWinner(next.participantOneId, next.participantTwoId), boardIds[0]);
+    }
+    expect(statuses).toEqual(["GROUP_STAGE", "FINAL_ROUND", "KNOCKOUT", "COMPLETED"]);
+  }, 120_000);
+
+  it("paart die naechste Runde, wenn ein Rueckzug das letzte offene Spiel kampflos schliesst", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 3, sideBCount: 3 }), auth, audit });
+    const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.round, 1)));
+    const [first, second, third] = roundOne.filter((match) => match.stageLabel === "Quali · Runde 1");
+    if (!first?.participantOneId || !first.participantTwoId || !second?.participantOneId || !third?.participantOneId) throw new Error("unexpected");
+    await playMatch(created.id, first.id, first.participantOneId, boardIds[0]);
+    await playMatch(created.id, second.id, second.participantOneId, boardIds[0]);
+    const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    await service.withdrawParticipant({ organizationId, tournamentId: created.id, auth, audit, data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, playerId: third.participantOneId, reason: "Verletzung" } });
+    const roundTwo = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 2")));
+    expect(roundTwo).toHaveLength(2);
+    expect(roundTwo.some((match) => match.participantOneId === third.participantOneId || match.participantTwoId === third.participantOneId)).toBe(false);
+  }, 120_000);
 });

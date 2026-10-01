@@ -16,6 +16,7 @@ import { auditActor, leaseActor } from "../common/audit-actor.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
 import { DatabaseService } from "../database/database.service.js";
+import { advanceClubDuel } from "../tournaments/advance-club-duel.js";
 import { applyWithdrawalPropagation } from "../tournaments/apply-withdrawal-propagation.js";
 import { resolveCompletedTournamentGroup } from "../tournaments/resolve-completed-group.js";
 import { updateTournamentProgress } from "../tournaments/update-tournament-progress.js";
@@ -617,6 +618,7 @@ export class MatchesRepository {
           input.organizationId,
           input.matchId,
           matchWinnerPlayerId,
+          { principal: input.auth, audit: input.audit },
         );
       }
       if (result.state.status === "COMPLETED" && result.state.winnerSeat !== null) {
@@ -1490,7 +1492,7 @@ export class MatchesRepository {
       await this.syncProjection(transaction, input, match.boardId, nextVersion, result.state);
       const matchWinnerPlayerId = playerOfSeat(result.state, result.state.winnerSeat);
       if (result.state.status === "COMPLETED" && matchWinnerPlayerId !== null) {
-        await this.syncTournamentProgress(transaction, input.organizationId, input.matchId, matchWinnerPlayerId);
+        await this.syncTournamentProgress(transaction, input.organizationId, input.matchId, matchWinnerPlayerId, { principal: input.auth, audit: input.audit });
       }
       if (result.state.status === "COMPLETED" && result.state.winnerSeat !== null) {
         await completeEncounterSlotForMatch(transaction, {
@@ -1665,6 +1667,7 @@ export class MatchesRepository {
     organizationId: string,
     scoringMatchId: string,
     winnerPlayerId: string,
+    actor: { readonly principal: Principal; readonly audit: AuditContext },
   ): Promise<void> {
     const [scheduled] = await transaction
       .select()
@@ -1751,6 +1754,7 @@ export class MatchesRepository {
 
     const now = new Date();
     await applyWithdrawalPropagation(transaction, organizationId, scheduled.tournamentId, now);
+    await advanceClubDuel(transaction, { organizationId, tournamentId: scheduled.tournamentId, now, actor });
     await updateTournamentProgress(transaction, organizationId, scheduled.tournamentId, now);
     await transaction
       .update(tournaments)
