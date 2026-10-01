@@ -364,6 +364,29 @@ describe("SetupSheet: Vereinsduell", () => {
     expect(screen.getByLabelText(/gegen .* Spieler/u).textContent).toBe("0 : 1");
   });
 
+  it("unterscheidet bei der Finalrunde Bereich und Seitenprüfung", async () => {
+    renderSheet({ players: [...players.slice(0, 2), ...guests], organizationName: "VFC Testverein" });
+    client.apiRequest.mockImplementation(() => Promise.resolve(clubPreview));
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "CLUB_DUEL" } });
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Vereinsduell Herbst" } });
+    fireEvent.change(screen.getByLabelText("Gastverein"), { target: { value: "DC Musterdorf" } });
+    const select = screen.getByLabelText("Finalrunde (Spieler je Verein)");
+    // Ein Wert ausserhalb 2–6 (etwa aus manipuliertem DOM) trifft den Bereich.
+    const outOfRange = document.createElement("option");
+    outOfRange.value = "7";
+    select.appendChild(outOfRange);
+    fireEvent.change(select, { target: { value: "7" } });
+    fireEvent.click(screen.getByRole("button", { name: "Turnier starten" }));
+    const summary = await screen.findByTestId("submit-errors");
+    expect(summary.textContent).toContain("Die Finalrunde braucht 2 bis 6 Spieler je Verein.");
+
+    fireEvent.change(select, { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Turnier starten" }));
+    await waitFor(() => expect(screen.getByTestId("submit-errors").textContent).toContain("Jeder Verein braucht mindestens so viele Spieler, wie die Finalrunde Plätze hat."));
+    expect(screen.getByTestId("submit-errors").textContent).not.toContain("2 bis 6");
+    expect(tournamentPosts()).toHaveLength(0);
+  });
+
   it("räumt die Fehlermeldungen beim Wechsel des Formats weg", async () => {
     renderSheet();
     fireEvent.click(screen.getByRole("button", { name: "Turnier starten" }));

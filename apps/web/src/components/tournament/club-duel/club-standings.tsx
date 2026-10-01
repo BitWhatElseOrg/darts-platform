@@ -9,11 +9,14 @@ import { sideLabel } from "@/lib/club-duel-view";
 type View = "overall" | "sideA" | "sideB";
 
 const percent = (rate: number) => `${Math.round(rate * 100)} %`;
-/** Erst runden, dann Vorzeichen – sonst entstünde «-0.0». */
+/**
+ * Betrag runden, dann Vorzeichen setzen: symmetrisch bei .5 (Math.round rundet
+ * negative Hälften gegen null) und nie «-0.0».
+ */
 const signedOneDecimal = (value: number) => {
-  const rounded = Math.round(value * 10) / 10;
-  const clean = rounded === 0 ? 0 : rounded;
-  return `${clean > 0 ? "+" : ""}${clean.toFixed(1)}`;
+  const magnitude = Math.round(Math.abs(value) * 10) / 10;
+  if (magnitude === 0) return "0.0";
+  return `${value > 0 ? "+" : "-"}${magnitude.toFixed(1)}`;
 };
 
 /**

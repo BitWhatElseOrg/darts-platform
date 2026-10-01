@@ -69,13 +69,13 @@ export function ClubDuelTabs({ tabs, initial }: {
       {tabs.map((tab) => (
         <div
           aria-labelledby={`${baseId}-${tab.id}-tab`}
-          className="mt-4 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
+          className="mt-4"
           hidden={tab.id !== active}
           id={`${baseId}-${tab.id}-panel`}
           key={tab.id}
           role="tabpanel"
-          tabIndex={0}
         >
+          {/* Kein tabIndex: jedes Panel enthält fokussierbare Bereiche, der Tab-Stopp läge doppelt (APG Tabs). */}
           {/* Alle Panels bleiben gemountet: der Zustand darin (etwa Gesamt/A/B der Rangliste) überlebt den Tabwechsel. */}
           {tab.panel}
         </div>

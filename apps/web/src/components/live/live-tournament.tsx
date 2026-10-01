@@ -13,12 +13,11 @@ import { apiRequest } from "@/lib/api-client";
 import { ApiClientError } from "@/lib/api-error";
 import { ClubDuelPanel, clubDuelTabForStatus } from "@/components/tournament/club-duel/club-duel-panel";
 import { ClubDuelUnavailableNotice } from "@/components/tournament/club-duel/club-duel-unavailable";
-import { matchOutcomeText, walkoverState } from "@/components/tournament/club-duel/club-match-outcome";
 import { ClubScoreBanner } from "@/components/tournament/club-duel/club-score-banner";
 import { buildBracketRounds, knockoutLeadsLiveView, type BracketNode, type BracketRound, type BracketSlot } from "@/lib/bracket-tree";
 import { recallDisplayKey, rememberDisplayKey } from "@/lib/display-key-storage";
 import { resolvePublicId } from "@/lib/live-address";
-import { participantNames, roundMatchStateLabel } from "@/lib/club-duel-view";
+import { legsLabel, participantNames, roundMatchStateLabel } from "@/lib/club-duel-view";
 import { liveDotClass } from "@/lib/live-status";
 import { tournamentWinner } from "@/lib/tournament-winner";
 import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
@@ -288,8 +287,7 @@ function LiveSection({ children, title }: { readonly children: ReactNode; readon
   );
 }
 
-type ClubLiveMatch = Pick<ClubDuelDashboard["rounds"][number]["matches"][number], "matchId" | "playerAId" | "playerBId" | "status" | "winnerPlayerId" | "legs">
-  & { readonly resultType?: ClubDuelDashboard["rounds"][number]["matches"][number]["resultType"] };
+type ClubLiveMatch = Pick<ClubDuelDashboard["rounds"][number]["matches"][number], "matchId" | "playerAId" | "playerBId" | "status" | "legs">;
 
 /**
  * Alle Spiele, die gerade auf einer Scheibe laufen oder als naechste anstehen:
@@ -319,14 +317,14 @@ function ClubMatchList({ clubDuel, empty, participants, status, title }: {
         // Hoechstens zwei Spalten und die Namen auf eigener Zeile: bei 1280px
         // und drei Spalten schnitt der Beamer Spielernamen ab.
         <ul className="grid gap-2 sm:grid-cols-2">
+          {/* Nur laufende und bereite Spiele: ein kampfloser Sieg ist nie dabei. */}
           {matches.map((match) => {
-            const walkover = match.resultType === "WALKOVER";
-            const state = walkover ? walkoverState : roundMatchStateLabel(match.status);
+            const state = roundMatchStateLabel(match.status);
             return (
               <li className="flex flex-col gap-2 rounded-lg border border-sisal-400 bg-sisal-100 px-4 py-3 text-title-sm" key={match.matchId}>
                 <span className="min-w-0 whitespace-normal break-words">{name(match.playerAId)} – {name(match.playerBId)}</span>
                 <span className="flex items-center justify-between gap-3">
-                  <span className="font-numerals tabular">{matchOutcomeText(match, walkover, name)}</span>
+                  <span className="font-numerals tabular">{legsLabel(match.legs)}</span>
                   <StateTag label={state.label} tone={state.tone} />
                 </span>
               </li>
