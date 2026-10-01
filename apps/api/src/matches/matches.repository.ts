@@ -89,6 +89,15 @@ type UserActorInput = Omit<ActorInput, "auth"> & { readonly auth: AuthContext };
 type DatabaseTransaction = Parameters<Parameters<DatabaseService["database"]["transaction"]>[0]>[0];
 /** Der Live-Bezug eines Matches ohne den Fall "kein Bezug" (das traegt `null`). */
 type LiveTarget = NonNullable<MatchStateResponse["liveTarget"]>;
+/** Turnierangaben fuer die Vereinskuerzel; nur intern, nicht Teil von `LiveTarget`. */
+interface TournamentLabelInfo { readonly format: string; readonly sideAName: string | null; readonly sideBName: string | null }
+/** Turnier -> (Person -> Vereinskuerzel). */
+type ClubLabelsByTournament = Map<string, Map<string, string>>;
+const noClubLabels: ReadonlyMap<string, string> = new Map();
+/** Kuerzel fuer das Turnier des Matches; ausserhalb eines Vereinsduells leer. */
+function clubLabelsOf(labels: ClubLabelsByTournament, liveTarget: LiveTarget | null): ReadonlyMap<string, string> {
+  return liveTarget?.kind === "TOURNAMENT" ? labels.get(liveTarget.tournamentId) ?? noClubLabels : noClubLabels;
+}
 
 /**
  * Bindung eines Scheiben-Tablets an das Match seiner Scheibe. Laeuft in der
@@ -235,16 +244,68 @@ export class MatchesRepository {
    * abgebrochene Matches fehlen in der Map.
    */
   public async getStates(organizationId: string, matchIds: readonly string[]): Promise<Map<string, MatchStateResponse>> {
-    const liveTargets = await this.loadLiveTargets(organizationId, matchIds);
-    const entries = await Promise.all(matchIds.map(async (matchId) =>
-      [matchId, await this.buildState(organizationId, matchId, liveTargets.get(matchId) ?? null)] as const,
-    ));
+    const { liveTargets, clubLabels } = await this.loadStateContext(organizationId, matchIds);
+    const entries = await Promise.all(matchIds.map(async (matchId) => {
+      const liveTarget = liveTargets.get(matchId) ?? null;
+      return [matchId, await this.buildState(organizationId, matchId, liveTarget, clubLabelsOf(clubLabels, liveTarget))] as const;
+    }));
     return new Map(entries.filter((entry): entry is readonly [string, MatchStateResponse] => entry[1] !== null));
   }
 
   public async getState(organizationId: string, matchId: string): Promise<MatchStateResponse | null> {
-    const liveTargets = await this.loadLiveTargets(organizationId, [matchId]);
-    return this.buildState(organizationId, matchId, liveTargets.get(matchId) ?? null);
+    const { liveTargets, clubLabels } = await this.loadStateContext(organizationId, [matchId]);
+    const liveTarget = liveTargets.get(matchId) ?? null;
+    return this.buildState(organizationId, matchId, liveTarget, clubLabelsOf(clubLabels, liveTarget));
+  }
+
+  /**
+   * Live-Bezug und Vereinskuerzel fuer alle angefragten Matches auf einmal:
+   * die Live-Abfragen wie bisher, dazu hoechstens eine Abfrage fuer die
+   * Seiten aller beteiligten Personen in Vereinsduellen -- unabhaengig von
+   * der Zahl der Matches.
+   */
+  private async loadStateContext(organizationId: string, matchIds: readonly string[]): Promise<{
+    readonly liveTargets: Map<string, LiveTarget>;
+    readonly clubLabels: ClubLabelsByTournament;
+  }> {
+    const { targets, tournamentInfo } = await this.loadLiveTargets(organizationId, matchIds);
+    const clubLabels = await this.loadClubLabels(organizationId, matchIds, tournamentInfo);
+    return { liveTargets: targets, clubLabels };
+  }
+
+  /**
+   * Vereinsduell: Kuerzel je Person aus Seite und Vereinsnamen des Turniers,
+   * gruppiert nach Turnier (eine Person kann in mehreren Turnieren stehen).
+   * Nur Vereinsduelle mit beiden Seitennamen tragen Kuerzel.
+   */
+  private async loadClubLabels(organizationId: string, matchIds: readonly string[], tournamentInfo: ReadonlyMap<string, TournamentLabelInfo>): Promise<ClubLabelsByTournament> {
+    const sideNames = new Map<string, { readonly A: string; readonly B: string }>();
+    for (const [tournamentId, info] of tournamentInfo) {
+      if (info.format !== "CLUB_DUEL" || info.sideAName === null || info.sideBName === null) continue;
+      sideNames.set(tournamentId, { A: clubAbbreviation(info.sideAName), B: clubAbbreviation(info.sideBName) });
+    }
+    const labels: ClubLabelsByTournament = new Map();
+    if (sideNames.size === 0 || matchIds.length === 0) return labels;
+    const matchPlayers = this.databaseService.database
+      .select({ playerId: matchParticipantPlayers.playerId })
+      .from(matchParticipantPlayers)
+      .where(and(eq(matchParticipantPlayers.organizationId, organizationId), inArray(matchParticipantPlayers.matchId, [...matchIds])));
+    const rows = await this.databaseService.database
+      .select({ tournamentId: tournamentParticipants.tournamentId, playerId: tournamentParticipants.playerId, side: tournamentParticipants.side })
+      .from(tournamentParticipants)
+      .where(and(
+        eq(tournamentParticipants.organizationId, organizationId),
+        inArray(tournamentParticipants.tournamentId, [...sideNames.keys()]),
+        inArray(tournamentParticipants.playerId, matchPlayers),
+      ));
+    for (const row of rows) {
+      const names = sideNames.get(row.tournamentId);
+      if (names === undefined || (row.side !== "A" && row.side !== "B")) continue;
+      const perTournament = labels.get(row.tournamentId) ?? new Map<string, string>();
+      perTournament.set(row.playerId, names[row.side]);
+      labels.set(row.tournamentId, perTournament);
+    }
+    return labels;
   }
 
   /**
@@ -254,21 +315,30 @@ export class MatchesRepository {
    * Begegnungsabfrage nur noch fuer die verbleibenden Matches gestellt --
    * und gar nicht, wenn keins uebrig bleibt.
    */
-  private async loadLiveTargets(organizationId: string, matchIds: readonly string[]): Promise<Map<string, LiveTarget>> {
+  private async loadLiveTargets(organizationId: string, matchIds: readonly string[]): Promise<{
+    readonly targets: Map<string, LiveTarget>;
+    readonly tournamentInfo: Map<string, TournamentLabelInfo>;
+  }> {
     const targets = new Map<string, LiveTarget>();
-    if (matchIds.length === 0) return targets;
+    // Intern fuer die Vereinskuerzel; bleibt ausserhalb des LiveTarget-Vertrags.
+    const tournamentInfo = new Map<string, TournamentLabelInfo>();
+    if (matchIds.length === 0) return { targets, tournamentInfo };
     const ids = [...matchIds];
     const tournamentRows = await this.databaseService.database
-      .select({ matchId: tournamentMatches.scoringMatchId, tournamentId: tournamentMatches.tournamentId, publicId: tournaments.publicId })
+      .select({
+        matchId: tournamentMatches.scoringMatchId, tournamentId: tournamentMatches.tournamentId, publicId: tournaments.publicId,
+        format: tournaments.format, sideAName: tournaments.sideAName, sideBName: tournaments.sideBName,
+      })
       .from(tournamentMatches)
       .innerJoin(tournaments, and(eq(tournaments.id, tournamentMatches.tournamentId), eq(tournaments.organizationId, organizationId)))
       .where(and(eq(tournamentMatches.organizationId, organizationId), inArray(tournamentMatches.scoringMatchId, ids)));
     for (const row of tournamentRows) {
       if (row.matchId === null || targets.has(row.matchId)) continue;
       targets.set(row.matchId, { kind: "TOURNAMENT", tournamentId: row.tournamentId, publicId: row.publicId });
+      tournamentInfo.set(row.tournamentId, { format: row.format, sideAName: row.sideAName, sideBName: row.sideBName });
     }
     const remaining = ids.filter((id) => !targets.has(id));
-    if (remaining.length === 0) return targets;
+    if (remaining.length === 0) return { targets, tournamentInfo };
     const encounterRows = await this.databaseService.database
       .select({ matchId: encounterSlots.matchId, publicId: encounters.publicId })
       .from(encounterSlots)
@@ -278,10 +348,10 @@ export class MatchesRepository {
       if (row.matchId === null || targets.has(row.matchId)) continue;
       targets.set(row.matchId, { kind: "ENCOUNTER", publicId: row.publicId });
     }
-    return targets;
+    return { targets, tournamentInfo };
   }
 
-  private async buildState(organizationId: string, matchId: string, liveTarget: LiveTarget | null): Promise<MatchStateResponse | null> {
+  private async buildState(organizationId: string, matchId: string, liveTarget: LiveTarget | null, clubLabels: ReadonlyMap<string, string>): Promise<MatchStateResponse | null> {
     const [matchRow] = await this.databaseService.database
       .select({ match: matches, boardName: boards.name })
       .from(matches).leftJoin(boards, and(eq(boards.id, matches.boardId), eq(boards.organizationId, organizationId)))
@@ -296,9 +366,6 @@ export class MatchesRepository {
       .where(and(eq(matchParticipants.organizationId, organizationId), eq(matchParticipants.matchId, matchId)))
       .orderBy(asc(matchParticipants.seat), asc(matchParticipantPlayers.position));
     if (participantRows.length < 2) throw new Error("Match participant invariant violated.");
-    const clubLabels = liveTarget?.kind === "TOURNAMENT"
-      ? await this.loadClubLabels(organizationId, liveTarget.tournamentId, participantRows.map((row) => row.playerId))
-      : new Map<string, string>();
 
     const commandRows = await this.databaseService.database.select().from(scoreCommands)
       .where(and(eq(scoreCommands.organizationId, organizationId), eq(scoreCommands.matchId, matchId)))
@@ -375,26 +442,6 @@ export class MatchesRepository {
       createdAt: matchRow.match.createdAt, updatedAt: matchRow.match.updatedAt,
       liveTarget,
     };
-  }
-
-  /** Vereinsduell: Kürzel je Person aus Seite und Vereinsnamen des Turniers; sonst leer. */
-  private async loadClubLabels(organizationId: string, tournamentId: string, playerIds: readonly string[]): Promise<Map<string, string>> {
-    const [tournament] = await this.databaseService.database
-      .select({ format: tournaments.format, sideAName: tournaments.sideAName, sideBName: tournaments.sideBName })
-      .from(tournaments)
-      .where(and(eq(tournaments.organizationId, organizationId), eq(tournaments.id, tournamentId)))
-      .limit(1);
-    if (tournament?.format !== "CLUB_DUEL" || tournament.sideAName === null || tournament.sideBName === null) return new Map();
-    const rows = await this.databaseService.database
-      .select({ playerId: tournamentParticipants.playerId, side: tournamentParticipants.side })
-      .from(tournamentParticipants)
-      .where(and(
-        eq(tournamentParticipants.organizationId, organizationId),
-        eq(tournamentParticipants.tournamentId, tournamentId),
-        inArray(tournamentParticipants.playerId, [...playerIds]),
-      ));
-    const labels = { A: clubAbbreviation(tournament.sideAName), B: clubAbbreviation(tournament.sideBName) };
-    return new Map(rows.flatMap((row) => (row.side === "A" || row.side === "B" ? [[row.playerId, labels[row.side]] as const] : [])));
   }
 
   public async create(input: { readonly organizationId: string; readonly data: CreateMatchInput; readonly auth: AuthContext; readonly audit: AuditContext }): Promise<string> {
