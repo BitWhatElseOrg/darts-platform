@@ -9,25 +9,26 @@ import {
   boardControllerLeases,
   boardDevices,
   boards,
-  competitions,
-  encounterSlots,
-  encounters,
-  legs,
-  matchParticipantPlayers,
-  matchParticipants,
   matches,
   memberships,
   organizations,
   players,
+  teamPlayers,
   teams,
   tournamentMatches,
   users,
   visits,
 } from "@darts-platform/database";
 import { createBoardDeviceSecret, hashBoardDeviceSecret } from "@darts-platform/domain/board-device-secret";
+import { buildEncounterTemplate } from "@darts-platform/league-engine";
+import type { CompetitionSlotInput } from "@darts-platform/schemas";
 
 import type { AuthContext, DeviceAuthContext } from "../auth/auth.types.js";
+import { CompetitionsRepository } from "../competitions/competitions.repository.js";
+import { CompetitionsService } from "../competitions/competitions.service.js";
 import { DatabaseService } from "../database/database.service.js";
+import { EncountersRepository } from "../encounters/encounters.repository.js";
+import { EncountersService } from "../encounters/encounters.service.js";
 import { MatchesRepository } from "../matches/matches.repository.js";
 import { MatchesService } from "../matches/matches.service.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
@@ -51,6 +52,8 @@ const tournamentsService = new TournamentsService(
   access,
   new DisplayKeysService(new DisplayKeysRepository(databaseService), tournamentsRepository, access),
 );
+const competitionsService = new CompetitionsService(new CompetitionsRepository(databaseService), access);
+const encountersService = new EncountersService(new EncountersRepository(databaseService), access);
 
 const organizationId = randomUUID();
 const foreignOrganizationId = randomUUID();
@@ -83,82 +86,115 @@ function createFreeMatch(targetBoardId: string) {
 }
 
 /**
- * Baut einen laufenden Ligaslot auf der Scheibe des Geraets. Nachbildung dessen,
- * was `EncountersRepository.assignSlot` schreibt (Muster aus
- * `tournaments/board-occupancy.integration.spec.ts`, hier ergaenzt um
- * `legStartRule: "LEAGUE"` und die Zeile fuer Leg 1).
+ * Baut einen laufenden Ligaslot auf der Scheibe des Geraets -- ueber den
+ * echten `EncountersService.assignSlot` (Muster
+ * `encounters/encounter-undo.integration.spec.ts`), nicht mehr ueber eine
+ * handgebaute Kopie dessen, was dieser Weg in der Datenbank hinterlaesst
+ * (Nacharbeit-Brief Paket B, B3). Ein Wettbewerb mit genau einer
+ * Aufstellungsposition und ohne Doppel/Decider liefert genau den einen
+ * Einzelslot, den dieser Test braucht.
  */
 async function startLeagueSlot(): Promise<string> {
-  const competitionId = randomUUID();
   const homeTeamId = randomUUID();
   const awayTeamId = randomUUID();
-  const encounterId = randomUUID();
-  await database.insert(competitions).values({
-    id: competitionId,
-    organizationId,
-    type: "LEAGUE",
-    name: `Device Liga ${competitionId}`,
-    slug: `device-liga-${competitionId}`,
-    status: "ACTIVE",
-  });
   await database.insert(teams).values([
-    { id: homeTeamId, organizationId, name: `Heimteam ${homeTeamId}` },
-    { id: awayTeamId, organizationId, name: `Gastteam ${awayTeamId}` },
+    { id: homeTeamId, organizationId, name: `Device Heimteam ${homeTeamId.slice(0, 8)}`, status: "ACTIVE" },
+    { id: awayTeamId, organizationId, name: `Device Gastteam ${awayTeamId.slice(0, 8)}`, status: "ACTIVE" },
   ]);
-  await database.insert(encounters).values({
-    id: encounterId,
+  const validFrom = new Date("2020-01-01T00:00:00.000Z");
+  await database.insert(teamPlayers).values([
+    { organizationId, teamId: homeTeamId, playerId: playerOneId, role: "PLAYER", validFrom },
+    { organizationId, teamId: awayTeamId, playerId: playerTwoId, role: "PLAYER", validFrom },
+  ]);
+
+  const competitionId = randomUUID();
+  const competition = await competitionsService.create({
     organizationId,
-    competitionId,
-    matchday: 1,
-    homeTeamId,
-    awayTeamId,
-    scheduledAt: new Date("2026-09-30T19:00:00.000Z"),
-    status: "RUNNING",
+    data: {
+      type: "LEAGUE",
+      name: `Device Liga ${competitionId}`,
+      slug: `device-liga-${competitionId}`,
+      status: "ACTIVE",
+      pointsWin: 3,
+      pointsDraw: 1,
+      pointsLoss: 0,
+      pointsDeciderBonus: 0,
+      deciderRule: "NONE",
+      lineupPositions: 1,
+      minNominations: 1,
+      minNominationsShorthanded: 1,
+      maxSubstitutionsPerEncounter: 4,
+      maxDoublesPerPlayer: 1,
+      // Reglement 2.2.1/A1.1 verlangt mindestens ein regulaeres Doppel je
+      // Vorlage; dieser Test assignt und scort ausschliesslich den
+      // Einzelslot (Sequenz 1), das Doppel bleibt unberuehrt in `WAITING`.
+      slots: buildEncounterTemplate({
+        lineupPositions: 1,
+        singlesStartingScore: 501,
+        doublesStartingScore: 501,
+        inRule: "STRAIGHT",
+        outRule: "DOUBLE",
+        bestOfLegs: 1,
+        maxRounds: null,
+        regularDoubles: 1,
+        withDecider: false,
+      }) as CompetitionSlotInput[],
+    },
+    auth: ownerAuth,
+    audit,
   });
-  const [leagueMatch] = await database
-    .insert(matches)
-    .values({ organizationId, boardId, bestOfLegs: 1, startingSeat: 1, currentSeat: 1, legStartRule: "LEAGUE" })
-    .returning();
-  if (leagueMatch === undefined) throw new Error("Expected the league scoring match.");
-  const participants = await database
-    .insert(matchParticipants)
-    .values([
-      { organizationId, matchId: leagueMatch.id, seat: 1 },
-      { organizationId, matchId: leagueMatch.id, seat: 2 },
-    ])
-    .returning();
-  await database.insert(matchParticipantPlayers).values(
-    participants.map((participant) => ({
+
+  let encounter = await encountersService.schedule({
+    organizationId,
+    competitionId: competition.id,
+    data: {
+      matchday: 1,
+      homeTeamId,
+      awayTeamId,
+      scheduledAt: new Date("2026-09-30T19:00:00.000Z"),
+      venue: "Device-Halle",
+    },
+    auth: ownerAuth,
+    audit,
+  });
+  for (const [side, playerId] of [
+    ["HOME", playerOneId],
+    ["AWAY", playerTwoId],
+  ] as const) {
+    encounter = await encountersService.submitNominations({
       organizationId,
-      matchId: leagueMatch.id,
-      participantId: participant.id,
-      playerId: participant.seat === 1 ? playerOneId : playerTwoId,
-      position: 1,
-    })),
-  );
-  await database.insert(legs).values({ organizationId, matchId: leagueMatch.id, legNumber: 1, startingSeat: 1 });
-  await database.insert(encounterSlots).values({
+      encounterId: encounter.id,
+      data: {
+        commandId: randomUUID(),
+        expectedVersion: encounter.version,
+        side,
+        nominations: [{ position: 1, playerId, origin: "SQUAD" as const }],
+      },
+      auth: ownerAuth,
+      audit,
+    });
+  }
+  encounter = await encountersService.start({
     organizationId,
-    encounterId,
-    sequence: 1,
-    role: "REGULAR",
-    discipline: "SINGLES",
-    label: "Einzel 1",
-    homePosition: 1,
-    awayPosition: 1,
-    startingScore: 501,
-    inRule: "STRAIGHT",
-    outRule: "DOUBLE",
-    maxRounds: null,
-    bestOfLegs: 1,
-    legsToWinSet: 1,
-    setsToWin: 1,
-    status: "IN_PROGRESS",
-    boardId,
-    matchId: leagueMatch.id,
+    encounterId: encounter.id,
+    data: { commandId: randomUUID(), expectedVersion: encounter.version },
+    auth: ownerAuth,
+    audit,
   });
-  await database.update(boards).set({ status: "IN_USE" }).where(eq(boards.id, boardId));
-  return leagueMatch.id;
+
+  const slot = encounter.slots.find((entry) => entry.sequence === 1);
+  if (slot === undefined) throw new Error("Expected the first singles slot.");
+  const assigned = await encountersService.assignSlot({
+    organizationId,
+    encounterId: encounter.id,
+    slotId: slot.id,
+    data: { commandId: randomUUID(), expectedVersion: encounter.version, boardId },
+    auth: ownerAuth,
+    audit,
+  });
+  const matchId = assigned.slots.find((entry) => entry.sequence === 1)?.matchId;
+  if (matchId === null || matchId === undefined) throw new Error("Expected a scoring match.");
+  return matchId;
 }
 
 /** Ein Turnier mit genau einer Paarung, gestartet auf der Scheibe des Geraets. */

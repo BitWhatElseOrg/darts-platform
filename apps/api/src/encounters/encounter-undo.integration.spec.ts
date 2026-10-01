@@ -554,6 +554,95 @@ describe("undo of a completed league match", () => {
     expect(await reopenedEvents(encounter.id)).toEqual([]);
   });
 
+  // B3-Ergaenzung (Nacharbeit-Brief Paket B, aus Review Paket A): der
+  // Spielerbelegt-Einwand oben greift unabhaengig von einem Encounter-Slot --
+  // dieselbe Pruefung lehnt auch das Undo eines FREIEN, slotlosen Matches ab,
+  // wenn eine beteiligte Person laengst an einer anderen Scheibe steht.
+  it("rejects the undo of a free match while one of its players already plays on another board", async () => {
+    const created = await matchesService.create({
+      organizationId,
+      data: { playerOneId: homePlayerIds[4]!, playerTwoId: awayPlayerIds[4]!, boardId: boardIds[0]!, bestOfLegs: 1, bestOfSets: 1 },
+      auth,
+      audit,
+    });
+    // Freie Paarungen laufen 501 Double Out; derselbe Spielverlauf wie im
+    // Fall "keeps reopening a free match without a slot as before" unten.
+    let state = created;
+    const scoring: readonly (readonly [string, number, number?])[] = [
+      [homePlayerIds[4]!, 180],
+      [awayPlayerIds[4]!, 60],
+      [homePlayerIds[4]!, 180],
+      [awayPlayerIds[4]!, 60],
+      [homePlayerIds[4]!, 141, 12],
+    ];
+    for (const [playerId, points, checkoutDouble] of scoring) {
+      state = await matchesService.submitVisit({
+        organizationId,
+        matchId: created.id,
+        data: {
+          commandId: randomUUID(),
+          expectedVersion: state.version,
+          playerId,
+          points,
+          dartsThrown: 3,
+          ...(checkoutDouble === undefined ? {} : { checkoutDouble }),
+        },
+        auth,
+        audit,
+      });
+    }
+    expect(await matchRow(created.id)).toMatchObject({ status: "COMPLETED" });
+
+    // Dieselbe Heimperson steht inzwischen an einer anderen Scheibe.
+    await matchesService.create({
+      organizationId,
+      data: { playerOneId: homePlayerIds[4]!, playerTwoId: awayPlayerIds[3]!, boardId: boardIds[1]!, bestOfLegs: 1, bestOfSets: 1 },
+      auth,
+      audit,
+    });
+
+    const matchBefore = await matchRow(created.id);
+
+    await expect(undo(created.id)).rejects.toMatchObject({
+      status: 409,
+      response: { code: "PLAYER_BUSY" },
+    });
+
+    expect(await matchRow(created.id)).toEqual(matchBefore);
+  }, 30_000);
+
+  // B3-Ergaenzung (Nacharbeit-Brief Paket B, aus Review Paket A): ein
+  // inkonsistenter Stand -- Match COMPLETED, zugehoeriger Slot aber (noch)
+  // nicht als gespielt abgeschlossen -- darf das Undo nicht still
+  // durchlassen. Herbeigefuehrt per direktem Update in der Fixture, weil kein
+  // regulaerer Ablauf diesen Zwischenstand erzeugt.
+  it("rejects the undo with ENCOUNTER_RESULT_REQUIRES_CORRECTION when the matching slot is not completed as played", async () => {
+    const encounter = await openEncounter();
+    const slotId = slotIdOf(encounter, 1);
+    const matchId = await assign(encounter, 1, boardIds[0]!);
+    await playOut(matchId, "HOME");
+    expect(await slotRow(slotId)).toMatchObject({ status: "COMPLETED", resultType: "PLAYED" });
+
+    await databaseService.database
+      .update(encounterSlots)
+      .set({ status: "IN_PROGRESS", resultType: null, winnerSide: null, completedAt: null })
+      .where(and(eq(encounterSlots.organizationId, organizationId), eq(encounterSlots.id, slotId)));
+
+    const matchBefore = await matchRow(matchId);
+    const slotBefore = await slotRow(slotId);
+    const encounterBefore = await encounterRow(encounter.id);
+
+    await expect(undo(matchId)).rejects.toMatchObject({
+      status: 400,
+      response: { code: "ENCOUNTER_RESULT_REQUIRES_CORRECTION" },
+    });
+
+    expect(await matchRow(matchId)).toEqual(matchBefore);
+    expect(await slotRow(slotId)).toEqual(slotBefore);
+    expect(await encounterRow(encounter.id)).toEqual(encounterBefore);
+    expect(await reopenedEvents(encounter.id)).toEqual([]);
+  });
+
   it("keeps reopening a free match without a slot as before", async () => {
     const created = await matchesService.create({
       organizationId,
