@@ -54,6 +54,8 @@ function player(id: string, displayName: string): PlayerResponse {
     status: "ACTIVE",
     hasAccount: false,
     avatarChecksum: null,
+    kind: "MEMBER",
+    guestClubName: null,
     createdAt: new Date("2026-01-01"),
     updatedAt: new Date("2026-01-01"),
   };
