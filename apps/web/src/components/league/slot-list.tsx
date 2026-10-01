@@ -13,6 +13,7 @@ import { useState } from "react";
 import { encounterTally, slotAvailability } from "@/lib/encounter-view";
 import { matchScoreboardHref } from "@/lib/match-navigation";
 import { disciplineLabel, slotOutcomeLabel, slotStatusLabel, slotTone, variantLabel } from "@/lib/league-format";
+import { EncounterCorrection } from "./encounter-correction";
 
 export interface SlotListProps {
   readonly encounter: EncounterDetail;
@@ -24,6 +25,7 @@ export interface SlotListProps {
   readonly onAssign: (slotId: string, boardId: string) => void;
   readonly onRelease: (slotId: string) => void;
   readonly onWalkover: (slotId: string, winnerSide: EncounterSide, reason: string) => void;
+  readonly onCorrect: (slotId: string, reason: string) => void;
 }
 
 function names(players: readonly { readonly displayName: string }[]): string {
@@ -63,6 +65,7 @@ function SlotRow({
   encounter,
   freeBoards,
   onAssign,
+  onCorrect,
   onRelease,
   onWalkover,
   organizationId,
@@ -76,6 +79,21 @@ function SlotRow({
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState<string | null>(null);
   const availability = slotAvailability(encounter, slot);
+  // Reglement 2.2.2/A1.4: Ist das Entscheidungsdoppel gespielt oder kampflos
+  // gewertet, lehnt der Server die Korrektur eines regulären Spiels dauerhaft
+  // bzw. bis zur Decider-Korrektur ab (DECIDER_CORRECTION_REQUIRED). Der
+  // Knopf bleibt dann aus; ein Hinweis erscheint nur, wenn das Doppel selbst
+  // noch korrigierbar ist (gespielt, nicht kampflos gewertet) — sonst bliebe
+  // der Hinweis ein Versprechen, das der Server nie einlöst.
+  const deciderBlocksCorrection = slot.role !== "DECIDER" && encounter.decider.status === "COMPLETED";
+  const deciderSlot = encounter.slots.find((candidate) => candidate.role === "DECIDER");
+  const deciderIsCorrectable =
+    deciderSlot !== undefined && deciderSlot.status === "COMPLETED" && deciderSlot.resultType === "PLAYED";
+  const correctionEligible =
+    canManage &&
+    encounter.status === "COMPLETED" &&
+    slot.status === "COMPLETED" &&
+    slot.resultType === "PLAYED";
 
   return (
     <li className="border border-sisal-400 bg-sisal-100 p-4">
@@ -148,7 +166,7 @@ function SlotRow({
                     encounterId: encounter.id,
                   })}
                 >
-                  Scoreboard
+                  Zum Scoreboard
                 </Link>
               )}
               {canManage ? (
@@ -276,6 +294,16 @@ function SlotRow({
                 </Control>
               </form>
             </details>
+          ) : null}
+
+          {correctionEligible && !deciderBlocksCorrection ? (
+            <div className="mt-3 border-t border-sisal-300 pt-3">
+              <EncounterCorrection busy={busy} onCorrect={onCorrect} slotId={slot.id} />
+            </div>
+          ) : correctionEligible && deciderBlocksCorrection && deciderIsCorrectable ? (
+            <p className="mt-3 border-t border-sisal-300 pt-3 font-plate text-caption text-sisal-500">
+              Zuerst das Entscheidungsdoppel korrigieren.
+            </p>
           ) : null}
         </div>
       ) : null}

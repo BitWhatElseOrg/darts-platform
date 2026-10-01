@@ -58,6 +58,10 @@ import type { AuditContext } from "../common/audit-context.js";
 import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
 import { DatabaseService } from "../database/database.service.js";
 import { abortScoringMatch } from "../matches/abort-match.js";
+import {
+  findDuplicateEncounterCommand,
+  isDuplicateEncounterCommandIdError,
+} from "./encounter-command-log.js";
 import { toResultInput, updateEncounterProgress } from "./update-encounter-progress.js";
 
 export type EncounterMutationResult =
@@ -72,7 +76,11 @@ export type EncounterMutationResult =
   | "slot-not-ready"
   | "slot-running"
   | "board-unavailable"
-  | "player-busy";
+  | "player-busy"
+  // Nur die Resultatkorrektur (`MatchesRepository.correctEncounterResult`).
+  | "encounter-not-correctable"
+  | "slot-not-correctable"
+  | "decider-correction-required";
 
 export type EncounterCreateResult =
   | { readonly status: "ok"; readonly encounterId: string }
@@ -163,46 +171,6 @@ function derivedCommandId(parentCommandId: string, aggregateId: string): string 
   hex[16] = "8";
   const compact = hex.join("");
   return `${compact.slice(0, 8)}-${compact.slice(8, 12)}-${compact.slice(12, 16)}-${compact.slice(16, 20)}-${compact.slice(20)}`;
-}
-
-/**
- * Die gespeicherte Nutzlast kommt als `jsonb` zurück: Postgres normalisiert
- * dabei die Schlüsselreihenfolge, die Wiederholung des Clients tut das nicht.
- * Verglichen wird deshalb über eine kanonische Form, nicht über
- * `JSON.stringify` der beiden Seiten.
- */
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value === null || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .filter(([, entry]) => entry !== undefined)
-      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-      .map(([key, entry]) => [key, canonicalize(entry)]),
-  );
-}
-
-function isSameCommandPayload(stored: unknown, incoming: unknown): boolean {
-  return JSON.stringify(canonicalize(stored)) === JSON.stringify(canonicalize(incoming));
-}
-
-/**
- * Der Primaerschluessel von `encounter_commands` ist die letzte Instanz gegen
- * eine doppelt vergebene `commandId`. Postgres meldet den Verstoss als 23505.
- */
-function isDuplicateCommandIdError(error: unknown): boolean {
-  // Drizzle verpackt den Treiberfehler; die Kennung steht erst in `cause`.
-  for (let candidate = error, depth = 0; depth < 5; depth += 1) {
-    if (typeof candidate !== "object" || candidate === null) return false;
-    const row = candidate as {
-      readonly code?: unknown;
-      readonly constraint_name?: unknown;
-      readonly cause?: unknown;
-    };
-    if (row.code === "23505" && row.constraint_name === "encounter_commands_pkey") return true;
-    candidate = row.cause;
-  }
-  return false;
 }
 
 function walkoverLegs(slot: SlotRow): number {
@@ -1151,7 +1119,7 @@ export class EncountersRepository {
       // Der Primaerschluessel faengt die zweite ab. Das ist derselbe Befund
       // wie im sequentiellen Fall und gehoert als solcher beantwortet, nicht
       // als Datenbankfehler.
-      if (isDuplicateCommandIdError(error)) return "command-id-reused";
+      if (isDuplicateEncounterCommandIdError(error)) return "command-id-reused";
       throw error;
     }
   }
@@ -1261,36 +1229,14 @@ export class EncountersRepository {
     });
   }
 
-  /**
-   * Liefert die Antwort auf eine bereits vergebene `commandId`: `ok` fuer die
-   * Wiederholung desselben Kommandos, `command-id-reused`, wenn Typ, Umfang
-   * oder Nutzlast abweichen. Eine andere Mutation still als `ok` zu
-   * quittieren hiesse, dem Aufrufer einen Vorgang zu bestaetigen, der nie
-   * stattgefunden hat.
-   */
-  private async findDuplicateCommand(
+  /** Siehe `findDuplicateEncounterCommand` in `encounter-command-log.ts`. */
+  private findDuplicateCommand(
     transaction: DatabaseTransaction,
     input: ActorInput,
     payload: { readonly commandId: string },
     type: string,
   ): Promise<EncounterMutationResult | null> {
-    const [duplicate] = await transaction
-      .select({
-        organizationId: encounterCommands.organizationId,
-        encounterId: encounterCommands.encounterId,
-        type: encounterCommands.type,
-        payload: encounterCommands.payload,
-      })
-      .from(encounterCommands)
-      .where(eq(encounterCommands.commandId, payload.commandId))
-      .limit(1);
-    if (duplicate === undefined) return null;
-    return duplicate.organizationId === input.organizationId &&
-      duplicate.encounterId === input.encounterId &&
-      duplicate.type === type &&
-      isSameCommandPayload(duplicate.payload, payload)
-      ? "ok"
-      : "command-id-reused";
+    return findDuplicateEncounterCommand(transaction, input, payload, type);
   }
 
   /**

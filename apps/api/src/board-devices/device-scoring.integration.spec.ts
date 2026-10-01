@@ -53,7 +53,11 @@ const tournamentsService = new TournamentsService(
   new DisplayKeysService(new DisplayKeysRepository(databaseService), tournamentsRepository, access),
 );
 const competitionsService = new CompetitionsService(new CompetitionsRepository(databaseService), access);
-const encountersService = new EncountersService(new EncountersRepository(databaseService), access);
+const encountersService = new EncountersService(
+  new EncountersRepository(databaseService),
+  new MatchesRepository(databaseService),
+  access,
+);
 
 const organizationId = randomUUID();
 const foreignOrganizationId = randomUUID();

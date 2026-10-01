@@ -1758,7 +1758,7 @@ export const encounterCommands = pgTable(
     ),
     check(
       "encounter_commands_type_check",
-      sql`${table.type} in ('SUBMIT_NOMINATIONS', 'SUBMIT_DOUBLES', 'SUBSTITUTE_PLAYER', 'START_ENCOUNTER', 'ASSIGN_SLOT', 'RELEASE_BOARD', 'DECLARE_WALKOVER', 'DECLARE_ENCOUNTER_FORFEIT', 'CANCEL_ENCOUNTER')`,
+      sql`${table.type} in ('SUBMIT_NOMINATIONS', 'SUBMIT_DOUBLES', 'SUBSTITUTE_PLAYER', 'START_ENCOUNTER', 'ASSIGN_SLOT', 'RELEASE_BOARD', 'DECLARE_WALKOVER', 'DECLARE_ENCOUNTER_FORFEIT', 'CANCEL_ENCOUNTER', 'CORRECT_ENCOUNTER_RESULT')`,
     ),
     check("encounter_commands_version_check", sql`${table.resultingVersion} >= 0`),
     // Wie bei `score_commands`: je Begegnung eine Zielversion, und

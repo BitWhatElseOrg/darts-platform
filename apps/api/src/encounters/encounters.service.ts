@@ -13,6 +13,7 @@ import {
   publicEncounterSchema,
   type AssignEncounterSlotInput,
   type CancelEncounterInput,
+  type CorrectEncounterResultInput,
   type CreateEncounterInput,
   type DeclareEncounterForfeitInput,
   type DeclareSlotWalkoverInput,
@@ -29,6 +30,8 @@ import {
 import type { AuthContext } from "../auth/auth.types.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { rethrowLeagueError } from "../common/league-error.js";
+import { rethrowScoringError } from "../common/scoring-error.js";
+import { MatchesRepository } from "../matches/matches.repository.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import {
   EncountersRepository,
@@ -266,6 +269,7 @@ type Permission = "encounter:read" | "encounter:manage" | "encounter:lineup";
 export class EncountersService {
   public constructor(
     @Inject(EncountersRepository) private readonly repository: EncountersRepository,
+    @Inject(MatchesRepository) private readonly matchesRepository: MatchesRepository,
     @Inject(OrganizationAccessService) private readonly access: OrganizationAccessService,
   ) {}
 
@@ -383,6 +387,23 @@ export class EncountersService {
 
   public cancel(input: EncounterCommandInput<CancelEncounterInput>): Promise<EncounterDetail> {
     return this.command(input, "encounter:manage", () => this.repository.cancel(input));
+  }
+
+  /**
+   * Resultatkorrektur (Spec 2026-10-01-liga-resultatkorrektur): öffnet ein
+   * gespieltes Spiel einer abgeschlossenen Begegnung wieder. Die Mutation
+   * liegt im `MatchesRepository`, weil sie das Match wie die
+   * Turnierkorrektur wieder eröffnet; deshalb trägt sie auch Fehler der
+   * Scoring Engine, die hier wie dort abgebildet werden.
+   */
+  public correctResult(input: EncounterCommandInput<CorrectEncounterResultInput>): Promise<EncounterDetail> {
+    return this.command({ ...input, slotId: input.data.slotId }, "encounter:manage", async () => {
+      try {
+        return await this.matchesRepository.correctEncounterResult(input);
+      } catch (error) {
+        rethrowScoringError(error);
+      }
+    });
   }
 
   private async command<T>(
@@ -511,6 +532,24 @@ function conflictFor(
       return new ConflictException({
         code: "PLAYER_BUSY",
         message: "Mindestens eine Person spielt bereits an einem anderen Board.",
+        details,
+      });
+    case "encounter-not-correctable":
+      return new ConflictException({
+        code: "ENCOUNTER_NOT_CORRECTABLE",
+        message: "Diese Begegnung lässt sich nicht korrigieren.",
+        details,
+      });
+    case "slot-not-correctable":
+      return new ConflictException({
+        code: "SLOT_NOT_CORRECTABLE",
+        message: "Dieses Spiel lässt sich nicht korrigieren.",
+        details,
+      });
+    case "decider-correction-required":
+      return new ConflictException({
+        code: "DECIDER_CORRECTION_REQUIRED",
+        message: "Das Entscheidungsdoppel ist bereits gespielt. Korrigiere zuerst das Doppel.",
         details,
       });
   }

@@ -53,10 +53,14 @@ function localizedMessage(code: string): string {
     LEAGUE_VALIDATION_ERROR: "Die Eingabe verletzt eine Ligaregel.",
     ENCOUNTER_CLOSED: "Die Begegnung ist beendet oder abgebrochen.",
     ENCOUNTER_RESULT_REQUIRES_CORRECTION:
-      "Das Resultat ist in der Begegnung bereits verbucht (Begegnung abgeschlossen oder Entscheidungsdoppel angesetzt) und lässt sich hier nicht mehr zurücknehmen.",
+      "Das Resultat ist in der Begegnung bereits verbucht (Begegnung abgeschlossen oder Entscheidungsdoppel angesetzt) und lässt sich hier nicht mehr zurücknehmen. Die Leitung kann das Resultat in der Begegnung korrigieren.",
     ENCOUNTER_STATUS_INVALID: "Der Zustand der Begegnung lässt diesen Schritt nicht zu.",
     ENCOUNTER_SLOT_NOT_READY: "Dieses Spiel ist noch nicht bereit.",
     ENCOUNTER_SLOT_RUNNING: "Dieses Spiel läuft bereits.",
+    ENCOUNTER_NOT_CORRECTABLE: "Diese Begegnung lässt sich nicht korrigieren.",
+    SLOT_NOT_CORRECTABLE: "Dieses Spiel lässt sich nicht korrigieren.",
+    DECIDER_CORRECTION_REQUIRED:
+      "Das Entscheidungsdoppel ist bereits gespielt. Korrigiere zuerst das Doppel.",
     BOARD_UNAVAILABLE: "Das gewählte Board ist belegt.",
     PLAYER_BUSY: "Mindestens eine Person spielt bereits an einem anderen Board.",
     RATE_LIMIT_EXCEEDED:

@@ -140,9 +140,9 @@ export type ReopenEncounterSlotOutcome = "no-slot" | "slot-not-completed" | "enc
  *   widersprüchlicher Zustand, den ein Undo nicht still übergehen darf;
  * - die Begegnung COMPLETED oder CANCELLED ist (`"encounter-closed"`): Punkte und Resultat sind
  *   festgeschrieben, ein Undo darf sie nicht still zurückdrehen;
- * - ein Entscheidungsdoppel (Reglement 2.2.9) nicht mehr im Ausgangszustand
- *   steht. Der Decider-Slot entsteht mit der Begegnung als `WAITING` und
- *   verlässt diesen Zustand nur, wenn er angesetzt (IN_PROGRESS), gespielt
+ * - ein Entscheidungsdoppel (Reglement 2.2.2, A1.4) nicht mehr im
+ *   Ausgangszustand steht. Der Decider-Slot entsteht mit der Begegnung als
+ *   `WAITING` und verlässt diesen Zustand nur, wenn er angesetzt (IN_PROGRESS), gespielt
  *   (COMPLETED), per Walkover gewertet (WALKOVER) oder von
  *   `updateEncounterProgress` als nicht gebraucht gestrichen wird
  *   (CANCELLED). Jeder dieser Zustände beruht auf dem Stand der regulären
@@ -210,6 +210,41 @@ export async function reopenEncounterSlotForMatch(
   }
 
   const now = new Date();
+  await reopenPlayedEncounterSlot(transaction, {
+    organizationId: input.organizationId,
+    slot,
+    matchId: input.matchId,
+    boardId: input.boardId,
+    auth: input.auth,
+    audit: input.audit,
+    now,
+  });
+  await updateEncounterProgress(transaction, input.organizationId, slot.encounterId, now);
+  return "reopened";
+}
+
+/**
+ * Öffnet einen als gespielt abgeschlossenen Slot wieder: IN_PROGRESS auf der
+ * Scheibe des Matches, Resultat und Legs geleert, Outbox und Audit
+ * `ENCOUNTER_SLOT_REOPENED`. Prüft nichts und rechnet die Begegnung nicht
+ * fort — beides ist Sache des Aufrufers, der den Slot unter Sperre hält:
+ * das Undo (`reopenEncounterSlotForMatch`, nur bei laufender Begegnung) und
+ * die Resultatkorrektur (`MatchesRepository.correctEncounterResult`, nachdem
+ * sie die abgeschlossene Begegnung bereits auf RUNNING gesetzt hat).
+ */
+export async function reopenPlayedEncounterSlot(
+  transaction: DatabaseTransaction,
+  input: {
+    readonly organizationId: string;
+    readonly slot: typeof encounterSlots.$inferSelect;
+    readonly matchId: string;
+    readonly boardId: string | null;
+    readonly auth: Principal;
+    readonly audit: AuditContext;
+    readonly now: Date;
+  },
+): Promise<void> {
+  const { slot } = input;
   const reopened = {
     status: "IN_PROGRESS",
     boardId: input.boardId,
@@ -219,7 +254,7 @@ export async function reopenEncounterSlotForMatch(
     awayLegs: 0,
     completedAt: null,
     version: slot.version + 1,
-    updatedAt: now,
+    updatedAt: input.now,
   } as const;
   await transaction
     .update(encounterSlots)
@@ -251,6 +286,4 @@ export async function reopenEncounterSlotForMatch(
     userAgent: input.audit.userAgent,
     correlationId: input.audit.correlationId,
   });
-  await updateEncounterProgress(transaction, input.organizationId, slot.encounterId, now);
-  return "reopened";
 }
