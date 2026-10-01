@@ -78,10 +78,12 @@ auf meiner Scheibe?» (`GET /board-devices/me`).
   Nachschlag (`BoardDeviceAuthenticator.classify`) den Schlüssel nur fürs
   Zählen ein; der `AuthGuard` dahinter prüft jede Anfrage weiterhin frisch
   gegen die Datenbank, ein Widerruf wirkt dort sofort. Die Vorgabe `120`
-  pro Gerät und Minute ist eine Annahme aus der Spec: rechnerisch rund 55
-  Anfragen pro Minute pro Tablet im Match (Heartbeat 3 s = 20, Selbstauskunft
-  `/me` 5 s = 12, Match-Poll 4 s = 15, Würfe/Nachladen ~6–10), im Leerlauf
-  rund 12 — nicht live gemessen.
+  pro Gerät und Minute lag ursprünglich über einer rechnerischen Schätzung
+  (rund 55 Anfragen pro Minute im Match); der E2E-Fall
+  `board-device-kiosk.spec.ts` (Nacharbeit-Brief Paket B, B1) misst
+  inzwischen live rund 46 Anfragen pro Minute im laufenden Match ohne
+  Eingaben und rund 12 im Leerlauf — die Vorgabe bleibt bei 120, mit
+  komfortablem Abstand nach oben.
 - **`localStorage` statt Cookie.** Der Geräteschlüssel liegt in
   `localStorage` der installierten Web-App (`dartbase.board-device`), nicht
   in einem Cookie — ein Tablet ist dauerhaft installiert, kein Request mit
