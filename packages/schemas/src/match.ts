@@ -108,6 +108,8 @@ export const matchSidePlayerSchema = z.object({
   playerId: z.uuid(),
   displayName: z.string(),
   isThrowing: z.boolean(),
+  /** Vereinsduell: Kürzel des Vereins dieser Person; sonst null. Default, damit ältere Antworten weiter parsen. */
+  clubLabel: z.string().nullable().default(null),
 });
 export const matchParticipantStateSchema = z.object({
   seat: z.union([z.literal(1), z.literal(2)]),

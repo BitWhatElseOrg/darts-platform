@@ -247,6 +247,11 @@ async function submitSteps(initial: ScoringState, steps: readonly VisitStep[]): 
 /** Spielt ein READY-Turniermatch auf `boardId` bis zum Sieg von `winnerPlayerId` durch (501, Double Out, Best of 1). */
 async function playMatch(tournamentId: string, tournamentMatchId: string, winnerPlayerId: string, boardId: string): Promise<void> {
   const state = await startOnBoard(tournamentId, tournamentMatchId, boardId);
+  // Vereinsduell: jede Person trägt das Kürzel ihres Vereins (Seite A «VFC», Seite B «DC Musterdorf»).
+  // Finalspiele können zwei Personen derselben Seite paaren, deshalb je Person gegen ihre Seite geprüft.
+  for (const player of state.participants.flatMap((participant) => participant.players)) {
+    expect(player.clubLabel).toBe(sideA.includes(player.playerId) ? "VFC" : "DM");
+  }
   const final = await submitSteps(state, scriptToFinish(state, winnerPlayerId));
   expect(final.status).toBe("COMPLETED");
 }

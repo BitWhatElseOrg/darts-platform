@@ -3,11 +3,11 @@ import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzl
 import { z } from "zod";
 import {
   auditEvents, boardControllerLeases, boards, encounterCommands, encounters, encounterSlots, legs, matches, matchParticipantPlayers, matchParticipants, outboxEvents, players, scoreCommands,
-  tournamentCommands, tournamentGroups, tournamentMatches,
+  tournamentCommands, tournamentGroups, tournamentMatches, tournamentParticipants,
   tournaments, tournamentStages,
   visitDarts, visits,
 } from "@darts-platform/database";
-import { decideDeviceMatchAccess, matchTargets, type DeviceMatchAction } from "@darts-platform/domain";
+import { clubAbbreviation, decideDeviceMatchAccess, matchTargets, type DeviceMatchAction } from "@darts-platform/domain";
 import { CLUB_DUEL_STAGE_KEYS } from "@darts-platform/tournament-engine";
 import { ScoringValidationError, createX01Match, defaultCheckoutAttempts, executeX01Command, projectX01Match, type InRule, type LegStartRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
 import type { AbortMatchInput, AbortMatchResponse, CorrectEncounterResultInput, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
@@ -296,6 +296,9 @@ export class MatchesRepository {
       .where(and(eq(matchParticipants.organizationId, organizationId), eq(matchParticipants.matchId, matchId)))
       .orderBy(asc(matchParticipants.seat), asc(matchParticipantPlayers.position));
     if (participantRows.length < 2) throw new Error("Match participant invariant violated.");
+    const clubLabels = liveTarget?.kind === "TOURNAMENT"
+      ? await this.loadClubLabels(organizationId, liveTarget.tournamentId, participantRows.map((row) => row.playerId))
+      : new Map<string, string>();
 
     const commandRows = await this.databaseService.database.select().from(scoreCommands)
       .where(and(eq(scoreCommands.organizationId, organizationId), eq(scoreCommands.matchId, matchId)))
@@ -336,7 +339,7 @@ export class MatchesRepository {
       if (lead === undefined || projected === undefined) throw new Error("Scoring side invariant violated.");
       return {
         seat,
-        players: rows.map((row) => ({ playerId: row.playerId, displayName: row.displayName, isThrowing: projection.activeThrowerPlayerId === row.playerId })),
+        players: rows.map((row) => ({ playerId: row.playerId, displayName: row.displayName, isThrowing: projection.activeThrowerPlayerId === row.playerId, clubLabel: clubLabels.get(row.playerId) ?? null })),
         playerId: lead.playerId, displayName: lead.displayName, remaining: projected.remaining, legsWon: projected.totalLegsWon, legsWonInSet: projected.legsWonInSet, setsWon: projected.setsWon,
         isActive: rows.some((row) => projection.activeThrowerPlayerId === row.playerId),
         // Direkt aus der Projektion: die Flaeche verlangt unter Double In vor
@@ -372,6 +375,26 @@ export class MatchesRepository {
       createdAt: matchRow.match.createdAt, updatedAt: matchRow.match.updatedAt,
       liveTarget,
     };
+  }
+
+  /** Vereinsduell: Kürzel je Person aus Seite und Vereinsnamen des Turniers; sonst leer. */
+  private async loadClubLabels(organizationId: string, tournamentId: string, playerIds: readonly string[]): Promise<Map<string, string>> {
+    const [tournament] = await this.databaseService.database
+      .select({ format: tournaments.format, sideAName: tournaments.sideAName, sideBName: tournaments.sideBName })
+      .from(tournaments)
+      .where(and(eq(tournaments.organizationId, organizationId), eq(tournaments.id, tournamentId)))
+      .limit(1);
+    if (tournament?.format !== "CLUB_DUEL" || tournament.sideAName === null || tournament.sideBName === null) return new Map();
+    const rows = await this.databaseService.database
+      .select({ playerId: tournamentParticipants.playerId, side: tournamentParticipants.side })
+      .from(tournamentParticipants)
+      .where(and(
+        eq(tournamentParticipants.organizationId, organizationId),
+        eq(tournamentParticipants.tournamentId, tournamentId),
+        inArray(tournamentParticipants.playerId, [...playerIds]),
+      ));
+    const labels = { A: clubAbbreviation(tournament.sideAName), B: clubAbbreviation(tournament.sideBName) };
+    return new Map(rows.flatMap((row) => (row.side === "A" || row.side === "B" ? [[row.playerId, labels[row.side]] as const] : [])));
   }
 
   public async create(input: { readonly organizationId: string; readonly data: CreateMatchInput; readonly auth: AuthContext; readonly audit: AuditContext }): Promise<string> {
