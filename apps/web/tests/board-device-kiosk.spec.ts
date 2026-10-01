@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import type { BrowserContext, Locator, Page } from "@playwright/test";
 
 import { expect, test } from "./fixtures";
 import { randomUUID } from "node:crypto";
@@ -109,6 +109,39 @@ async function pairBoardDevice(page: Page, organizationId: string, boardName: st
   await expect(page.getByText(`${boardName} – wartet auf nächstes Match`)).toBeVisible();
 }
 
+/**
+ * Task-Review-Befund: der Tablet-Kontext meldet sich zwar vor dem Einrichten
+ * als Admin an (`signInAsAdmin`), `board-devices-section.tsx` ruft danach
+ * aber `authClient.signOut()` auf, BEVOR es in den Kiosk wechselt — das
+ * Admin-Session-Cookie soll an diesem Punkt bereits weg sein. Ohne diese
+ * Prüfung bewiese das anschliessende Scoren nicht zuverlässig den
+ * Geräteschlüssel: fiele ein Lesepfad (Anwurf, Checkout, Undo,
+ * Quick-Scores) auf eine noch gültige Cookie-Sitzung zurück, bliebe der Fall
+ * trotzdem grün, obwohl die eigentliche Geräteschlüssel-Autorisierung nie
+ * geprüft wurde.
+ *
+ * Zusätzlich zur Prüfung werden alle Cookies des Kontexts entfernt und die
+ * Kiosk-Seite neu geladen (`clearCookies` wirkt nicht rückwirkend auf schon
+ * offene Verbindungen) — der Rest des jeweiligen Falls scort damit
+ * nachweislich nur noch über den Geräteschlüssel aus `localStorage`, der von
+ * `clearCookies` unberührt bleibt.
+ */
+async function confirmDeviceOnlySession(
+  context: BrowserContext,
+  page: Page,
+  boardName: string,
+): Promise<void> {
+  const cookiesAfterSignOut = await context.cookies();
+  expect(
+    cookiesAfterSignOut.some((cookie) => cookie.name.startsWith("better-auth.session_token")),
+    "Admin-Session-Cookie ist nach dem Einrichten (authClient.signOut()) noch im Tablet-Kontext vorhanden",
+  ).toBe(false);
+
+  await context.clearCookies();
+  await page.reload();
+  await expect(page.getByText(`${boardName} – wartet auf nächstes Match`)).toBeVisible();
+}
+
 /** Entkoppelt das Tablet über „Entkoppeln" + Bestätigungsdialog. */
 async function revokeBoardDevice(page: Page, organizationId: string, boardName: string): Promise<void> {
   await page.goto(`/organisation?organisation=${organizationId}`);
@@ -174,6 +207,7 @@ test(
       await overrideStandaloneDisplay(tabletPage);
       await signInAsAdmin(tabletPage, email);
       await pairBoardDevice(tabletPage, organizationId, boardName);
+      await confirmDeviceOnlySession(tabletContext, tabletPage, boardName);
 
       // Admin: Turnier mit der zuvor angelegten Scheibe anlegen und das erste
       // (und einzige) Match bei zwei Teilnehmenden zuweisen.
@@ -365,6 +399,7 @@ test(
       await overrideStandaloneDisplay(tabletPage);
       await signInAsAdmin(tabletPage, email);
       await pairBoardDevice(tabletPage, organizationId, boardName);
+      await confirmDeviceOnlySession(tabletContext, tabletPage, boardName);
 
       // Admin: Wettbewerb und Begegnung wie in `team-encounter.spec.ts`, aber
       // die Zuweisung erfolgt über die Begegnung, nicht über ein Turnier.
