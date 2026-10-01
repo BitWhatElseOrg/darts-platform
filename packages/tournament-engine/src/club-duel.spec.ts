@@ -291,17 +291,27 @@ const walkover = (a: string, b: string, winner: string): ClubMatchResult => ({
 describe("calculateClubStandings", () => {
   const participants = clubParticipants(3, 2);
 
-  it("lehnt ein PLAYED-Resultat ab, dessen Sieger nicht zu den Legs passt", () => {
+  it("schreibt den Sieg dem gespeicherten Sieger gut, auch wenn er weniger Legs hat (Saetze)", () => {
+    const standings = calculateClubStandings({
+      participants,
+      results: [{ type: "PLAYED", playerOneId: "a-1", playerTwoId: "b-1", playerOneLegs: 2, playerTwoLegs: 0, winnerPlayerId: "b-1" }],
+    });
+    expect(standings.sideB.find((row) => row.playerId === "b-1")?.won).toBe(1);
+    expect(standings.sideA.find((row) => row.playerId === "a-1")?.lost).toBe(1);
+  });
+
+  it("akzeptiert 4:4 Legs mit Sieger (Saetze 2-1, 0-2, 2-1)", () => {
+    const standings = calculateClubStandings({
+      participants,
+      results: [{ type: "PLAYED", playerOneId: "a-1", playerTwoId: "b-1", playerOneLegs: 4, playerTwoLegs: 4, winnerPlayerId: "a-1" }],
+    });
+    expect(standings.sideA.find((row) => row.playerId === "a-1")?.won).toBe(1);
+  });
+
+  it("lehnt ein PLAYED-Resultat mit fremdem Sieger ab", () => {
     expect(() => calculateClubStandings({
       participants,
-      results: [{
-        type: "PLAYED",
-        playerOneId: "a-1",
-        playerTwoId: "b-1",
-        playerOneLegs: 2,
-        playerTwoLegs: 0,
-        winnerPlayerId: "b-1",
-      }],
+      results: [{ type: "PLAYED", playerOneId: "a-1", playerTwoId: "b-1", playerOneLegs: 2, playerTwoLegs: 0, winnerPlayerId: "a-2" }],
     })).toThrowError(new TournamentValidationError("INVALID_GROUP_RESULT", "A result is invalid."));
   });
 

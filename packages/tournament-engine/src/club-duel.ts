@@ -422,13 +422,12 @@ function assertClubResult(result: ClubMatchResult, sideOf: ReadonlyMap<string, C
     throw new TournamentValidationError("CLUB_DUEL_SAME_SIDE_PAIRING", "Ein Spiel muss zwischen den beiden Vereinen stattfinden.");
   }
   const validWinner = result.winnerPlayerId === result.playerOneId || result.winnerPlayerId === result.playerTwoId;
+  // Ruling R10: Bei Saetzen kann der Sieger insgesamt gleich viele oder weniger Legs haben;
+  // massgeblich ist der gespeicherte Sieger.
   const validScore = result.type === "WALKOVER"
     ? result.playerOneLegs === 0 && result.playerTwoLegs === 0
-    : result.playerOneLegs >= 0 && result.playerTwoLegs >= 0 && result.playerOneLegs !== result.playerTwoLegs;
-  const winnerMatchesLegs = result.type === "WALKOVER"
-    ? true
-    : (result.winnerPlayerId === result.playerOneId) === (result.playerOneLegs > result.playerTwoLegs);
-  if (!validWinner || !validScore || !winnerMatchesLegs) {
+    : result.playerOneLegs >= 0 && result.playerTwoLegs >= 0;
+  if (!validWinner || !validScore) {
     throw new TournamentValidationError("INVALID_GROUP_RESULT", "A result is invalid.");
   }
 }
