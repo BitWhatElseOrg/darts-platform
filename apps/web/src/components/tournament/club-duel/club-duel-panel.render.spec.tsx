@@ -209,11 +209,12 @@ describe("ClubDuelPanel – Tastatur und Randfälle", () => {
     expect(within(bia).getByText("DC Musterdorf").className).toContain("sr-only");
   });
 
-  it("Tabpanels sind keine eigenen Tab-Stopps, sie enthalten fokussierbare Bereiche", () => {
+  it("macht nur Panels ohne fokussierbaren Inhalt zum Tab-Stopp (APG Tabs)", () => {
     render(createElement(ClubDuelPanel, { clubDuel, participants, defaultTab: "standings" }));
-    for (const panel of screen.getAllByRole("tabpanel", { hidden: true })) {
-      expect(panel.hasAttribute("tabindex")).toBe(false);
-    }
+    const panelOf = (label: string) => document.getElementById(screen.getByRole("tab", { name: label }).getAttribute("aria-controls") ?? "");
+    expect(panelOf("Runden")?.getAttribute("tabindex")).toBe("0");
+    expect(panelOf("Rangliste")?.hasAttribute("tabindex")).toBe(false);
+    expect(panelOf("Finalrunde")?.hasAttribute("tabindex")).toBe(false);
   });
 
   it("rundet die Legdifferenz symmetrisch: der Betrag zählt, das Vorzeichen folgt", () => {

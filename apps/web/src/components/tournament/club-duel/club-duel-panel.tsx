@@ -23,8 +23,8 @@ export function ClubDuelPanel({ clubDuel, participants, defaultTab = "rounds" }:
       initial={defaultTab}
       tabs={[
         { id: "rounds", label: "Runden", panel: <ClubRounds clubDuel={clubDuel} names={names} /> },
-        { id: "standings", label: "Rangliste", panel: <ClubStandings clubDuel={clubDuel} /> },
-        { id: "final", label: "Finalrunde", panel: <ClubFinalRound clubDuel={clubDuel} names={names} /> },
+        { id: "standings", label: "Rangliste", focusable: true, panel: <ClubStandings clubDuel={clubDuel} /> },
+        { id: "final", label: "Finalrunde", focusable: true, panel: <ClubFinalRound clubDuel={clubDuel} names={names} /> },
       ]}
     />
   );
