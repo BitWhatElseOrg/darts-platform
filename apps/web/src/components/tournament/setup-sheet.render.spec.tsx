@@ -276,4 +276,24 @@ describe("SetupSheet: Vereinsduell", () => {
       { playerId: guests[1]!.id, side: "B" },
     ]);
   });
+
+  it("zeigt ausgewählte Gäste anderer Vereine in der Hauptspalte B, nicht nur unter «Weitere Gastspieler»", () => {
+    const otherGuest: PlayerFixture = { ...guests[0]!, id: "00000000-0000-4000-8000-0000000000e3", publicId: "00000000-0000-4000-8000-0000000000f3", displayName: "Gast 3", guestClubName: "DC Mitteldorf" };
+    renderSheet({ players: [...players.slice(0, 2), ...guests, otherGuest], organizationName: "VFC Testverein" });
+    client.apiRequest.mockImplementation(() => Promise.resolve(clubPreview));
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "CLUB_DUEL" } });
+
+    // Ohne Gastverein stehen alle Gäste in der Hauptspalte; Gast 3 auswählen.
+    fireEvent.click(screen.getByRole("checkbox", { name: "Gast 3" }));
+    fireEvent.change(screen.getByLabelText("Gastverein"), { target: { value: "DC Musterdorf" } });
+
+    const main = screen.getByRole("group", { name: "Spieler DC Musterdorf" });
+    expect(within(main).getByRole("checkbox", { name: "Gast 3" })).toHaveProperty("checked", true);
+    expect(screen.queryByRole("group", { name: "Andere Vereine" })).toBeNull();
+
+    // Abgewählt rutscht Gast 3 zurück in den ausklappbaren Bereich.
+    fireEvent.click(within(main).getByRole("checkbox", { name: "Gast 3" }));
+    expect(within(screen.getByRole("group", { name: "Spieler DC Musterdorf" })).queryByRole("checkbox", { name: "Gast 3" })).toBeNull();
+    expect(screen.getByText("Weitere Gastspieler (1)")).toBeTruthy();
+  });
 });

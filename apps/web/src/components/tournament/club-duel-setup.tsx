@@ -42,8 +42,8 @@ export function ClubSidesSection({ errors, register }: {
 
 /**
  * Abschnitt 3: zwei Spalten A | B, auf dem Telefon untereinander. Links die
- * Mitglieder, rechts die Gäste – zuerst die des eingetragenen Gastvereins,
- * die übrigen ausklappbar. Ohne Gastverein-Namen stehen alle Gäste rechts.
+ * Mitglieder, rechts die Gäste – zuerst die des eingetragenen Gastvereins
+ * und alle bereits ausgewählten, die übrigen ausklappbar. Ohne Gastverein-Namen stehen alle Gäste rechts.
  * Neue Gäste landen über `onGuestsCreated` sofort in der Auswahl.
  */
 export function ClubParticipantsSection({
@@ -70,10 +70,13 @@ export function ClubParticipantsSection({
   readonly onGuestsCreated: (players: readonly PlayerResponse[]) => void;
 }) {
   const club = sideBName.trim().toLowerCase();
-  const sameClub = club === ""
+  // Ausgewählte Gäste stehen immer in der Hauptspalte, auch wenn ihr Verein
+  // anders heisst: sonst verschwände eine Auswahl im zugeklappten Bereich.
+  const mainGuests = club === ""
     ? guests
-    : guests.filter((guest) => (guest.guestClubName ?? "").trim().toLowerCase() === club);
-  const otherGuests = guests.filter((guest) => !sameClub.includes(guest));
+    : guests.filter((guest) =>
+      (guest.guestClubName ?? "").trim().toLowerCase() === club || sideBIds.includes(guest.id));
+  const otherGuests = guests.filter((guest) => !mainGuests.includes(guest));
   const describedBy = error !== null ? "participants-error" : undefined;
   return (
     <section aria-labelledby="setup-club-participants">
@@ -105,7 +108,7 @@ export function ClubParticipantsSection({
             describedBy={describedBy}
             heading={`Spieler ${sideBName.trim() || "Gastverein"}`}
             onToggle={(playerId) => onToggle("B", playerId)}
-            players={sameClub}
+            players={mainGuests}
             selected={sideBIds}
           />
           {otherGuests.length > 0 ? (
