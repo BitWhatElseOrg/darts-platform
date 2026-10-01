@@ -15,13 +15,20 @@ export function participantNames(
   return new Map(participants.map((participant) => [participant.playerId, participant.displayName]));
 }
 
-/** Das Kuerzel steht nie allein; der Name bleibt die Wahrheit (Spec, Barrierefreiheit). */
+/**
+ * Das Kuerzel steht nie allein; der Name bleibt die Wahrheit (Spec, Barrierefreiheit).
+ * Ergeben beide Vereine dasselbe Kuerzel (z. B. «DC Musterdorf» und
+ * «DC Mitteldorf» -> «DM»), unterscheidet es nichts mehr; dann steht auf
+ * beiden Seiten der volle Name.
+ */
 export function sideLabel(
   settings: Pick<ClubDuelDashboard, "sideAName" | "sideBName">,
   side: ClubSide,
 ): { readonly name: string; readonly short: string } {
   const name = side === "A" ? settings.sideAName : settings.sideBName;
-  return { name, short: clubAbbreviation(name) };
+  const short = clubAbbreviation(name);
+  const other = clubAbbreviation(side === "A" ? settings.sideBName : settings.sideAName);
+  return { name, short: short === other ? name : short };
 }
 
 export function scoreLine(input: Pick<ClubDuelDashboard, "sideAName" | "sideBName" | "score">): string {

@@ -10,6 +10,12 @@ describe("club-duel-view", () => {
     expect(sideLabel(settings, "B")).toEqual({ name: "DC Musterdorf", short: "DM" });
   });
 
+  it("nimmt den vollen Namen, wenn beide Vereine dasselbe Kürzel ergeben", () => {
+    const same = { sideAName: "DC Musterdorf", sideBName: "DC Mitteldorf" };
+    expect(sideLabel(same, "A")).toEqual({ name: "DC Musterdorf", short: "DC Musterdorf" });
+    expect(sideLabel(same, "B")).toEqual({ name: "DC Mitteldorf", short: "DC Mitteldorf" });
+  });
+
   it("formatiert die Vereinswertung", () => {
     expect(scoreLine({ ...settings, score: { pointsA: 21, pointsB: 15, legDifferenceA: 4, leader: "A" } })).toBe(
       "VFC 21 : 15 DC Musterdorf",
