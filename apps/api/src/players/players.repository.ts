@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 
 import {
   auditEvents,
@@ -226,6 +226,8 @@ async function findAvatarChecksum(
   return avatar?.checksum ?? null;
 }
 
+type DatabaseTransaction = Parameters<Parameters<DatabaseService["database"]["transaction"]>[0]>[0];
+
 interface TenantActorInput {
   readonly organizationId: string;
   readonly userId: string;
@@ -350,7 +352,10 @@ export class PlayersRepository {
    * Schnellerfassung von Gastspielern eines anderen Vereins (Spec 2026-10-01-
    * vereinsduell). Idempotent ueber `guest_command_id`: der partielle Unique-
    * Index `players_guest_command_name_unique` laesst dieselbe commandId keine
-   * zweite Reihe je Name anlegen; bei Kollision wird der Bestand gelesen.
+   * zweite Reihe je Name anlegen. Eine transaktionsgebundene Advisory-Sperre
+   * je Organisation und commandId reiht gleichzeitige Anfragen, damit auch
+   * disjunkte Namensmengen nie zwei Gastsets ergeben; nach der Sperre wird der
+   * Bestand erneut gelesen.
    *
    * Replay-Semantik: Eine bekannte commandId liefert die damals angelegten
    * Gaeste in ihrem heutigen Zustand (nicht die urspruengliche Antwort) und
@@ -362,10 +367,16 @@ export class PlayersRepository {
   public async createGuests(
     input: TenantActorInput & { readonly data: CreateGuestPlayersInput },
   ): Promise<CreateGuestsResult> {
-    const existing = await this.guestsByCommand(input.organizationId, input.data.commandId);
+    // Schneller Weg ohne Sperre fuer die uebliche Wiederholung.
+    const existing = await this.guestsByCommand(this.databaseService.database, input.organizationId, input.data.commandId);
     if (existing.length > 0) return replayResult(existing, input.data);
     try {
       return await this.databaseService.database.transaction(async (transaction) => {
+        // Gleichzeitige Anfragen derselben commandId nacheinander: der Unique-
+        // Index greift nur je Name, disjunkte Namensmengen kaemen sonst beide durch.
+        await transaction.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${input.organizationId}:${input.data.commandId}`}, 0))`);
+        const locked = await this.guestsByCommand(transaction, input.organizationId, input.data.commandId);
+        if (locked.length > 0) return replayResult(locked, input.data);
         const rows = await transaction
           .insert(players)
           .values(
@@ -399,14 +410,18 @@ export class PlayersRepository {
     } catch (error) {
       // Zwei gleichzeitige Wiederholungen: die zweite laeuft in den Unique-Index.
       if (isUniqueViolation(error, "players_guest_command_name_unique")) {
-        return replayResult(await this.guestsByCommand(input.organizationId, input.data.commandId), input.data);
+        return replayResult(await this.guestsByCommand(this.databaseService.database, input.organizationId, input.data.commandId), input.data);
       }
       throw error;
     }
   }
 
-  private async guestsByCommand(organizationId: string, commandId: string) {
-    const rows = await this.databaseService.database
+  private async guestsByCommand(
+    executor: DatabaseService["database"] | DatabaseTransaction,
+    organizationId: string,
+    commandId: string,
+  ) {
+    const rows = await executor
       .select()
       .from(players)
       .where(

@@ -146,6 +146,26 @@ describe("Gastspieler-Schnellerfassung", () => {
     expect(rejected[0]?.reason).toMatchObject({ response: { code: "COMMAND_PAYLOAD_MISMATCH" } });
   });
 
+  it("legt bei gleichzeitiger commandId mit disjunkten Namen nie zwei Gastsets an", async () => {
+    const commandId = randomUUID();
+    const variants = [["Fritz Lock"], ["Gina Lock", "Hugo Lock"]] as const;
+    const results = await Promise.allSettled(
+      variants.map((names) => service.createGuests({ organizationId, data: { commandId, clubName: "DC Lock", names: [...names] }, auth, audit })),
+    );
+    const winnerIndex = results.findIndex((result) => result.status === "fulfilled");
+    const winner = results[winnerIndex];
+    const loser = results[1 - winnerIndex];
+    if (winner?.status !== "fulfilled" || loser?.status !== "rejected") throw new Error(`expected one success and one failure: ${JSON.stringify(results.map((result) => result.status))}`);
+    expect(loser.reason).toMatchObject({ response: { code: "COMMAND_PAYLOAD_MISMATCH" } });
+    const winnerNames = [...(variants[winnerIndex] ?? [])].sort();
+    expect(winner.value.map((player) => player.displayName).sort()).toEqual(winnerNames);
+    const rows = await databaseService.database
+      .select()
+      .from(players)
+      .where(and(eq(players.organizationId, organizationId), eq(players.guestCommandId, commandId)));
+    expect(rows.map((row) => row.displayName).sort()).toEqual(winnerNames);
+  });
+
   it("verlangt player:create", async () => {
     const strangerId = randomUUID();
     const stranger: AuthContext = {
