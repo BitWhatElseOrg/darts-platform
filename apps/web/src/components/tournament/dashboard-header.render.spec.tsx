@@ -47,6 +47,8 @@ const playerA = "55555555-5555-4555-8555-555555555555";
 const playerB = "66666666-6666-4666-8666-666666666666";
 
 // Minimales Vereinsduell: zwei Spieler, das Final hat Seite B gewonnen.
+// Die Vereinswertung zaehlt 1 Punkt pro gewonnenem Spiel ueber alle Phasen
+// (Spec 2026-10-01, Vereinswertung).
 function clubDuelBlock(finalStatus: "WAITING" | "COMPLETED"): ClubDuelDashboard {
   return {
     sideAName: "VFC",
@@ -72,7 +74,11 @@ function clubDuelBlock(finalStatus: "WAITING" | "COMPLETED"): ClubDuelDashboard 
       },
       thirdPlace: null,
     },
-    score: { pointsA: 1, pointsB: 1, legDifferenceA: 0, leader: "TIED" },
+    // Die Wertung passt zum einzigen Spiel: vor dem Final 0:0, danach ein
+    // Punkt fuer B und Legdifferenz 1-3 = -2 aus Sicht von A.
+    score: finalStatus === "COMPLETED"
+      ? { pointsA: 0, pointsB: 1, legDifferenceA: -2, leader: "B" }
+      : { pointsA: 0, pointsB: 0, legDifferenceA: 0, leader: "TIED" },
   };
 }
 

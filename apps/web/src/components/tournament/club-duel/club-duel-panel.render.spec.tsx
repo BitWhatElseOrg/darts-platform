@@ -233,6 +233,47 @@ describe("ClubDuelPanel – Tastatur und Randfälle", () => {
   });
 });
 
+describe("ClubDuelPanel – Finalspiele und Teildaten", () => {
+  it("zeigt ein kampflos entschiedenes Finalspiel mit Sieger statt Legs", () => {
+    const walkoverFinal: ClubDuelDashboard = {
+      ...clubDuel,
+      finals: {
+        final: { matchId: id(30), position: 1, playerAId: id(1), playerBId: id(3), status: "COMPLETED", resultType: "WALKOVER", winnerPlayerId: id(3), legs: null, boardName: null },
+        thirdPlace: null,
+      },
+    };
+    render(createElement(ClubDuelPanel, { clubDuel: walkoverFinal, participants, defaultTab: "final" }));
+    const panel = screen.getByRole("tabpanel", { name: "Finalrunde" });
+    const line = within(panel).getByText("Final").closest("li") as HTMLElement;
+    expect(within(line).getByText("kampflos · Sieg Beat")).toBeTruthy();
+    expect(within(line).getByText("kampflos")).toBeTruthy();
+    expect(line.textContent).not.toContain("–:");
+  });
+
+  it("meldet ohne gepaarte Runde «Noch keine Runde gepaart.»", () => {
+    render(createElement(ClubDuelPanel, { clubDuel: { ...clubDuel, currentRound: 0, rounds: [] }, participants, defaultTab: "rounds" }));
+    const panel = screen.getByRole("tabpanel", { name: "Runden" });
+    expect(within(panel).getByText("Noch keine Runde gepaart.")).toBeTruthy();
+    expect(within(panel).queryByRole("heading", { name: /Runde/ })).toBeNull();
+    expect(within(panel).queryByText("Frühere Runden")).toBeNull();
+  });
+
+  it("meldet ohne Final und Spiel um Platz 3 «Noch nicht angesetzt.»", () => {
+    render(createElement(ClubDuelPanel, { clubDuel: { ...clubDuel, finals: { final: null, thirdPlace: null } }, participants, defaultTab: "final" }));
+    const panel = screen.getByRole("tabpanel", { name: "Finalrunde" });
+    expect(within(panel).getByText("Noch nicht angesetzt.")).toBeTruthy();
+    expect(within(panel).queryByText("Final")).toBeNull();
+  });
+
+  it("nennt die Pausierenden einer Runde beim Namen", () => {
+    const [first, second] = clubDuel.rounds;
+    const paused: ClubDuelDashboard = { ...clubDuel, rounds: [first!, { ...second!, pausedPlayerIds: [id(2), id(3)] }] };
+    render(createElement(ClubDuelPanel, { clubDuel: paused, participants, defaultTab: "rounds" }));
+    const panel = screen.getByRole("tabpanel", { name: "Runden" });
+    expect(within(panel).getByText("Pausieren: Aron, Beat")).toBeTruthy();
+  });
+});
+
 describe("ClubScoreBanner", () => {
   it("sagt Gleichstand statt einer Führung", () => {
     render(createElement(ClubScoreBanner, { clubDuel: { ...clubDuel, score: { pointsA: 1, pointsB: 1, legDifferenceA: 0, leader: "TIED" } } }));

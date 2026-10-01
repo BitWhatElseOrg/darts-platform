@@ -81,13 +81,13 @@ const clubDuelDashboard = {
   clubDuel,
 };
 
-function renderLiveTournament(mode: "publikum" | "tv" = "tv"): QueryClient {
+function renderLiveTournament(mode: "publikum" | "tv" | "board" = "tv", boardId?: string): QueryClient {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     createElement(
       QueryClientProvider,
       { client: queryClient },
-      createElement(LiveTournament, { mode, publicId: "p1" }),
+      createElement(LiveTournament, boardId === undefined ? { mode, publicId: "p1" } : { boardId, mode, publicId: "p1" }),
     ),
   );
   return queryClient;
@@ -165,6 +165,18 @@ describe("LiveTournament – Vereinsduell", () => {
     expect(within(running).getByText("Anna – Beat")).toBeTruthy();
     const next = screen.getByRole("heading", { name: "Nächste Spiele" }).closest("section") as HTMLElement;
     expect(within(next).getByText("Aron – Bia")).toBeTruthy();
+  });
+});
+
+describe("LiveTournament – Vereinsduell an der Scheibe", () => {
+  it("zeigt im Scheiben-Modus nur die Scheibe, weder Vereinswertung noch Spiellisten", async () => {
+    client.apiRequest.mockResolvedValueOnce(clubDuelDashboard);
+    renderLiveTournament("board", id(90));
+    await screen.findByRole("heading", { name: "Vereinsduell VFC" });
+    expect(screen.queryByRole("region", { name: "Vereinswertung" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Laufende Spiele" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Nächste Spiele" })).toBeNull();
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
   });
 });
 
