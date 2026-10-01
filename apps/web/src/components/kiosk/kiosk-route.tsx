@@ -27,10 +27,10 @@ const LONG_PRESS_MS = 800;
 
 /**
  * Typwache: ein vom Server geurteilter Fehler (mit `code`/`status`) statt
- * eines rohen Netzwerk- oder Transportfehlers. Wird nicht nur bei der
- * Selbstauskunft gebraucht, sondern auch bei der Match-Query (siehe
- * `matchNoLongerValid`, `shouldRetryMatchLoad` in `match-load-state.ts`) --
- * der frühere Kommentar nannte nur den einen Aufrufer.
+ * eines rohen Netzwerk- oder Transportfehlers. Drei Aufrufer in dieser
+ * Datei: `isRevoked`, `matchNoLongerValid` und die `retry`-Entscheidung der
+ * Selbstauskunft (`selfQuery`) -- ein Fehlercode ist ein Urteil des Servers,
+ * das eine Wiederholung nicht aendert.
  */
 function isApiError(error: unknown): error is ApiClientError {
   return error instanceof ApiClientError;
@@ -187,8 +187,8 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
         setEndedMatch(null);
       }
       if (reported !== null && dismissedMatchId === reported) {
-        // B2.4 (Nacharbeit-Brief Paket B): dieses Match lief bereits einmal
-        // bis zum Endstand und wurde per „Weiter" quittiert -- die Leitung
+        // Dieses Match lief bereits einmal bis zum Endstand und wurde per
+        // „Weiter" quittiert -- die Leitung
         // hat es seither per Undo wieder geoeffnet (`/me` meldet es erneut
         // als laufend). Ohne diese Ruecksetzung bliebe `dismissedMatchId`
         // auf dieser ID stehen, `kioskView` zeigte den zweiten Abschluss
@@ -327,12 +327,12 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
     // ankommen -- ein sofortiger, gezielter Refetch beschleunigt die
     // Rueckkehr in einen stimmigen Zustand (Spec §5).
     void refetchSelf();
-    // B2.6 (Nacharbeit-Brief Paket B): `handledRejectionRef.current` traegt
-    // bereits die ID dieses Laufs (siehe oben) und ruckt bei der naechsten
-    // Ablehnung weiter -- die Wache vor jedem Setzen stellt sicher, dass ein
-    // spaetes Ergebnis DIESES Aufrufs keinen bereits fuer ein NEUERES Match
-    // ermittelten Zaehler mehr ueberschreibt, falls das vorige Match erst
-    // nach dem naechsten noch auflöst.
+    // `handledRejectionRef.current` traegt bereits die ID dieses Laufs
+    // (siehe oben) und ruckt bei der naechsten Ablehnung weiter -- die Wache
+    // vor jedem Setzen stellt sicher, dass ein spaetes Ergebnis DIESES
+    // Aufrufs keinen bereits fuer ein NEUERES Match ermittelten Zaehler mehr
+    // ueberschreibt, falls das vorige Match erst nach dem naechsten noch
+    // aufloest.
     listOfflineCommands(`match:${organizationId}:${rejected}`)
       .then((commands) => {
         if (handledRejectionRef.current === rejected) setRejectedQueueCount(commands.length);
@@ -370,7 +370,7 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
     pressTimer.current = setTimeout(() => setResetOpen(true), LONG_PRESS_MS);
   };
 
-  // B2.2 (Nacharbeit-Brief Paket B, Spec §4 „Kopfzeile in allen Zuständen"):
+  // Spec §4 „Kopfzeile in allen Zuständen":
   // Scheiben- und Organisationsname plus Verbindungsindikator gelten auch im
   // Widerrufszustand, nicht nur solange ein `MatchScoreboard` oder der
   // Leerlauf rendert -- deshalb hier einmal gebaut und in beiden Zweigen
@@ -418,19 +418,19 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
     return (
       <main className="sektorenring flex min-h-screen flex-col bg-sisal-200 text-chalk">
         {header}
-        {/* Verbindungsindikator (Spec §4): dieselbe Statuszeile wie im
-            Leerlauf, hier aber immer sichtbar beigefuegt -- der Kiosk kennt im
-            Widerruf weder Board-Sperre noch Warteschlangenzahl (dafuer steht
-            die Meldung unten), ihre einzige Aufgabe hier ist die
-            Online/Offline-Anzeige. */}
-        <ScoreboardStatus
-          busy={null}
-          lockState="EIGEN"
-          message={null}
-          online={online}
-          onTakeOver={() => {}}
-          queuedCount={0}
-        />
+        {/* Verbindungsindikator (Spec §4): absichtlich NICHT dieselbe
+            `ScoreboardStatus` wie im Leerlauf -- die meldet bei Offline
+            zusaetzlich "Aufnahmen werden lokal gespeichert", ein Versprechen,
+            das hier nicht mehr gilt: ein widerrufenes Geraet zeigt keine
+            Eingabeflaeche mehr (dieser fruehe Rueckgabepfad ersetzt sie
+            vollstaendig), es entstehen also keine neuen Aufnahmen, die lokal
+            gespeichert werden koennten. Nur die reine Online/Offline-Anzeige
+            bleibt. */}
+        <div className="flex flex-col gap-2 text-body" role="status">
+          {!online ? (
+            <p className="border-b border-sisal-300 bg-sisal-100 px-4 py-2 text-spider">Offline</p>
+          ) : null}
+        </div>
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-6 text-center">
           <div className="flex max-w-md flex-col gap-2 rounded-xl border border-sisal-400 bg-sisal-100/80 p-5 text-body text-spider">
             <p role="alert">
@@ -474,8 +474,8 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
       <div className="flex flex-1 flex-col">
         {view.kind === "idle" ? (
           selfQuery.isPending ? (
-            // B2.1 (Nacharbeit-Brief Paket B, Spec §4 Zeile „Laden"): solange
-            // die allererste `/board-devices/me`-Antwort noch aussteht, ist
+            // Spec §4 Zeile „Laden": solange die allererste
+            // `/board-devices/me`-Antwort noch aussteht, ist
             // "wartet auf nächstes Match" eine Behauptung ohne Deckung -- das
             // Geraet weiss noch gar nicht, ob gerade ein Match laeuft. Ein
             // neutraler Ladeindikator statt des Leerlauftexts, ohne
@@ -564,12 +564,14 @@ function getServerBoardDeviceSnapshot(): StoredBoardDevice | null | undefined {
  * und unmountet nicht mitten in der bewusst weiter angezeigten
  * Widerrufsmeldung.
  *
- * B2.3 (Nacharbeit-Brief Paket B): das allein reicht nicht. `getBoardDeviceSnapshot`
- * liest `localStorage` bei JEDEM Aufruf frisch, und React ruft `getSnapshot`
- * nicht nur nach einer Benachrichtigung von `subscribe` auf, sondern bei
- * jedem Render-Durchlauf dieser Komponente -- auch einem, den ein voellig
- * anderer Grund ausgeloest hat (React prueft `useSyncExternalStore`-Werte auf
- * Konsistenz, sobald irgendwo im Baum erneut gerendert wird). Ein
+ * Das allein reicht nicht. `getBoardDeviceSnapshot` liest `localStorage` bei
+ * JEDEM Aufruf frisch, und React ruft `getSnapshot` nicht nur nach einer
+ * Benachrichtigung von `subscribe` auf, sondern bei jedem Render-Durchlauf
+ * DIESER Komponente -- auch einem, den ein voellig anderer Grund ausgeloest
+ * hat: `KioskRoute` ist nicht memoisiert, re-rendert also mit, sobald ein
+ * Vorfahre (etwa die Seite selbst) aus einem eigenen, unabhaengigen Anlass
+ * neu rendert, und bekommt dabei denselben frischen `localStorage`-Wert zu
+ * sehen wie ein vom `subscribe`-Aufruf echt benachrichtigter Render. Ein
  * `forgetBoardDevice()` im selben Tab (Widerrufs-Zweig von `KioskContent`)
  * aendert `localStorage` sofort; der naechste solche Render liefert dann
  * `null` statt des bisherigen Geraets -- und ersetzte die gerade angezeigte

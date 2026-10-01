@@ -22,8 +22,8 @@ vi.mock("next/navigation", () => ({
 const deviceKeyStorage = vi.hoisted(() => ({
   stored: null as { readonly secret: string; readonly boardName: string; readonly organizationName: string } | null,
   forgetBoardDevice: vi.fn(),
-  // B2.3 (Nacharbeit-Brief Paket B): `onChange`, das `KioskRoute` beim
-  // Abonnieren uebergibt -- ein Test ruft es gezielt auf, um einen ECHTEN
+  // `onChange`, das `KioskRoute` beim Abonnieren uebergibt -- ein Test ruft
+  // es gezielt auf, um einen ECHTEN
   // Wechsel aus einem anderen Tab/Fenster zu simulieren (Spec §4). Ohne
   // diesen Aufruf bleibt die Attrappe ein No-op wie zuvor.
   crossTabOnChange: null as (() => void) | null,
@@ -47,8 +47,8 @@ vi.mock("@/lib/device-key-storage", () => ({
 const offlineQueue = vi.hoisted(() => ({
   commands: [] as unknown[],
   calls: [] as string[],
-  // B2.6 (Nacharbeit-Brief Paket B): testweise vorab hinterlegte,
-  // kontrollierbare Antworten fuer den Wettlauf-Fall -- in allen anderen
+  // Testweise vorab hinterlegte, kontrollierbare Antworten fuer den
+  // Wettlauf-Fall (zwei Ablehnungen kurz hintereinander) -- in allen anderen
   // Faellen leer, der Mock faellt dann auf `commands` zurueck wie zuvor.
   queuedResponses: [] as Promise<unknown[]>[],
 }));
@@ -139,13 +139,14 @@ function renderRoute() {
 }
 
 /**
- * B2.3 (Nacharbeit-Brief Paket B): rendert `KioskRoute` unter einem
- * Wrapper, der sich selbst auf Zuruf neu rendert (`forceRerender`) -- ohne
- * dass `KioskRoute` selbst ein Update angestossen oder
- * `subscribeBoardDeviceChanges` benachrichtigt hat. Das bildet genau den
- * Fall nach, den der Fix abdeckt: IRGENDEIN Update anderswo im Baum laesst
- * React `useSyncExternalStore`s Snapshot erneut lesen, unabhaengig von
- * `KioskRoute`s eigenem Zustand.
+ * Rendert `KioskRoute` unter einem Wrapper, der sich selbst auf Zuruf neu
+ * rendert (`forceRerender`) -- ohne dass `KioskRoute` selbst ein Update
+ * angestossen oder `subscribeBoardDeviceChanges` benachrichtigt hat. Das
+ * bildet genau den Fall nach, den der Fix abdeckt: `KioskRoute` ist nicht
+ * memoisiert, re-rendert also mit, wenn sein eigener Vorfahre aus einem
+ * davon unabhaengigen Grund neu rendert -- `useSyncExternalStore` liest
+ * dabei denselben frischen `getSnapshot()`-Wert wie bei einem echt
+ * benachrichtigten Render.
  */
 function renderHarness() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -449,8 +450,8 @@ describe("KioskRoute", () => {
     expect(offlineQueue.calls).toContain(`match:${organizationId}:${matchId}`);
   });
 
-  // B2.1 (Nacharbeit-Brief Paket B, Spec §4 Zeile „Laden"): solange die
-  // allererste `/board-devices/me`-Antwort noch aussteht, behauptet der
+  // Spec §4 Zeile „Laden": solange die allererste
+  // `/board-devices/me`-Antwort noch aussteht, behauptet der
   // Leerlauftext faelschlich schon zu wissen, dass kein Match laeuft.
   it("zeigt waehrend der ersten Selbstauskunft einen neutralen Ladeindikator statt des Leerlauftexts", async () => {
     deviceKeyStorage.stored = { secret: deviceSecret, boardName: "Scheibe 1", organizationName: "VFC Musterstadt" };
@@ -463,7 +464,7 @@ describe("KioskRoute", () => {
     await screen.findByText("Scheibe 1 – wartet auf nächstes Match");
   });
 
-  // B2.2 (Nacharbeit-Brief Paket B, Spec §4 „Kopfzeile in allen Zustaenden"):
+  // Spec §4 „Kopfzeile in allen Zustaenden":
   // Scheiben- und Organisationsname (und der Verbindungsindikator) gelten
   // auch im Widerrufszustand, nicht nur im Leerlauf oder waehrend ein Match
   // laeuft.
@@ -483,8 +484,46 @@ describe("KioskRoute", () => {
     expect(screen.getByText("VFC Musterstadt")).not.toBeNull();
   });
 
-  // B2.3 (Nacharbeit-Brief Paket B): `KioskRoute` haelt den ersten gelesenen
-  // Geraete-Snapshot fest. Ein spaeterer Re-Render AUS ANDEREM GRUND (hier:
+  // Die Statuszeile ist im Widerruf NICHT dieselbe `ScoreboardStatus` wie im
+  // Leerlauf: die meldete bei Offline zusaetzlich "Aufnahmen werden lokal
+  // gespeichert" -- ein Versprechen, das fuer ein widerrufenes Geraet nicht
+  // mehr gilt (keine Eingabeflaeche mehr, es entstehen keine neuen
+  // Aufnahmen). Nur die reine Online/Offline-Anzeige bleibt.
+  it("meldet im Widerrufszustand bei Offline nur den Verbindungsstatus, ohne ein Speicherversprechen", async () => {
+    deviceKeyStorage.stored = { secret: deviceSecret, boardName: "Scheibe 1", organizationName: "VFC Musterstadt" };
+    server.selfRejection = new ApiClientError("Dieses Tablet ist nicht mehr gekoppelt.", "DEVICE_REVOKED", null, undefined, 401);
+    renderRoute();
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Dieses Tablet ist nicht mehr gekoppelt – bitte in der Organisationsverwaltung unter «Scheiben-Tablets» neu einrichten.",
+        ),
+      ).not.toBeNull();
+    });
+
+    // TanStack Querys `onlineManager` ist ein modulweiter Singleton und
+    // lauscht selbst auf dieselben `window`-Ereignisse, um Abfragen bei
+    // Offline zu pausieren -- ohne das abschliessende "online" bliebe JEDE
+    // Abfrage in JEDEM spaeteren Test in diesem Modul fuer immer pausiert
+    // (Befund beim Schreiben dieses Tests: nachfolgende Faelle hingen bei
+    // "Wird geladen …", `client.apiRequest` wurde nie wieder aufgerufen).
+    try {
+      act(() => {
+        window.dispatchEvent(new Event("offline"));
+      });
+
+      await screen.findByText("Offline");
+      expect(screen.queryByText(/Aufnahmen werden lokal gespeichert/u)).toBeNull();
+    } finally {
+      act(() => {
+        window.dispatchEvent(new Event("online"));
+      });
+    }
+  });
+
+  // `KioskRoute` haelt den ersten gelesenen Geraete-Snapshot fest. Ein
+  // spaeterer Re-Render AUS ANDEREM GRUND (hier:
   // `forceRerender`, voellig unabhaengig von `KioskRoute` selbst) darf die
   // laufende Widerrufsmeldung samt Warteschlangen-Zahl nicht durch "nicht
   // gekoppelt" ersetzen, nur weil `forgetBoardDevice()` im selben Tab
@@ -565,8 +604,8 @@ describe("KioskRoute", () => {
     await screen.findByText("Dieses Tablet ist nicht gekoppelt.");
   });
 
-  // B2.4 (Nacharbeit-Brief Paket B): die Leitung oeffnet ein bereits per
-  // „Weiter" quittiertes Match per Undo wieder -- der zweite Abschluss
+  // Die Leitung oeffnet ein bereits per „Weiter" quittiertes Match per Undo
+  // wieder -- der zweite Abschluss
   // desselben Matches muss erneut einen Endstand zeigen.
   it("zeigt nach einem erneuten Abschluss wieder den Endstand, wenn dasselbe Match per Undo erneut beendet wird", async () => {
     deviceKeyStorage.stored = { secret: deviceSecret, boardName: "Scheibe 1", organizationName: "VFC Musterstadt" };
@@ -605,8 +644,8 @@ describe("KioskRoute", () => {
     await screen.findByRole("button", { name: "Weiter" });
   });
 
-  // B2.5 (Nacharbeit-Brief Paket B): Singular/Plural im Widerrufstext, wie
-  // bereits bei der Meldung zum abgebrochenen Match im Leerlauf.
+  // Singular/Plural im Widerrufstext, wie bereits bei der Meldung zum
+  // abgebrochenen Match im Leerlauf.
   it("verwendet im Widerrufstext den Singular bei genau einer offenen Aufnahme", async () => {
     deviceKeyStorage.stored = { secret: deviceSecret, boardName: "Scheibe 1", organizationName: "VFC Musterstadt" };
     server.self = selfResponse(matchId);
@@ -624,9 +663,8 @@ describe("KioskRoute", () => {
     expect(screen.queryByText(/^1 Aufnahmen /u)).toBeNull();
   });
 
-  // B2.6 (Nacharbeit-Brief Paket B): ein spaetes Ergebnis einer frueheren
-  // Ablehnung darf den Zaehler einer inzwischen neueren Ablehnung nicht mehr
-  // ueberschreiben.
+  // Ein spaetes Ergebnis einer frueheren Ablehnung darf den Zaehler einer
+  // inzwischen neueren Ablehnung nicht mehr ueberschreiben.
   it("laesst ein spaetes Ergebnis einer frueheren Ablehnung den Zaehler einer neueren Ablehnung nicht ueberschreiben", async () => {
     deviceKeyStorage.stored = { secret: deviceSecret, boardName: "Scheibe 1", organizationName: "VFC Musterstadt" };
     server.self = selfResponse(matchId);
