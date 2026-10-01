@@ -53,6 +53,46 @@ describe("apiRequest", () => {
   });
 
   /**
+   * Liga-Resultatkorrektur (Spec 2026-10-01): die drei neuen Fehlercodes des
+   * Korrekturwegs tragen den Wortlaut aus Spec §4 — wörtlich, nicht nur dem
+   * Sinn nach, weil die Leitung danach entscheidet, wo sie weitermacht.
+   */
+  it("übersetzt die Fehlercodes der Liga-Resultatkorrektur mit dem Spec-Wortlaut", async () => {
+    const correlationId = "22222222-2222-4222-8222-222222222222";
+    const cases: readonly { readonly code: string; readonly message: string }[] = [
+      { code: "ENCOUNTER_NOT_CORRECTABLE", message: "Diese Begegnung lässt sich nicht korrigieren." },
+      { code: "SLOT_NOT_CORRECTABLE", message: "Dieses Spiel lässt sich nicht korrigieren." },
+      {
+        code: "DECIDER_CORRECTION_REQUIRED",
+        message: "Das Entscheidungsdoppel ist bereits gespielt. Korrigiere zuerst das Doppel.",
+      },
+    ];
+
+    for (const { code, message } of cases) {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ error: { code, message: "no", correlationId } }, 409));
+      const error = await apiRequest({ path: "/probe", schema }).catch((caught: unknown) => caught);
+      expect(error).toMatchObject({ code, status: 409, message });
+    }
+  });
+
+  it("ergänzt die Undo-Ablehnung um den Hinweis auf die Korrektur in der Begegnung", async () => {
+    const correlationId = "33333333-3333-4333-8333-333333333333";
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        { error: { code: "ENCOUNTER_RESULT_REQUIRES_CORRECTION", message: "no", correlationId } },
+        409,
+      ),
+    );
+
+    const error = await apiRequest({ path: "/probe", schema }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      code: "ENCOUNTER_RESULT_REQUIRES_CORRECTION",
+      message: expect.stringContaining("Die Leitung kann das Resultat in der Begegnung korrigieren."),
+    });
+  });
+
+  /**
    * Der eigentliche Befund: eine Fehlerseite eines Proxys ist kein JSON. Vorher
    * warf `response.json()` einen `SyntaxError`, bevor irgendjemand den Status
    * gelesen hatte -- die Wiedergabe der Warteschlange hielt das fuer einen
@@ -85,5 +125,30 @@ describe("apiRequest", () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
     await expect(apiRequest({ path: "/probe", schema: z.void() })).resolves.toBeUndefined();
+  });
+
+  /**
+   * Scheiben-Tablets (Spec 2026-09-30-scheiben-tablet) senden ihren
+   * Geraeteschluessel statt einer Cookie-Sitzung -- ein Kiosk ist nie in
+   * derselben Sitzung wie eine Admin-Anmeldung angemeldet.
+   */
+  it("sendet den Geräteschlüssel als Bearer und ohne Cookies", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 200));
+
+    await apiRequest({ path: "/board-devices/me", schema: z.object({}), deviceSecret: "bd_x" });
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer bd_x");
+    expect(init.credentials).toBe("omit");
+  });
+
+  it("sendet ohne Geräteschlüssel keinen Authorization-Header", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 200));
+
+    await apiRequest({ path: "/board-devices/me", schema: z.object({}) });
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
+    expect(init.credentials).toBe("include");
   });
 });

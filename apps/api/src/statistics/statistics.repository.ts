@@ -69,4 +69,29 @@ export class StatisticsRepository {
       .where(and(eq(visits.organizationId, organizationId), eq(visits.throwerPlayerId, playerId), isNull(visits.revertedAt)));
     return Number(row?.count ?? 0);
   }
+
+  /**
+   * Ob die Person gerade in einem laufenden Match dieser Scheibe steht.
+   * Traegt die Scheiben-Bindung fuer Geraete (Reglement gilt hier nicht,
+   * das ist Zugriffskontrolle, nicht Ligaregel).
+   */
+  public async isPlayerOnActiveBoardMatch(input: { readonly organizationId: string; readonly boardId: string; readonly playerId: string }): Promise<boolean> {
+    const [row] = await this.database.database
+      .select({ id: matches.id })
+      .from(matches)
+      .innerJoin(
+        matchParticipantPlayers,
+        and(eq(matchParticipantPlayers.matchId, matches.id), eq(matchParticipantPlayers.organizationId, matches.organizationId)),
+      )
+      .where(
+        and(
+          eq(matches.organizationId, input.organizationId),
+          eq(matches.boardId, input.boardId),
+          eq(matches.status, "IN_PROGRESS"),
+          eq(matchParticipantPlayers.playerId, input.playerId),
+        ),
+      )
+      .limit(1);
+    return row !== undefined;
+  }
 }

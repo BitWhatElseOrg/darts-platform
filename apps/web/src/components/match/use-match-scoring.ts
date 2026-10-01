@@ -7,6 +7,7 @@ import {
 } from "@darts-platform/schemas";
 import { apiRequest } from "@/lib/api-client";
 import { ApiClientError, UserFacingError } from "@/lib/api-error";
+import { useDeviceSecret } from "@/lib/device-credential-context";
 import { generateId } from "@/lib/id";
 import { saveOfflineCommand, type OfflineCommand } from "@/lib/offline-command-queue";
 import {
@@ -110,6 +111,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
   readonly canScore: boolean;
 }): MatchScoring {
   const queryClient = useQueryClient();
+  const deviceSecret = useDeviceSecret();
   const lock = useBoardControllerLock(organizationId, match.id, canScore && match.status === "IN_PROGRESS");
   const scope = `match:${organizationId}:${match.id}`;
   /**
@@ -199,6 +201,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
             // Vorgaenger.
             body: chainedVersion === null ? command.body : withCurrentExpectedVersion(command.body, chainedVersion),
             schema: matchStateSchema,
+            deviceSecret,
           });
         } catch (error) {
           // Ein fachlich abgelehntes Kommando (4xx mit Fehlercode) wird als
@@ -252,7 +255,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     // `match.version` steht bewusst nicht mehr in den Abhaengigkeiten: die
     // Wiedergabe liest die Version nicht mehr, und der Effekt unten soll nicht
     // bei jeder Versionsaenderung erneut feuern.
-  }, [markQueuedOutcome, readQueue, refresh, refreshQueue, removeAcceptedQueued]);
+  }, [deviceSecret, markQueuedOutcome, readQueue, refresh, refreshQueue, removeAcceptedQueued]);
 
   useEffect(() => {
     const becameOnline = () => { setOnline(true); void replay(); };
@@ -313,7 +316,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
       };
       if (!navigator.onLine) return await enqueue();
       try {
-        return await apiRequest({ path, method: "POST", body, schema: matchStateSchema });
+        return await apiRequest({ path, method: "POST", body, schema: matchStateSchema, deviceSecret });
       } catch (error) {
         if (!(error instanceof ApiClientError)) return await enqueue();
         throw error;
@@ -332,7 +335,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
     onError: async (error) => { if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") await refresh(); },
   });
   const undo = useMutation({
-    mutationFn: () => apiRequest({ path: `/organizations/${organizationId}/matches/${match.id}/undo`, method: "POST", body: { commandId: generateId(), expectedVersion: match.version, controllerId: lock.controllerId }, schema: matchStateSchema }),
+    mutationFn: () => apiRequest({ path: `/organizations/${organizationId}/matches/${match.id}/undo`, method: "POST", body: { commandId: generateId(), expectedVersion: match.version, controllerId: lock.controllerId }, schema: matchStateSchema, deviceSecret }),
     onSuccess: refresh,
     onError: async (error) => { if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") await refresh(); },
   });
@@ -352,6 +355,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
             : { winnerSeat: decision.winnerSeat }),
         },
         schema: matchStateSchema,
+        deviceSecret,
       }),
     onSuccess: refresh,
     onError: async (error) => { if (error instanceof ApiClientError && error.code === "MATCH_VERSION_CONFLICT") await refresh(); },
@@ -362,6 +366,7 @@ export function useMatchScoring({ organizationId, match, canScore }: {
       method: "POST",
       body: { commandId: generateId(), expectedVersion: match.version, controllerId: lock.controllerId, reason },
       schema: abortMatchResponseSchema,
+      deviceSecret,
     }),
     onSuccess: async () => {
       // Der Abbruch ist serverseitig durch. Scheitert das Leeren der lokalen

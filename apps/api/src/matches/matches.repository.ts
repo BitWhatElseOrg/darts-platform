@@ -2,16 +2,17 @@ import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  auditEvents, boardControllerLeases, boards, encounters, encounterSlots, legs, matches, matchParticipantPlayers, matchParticipants, outboxEvents, players, scoreCommands,
+  auditEvents, boardControllerLeases, boards, encounterCommands, encounters, encounterSlots, legs, matches, matchParticipantPlayers, matchParticipants, outboxEvents, players, scoreCommands,
   tournamentCommands, tournamentGroups, tournamentMatches,
   tournaments, tournamentStages,
   visitDarts, visits,
 } from "@darts-platform/database";
-import { matchTargets } from "@darts-platform/domain";
+import { decideDeviceMatchAccess, matchTargets, type DeviceMatchAction } from "@darts-platform/domain";
 import { ScoringValidationError, createX01Match, defaultCheckoutAttempts, executeX01Command, projectX01Match, type InRule, type LegStartRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
-import type { AbortMatchInput, AbortMatchResponse, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
-import type { AuthContext } from "../auth/auth.types.js";
-import { isBoardInProgressConflict, isBoardOccupied } from "../boards/board-occupancy.js";
+import type { AbortMatchInput, AbortMatchResponse, CorrectEncounterResultInput, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
+import { isDevicePrincipal, type AuthContext, type Principal } from "../auth/auth.types.js";
+import { isBoardInProgressConflict, isBoardOccupied, loadActivePlayerIds, lockPlayers } from "../boards/board-occupancy.js";
+import { auditActor, leaseActor } from "../common/audit-actor.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
 import { DatabaseService } from "../database/database.service.js";
@@ -19,31 +20,94 @@ import { applyWithdrawalPropagation } from "../tournaments/apply-withdrawal-prop
 import { resolveCompletedTournamentGroup } from "../tournaments/resolve-completed-group.js";
 import { updateTournamentProgress } from "../tournaments/update-tournament-progress.js";
 import {
+  findDuplicateEncounterCommand,
+  isDuplicateEncounterCommandIdError,
+} from "../encounters/encounter-command-log.js";
+import type { EncounterMutationResult } from "../encounters/encounters.repository.js";
+import {
   completeEncounterSlotForMatch,
+  reopenEncounterSlotForMatch,
+  reopenPlayedEncounterSlot,
   resetEncounterSlotForMatch,
 } from "../encounters/sync-encounter-slot.js";
+import { updateEncounterProgress } from "../encounters/update-encounter-progress.js";
 import { abortScoringMatch } from "./abort-match.js";
 import { lockEncounterScoringContext } from "./encounter-scoring-lock.js";
 import { lockTournamentScoringContext } from "./tournament-scoring-lock.js";
 
-export type MutationResult = "ok" | "not-found" | "version-conflict" | "controller-conflict";
+/** Ein Scheiben-Tablet schreibt nur in das laufende Match seiner Scheibe. */
+export type DeviceDenial = "device-board-mismatch" | "device-match-not-active";
+export type MutationResult = "ok" | "not-found" | "version-conflict" | "controller-conflict" | DeviceDenial;
 /**
  * Ein Undo eroeffnet ein beendetes Match wieder. Steht auf seiner Scheibe
  * inzwischen ein anderes Spiel, ist das keine ungueltige Eingabe, sondern ein
- * Zustand — er wird wie ueberall als belegte Scheibe beantwortet.
+ * Zustand — er wird wie ueberall als belegte Scheibe beantwortet. Spielt eine
+ * beteiligte Person schon an einer anderen Scheibe, gilt dasselbe als
+ * `player-busy`.
  */
-export type UndoMutationResult = MutationResult | "board-unavailable";
-export type AbortMutationResult = AbortMatchResponse | Exclude<MutationResult, "ok">;
+export type UndoMutationResult = MutationResult | "board-unavailable" | "player-busy";
+export type AbortMutationResult = AbortMatchResponse | Exclude<MutationResult, "ok" | DeviceDenial>;
 export type TournamentCorrectionResult =
-  | Exclude<MutationResult, "controller-conflict">
+  | Exclude<MutationResult, "controller-conflict" | DeviceDenial>
   | "result-not-correctable"
   | "downstream-started"
   | "board-unavailable";
-type ActorInput = { readonly organizationId: string; readonly matchId: string; readonly auth: AuthContext; readonly audit: AuditContext };
+/**
+ * Die Ergebnisse der Resultatkorrektur einer Liga-Begegnung tragen die Namen
+ * aus `EncounterMutationResult`; der `EncountersService` bildet sie dort ab.
+ */
+export type EncounterCorrectionResult = Extract<
+  EncounterMutationResult,
+  | "ok"
+  | "not-found"
+  | "slot-not-found"
+  | "version-conflict"
+  | "command-id-reused"
+  | "encounter-not-correctable"
+  | "slot-not-correctable"
+  | "decider-correction-required"
+  | "board-unavailable"
+  | "player-busy"
+>;
+/** Der Befehlstyp in `encounter_commands` (Check `encounter_commands_type_check`). */
+const ENCOUNTER_RESULT_CORRECTION_TYPE = "CORRECT_ENCOUNTER_RESULT";
+type UndoLastVisitCommand = Extract<X01Command, { readonly type: "UNDO_LAST_VISIT" }>;
+/** Was `planResultReopen` liest und `applyResultReopen` schreibt. */
+interface ResultReopenPlan {
+  readonly latestVisitId: string;
+  readonly undoCommand: UndoLastVisitCommand;
+  readonly state: ReturnType<typeof projectX01Match>;
+}
+type ActorInput = { readonly organizationId: string; readonly matchId: string; readonly auth: Principal; readonly audit: AuditContext };
+/** Nur fuer Personen: das Geraet darf nicht abbrechen (devicePermissions). */
+type UserActorInput = Omit<ActorInput, "auth"> & { readonly auth: AuthContext };
 /** Der Transaktionsrumpf, wie ihn Drizzle an den Callback uebergibt. */
 type DatabaseTransaction = Parameters<Parameters<DatabaseService["database"]["transaction"]>[0]>[0];
 /** Der Live-Bezug eines Matches ohne den Fall "kein Bezug" (das traegt `null`). */
 type LiveTarget = NonNullable<MatchStateResponse["liveTarget"]>;
+
+/**
+ * Bindung eines Scheiben-Tablets an das Match seiner Scheibe. Laeuft in der
+ * schreibenden Transaktion, nachdem das Match gesperrt ist: eine Freigabe der
+ * Scheibe zwischen Pruefung und Schreibzugriff rutscht so nicht durch
+ * (Spec 2026-09-30-scheiben-tablet, Abschnitt 3).
+ */
+function deviceDenial(auth: Principal, action: DeviceMatchAction, match: { readonly boardId: string | null; readonly status: string }): DeviceDenial | null {
+  if (!isDevicePrincipal(auth)) return null;
+  const decision = decideDeviceMatchAccess({ action, deviceBoardId: auth.device.boardId, matchBoardId: match.boardId, matchStatus: match.status });
+  switch (decision) {
+    case "ALLOWED":
+      return null;
+    case "BOARD_MISMATCH":
+      return "device-board-mismatch";
+    case "MATCH_NOT_ACTIVE":
+      return "device-match-not-active";
+    default: {
+      const exhaustive: never = decision;
+      return exhaustive;
+    }
+  }
+}
 
 const seatSchema = z.union([z.literal(1), z.literal(2)]);
 // `playerId` stammt aus Kommandos, die vor dem Seitenmodell geschrieben wurden;
@@ -373,10 +437,12 @@ export class MatchesRepository {
     });
   }
 
-  public acquireControllerLease(input: ActorInput & { readonly controllerId: string; readonly force: boolean }): Promise<{ readonly controllerId: string; readonly owned: boolean; readonly expiresAt: Date } | null> {
+  public acquireControllerLease(input: ActorInput & { readonly controllerId: string; readonly force: boolean }): Promise<{ readonly controllerId: string; readonly owned: boolean; readonly expiresAt: Date } | null | DeviceDenial> {
     return this.databaseService.database.transaction(async (transaction) => {
-      const [match] = await transaction.select({ id: matches.id, status: matches.status }).from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
+      const [match] = await transaction.select({ id: matches.id, status: matches.status, boardId: matches.boardId }).from(matches).where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, input.matchId))).for("update").limit(1);
       if (match === undefined) return null;
+      const denied = deviceDenial(input.auth, "write", match);
+      if (denied !== null) return denied;
       const [current] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
       const now = new Date();
       const expiresAt = new Date(now.getTime() + LEASE_TTL_MS);
@@ -388,20 +454,20 @@ export class MatchesRepository {
       const mayOwn = match.status === "IN_PROGRESS" && (input.force || current === undefined || current.controllerId === input.controllerId || abandoned);
       if (!mayOwn && current !== undefined) return { controllerId: current.controllerId, owned: false, expiresAt: current.expiresAt };
       if (!mayOwn) return { controllerId: input.controllerId, owned: false, expiresAt: now };
-      await transaction.insert(boardControllerLeases).values({ matchId: input.matchId, organizationId: input.organizationId, controllerId: input.controllerId, userId: input.auth.user.id, expiresAt })
-        .onConflictDoUpdate({ target: boardControllerLeases.matchId, set: { controllerId: input.controllerId, userId: input.auth.user.id, expiresAt, updatedAt: now } });
+      await transaction.insert(boardControllerLeases).values({ matchId: input.matchId, organizationId: input.organizationId, controllerId: input.controllerId, ...leaseActor(input.auth), expiresAt })
+        .onConflictDoUpdate({ target: boardControllerLeases.matchId, set: { controllerId: input.controllerId, ...leaseActor(input.auth), expiresAt, updatedAt: now } });
       if (current === undefined || current.controllerId !== input.controllerId) {
-        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: current === undefined ? "BOARD_CONTROLLER_ACQUIRED" : "BOARD_CONTROLLER_TAKEN_OVER", entityType: "Match", entityId: input.matchId, oldValue: current ?? null, newValue: { controllerId: input.controllerId, expiresAt }, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
+        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, ...auditActor(input.auth), action: current === undefined ? "BOARD_CONTROLLER_ACQUIRED" : "BOARD_CONTROLLER_TAKEN_OVER", entityType: "Match", entityId: input.matchId, oldValue: current ?? null, newValue: { controllerId: input.controllerId, expiresAt }, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
       }
       return { controllerId: input.controllerId, owned: true, expiresAt };
     });
   }
 
-  public abort(input: ActorInput & { readonly data: AbortMatchInput }): Promise<AbortMutationResult> {
+  public abort(input: UserActorInput & { readonly data: AbortMatchInput }): Promise<AbortMutationResult> {
     return retryOnDeadlock<AbortMutationResult>(() => this.abortInTransaction(input), "version-conflict");
   }
 
-  private abortInTransaction(input: ActorInput & { readonly data: AbortMatchInput }): Promise<AbortMutationResult> {
+  private abortInTransaction(input: UserActorInput & { readonly data: AbortMatchInput }): Promise<AbortMutationResult> {
     return this.databaseService.database.transaction(async (transaction): Promise<AbortMutationResult> => {
       await transaction.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.data.commandId}, 0))`);
       const [duplicate] = await transaction.select({ organizationId: scoreCommands.organizationId, matchId: scoreCommands.matchId, payload: scoreCommands.payload }).from(scoreCommands).where(eq(scoreCommands.commandId, input.data.commandId)).limit(1);
@@ -457,6 +523,11 @@ export class MatchesRepository {
       // Bestaetigung bekommt und nicht den Konflikt.
       if (await this.findDuplicateScoreCommand(transaction, input.organizationId, input.matchId, input.data.commandId) !== null) return "ok";
       if (match === undefined) return "not-found";
+      // Vor der Versionspruefung: ein Geraet erfaehrt ueber einen Konflikt
+      // nichts ueber ein Match einer anderen Scheibe. Beim Undo steht die
+      // Pruefung vor dem Zweig, der ein beendetes Match wieder eroeffnet.
+      const denied = deviceDenial(input.auth, "write", match);
+      if (denied !== null) return denied;
       if (match.version !== input.data.expectedVersion) return "version-conflict";
       const [lease] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
       if (lease !== undefined && lease.expiresAt > new Date() && lease.controllerId !== input.data.controllerId) return "controller-conflict";
@@ -559,7 +630,7 @@ export class MatchesRepository {
       }
       await transaction.insert(scoreCommands).values({ commandId: input.data.commandId, organizationId: input.organizationId, matchId: input.matchId, type: command.type, payload: command, resultingVersion: nextVersion });
       await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Match", aggregateId: input.matchId, eventType: result.state.status === "COMPLETED" ? "MATCH_COMPLETED" : "VISIT_RECORDED", payload: { matchId: input.matchId, commandId: input.data.commandId, version: nextVersion } });
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: "SCORE_VISIT_RECORDED", entityType: "Match", entityId: input.matchId, newValue: createdVisit, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, ...auditActor(input.auth), action: "SCORE_VISIT_RECORDED", entityType: "Match", entityId: input.matchId, newValue: createdVisit, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
       return "ok";
     });
   }
@@ -670,108 +741,14 @@ export class MatchesRepository {
         if (startedDependent !== undefined) return "downstream-started";
       }
 
-      const [latest] = await transaction
-        .select()
-        .from(visits)
-        .where(
-          and(
-            eq(visits.organizationId, input.organizationId),
-            eq(visits.matchId, scoringMatch.id),
-            isNull(visits.revertedAt),
-          ),
-        )
-        .orderBy(desc(visits.sequence))
-        .limit(1);
-      if (latest === undefined || !latest.outcome.endsWith("WON")) {
-        return "result-not-correctable";
-      }
-      const loadedSides = await this.loadSides(transaction, input.organizationId, scoringMatch.id);
-      const commandRows = await transaction
-        .select({ payload: scoreCommands.payload })
-        .from(scoreCommands)
-        .where(
-          and(
-            eq(scoreCommands.organizationId, input.organizationId),
-            eq(scoreCommands.matchId, scoringMatch.id),
-          ),
-        )
-        .orderBy(asc(scoreCommands.resultingVersion));
-      const aggregate = this.aggregate(
-        scoringMatch,
-        loadedSides,
-        commandRows.map((row) => row.payload),
-      );
-      const undoCommand: X01Command = {
-        type: "UNDO_LAST_VISIT",
-        commandId: input.data.commandId,
-        targetCommandId: latest.commandId,
-      };
-      const result = executeX01Command(aggregate, undoCommand);
-      if (result.state.status !== "IN_PROGRESS") return "result-not-correctable";
-      const nextMatchVersion = scoringMatch.version + 1;
+      const plan = await this.planResultReopen(transaction, input.organizationId, scoringMatch, input.data.commandId);
+      if (plan === null) return "result-not-correctable";
       const nextTournamentVersion = tournament.version + 1;
-
-      await transaction
-        .update(visits)
-        .set({ revertedAt: new Date(), revertedByCommandId: input.data.commandId })
-        .where(
-          and(
-            eq(visits.organizationId, input.organizationId),
-            eq(visits.id, latest.id),
-          ),
-        );
-      await transaction
-        .delete(legs)
-        .where(
-          and(
-            eq(legs.organizationId, input.organizationId),
-            eq(legs.matchId, scoringMatch.id),
-            eq(legs.legNumber, result.state.legNumber + 1),
-          ),
-        );
-      const [currentLeg] = await transaction
-        .select()
-        .from(legs)
-        .where(
-          and(
-            eq(legs.organizationId, input.organizationId),
-            eq(legs.matchId, scoringMatch.id),
-            eq(legs.legNumber, result.state.legNumber),
-          ),
-        )
-        .for("update")
-        .limit(1);
-      if (currentLeg === undefined) throw new Error("Correction leg invariant violated.");
-      await transaction
-        .update(legs)
-        .set({
-          status: "IN_PROGRESS",
-          winnerSeat: null,
-          completedAt: null,
-          version: currentLeg.version + 1,
-          updatedAt: new Date(),
-        })
-        .where(and(eq(legs.organizationId, input.organizationId), eq(legs.id, currentLeg.id)));
-      await this.syncProjection(
+      const nextMatchVersion = await this.applyResultReopen(
         transaction,
-        {
-          organizationId: input.organizationId,
-          matchId: scoringMatch.id,
-          auth: input.auth,
-          audit: input.audit,
-        },
-        scoringMatch.boardId,
-        nextMatchVersion,
-        result.state,
+        { organizationId: input.organizationId, match: scoringMatch, auth: input.auth, audit: input.audit },
+        plan,
       );
-      await transaction.insert(scoreCommands).values({
-        commandId: input.data.commandId,
-        organizationId: input.organizationId,
-        matchId: scoringMatch.id,
-        type: undoCommand.type,
-        payload: undoCommand,
-        resultingVersion: nextMatchVersion,
-      });
 
       await transaction
         .update(tournamentMatches)
@@ -912,6 +889,393 @@ export class MatchesRepository {
     });
   }
 
+  /**
+   * Resultatkorrektur einer abgeschlossenen Liga-Begegnung (Spec
+   * 2026-10-01-liga-resultatkorrektur): das gespielte Spiel eines Slots wird
+   * wieder geoeffnet und neu gescort. Laeuft als Begegnungskommando —
+   * Idempotenz ueber `encounter_commands`, Versionspruefung auf der Begegnung
+   * —, liegt aber hier, weil es das Match genau wie `correctTournamentResult`
+   * wieder eroeffnet (`planResultReopen`/`applyResultReopen`).
+   */
+  public async correctEncounterResult(input: {
+    readonly organizationId: string;
+    readonly encounterId: string;
+    readonly data: CorrectEncounterResultInput;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<EncounterCorrectionResult> {
+    try {
+      return await retryOnDeadlock(() => this.correctEncounterResultInTransaction(input), "version-conflict");
+    } catch (error) {
+      // Wie in `EncountersRepository.mutate`: dieselbe commandId gleichzeitig
+      // an zwei Begegnungen faengt erst der Primaerschluessel ab.
+      if (isDuplicateEncounterCommandIdError(error)) return "command-id-reused";
+      // Zweites Netz zur Scheibenpruefung, wie beim Undo.
+      if (isBoardInProgressConflict(error)) return "board-unavailable";
+      throw error;
+    }
+  }
+
+  private correctEncounterResultInTransaction(input: {
+    readonly organizationId: string;
+    readonly encounterId: string;
+    readonly data: CorrectEncounterResultInput;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<EncounterCorrectionResult> {
+    return this.databaseService.database.transaction(async (transaction): Promise<EncounterCorrectionResult> => {
+      const type = ENCOUNTER_RESULT_CORRECTION_TYPE;
+      const seen = await findDuplicateEncounterCommand(transaction, input, input.data, type);
+      if (seen !== null) return seen;
+
+      // Sperrreihenfolge Encounter -> EncounterSlot -> Match -> Board ->
+      // Players, wie Undo und `assignSlot`. Alle Pruefungen stehen vor dem
+      // ersten Schreibzugriff.
+      const [encounter] = await transaction
+        .select()
+        .from(encounters)
+        .where(and(eq(encounters.organizationId, input.organizationId), eq(encounters.id, input.encounterId)))
+        .for("update")
+        .limit(1);
+      // Zweite Pruefung unter der Sperre — siehe `EncountersRepository.runMutation`.
+      const seenUnderLock = await findDuplicateEncounterCommand(transaction, input, input.data, type);
+      if (seenUnderLock !== null) return seenUnderLock;
+      if (encounter === undefined) return "not-found";
+      if (encounter.version !== input.data.expectedVersion) return "version-conflict";
+      // Ein Forfait ist ein Entscheid am gruenen Tisch, kein Spielresultat;
+      // korrigierbar sind nur gespielte Begegnungen (mit oder ohne Decider).
+      if (
+        encounter.status !== "COMPLETED" ||
+        (encounter.resultType !== "PLAYED" && encounter.resultType !== "DECIDER")
+      ) {
+        return "encounter-not-correctable";
+      }
+
+      const [slot] = await transaction
+        .select()
+        .from(encounterSlots)
+        .where(
+          and(
+            eq(encounterSlots.organizationId, input.organizationId),
+            eq(encounterSlots.encounterId, input.encounterId),
+            eq(encounterSlots.id, input.data.slotId),
+          ),
+        )
+        .for("update")
+        .limit(1);
+      if (slot === undefined) return "slot-not-found";
+      if (slot.status !== "COMPLETED" || slot.resultType !== "PLAYED" || slot.matchId === null) {
+        return "slot-not-correctable";
+      }
+      const deciders = await transaction
+        .select()
+        .from(encounterSlots)
+        .where(
+          and(
+            eq(encounterSlots.organizationId, input.organizationId),
+            eq(encounterSlots.encounterId, input.encounterId),
+            eq(encounterSlots.role, "DECIDER"),
+          ),
+        )
+        .for("update");
+      // Reglement 2.2.2 und A1.4: das Entscheidungsdoppel (sudden death) baut
+      // auf dem Stand der regulaeren Spiele auf. Ist es angesetzt, gespielt
+      // oder kampflos gewertet, wird zuerst das Doppel korrigiert. Ein als
+      // nicht gebraucht gestrichenes Doppel (CANCELLED) geht unten zurueck
+      // auf WAITING.
+      if (
+        slot.role !== "DECIDER" &&
+        deciders.some((decider) => ["IN_PROGRESS", "COMPLETED", "WALKOVER"].includes(decider.status))
+      ) {
+        return "decider-correction-required";
+      }
+
+      const [match] = await transaction
+        .select()
+        .from(matches)
+        .where(and(eq(matches.organizationId, input.organizationId), eq(matches.id, slot.matchId)))
+        .for("update")
+        .limit(1);
+      if (match === undefined || match.status !== "COMPLETED") return "slot-not-correctable";
+
+      // Die Korrektur traegt ihre commandId auch in den Scoringstrom
+      // (`score_commands`, global eindeutig). Diese Pruefung muss vor
+      // `planResultReopen` laufen: eine commandId, die fuer DIESES Match schon
+      // als Visit verwendet wurde, waere der Scoring Engine sonst ein
+      // Duplikat und ergaebe ueber deren projizierten (abgeschlossenen)
+      // Zustand faelschlich SLOT_NOT_CORRECTABLE statt COMMAND_ID_ALREADY_USED.
+      const [usedForScoring] = await transaction
+        .select({ commandId: scoreCommands.commandId })
+        .from(scoreCommands)
+        .where(eq(scoreCommands.commandId, input.data.commandId))
+        .limit(1);
+      if (usedForScoring !== undefined) return "command-id-reused";
+
+      const plan = await this.planResultReopen(transaction, input.organizationId, match, input.data.commandId);
+      if (plan === null) return "slot-not-correctable";
+
+      if (match.boardId === null) return "board-unavailable";
+      const [board] = await transaction
+        .select()
+        .from(boards)
+        .where(and(eq(boards.organizationId, input.organizationId), eq(boards.id, match.boardId)))
+        .for("update")
+        .limit(1);
+      if (board === undefined || board.status !== "AVAILABLE") return "board-unavailable";
+      if (await isBoardOccupied(transaction, input.organizationId, match.boardId)) return "board-unavailable";
+
+      // Dieselbe Personenpruefung wie beim Undo nach Match-Ende (AGENTS.md 9).
+      const participantRows = await transaction
+        .select({ playerId: matchParticipantPlayers.playerId })
+        .from(matchParticipantPlayers)
+        .where(and(eq(matchParticipantPlayers.organizationId, input.organizationId), eq(matchParticipantPlayers.matchId, match.id)));
+      const participantIds = participantRows.map((row) => row.playerId);
+      await lockPlayers(transaction, input.organizationId, participantIds);
+      const activePlayerIds = await loadActivePlayerIds(transaction, input.organizationId);
+      if (participantIds.some((playerId) => activePlayerIds.has(playerId))) return "player-busy";
+
+      const now = new Date();
+      const nextEncounterVersion = encounter.version + 1;
+      // Status und Resultat fallen in einer Anweisung:
+      // `encounters_completed_result_check` und `encounters_result_pair_check`
+      // binden beide aneinander. Die Punkte sind NOT NULL und gehen auf 0;
+      // Spiele und Legs rechnet `updateEncounterProgress` unten neu.
+      await transaction
+        .update(encounters)
+        .set({
+          status: "RUNNING",
+          result: null,
+          resultType: null,
+          homePoints: 0,
+          awayPoints: 0,
+          completedAt: null,
+          version: nextEncounterVersion,
+          updatedAt: now,
+        })
+        .where(and(eq(encounters.organizationId, input.organizationId), eq(encounters.id, input.encounterId)));
+      const reopenedDeciderSlotIds: string[] = [];
+      if (slot.role !== "DECIDER") {
+        // Ergibt die Korrektur wieder kein Unentschieden, streicht
+        // `updateEncounterProgress` das Doppel beim Abschluss erneut.
+        for (const decider of deciders.filter((candidate) => candidate.status === "CANCELLED")) {
+          await transaction
+            .update(encounterSlots)
+            .set({ status: "WAITING", version: decider.version + 1, updatedAt: now })
+            .where(and(eq(encounterSlots.organizationId, input.organizationId), eq(encounterSlots.id, decider.id)));
+          reopenedDeciderSlotIds.push(decider.id);
+        }
+      }
+      await reopenPlayedEncounterSlot(transaction, {
+        organizationId: input.organizationId,
+        slot,
+        matchId: match.id,
+        boardId: match.boardId,
+        auth: input.auth,
+        audit: input.audit,
+        now,
+      });
+      await this.applyResultReopen(
+        transaction,
+        { organizationId: input.organizationId, match, auth: input.auth, audit: input.audit, now },
+        plan,
+      );
+      await updateEncounterProgress(transaction, input.organizationId, input.encounterId, now);
+      await transaction.insert(encounterCommands).values({
+        commandId: input.data.commandId,
+        organizationId: input.organizationId,
+        encounterId: input.encounterId,
+        type,
+        payload: input.data,
+        resultingVersion: nextEncounterVersion,
+      });
+      await transaction.insert(outboxEvents).values({
+        organizationId: input.organizationId,
+        aggregateType: "Encounter",
+        aggregateId: input.encounterId,
+        eventType: "ENCOUNTER_RESULT_CORRECTED",
+        payload: {
+          encounterId: input.encounterId,
+          slotId: slot.id,
+          matchId: match.id,
+          commandId: input.data.commandId,
+          version: nextEncounterVersion,
+        },
+      });
+      await transaction.insert(auditEvents).values({
+        organizationId: input.organizationId,
+        ...auditActor(input.auth),
+        action: "ENCOUNTER_RESULT_CORRECTED",
+        entityType: "Encounter",
+        entityId: input.encounterId,
+        oldValue: {
+          encounter: {
+            status: encounter.status,
+            result: encounter.result,
+            resultType: encounter.resultType,
+            homePoints: encounter.homePoints,
+            awayPoints: encounter.awayPoints,
+            homeGames: encounter.homeGames,
+            awayGames: encounter.awayGames,
+            homeLegs: encounter.homeLegs,
+            awayLegs: encounter.awayLegs,
+            completedAt: encounter.completedAt,
+            version: encounter.version,
+          },
+          slot,
+        },
+        newValue: {
+          status: "RUNNING",
+          slotId: slot.id,
+          matchId: match.id,
+          reason: input.data.reason,
+          reopenedDeciderSlotIds,
+        },
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+      return "ok";
+    });
+  }
+
+  /**
+   * Lesender Teil der Wiedereroeffnung eines beendeten Matches: die letzte
+   * Aufnahme muss ein Leg gewonnen haben, und ihre Ruecknahme muss das Match
+   * wieder laufen lassen. Sonst `null` — der Aufrufer lehnt ab, ohne dass
+   * etwas geschrieben wurde. Gemeinsam fuer Turnier- und Ligakorrektur.
+   */
+  private async planResultReopen(
+    transaction: DatabaseTransaction,
+    organizationId: string,
+    match: typeof matches.$inferSelect,
+    commandId: string,
+  ): Promise<ResultReopenPlan | null> {
+    const [latest] = await transaction
+      .select()
+      .from(visits)
+      .where(
+        and(
+          eq(visits.organizationId, organizationId),
+          eq(visits.matchId, match.id),
+          isNull(visits.revertedAt),
+        ),
+      )
+      .orderBy(desc(visits.sequence))
+      .limit(1);
+    if (latest === undefined || !latest.outcome.endsWith("WON")) return null;
+    const loadedSides = await this.loadSides(transaction, organizationId, match.id);
+    const commandRows = await transaction
+      .select({ payload: scoreCommands.payload })
+      .from(scoreCommands)
+      .where(
+        and(
+          eq(scoreCommands.organizationId, organizationId),
+          eq(scoreCommands.matchId, match.id),
+        ),
+      )
+      .orderBy(asc(scoreCommands.resultingVersion));
+    const aggregate = this.aggregate(
+      match,
+      loadedSides,
+      commandRows.map((row) => row.payload),
+    );
+    const undoCommand: UndoLastVisitCommand = {
+      type: "UNDO_LAST_VISIT",
+      commandId,
+      targetCommandId: latest.commandId,
+    };
+    const result = executeX01Command(aggregate, undoCommand);
+    if (result.state.status !== "IN_PROGRESS") return null;
+    return { latestVisitId: latest.id, undoCommand, state: result.state };
+  }
+
+  /**
+   * Schreibender Teil: Aufnahme zuruecknehmen, Folgeleg loeschen, aktuelles
+   * Leg wieder oeffnen, Projektion (Match IN_PROGRESS, Scheibe IN_USE) und
+   * `score_commands`-Eintrag. Liefert die neue Matchversion.
+   */
+  private async applyResultReopen(
+    transaction: DatabaseTransaction,
+    input: {
+      readonly organizationId: string;
+      readonly match: typeof matches.$inferSelect;
+      readonly auth: Principal;
+      readonly audit: AuditContext;
+      /** Teilt sich den Zeitstempel mit dem Aufrufer, sofern er einen fuehrt
+       * (die Liga-Korrektur hat bereits ein `now`); ohne Angabe — wie bei der
+       * Turnier-Korrektur — erzeugt die Funktion ihr eigenes. */
+      readonly now?: Date;
+    },
+    plan: ResultReopenPlan,
+  ): Promise<number> {
+    const { organizationId, match } = input;
+    const now = input.now ?? new Date();
+    const commandId = plan.undoCommand.commandId;
+    const nextMatchVersion = match.version + 1;
+    await transaction
+      .update(visits)
+      .set({ revertedAt: now, revertedByCommandId: commandId })
+      .where(
+        and(
+          eq(visits.organizationId, organizationId),
+          eq(visits.id, plan.latestVisitId),
+        ),
+      );
+    await transaction
+      .delete(legs)
+      .where(
+        and(
+          eq(legs.organizationId, organizationId),
+          eq(legs.matchId, match.id),
+          eq(legs.legNumber, plan.state.legNumber + 1),
+        ),
+      );
+    const [currentLeg] = await transaction
+      .select()
+      .from(legs)
+      .where(
+        and(
+          eq(legs.organizationId, organizationId),
+          eq(legs.matchId, match.id),
+          eq(legs.legNumber, plan.state.legNumber),
+        ),
+      )
+      .for("update")
+      .limit(1);
+    if (currentLeg === undefined) throw new Error("Correction leg invariant violated.");
+    await transaction
+      .update(legs)
+      .set({
+        status: "IN_PROGRESS",
+        winnerSeat: null,
+        completedAt: null,
+        version: currentLeg.version + 1,
+        updatedAt: now,
+      })
+      .where(and(eq(legs.organizationId, organizationId), eq(legs.id, currentLeg.id)));
+    await this.syncProjection(
+      transaction,
+      {
+        organizationId,
+        matchId: match.id,
+        auth: input.auth,
+        audit: input.audit,
+      },
+      match.boardId,
+      nextMatchVersion,
+      plan.state,
+    );
+    await transaction.insert(scoreCommands).values({
+      commandId,
+      organizationId,
+      matchId: match.id,
+      type: plan.undoCommand.type,
+      payload: plan.undoCommand,
+      resultingVersion: nextMatchVersion,
+    });
+    return nextMatchVersion;
+  }
+
   public async undo(input: ActorInput & { readonly data: UndoVisitInput }): Promise<UndoMutationResult> {
     return retryOnDeadlock(async () => {
       try {
@@ -940,9 +1304,15 @@ export class MatchesRepository {
       // Bestaetigung bekommt und nicht den Konflikt.
       if (await this.findDuplicateScoreCommand(transaction, input.organizationId, input.matchId, input.data.commandId) !== null) return "ok";
       if (match === undefined) return "not-found";
+      // Vor der Versionspruefung: ein Geraet erfaehrt ueber einen Konflikt
+      // nichts ueber ein Match einer anderen Scheibe. Beim Undo steht die
+      // Pruefung vor dem Zweig, der ein beendetes Match wieder eroeffnet.
+      const denied = deviceDenial(input.auth, "write", match);
+      if (denied !== null) return denied;
       if (match.version !== input.data.expectedVersion) return "version-conflict";
       const [lease] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
       if (lease !== undefined && lease.expiresAt > new Date() && lease.controllerId !== input.data.controllerId) return "controller-conflict";
+      let slotReopened = false;
       if (match.status === "COMPLETED") {
         const [publishedTournamentResult] = await transaction
           .select({ id: tournamentMatches.id })
@@ -979,6 +1349,41 @@ export class MatchesRepository {
             return "board-unavailable";
           }
         }
+        // Dasselbe fuer die Personen: wer das Match beendet hat, kann laengst
+        // an einer anderen Scheibe stehen; ein Undo stellte ihn doppelt an
+        // die Scheibe (AGENTS.md 9). Gleiche Sperre und Pruefung wie
+        // `assignSlot`, Reihenfolge Encounter -> Slot -> Match -> Board ->
+        // Players. Das Match selbst ist COMPLETED und zaehlt nicht mit.
+        const participantRows = await transaction
+          .select({ playerId: matchParticipantPlayers.playerId })
+          .from(matchParticipantPlayers)
+          .where(and(eq(matchParticipantPlayers.organizationId, input.organizationId), eq(matchParticipantPlayers.matchId, input.matchId)));
+        const participantIds = participantRows.map((row) => row.playerId);
+        await lockPlayers(transaction, input.organizationId, participantIds);
+        const activePlayerIds = await loadActivePlayerIds(transaction, input.organizationId);
+        if (participantIds.some((playerId) => activePlayerIds.has(playerId))) return "player-busy";
+        // Liga: der Slot geht mit dem Match zurueck auf IN_PROGRESS, sonst
+        // erreichte das korrigierte Resultat ihn beim naechsten Checkout nicht
+        // mehr. Eine abgeschlossene Begegnung oder ein schon angesetztes
+        // Entscheidungsdoppel lehnt das ab, ebenso ein Slot, der nicht als
+        // gespielt abgeschlossen ist (Regel in `sync-encounter-slot.ts`).
+        // Die Sperren auf Begegnung und Slot haelt bereits
+        // `lockEncounterScoringContext` oben; Reihenfolge bleibt
+        // Encounter -> EncounterSlot -> Match.
+        const reopened = await reopenEncounterSlotForMatch(transaction, {
+          organizationId: input.organizationId,
+          matchId: input.matchId,
+          boardId: match.boardId,
+          auth: input.auth,
+          audit: input.audit,
+        });
+        if (reopened === "encounter-closed" || reopened === "slot-not-completed") {
+          throw new ScoringValidationError(
+            "ENCOUNTER_RESULT_REQUIRES_CORRECTION",
+            "Completed encounter results cannot be reopened by undo.",
+          );
+        }
+        slotReopened = reopened === "reopened";
       }
       const [latest] = await transaction.select().from(visits).where(and(eq(visits.organizationId, input.organizationId), eq(visits.matchId, input.matchId), isNull(visits.revertedAt))).orderBy(desc(visits.sequence)).limit(1);
       if (latest === undefined) throw new ScoringValidationError("NOTHING_TO_UNDO", "There is no visit to undo.");
@@ -987,6 +1392,11 @@ export class MatchesRepository {
       const aggregate = this.aggregate(match, loadedSides, commandRows.map((row) => row.payload));
       const command: X01Command = { type: "UNDO_LAST_VISIT", commandId: input.data.commandId, targetCommandId: latest.commandId };
       const result = executeX01Command(aggregate, command);
+      // Ein geoeffneter Slot setzt ein wieder laufendes Match voraus; sonst
+      // stuenden Slot und Match auseinander. Der Fehler rollt alles zurueck.
+      if (slotReopened && result.state.status !== "IN_PROGRESS") {
+        throw new Error("Undo reopened an encounter slot without reopening its match.");
+      }
       const nextVersion = match.version + 1;
       await transaction.update(visits).set({ revertedAt: new Date(), revertedByCommandId: input.data.commandId }).where(and(eq(visits.organizationId, input.organizationId), eq(visits.id, latest.id)));
       await transaction.delete(legs).where(and(eq(legs.organizationId, input.organizationId), eq(legs.matchId, input.matchId), eq(legs.legNumber, result.state.legNumber + 1)));
@@ -996,7 +1406,7 @@ export class MatchesRepository {
       await this.syncProjection(transaction, input, match.boardId, nextVersion, result.state);
       await transaction.insert(scoreCommands).values({ commandId: input.data.commandId, organizationId: input.organizationId, matchId: input.matchId, type: command.type, payload: command, resultingVersion: nextVersion });
       await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Match", aggregateId: input.matchId, eventType: "VISIT_REVERTED", payload: { matchId: input.matchId, visitId: latest.id, commandId: input.data.commandId, version: nextVersion } });
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: "SCORE_VISIT_REVERTED", entityType: "Visit", entityId: latest.id, oldValue: latest, newValue: { revertedByCommandId: input.data.commandId }, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, ...auditActor(input.auth), action: "SCORE_VISIT_REVERTED", entityType: "Visit", entityId: latest.id, oldValue: latest, newValue: { revertedByCommandId: input.data.commandId }, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
       return "ok";
     });
   }
@@ -1051,6 +1461,8 @@ export class MatchesRepository {
       // Bestaetigung bekommt und nicht den Konflikt.
       if (await this.findDuplicateScoreCommand(transaction, input.organizationId, input.matchId, envelope.commandId) !== null) return "ok";
       if (match === undefined) return "not-found";
+      const denied = deviceDenial(input.auth, "write", match);
+      if (denied !== null) return denied;
       if (match.version !== envelope.expectedVersion) return "version-conflict";
       const [lease] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
       if (lease !== undefined && lease.expiresAt > new Date() && lease.controllerId !== envelope.controllerId) return "controller-conflict";
@@ -1091,7 +1503,7 @@ export class MatchesRepository {
       }
       await transaction.insert(scoreCommands).values({ commandId: envelope.commandId, organizationId: input.organizationId, matchId: input.matchId, type: command.type, payload: command, resultingVersion: nextVersion });
       await transaction.insert(outboxEvents).values({ organizationId: input.organizationId, aggregateType: "Match", aggregateId: input.matchId, eventType: result.state.status === "COMPLETED" ? "MATCH_COMPLETED" : "LEG_DECIDED", payload: { matchId: input.matchId, commandId: envelope.commandId, type: command.type, version: nextVersion } });
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.auth.user.id, action: command.type, entityType: "Match", entityId: input.matchId, oldValue: match, newValue: command, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, ...auditActor(input.auth), action: command.type, entityType: "Match", entityId: input.matchId, oldValue: match, newValue: command, ip: input.audit.ip, userAgent: input.audit.userAgent, correlationId: input.audit.correlationId });
       return "ok";
     });
   }

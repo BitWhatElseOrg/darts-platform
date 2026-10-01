@@ -50,13 +50,22 @@ const mutationMessage = (error: unknown) => userFacingErrorMessage(error);
  */
 export const matchEndRedirectDelayMs = 5_000;
 
-export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match, organizationId }: {
-  readonly backHref: string;
-  readonly backLabel: string;
+export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match, organizationId, showHeaderLinks = true }: {
+  /**
+   * Ohne `backHref` (das Scheiben-Tablet, Spec 2026-09-30-scheiben-tablet)
+   * gibt es keinen Rückweg: die beiden Effekte unten, die nach Abbruch bzw.
+   * Match-Ende `router.push(backHref)` aufrufen, laufen dann gar nicht erst,
+   * und der Hinweis „… geht es gleich von selbst“ erscheint nicht — der
+   * Kiosk bleibt auf der Fläche stehen, bis jemand das nächste Match zuweist.
+   */
+  readonly backHref?: string | undefined;
+  readonly backLabel?: string | undefined;
   readonly canAbort: boolean;
   readonly canScore: boolean;
   readonly match: MatchStateResponse;
   readonly organizationId: string;
+  /** Default `true`. Aus dem Kiosk führt kein Link hinaus (siehe `ScoreboardHeader`). */
+  readonly showHeaderLinks?: boolean | undefined;
 }) {
   const scoring = useMatchScoring({ organizationId, match, canScore });
   const { lock, queued, queueReadError, queueWriteError, queueAcceptedButStuck, online, replaying, mayControl, error } = scoring;
@@ -156,6 +165,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   const router = useRouter();
   const seenAbort = useRef(scoring.abortSucceededAt);
   useEffect(() => {
+    if (backHref === undefined) return;
     if (seenAbort.current === scoring.abortSucceededAt) return;
     seenAbort.current = scoring.abortSucceededAt;
     router.push(backHref);
@@ -165,7 +175,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
   useEffect(() => {
     const before = seenStatus.current;
     seenStatus.current = match.status;
-    if (before === match.status || match.status !== "COMPLETED") return;
+    if (before === match.status || match.status !== "COMPLETED" || backHref === undefined) return;
     setLeaving(true);
     const timer = setTimeout(() => router.push(backHref), matchEndRedirectDelayMs);
     return () => { clearTimeout(timer); };
@@ -404,6 +414,7 @@ export function MatchScoreboard({ backHref, backLabel, canAbort, canScore, match
         backLabel={backLabel}
         match={match}
         onOpenSettings={() => setSettingsOpen(true)}
+        showHeaderLinks={showHeaderLinks}
       />
       <ScoreboardStatus
         busy={scoring.undoPending ? "Rücknahme läuft …" : null}

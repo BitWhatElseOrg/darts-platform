@@ -2,10 +2,12 @@ import Image from "next/image";
 
 import { dartOstLogo } from "@/assets";
 import { ApplicationDashboard } from "@/components/application-dashboard";
+import { KioskRedirect } from "@/components/kiosk/kiosk-redirect";
 
 export default function HomePage() {
   return (
     <main className="flex min-h-screen justify-center px-4 py-10 sm:px-6">
+      <KioskRedirect />
       <div className="flex min-h-[calc(100vh-5rem)] w-full max-w-6xl flex-col items-center gap-10">
         <header className="text-center">
           <figure className="mx-auto mb-6 w-fit">

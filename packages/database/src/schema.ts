@@ -5,6 +5,7 @@ import {
   char,
   check,
   customType,
+  foreignKey,
   index,
   inet,
   integer,
@@ -15,6 +16,7 @@ import {
   uniqueIndex,
   uuid,
   varchar,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 const timestamps = {
@@ -323,6 +325,13 @@ export const auditEvents = pgTable(
     actorUserId: uuid("actor_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    // `boardDevices` steht erst nach `boards` in dieser Datei; die Referenz
+    // wird erst beim Zugriff aufgeloest. Der explizite Rueckgabetyp haelt
+    // `tsc` ruhig (Verwendung vor Deklaration).
+    actorDeviceId: uuid("actor_device_id").references(
+      (): AnyPgColumn => boardDevices.id,
+      { onDelete: "set null" },
+    ),
     action: varchar("action", { length: 100 }).notNull(),
     entityType: varchar("entity_type", { length: 100 }).notNull(),
     entityId: uuid("entity_id"),
@@ -342,6 +351,11 @@ export const auditEvents = pgTable(
     ),
     index("audit_events_entity_idx").on(table.entityType, table.entityId),
     index("audit_events_correlation_id_idx").on(table.correlationId),
+    // Beide leer bleibt zulaessig (System-Ereignisse, geloeschte Akteure).
+    check(
+      "audit_events_single_actor_check",
+      sql`num_nonnulls(${table.actorUserId}, ${table.actorDeviceId}) <= 1`,
+    ),
   ],
 );
 
@@ -361,6 +375,50 @@ export const boards = pgTable(
     index("boards_organization_id_idx").on(table.organizationId),
     check("boards_name_not_empty", sql`length(trim(${table.name})) > 0`),
     check("boards_status_check", sql`${table.status} in ('AVAILABLE', 'IN_USE', 'OFFLINE')`),
+    // Ziel des zusammengesetzten Fremdschluessels aus `board_devices`: ein
+    // Geraet gehoert zur Organisation seiner Scheibe, erzwungen von der
+    // Datenbank.
+    uniqueIndex("boards_id_organization_unique").on(table.id, table.organizationId),
+  ],
+);
+
+/**
+ * Ein fest montiertes Tablet, das die Matches seiner Scheibe ohne
+ * Benutzer-Login scort (Spec 2026-09-30-scheiben-tablet, ADR 0019).
+ * Gespeichert wird nur der Hash. Den Klartext gibt es einmal, in der Antwort,
+ * die das Geraet einrichtet. Kein Ablaufdatum: geschuetzt wird ueber Widerruf
+ * und die Sichtbarkeit von `last_seen_at`.
+ */
+export const boardDevices = pgTable(
+  "board_devices",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    boardId: uuid("board_id").notNull(),
+    secretHash: char("secret_hash", { length: 64 }).notNull(),
+    label: varchar("label", { length: 80 }).notNull(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      name: "board_devices_board_organization_fk",
+      columns: [table.boardId, table.organizationId],
+      foreignColumns: [boards.id, boards.organizationId],
+    }).onDelete("cascade"),
+    uniqueIndex("board_devices_secret_hash_unique").on(table.secretHash),
+    uniqueIndex("board_devices_board_active_unique")
+      .on(table.boardId)
+      .where(sql`${table.revokedAt} is null`),
+    index("board_devices_organization_idx").on(table.organizationId),
+    check("board_devices_secret_hash_format_check", sql`${table.secretHash} ~ '^[a-f0-9]{64}$'`),
+    check("board_devices_label_not_empty", sql`length(trim(${table.label})) > 0`),
   ],
 );
 
@@ -440,11 +498,16 @@ export const boardControllerLeases = pgTable(
     matchId: uuid("match_id").primaryKey().references(() => matches.id, { onDelete: "cascade" }),
     organizationId: uuid("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
     controllerId: uuid("controller_id").notNull(),
-    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    deviceId: uuid("device_id").references(() => boardDevices.id, { onDelete: "cascade" }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     ...timestamps,
   },
-  (table) => [index("board_controller_leases_organization_expiry_idx").on(table.organizationId, table.expiresAt)],
+  (table) => [
+    index("board_controller_leases_organization_expiry_idx").on(table.organizationId, table.expiresAt),
+    // Eine Lease haelt entweder eine Person oder ein Scheiben-Tablet.
+    check("board_controller_leases_actor_check", sql`num_nonnulls(${table.userId}, ${table.deviceId}) = 1`),
+  ],
 );
 
 export const matchParticipants = pgTable(
@@ -1695,7 +1758,7 @@ export const encounterCommands = pgTable(
     ),
     check(
       "encounter_commands_type_check",
-      sql`${table.type} in ('SUBMIT_NOMINATIONS', 'SUBMIT_DOUBLES', 'SUBSTITUTE_PLAYER', 'START_ENCOUNTER', 'ASSIGN_SLOT', 'RELEASE_BOARD', 'DECLARE_WALKOVER', 'DECLARE_ENCOUNTER_FORFEIT', 'CANCEL_ENCOUNTER')`,
+      sql`${table.type} in ('SUBMIT_NOMINATIONS', 'SUBMIT_DOUBLES', 'SUBSTITUTE_PLAYER', 'START_ENCOUNTER', 'ASSIGN_SLOT', 'RELEASE_BOARD', 'DECLARE_WALKOVER', 'DECLARE_ENCOUNTER_FORFEIT', 'CANCEL_ENCOUNTER', 'CORRECT_ENCOUNTER_RESULT')`,
     ),
     check("encounter_commands_version_check", sql`${table.resultingVersion} >= 0`),
     // Wie bei `score_commands`: je Begegnung eine Zielversion, und
@@ -1726,6 +1789,7 @@ export type NewOrganizationInvitation = typeof organizationInvitations.$inferIns
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type NewAuditEvent = typeof auditEvents.$inferInsert;
 export type Board = typeof boards.$inferSelect;
+export type BoardDevice = typeof boardDevices.$inferSelect;
 export type BoardControllerLease = typeof boardControllerLeases.$inferSelect;
 export type Match = typeof matches.$inferSelect;
 export type MatchParticipant = typeof matchParticipants.$inferSelect;

@@ -23,6 +23,7 @@ import type { AuthContext } from "../auth/auth.types.js";
 import { DatabaseService } from "../database/database.service.js";
 import { EncountersRepository } from "../encounters/encounters.repository.js";
 import { EncountersService } from "../encounters/encounters.service.js";
+import { MatchesRepository } from "../matches/matches.repository.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { OrganizationsRepository } from "../organizations/organizations.repository.js";
 import { CompetitionsRepository } from "./competitions.repository.js";
@@ -31,7 +32,11 @@ import { CompetitionsService } from "./competitions.service.js";
 const databaseService = new DatabaseService(parseApplicationEnvironment(process.env));
 const access = new OrganizationAccessService(new OrganizationsRepository(databaseService));
 const service = new CompetitionsService(new CompetitionsRepository(databaseService), access);
-const encountersService = new EncountersService(new EncountersRepository(databaseService), access);
+const encountersService = new EncountersService(
+  new EncountersRepository(databaseService),
+  new MatchesRepository(databaseService),
+  access,
+);
 
 const organizationId = randomUUID();
 const userId = randomUUID();

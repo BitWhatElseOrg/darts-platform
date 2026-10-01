@@ -4,6 +4,7 @@ import type { FastifyRequest } from "fastify";
 import {
   assignEncounterSlotSchema,
   cancelEncounterSchema,
+  correctEncounterResultSchema,
   createEncounterSchema,
   declareEncounterForfeitSchema,
   declareSlotWalkoverSchema,
@@ -205,6 +206,23 @@ export class EncountersController {
       organizationId,
       encounterId,
       data: parseBody(declareEncounterForfeitSchema, body),
+      auth,
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
+    });
+  }
+
+  @Post("encounters/:encounterId/result-corrections")
+  public correctResult(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Param("encounterId", ParseUUIDPipe) encounterId: string,
+    @Body() body: unknown,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<EncounterDetail> {
+    return this.service.correctResult({
+      organizationId,
+      encounterId,
+      data: parseBody(correctEncounterResultSchema, body),
       auth,
       audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
     });

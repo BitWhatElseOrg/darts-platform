@@ -42,6 +42,14 @@ export {
   type SubscriptionDecision,
   type SubscriptionInput,
 } from "./subscription-access";
+export {
+  decideDeviceMatchAccess,
+  devicePermissions,
+  isDevicePermission,
+  type DeviceMatchAccess,
+  type DeviceMatchAction,
+  type DevicePermission,
+} from "./device-access";
 // `createDisplayKeySecret`/`hashDisplayKeySecret` (`./display-key-secret`)
 // stehen bewusst NICHT in diesem Barrel: `@darts-platform/domain` wird auch
 // von Client-Komponenten importiert (z. B. `hasOrganizationPermission` in
@@ -53,3 +61,6 @@ export {
 // Server-seitige Aufrufer (bisher nur `display-keys.service.ts`) importieren
 // deshalb ueber den expliziten Subpath-Export `@darts-platform/domain/display-key-secret`
 // (siehe `package.json` -> `exports`), nicht ueber diesen Barrel.
+// Dasselbe gilt fuer `createBoardDeviceSecret`/`hashBoardDeviceSecret`
+// (`./board-device-secret`): Server-seitige Aufrufer nutzen stattdessen
+// `@darts-platform/domain/board-device-secret` (siehe `package.json` -> `exports`).
