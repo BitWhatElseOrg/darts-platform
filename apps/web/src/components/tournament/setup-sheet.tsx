@@ -120,6 +120,16 @@ export function SetupSheet({ organizationId, organizationName, players, boards }
   const sideBIds = values.sideBIds ?? [];
   const finalRoundSize = Number(values.finalRoundSize) || 2;
 
+  // Meldungen gehören zum Format, das sie erzeugt hat: nach einem Wechsel
+  // stünden sonst klassische Fehler über dem Vereinsduell (und umgekehrt).
+  // Zurückgesetzt wird während des Renderns statt in einem Effekt
+  // (react-hooks/set-state-in-effect; «Adjusting state when a prop changes»).
+  const [errorsFormat, setErrorsFormat] = useState(values.format);
+  if (errorsFormat !== values.format) {
+    setErrorsFormat(values.format);
+    setContractErrors({});
+  }
+
   const previewQuery = useQuery({
     queryKey: [
       "tournament-preview",

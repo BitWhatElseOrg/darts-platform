@@ -313,4 +313,15 @@ describe("SetupSheet: Vereinsduell", () => {
     expect(counter.textContent).toBe("0 : 0");
     expect(within(columnA).getByRole("button", { name: "Alle" })).toBeTruthy();
   });
+
+  it("räumt die Fehlermeldungen beim Wechsel des Formats weg", async () => {
+    renderSheet();
+    fireEvent.click(screen.getByRole("button", { name: "Turnier starten" }));
+    expect((await screen.findByTestId("submit-errors")).textContent).toContain("Das Turnier braucht einen Namen");
+
+    client.apiRequest.mockImplementation(() => Promise.resolve(clubPreview));
+    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "CLUB_DUEL" } });
+    await waitFor(() => expect(screen.queryByTestId("submit-errors")).toBeNull());
+    expect(screen.queryByText("Das Turnier braucht einen Namen")).toBeNull();
+  });
 });
