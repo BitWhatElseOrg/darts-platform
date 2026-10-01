@@ -53,6 +53,10 @@ const seedOf = new Map<string, number>([...sideA, ...sideB].map((id, index) => [
 const boardIds = [randomUUID(), randomUUID(), randomUUID()] as const;
 const foreignPlayerId = randomUUID();
 const foreignBoardId = randomUUID();
+/** Eigene Personen und Scheibe fuer den getStates-Test: keine Kopplung ueber die vereinsweite Belegung. */
+const labelSideA = [randomUUID(), randomUUID()] as const;
+const labelSideB = [randomUUID(), randomUUID()] as const;
+const labelBoardId = randomUUID();
 
 function sideOf(id: string | null): "A" | "B" | null {
   if (id === null) return null;
@@ -110,10 +114,13 @@ beforeAll(async () => {
       guestClubName: "DC Musterdorf",
     })),
     { id: foreignPlayerId, organizationId: foreignOrganizationId, displayName: "Fremder Spieler", status: "ACTIVE" },
+    ...labelSideA.map((id, index) => ({ id, organizationId, displayName: `Kuerzel Mitglied ${index + 1}`, status: "ACTIVE" })),
+    ...labelSideB.map((id, index) => ({ id, organizationId, displayName: `Kuerzel Gast ${index + 1}`, status: "ACTIVE", kind: "GUEST", guestClubName: "DC Musterdorf" })),
   ]);
   await database.insert(boards).values([
     ...boardIds.map((id, index) => ({ id, organizationId, name: `Duell Board ${index + 1}` })),
     { id: foreignBoardId, organizationId: foreignOrganizationId, name: "Fremde Scheibe" },
+    { id: labelBoardId, organizationId, name: "Kuerzel Board" },
   ]);
 });
 
@@ -592,19 +599,28 @@ describe("Vereinsduell Ablauf", () => {
 
 describe("Vereinsduell Scoring-Zustand", () => {
   it("liefert in getStates je Person das Vereinskuerzel ihrer Seite", async () => {
-    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
+    const created = await service.create({
+      organizationId,
+      data: {
+        ...clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2 }),
+        boardIds: [labelBoardId],
+        participants: [...labelSideA.map((playerId) => ({ playerId, side: "A" as const })), ...labelSideB.map((playerId) => ({ playerId, side: "B" as const }))],
+      },
+      auth,
+      audit,
+    });
     const [match] = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
     if (!match?.participantOneId || !match.participantTwoId) throw new Error("unexpected");
-    const state = await startOnBoard(created.id, match.id, boardIds[2]);
+    expect(labelSideA).toContain(match.participantOneId);
+    expect(labelSideB).toContain(match.participantTwoId);
+    const state = await startOnBoard(created.id, match.id, labelBoardId);
     const states = await matchesRepository.getStates(organizationId, [state.id]);
     const labels = new Map(states.get(state.id)?.participants.flatMap((participant) => participant.players.map((player) => [player.playerId, player.clubLabel] as const)) ?? []);
     expect(labels).toEqual(new Map([[match.participantOneId, "VFC"], [match.participantTwoId, "DM"]]));
     // Fremder Mandant sieht den Zustand nicht.
     expect((await matchesRepository.getStates(foreignOrganizationId, [state.id])).size).toBe(0);
     const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
-    expect(dashboard.boards.find((board) => board.boardId === boardIds[2])?.match?.matchId).toBe(match.id);
-    // Spiel beenden: dieselben Personen spielen in den folgenden Tests (vereinsweite Belegung).
-    expect((await submitSteps(state, scriptToFinish(state, match.participantOneId))).status).toBe("COMPLETED");
+    expect(dashboard.boards.find((board) => board.boardId === labelBoardId)?.match?.matchId).toBe(match.id);
   }, 60_000);
 });
 

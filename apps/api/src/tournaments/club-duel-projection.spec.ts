@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { clubDuelDashboardSchema, type ClubDuelDashboard } from "@darts-platform/schemas";
+
 import type { LegsOf } from "./completed-match-results.js";
 import { projectClubDuel } from "./club-duel-projection.js";
 import type { TournamentDashboardData } from "./tournaments.repository.js";
@@ -120,6 +122,13 @@ function dashboardData(input: { readonly matches: readonly MatchRow[]; readonly 
   };
 }
 
+/** Projektion samt Laufzeit-Schemapruefung, wie sie das Dashboard ausliefert. */
+function project(data: TournamentDashboardData, legsOf: LegsOf): ClubDuelDashboard {
+  const projection = projectClubDuel({ data, legsOf });
+  if (projection === null) throw new Error("projection missing");
+  return clubDuelDashboardSchema.parse(projection);
+}
+
 const noLegs: LegsOf = () => undefined;
 
 /** Legs je Scoring-Match und Person; alles andere unbekannt. */
@@ -146,8 +155,7 @@ describe("projectClubDuel", () => {
       scoringMatchId: "00000000-0000-4000-8000-0000000000f1",
       completedAt: createdAt,
     });
-    const projection = projectClubDuel({ data: dashboardData({ matches: [completed] }), legsOf: noLegs });
-    if (projection === null) throw new Error("projection missing");
+    const projection = project(dashboardData({ matches: [completed] }), noLegs);
     expect(projection.score).toEqual({ pointsA: 0, pointsB: 0, legDifferenceA: 0, leader: "TIED" });
     const [view] = projection.rounds[0]?.matches ?? [];
     expect(view?.status).toBe("COMPLETED");
@@ -172,11 +180,7 @@ describe("projectClubDuel", () => {
       completedAt: createdAt,
     });
     const open = match({ id: "00000000-0000-4000-8000-0000000000e3", stageId: stageIds.qualifying, position: 2, participantOneId: players.a1, participantTwoId: players.b1 });
-    const projection = projectClubDuel({
-      data: dashboardData({ matches: [completed, open] }),
-      legsOf: legsFrom({ [scoringMatchId]: { [players.b2]: 4, [players.a2]: 4 } }),
-    });
-    if (projection === null) throw new Error("projection missing");
+    const projection = project(dashboardData({ matches: [completed, open] }), legsFrom({ [scoringMatchId]: { [players.b2]: 4, [players.a2]: 4 } }));
     expect(projection.score).toEqual({ pointsA: 0, pointsB: 1, legDifferenceA: 0, leader: "B" });
     const views = projection.rounds[0]?.matches ?? [];
     const playedView = views.find((view) => view.matchId === completed.id);
