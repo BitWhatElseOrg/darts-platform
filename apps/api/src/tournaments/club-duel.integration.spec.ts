@@ -492,6 +492,61 @@ describe("Vereinsduell Korrektur und Rueckzug", () => {
       .rejects.toMatchObject({ response: { code: "CLUB_DUEL_ROUND_ALREADY_PAIRED" } });
   }, 60_000);
 
+  async function correctionAttempt(tournamentId: string, matchId: string, reason: string) {
+    const dashboard = await service.dashboard({ organizationId, tournamentId, auth });
+    return service.correctResult({ organizationId, tournamentId, data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, matchId, reason }, auth, audit });
+  }
+
+  it("sperrt die Korrektur der letzten Quali-Runde, sobald die Finalrunde besetzt ist", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
+    const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    const [first, second] = roundOne;
+    if (!first?.participantOneId || !second?.participantOneId) throw new Error("unexpected");
+    await playMatch(created.id, first.id, first.participantOneId, boardIds[0]);
+    // Finalrunde noch leer: Korrektur erlaubt
+    await correctionAttempt(created.id, first.id, "Falsch erfasst");
+    await finishReopenedMatch(first.id, first.participantOneId);
+    await playMatch(created.id, second.id, second.participantOneId, boardIds[0]);
+    const finalRoundMatches = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Finalrunde · Runde 1")));
+    expect(finalRoundMatches.some((match) => match.participantOneId !== null)).toBe(true);
+    await expect(correctionAttempt(created.id, first.id, "Zu spaet")).rejects.toMatchObject({ response: { code: "CLUB_DUEL_ROUND_ALREADY_PAIRED" } });
+  }, 60_000);
+
+  async function playUntilFinalsOccupied(tournamentId: string): Promise<void> {
+    for (let guard = 0; guard < 20; guard += 1) {
+      const finals = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, tournamentId), eq(tournamentMatches.stageLabel, "Final")));
+      if (finals.some((match) => match.participantOneId !== null)) return;
+      const [next] = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, tournamentId), eq(tournamentMatches.status, "READY")));
+      if (!next?.participantOneId || !next.participantTwoId) throw new Error("No READY match before the final is occupied.");
+      await playMatch(tournamentId, next.id, pickWinner(next.participantOneId, next.participantTwoId), boardIds[0]);
+    }
+    throw new Error("Final wurde nicht besetzt.");
+  }
+
+  it("sperrt die Korrektur eines Finalrunden-Spiels, sobald das Final besetzt ist", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
+    await playUntilFinalsOccupied(created.id);
+    const [finalRoundMatch] = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Finalrunde · Runde 1"), eq(tournamentMatches.status, "COMPLETED"), eq(tournamentMatches.resultType, "PLAYED")));
+    if (!finalRoundMatch) throw new Error("unexpected");
+    await expect(correctionAttempt(created.id, finalRoundMatch.id, "Zu spaet")).rejects.toMatchObject({ response: { code: "CLUB_DUEL_ROUND_ALREADY_PAIRED" } });
+  }, 90_000);
+
+  it("erlaubt die Korrektur des Finals und setzt den Status danach auf KNOCKOUT zurueck", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
+    await playOut(created.id);
+    const [finalMatch] = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Final")));
+    if (!finalMatch?.participantOneId || !finalMatch.participantTwoId) throw new Error("unexpected");
+    const [before] = await databaseService.database.select().from(tournaments).where(eq(tournaments.id, created.id));
+    expect(before?.status).toBe("COMPLETED");
+    const reopened = await correctionAttempt(created.id, finalMatch.id, "Falsch erfasst");
+    expect(reopened.tournament.status).toBe("KNOCKOUT");
+    const [afterReopen] = await databaseService.database.select().from(tournaments).where(eq(tournaments.id, created.id));
+    expect(afterReopen?.status).toBe("KNOCKOUT");
+    await finishReopenedMatch(finalMatch.id, finalMatch.participantTwoId);
+    const [afterFinish] = await databaseService.database.select().from(tournaments).where(eq(tournaments.id, created.id));
+    expect(afterFinish?.status).toBe("COMPLETED");
+  }, 90_000);
+
   it("paart bei zwei gleichzeitig abgeschlossenen letzten Spielen genau eine Folgerunde", async () => {
     const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
     const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
