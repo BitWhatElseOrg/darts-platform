@@ -14,11 +14,11 @@ import {
   Wedge,
 } from "@darts-platform/ui";
 import {
-  createTournamentSchema,
+  createClassicTournamentSchema,
   tournamentStructurePreviewSchema,
   tournamentSummarySchema,
   type BoardResponse,
-  type CreateTournamentInput,
+  type CreateClassicTournamentInput,
   type InRule,
   type OutRule,
   type PlayerResponse,
@@ -140,7 +140,7 @@ export function SetupSheet({ organizationId, players, boards }: {
   };
 
   const createMutation = useMutation({
-    mutationFn: (data: CreateTournamentInput) => apiRequest({
+    mutationFn: (data: CreateClassicTournamentInput) => apiRequest({
       path: `/organizations/${organizationId}/tournaments`,
       method: "POST",
       body: data,
@@ -177,7 +177,7 @@ export function SetupSheet({ organizationId, players, boards }: {
       boardIds: [...formValues.boardIds],
     };
 
-    const parsed = createTournamentSchema.safeParse(candidate);
+    const parsed = createClassicTournamentSchema.safeParse(candidate);
     if (!parsed.success) {
       const next: Record<string, string> = {};
       parsed.error.issues.forEach((issue) => {

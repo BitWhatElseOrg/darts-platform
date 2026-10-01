@@ -89,8 +89,23 @@ export function statusLabel(status: TournamentStatus, format?: TournamentFormat)
       return format === "ROUND_ROBIN" ? "läuft" : "Gruppenphase";
     case "KNOCKOUT":
       return "K.-o.-Runde";
+    case "FINAL_ROUND":
+      return "Finalrunde";
     case "COMPLETED":
       return "beendet";
+  }
+}
+
+export function formatLabel(format: TournamentFormat): string {
+  switch (format) {
+    case "GROUPS_THEN_KNOCKOUT":
+      return "Gruppen + K.-o.";
+    case "ROUND_ROBIN":
+      return "Jeder gegen jeden";
+    case "SINGLE_ELIMINATION":
+      return "K.-o.";
+    case "CLUB_DUEL":
+      return "Vereinsduell";
   }
 }
 

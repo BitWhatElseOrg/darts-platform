@@ -38,6 +38,7 @@ function dashboard(status: "KNOCKOUT" | "COMPLETED"): TournamentDashboard {
       { matchId: "44444444-4444-4444-8444-444444444444", stageLabel: "K.-o. · Runde 3", round: 3, position: 1, status: status === "COMPLETED" ? "COMPLETED" : "IN_PROGRESS", resultType: status === "COMPLETED" ? "PLAYED" : null, participantNames: ["Adrian Oberholzer", "Melanie Lüthi"], winnerDisplayName: status === "COMPLETED" ? "Melanie Lüthi" : null },
     ],
     recentResults: [],
+    clubDuel: null,
     generatedAt: new Date("2026-09-25T13:55:00.000Z"),
   };
 }
