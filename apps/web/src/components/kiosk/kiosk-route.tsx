@@ -145,7 +145,19 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
         // ohne diesen Schritt spraenge die Flaeche sofort in den Leerlauf,
         // bevor sie je einen COMPLETED-Status gesehen hat, und der Endstand
         // erschiene nie.
-        setEndedMatch({ matchId: currentMatchId, completedAt: null });
+        //
+        // Task 12, Review-Fix: der `seenMatch`-Effekt unten setzt den echten
+        // Endstand ueblicherweise ZUERST -- `useMatchScoring` invalidiert die
+        // Match-Query direkt nach einem erfolgreichen Checkout, dieser Poll
+        // hier (alle `KIOSK_POLL_MS`) faellt fast immer spaeter. Ohne die
+        // Wache unten ueberschrieb dieser Zweig einen bereits aufgeloesten
+        // Endstand (`completedAt: <Zeitpunkt>`) wieder mit dem unaufgeloesten
+        // Platzhalter (`completedAt: null`) -- der „Weiter"-Knopf erschien
+        // dann nie, die Flaeche sprang direkt in den Leerlauf (E2E-Befund
+        // Task 12: `board-device-kiosk.spec.ts`).
+        if (endedMatch === null || endedMatch.matchId !== currentMatchId || endedMatch.completedAt === null) {
+          setEndedMatch({ matchId: currentMatchId, completedAt: null });
+        }
       } else if (endedMatch !== null) {
         // Ein neues, anderes Match (oder der Wechsel von "kein Match" auf ein
         // neues) macht einen noch offenen oder ungeklaerten Endstand

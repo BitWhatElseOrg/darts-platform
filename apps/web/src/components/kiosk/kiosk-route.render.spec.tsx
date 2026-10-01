@@ -259,6 +259,58 @@ describe("KioskRoute", () => {
     await screen.findByText("Scheibe 1 – wartet auf nächstes Match");
   });
 
+  // Task 12, E2E-Befund `board-device-kiosk.spec.ts`: `useMatchScoring`
+  // invalidiert die Match-Query direkt nach einem erfolgreichen Checkout --
+  // dieser Poll sieht den COMPLETED-Uebergang deshalb fast immer VOR dem
+  // naechsten `/me`-Poll (anders als im Fall IMPORTANT 2 oben, wo beide
+  // gleichzeitig aufgeloest werden). Ohne Wache ueberschrieb der
+  // Render-Zweig fuer `/me` den bereits aufgeloesten Endstand
+  // (`completedAt: <Zeitpunkt>`) mit dem unaufgeloesten Platzhalter
+  // (`completedAt: null`), sobald `/me` sein eigenes, spaeteres Poll meldete
+  // -- der „Weiter"-Knopf verschwand wieder und die Flaeche sprang
+  // ungefragt in den Leerlauf.
+  it("behaelt den Endstand, wenn die Match-Query COMPLETED meldet, bevor /me nachzieht", async () => {
+    deviceKeyStorage.stored = { secret: deviceSecret, boardName: "Scheibe 1", organizationName: "VFC Musterstadt" };
+    server.self = selfResponse(matchId);
+    server.match = matchState;
+    const { queryClient } = renderRoute();
+
+    await screen.findByTestId("match-scoreboard-stub");
+
+    // Erst NUR die Match-Query aufloesen (wie nach dem eigenen Checkout) --
+    // `/me` meldet zu diesem Zeitpunkt noch dasselbe laufende Match, die
+    // Flaeche bleibt deshalb noch im Zustand "match"
+    // (`kioskView`: `currentMatchId !== null` hat Vorrang) -- kein „Weiter"
+    // noch, nur die Match-Attrappe zeigt bereits den COMPLETED-Stand.
+    server.match = { ...matchState, status: "COMPLETED" };
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["match", organizationId, matchId] });
+    });
+    // Das Neuladen aktualisiert den Cache sofort, die Benachrichtigung der
+    // Komponente (und damit der `seenMatch`-Effekt, der den echten Endstand
+    // vormerkt) folgt asynchron eine Mikrotask spaeter -- abwarten, bis die
+    // Attrappe den neuen Stand tatsaechlich als Prop erhalten hat, bevor der
+    // Fall fortfaehrt. Sonst traefe der naechste Schritt (unten) manchmal auf
+    // eine Komponente, deren `seenMatch`-Effekt fuer DIESEN Uebergang noch gar
+    // nicht gelaufen ist -- das waere kein Beleg fuer die behobene
+    // Ueberschreibung, sondern ein Zufallsbefund je nach Mikrotask-Reihenfolge.
+    await waitFor(() => {
+      const lastMatch = matchScoreboard.calls.at(-1)?.match as { readonly status?: string } | undefined;
+      expect(lastMatch?.status).toBe("COMPLETED");
+    });
+    expect(screen.queryByRole("button", { name: "Weiter" })).toBeNull();
+
+    // Erst JETZT zieht `/me` nach und meldet kein laufendes Match mehr.
+    server.self = selfResponse(null);
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["board-device-self"] });
+    });
+
+    await screen.findByRole("button", { name: "Weiter" });
+    expect(screen.getByTestId("match-scoreboard-stub")).not.toBeNull();
+    expect(screen.queryByText("Scheibe 1 – wartet auf nächstes Match")).toBeNull();
+  });
+
   // Task-Review-Befund IMPORTANT 3: nach `DEVICE_REVOKED` darf weder die
   // Selbstauskunft noch die Match-Query weiter pollen.
   it("pollt nach DEVICE_REVOKED nicht weiter", async () => {
