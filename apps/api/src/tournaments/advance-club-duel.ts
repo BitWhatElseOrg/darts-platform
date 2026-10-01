@@ -56,11 +56,19 @@ function toSide(value: string | null): ClubSide {
  * zweite paart. Fuer andere Formate ein No-op.
  */
 export async function advanceClubDuel(transaction: DatabaseTransaction, input: AdvanceClubDuelInput): Promise<void> {
+  // Hoechstens zwei Durchgaenge: Werden alle Plaetze der Finalrunde kampflos
+  // oder abgesagt besetzt, ist sie sofort fertig, und derselbe Abschluss muss
+  // Final und Platz 3 besetzen. Mehr Stufen gibt es nicht.
+  const first = await advanceClubDuelOnce(transaction, input);
+  if (first === "RERUN") await advanceClubDuelOnce(transaction, input);
+}
+
+async function advanceClubDuelOnce(transaction: DatabaseTransaction, input: AdvanceClubDuelInput): Promise<"DONE" | "RERUN"> {
   const [tournament] = await transaction.select().from(tournaments).where(and(
     eq(tournaments.organizationId, input.organizationId),
     eq(tournaments.id, input.tournamentId),
   )).for("update").limit(1);
-  if (tournament === undefined || tournament.format !== "CLUB_DUEL") return;
+  if (tournament === undefined || tournament.format !== "CLUB_DUEL") return "DONE";
   if (tournament.qualifyingRounds === null || tournament.finalRoundSize === null) {
     throw new Error("Club duel configuration invariant violated.");
   }
@@ -82,14 +90,17 @@ export async function advanceClubDuel(transaction: DatabaseTransaction, input: A
   const sideOf = new Map(participants.map((participant) => [participant.playerId, participant.side]));
 
   const qualifyingMatches = matchRows.filter((match) => match.stageId === qualifying.id);
-  if (qualifyingMatches.some(isOpen)) return;
+  if (qualifyingMatches.some(isOpen)) return "DONE";
   const playedRounds = qualifyingMatches.reduce((max, match) => Math.max(max, match.round), 0);
   const qualifyingResults = await loadCompletedMatchResults(transaction, input.organizationId, qualifyingMatches);
   const standings = calculateClubStandings({ participants, results: qualifyingResults.results, withdrawnPlayerIds });
 
-  if (playedRounds < tournament.qualifyingRounds) {
+  // Ruling R8, Plan 1: Seite ohne aktive Spieler beendet die Quali vorzeitig
+  // (kein Paarungsversuch, weiter mit der Finalrunde; fehlende Raenge werden kampflos).
+  const bothSidesActive = [...activeIds].some((id) => sideOf.get(id) === "A") && [...activeIds].some((id) => sideOf.get(id) === "B");
+  if (playedRounds < tournament.qualifyingRounds && bothSidesActive) {
     await pairNextRound(transaction, input, { stageId: qualifying.id, round: playedRounds + 1, standings, qualifyingMatches, activeIds, sideOf });
-    return;
+    return "DONE";
   }
 
   // Quali fertig → Finalrunde besetzen (Spec: fehlende Plaetze → Walkover fuer den Gegner)
@@ -101,14 +112,13 @@ export async function advanceClubDuel(transaction: DatabaseTransaction, input: A
     };
     const ready = await resolveSideRanks(transaction, input, CLUB_DUEL_STAGE_KEYS.qualifying, qualifiers, finalRoundMatches);
     // Waren alle Plaetze unbesetzt oder kampflos, gibt es keinen offenen Abschluss mehr, der weitertreibt.
-    if (ready === 0) await advanceClubDuel(transaction, input);
-    return;
+    return ready === 0 ? "RERUN" : "DONE";
   }
-  if (finalRoundMatches.some(isOpen)) return;
+  if (finalRoundMatches.some(isOpen)) return "DONE";
 
   // Finalrunde fertig → Final und Platz 3 besetzen
   const finalMatches = matchRows.filter((match) => match.stageId === final.id);
-  if (!finalMatches.some((match) => match.status === "WAITING")) return;
+  if (!finalMatches.some((match) => match.status === "WAITING")) return "DONE";
   const crossResults = await loadCompletedMatchResults(transaction, input.organizationId, finalRoundMatches);
   // Die Finalisten stehen mit der Besetzung fest; ein Rueckzug waehrend der Finalrunde aendert sie nicht.
   const finalists = (side: ClubSide) => {
@@ -125,10 +135,12 @@ export async function advanceClubDuel(transaction: DatabaseTransaction, input: A
     results: crossResults.results,
     unopposedWalkoverWinnerIds: crossResults.unopposedWalkoverWinnerIds,
   });
+  // Wer sich waehrend der Finalrunde zurueckgezogen hat, wird nicht fuer Final oder Platz 3 gesetzt.
   await resolveSideRanks(transaction, input, CLUB_DUEL_STAGE_KEYS.finalRound, {
-    A: cross.sideA.map((row) => row.playerId),
-    B: cross.sideB.map((row) => row.playerId),
+    A: cross.sideA.filter((row) => activeIds.has(row.playerId)).map((row) => row.playerId),
+    B: cross.sideB.filter((row) => activeIds.has(row.playerId)).map((row) => row.playerId),
   }, finalMatches);
+  return "DONE";
 }
 
 async function pairNextRound(
@@ -246,7 +258,9 @@ async function resolveSideRanks(
     if (match.status !== "WAITING") continue;
     const first = sideRankReferenceSchema.safeParse(match.participantOneRef);
     const second = sideRankReferenceSchema.safeParse(match.participantTwoRef);
-    if (!first.success || !second.success || first.data.stageKey !== stageKey || second.data.stageKey !== stageKey) continue;
+    if (!first.success || !second.success || first.data.stageKey !== stageKey || second.data.stageKey !== stageKey) {
+      throw new Error("Club duel placeholder invariant violated: unresolved WAITING match.");
+    }
     const playerOneId = ranking[first.data.side][first.data.rank - 1] ?? null;
     const playerTwoId = ranking[second.data.side][second.data.rank - 1] ?? null;
     const status = playerOneId !== null && playerTwoId !== null ? "READY" : playerOneId === null && playerTwoId === null ? "CANCELLED" : "COMPLETED";
