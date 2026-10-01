@@ -33,6 +33,7 @@ import { CurrentAuth } from "../auth/current-auth.decorator.js";
 import type { AuthContext } from "../auth/auth.types.js";
 import { getAuditContext } from "../common/audit-context.js";
 import { parseBody } from "../common/parse-body.js";
+import { parseQuery } from "../common/parse-query.js";
 import { APPLICATION_ENVIRONMENT } from "../config/environment.module.js";
 import { PlayersService } from "./players.service.js";
 
@@ -53,7 +54,7 @@ export class PlayersController {
     return this.playersService.list({
       organizationId,
       auth,
-      kind: parseBody(playerKindFilterSchema, kind),
+      kind: parseQuery(playerKindFilterSchema, kind, "kind"),
     });
   }
 

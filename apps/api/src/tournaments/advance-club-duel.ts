@@ -49,12 +49,12 @@ function toSide(value: string | null): ClubSide {
 }
 
 /**
- * Treibt ein Vereinsduell nach einem Matchabschluss weiter (Spec, API und
- * Ablauf; ADR 0021). Laeuft in der Transaktion des Abschlusses, direkt vor
- * `updateTournamentProgress`. Die Turnierzeile wird FOR UPDATE gesperrt,
- * BEVOR offene Spiele gezaehlt werden: Zwei parallel abgeschlossene letzte
- * Spiele einer Runde sehen so nacheinander denselben Stand, und nur das
- * zweite paart. Fuer andere Formate ein No-op.
+ * Treibt ein Vereinsduell nach einem Matchabschluss oder Rueckzug weiter
+ * (Spec, API und Ablauf; ADR 0021). Laeuft in der Transaktion des Aufrufers,
+ * der danach `updateTournamentProgress` aufruft. Die Turnierzeile wird FOR
+ * UPDATE gesperrt, BEVOR offene Spiele gezaehlt werden: Zwei parallel
+ * abgeschlossene letzte Spiele einer Runde sehen so nacheinander denselben
+ * Stand, und nur das zweite paart. Fuer andere Formate ein No-op ohne Sperre.
  */
 export async function advanceClubDuel(transaction: DatabaseTransaction, input: AdvanceClubDuelInput): Promise<void> {
   // Hoechstens zwei Durchgaenge: Werden alle Plaetze der Finalrunde kampflos
@@ -67,11 +67,18 @@ export async function advanceClubDuel(transaction: DatabaseTransaction, input: A
 }
 
 async function advanceClubDuelOnce(transaction: DatabaseTransaction, input: AdvanceClubDuelInput): Promise<"DONE" | "RERUN"> {
+  // Format zuerst ohne Sperre: es aendert sich nach der Anlage nie, und
+  // klassische Turniere sollen die Turnierzeile hier nicht sperren.
+  const [format] = await transaction.select({ format: tournaments.format }).from(tournaments).where(and(
+    eq(tournaments.organizationId, input.organizationId),
+    eq(tournaments.id, input.tournamentId),
+  )).limit(1);
+  if (format === undefined || format.format !== "CLUB_DUEL") return "DONE";
   const [tournament] = await transaction.select().from(tournaments).where(and(
     eq(tournaments.organizationId, input.organizationId),
     eq(tournaments.id, input.tournamentId),
   )).for("update").limit(1);
-  if (tournament === undefined || tournament.format !== "CLUB_DUEL") return "DONE";
+  if (tournament === undefined) return "DONE";
   if (tournament.qualifyingRounds === null || tournament.finalRoundSize === null) {
     throw new Error("Club duel configuration invariant violated.");
   }

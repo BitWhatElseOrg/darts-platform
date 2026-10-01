@@ -9,10 +9,10 @@ import {
 import type { ClubDuelDashboard, ClubRoundMatchResponse } from "@darts-platform/schemas";
 
 import { isFinalRoundOccupied, occupiedFinalRoundEntrants, projectedQualifiers, type FinalRoundEntrant } from "./club-duel-entrants.js";
+import { toCompletedResult, type LegsOf } from "./completed-match-results.js";
 import type { TournamentDashboardData } from "./tournaments.repository.js";
 
 type MatchRow = TournamentDashboardData["matches"][number];
-type LegsOf = (scoringMatchId: string, playerId: string) => number | undefined;
 
 function sideRankOf(reference: unknown): { readonly rank: number } | null {
   if (typeof reference !== "object" || reference === null) return null;
@@ -26,19 +26,6 @@ function toSide(value: string | null): ClubSide {
   throw new Error("Club duel participant without side.");
 }
 
-function resultOf(match: MatchRow, legsOf: LegsOf): ClubMatchResult | "unopposed" | null {
-  if (match.status !== "COMPLETED" || match.winnerPlayerId === null) return null;
-  if (match.participantOneId === null || match.participantTwoId === null) return match.resultType === "WALKOVER" ? "unopposed" : null;
-  if (match.resultType === "WALKOVER") {
-    return { type: "WALKOVER", playerOneId: match.participantOneId, playerTwoId: match.participantTwoId, playerOneLegs: 0, playerTwoLegs: 0, winnerPlayerId: match.winnerPlayerId };
-  }
-  if (match.scoringMatchId === null) return null;
-  const legsOne = legsOf(match.scoringMatchId, match.participantOneId);
-  const legsTwo = legsOf(match.scoringMatchId, match.participantTwoId);
-  if (legsOne === undefined || legsTwo === undefined) return null;
-  return { type: "PLAYED", playerOneId: match.participantOneId, playerTwoId: match.participantTwoId, playerOneLegs: legsOne, playerTwoLegs: legsTwo, winnerPlayerId: match.winnerPlayerId };
-}
-
 function resultTypeOf(match: MatchRow): "PLAYED" | "WALKOVER" | "BYE" | null {
   return match.resultType === "PLAYED" || match.resultType === "WALKOVER" || match.resultType === "BYE" ? match.resultType : null;
 }
@@ -47,7 +34,7 @@ function resultTypeOf(match: MatchRow): "PLAYED" | "WALKOVER" | "BYE" | null {
 function toRoundMatch(match: MatchRow, sideOf: ReadonlyMap<string, ClubSide>, legsOf: LegsOf): ClubRoundMatchResponse {
   const swapped = match.participantOneId !== null ? sideOf.get(match.participantOneId) === "B" : match.participantTwoId !== null && sideOf.get(match.participantTwoId) === "A";
   const [playerAId, playerBId] = swapped ? [match.participantTwoId, match.participantOneId] : [match.participantOneId, match.participantTwoId];
-  const result = resultOf(match, legsOf);
+  const result = toCompletedResult(match, legsOf);
   const legs = typeof result === "object" && result !== null && result.type === "PLAYED"
     ? (swapped ? [result.playerTwoLegs, result.playerOneLegs] : [result.playerOneLegs, result.playerTwoLegs]) as [number, number]
     : null;
@@ -67,7 +54,7 @@ function collect(matches: readonly MatchRow[], legsOf: LegsOf): { results: ClubM
   const results: ClubMatchResult[] = [];
   const unopposedWalkoverWinnerIds: string[] = [];
   for (const match of matches) {
-    const result = resultOf(match, legsOf);
+    const result = toCompletedResult(match, legsOf);
     if (result === null) continue;
     if (result === "unopposed") {
       if (match.winnerPlayerId !== null) unopposedWalkoverWinnerIds.push(match.winnerPlayerId);
@@ -180,7 +167,7 @@ export function projectClubDuel(input: {
       matches: finalRoundMatches.map((match) => {
         const first = sideRankOf(match.participantOneRef);
         const second = sideRankOf(match.participantTwoRef);
-        const result = resultOf(match, input.legsOf);
+        const result = toCompletedResult(match, input.legsOf);
         return {
           matchId: match.id,
           round: match.round,
