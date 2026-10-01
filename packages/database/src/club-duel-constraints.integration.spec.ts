@@ -3,7 +3,16 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 
 import { createDatabaseConnection } from "./client.js";
-import { organizations, players, tournaments, users } from "./schema.js";
+import {
+  organizations,
+  players,
+  tournamentGroups,
+  tournamentMatches,
+  tournamentParticipants,
+  tournamentStages,
+  tournaments,
+  users,
+} from "./schema.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -99,5 +108,91 @@ describe("Vereinsduell-Constraints", () => {
       .returning();
     expect(created?.thirdPlaceMatch).toBe(true);
     expect(created?.status).toBe("READY");
+  });
+
+  async function newTournament() {
+    const [tournament] = await database
+      .insert(tournaments)
+      .values({
+        organizationId, name: "Rundenindex", format: "CLUB_DUEL", groupCount: 1, qualifyPerGroup: 1, knockoutSize: 2,
+        seeding: "SEEDED", startsAt: new Date(), sideAName: "VFC", sideBName: "DC", qualifyingRounds: 2, finalRoundSize: 2,
+      })
+      .returning();
+    const [stage] = await database
+      .insert(tournamentStages)
+      .values({ organizationId, tournamentId: tournament?.id ?? "", key: "qualifying", sequence: 1, name: "Quali", type: "CLUB_SWISS", status: "OPEN" })
+      .returning();
+    const created = await database
+      .insert(players)
+      .values(["Eins", "Zwei", "Drei"].map((displayName) => ({ organizationId, displayName, status: "ACTIVE" })))
+      .returning();
+    if (tournament === undefined || stage === undefined) throw new Error("Setup fehlgeschlagen.");
+    return { tournament, stage, playerIds: created.map((player) => player.id) };
+  }
+
+  function matchValues(setup: Awaited<ReturnType<typeof newTournament>>, key: string, extra: Partial<typeof tournamentMatches.$inferInsert>) {
+    return {
+      organizationId,
+      tournamentId: setup.tournament.id,
+      stageId: setup.stage.id,
+      key,
+      stageLabel: "Quali · Runde 1",
+      round: 1,
+      position: 1,
+      status: "READY",
+      ...extra,
+    };
+  }
+
+  it("ein Spieler steht je Stage und Runde nur einmal als participant_one", async () => {
+    const setup = await newTournament();
+    const [one, two, three] = setup.playerIds;
+    await database.insert(tournamentMatches).values(matchValues(setup, "m1", { participantOneId: one ?? null, participantTwoId: two ?? null }));
+    expect(
+      await rejectionText(database.insert(tournamentMatches).values(matchValues(setup, "m2", { position: 2, participantOneId: one ?? null, participantTwoId: three ?? null }))),
+    ).toMatch(/tournament_matches_stage_round_participant_one_unique/);
+    // andere Runde: erlaubt
+    await database.insert(tournamentMatches).values(matchValues(setup, "m3", { round: 2, participantOneId: one ?? null, participantTwoId: three ?? null }));
+  });
+
+  it("ein Spieler steht je Stage und Runde nur einmal als participant_two", async () => {
+    const setup = await newTournament();
+    const [one, two, three] = setup.playerIds;
+    await database.insert(tournamentMatches).values(matchValues(setup, "m1", { participantOneId: one ?? null, participantTwoId: two ?? null }));
+    expect(
+      await rejectionText(database.insert(tournamentMatches).values(matchValues(setup, "m2", { position: 2, participantOneId: three ?? null, participantTwoId: two ?? null }))),
+    ).toMatch(/tournament_matches_stage_round_participant_two_unique/);
+  });
+
+  it("abgesagte Matches blockieren den Spieler in der Runde nicht", async () => {
+    const setup = await newTournament();
+    const [one, two, three] = setup.playerIds;
+    await database.insert(tournamentMatches).values(matchValues(setup, "m1", { status: "CANCELLED", participantOneId: one ?? null, participantTwoId: two ?? null }));
+    await database.insert(tournamentMatches).values(matchValues(setup, "m2", { position: 2, participantOneId: one ?? null, participantTwoId: three ?? null }));
+    // und umgekehrt: ein abgesagtes Match darf neben einem aktiven stehen
+    await database.insert(tournamentMatches).values(matchValues(setup, "m3", { position: 3, status: "CANCELLED", participantOneId: one ?? null, participantTwoId: three ?? null }));
+  });
+
+  it("in Gruppen darf derselbe Spieler je Runde mehrfach stehen (group_id gesetzt)", async () => {
+    const setup = await newTournament();
+    const [one, two, three] = setup.playerIds;
+    const [group] = await database
+      .insert(tournamentGroups)
+      .values({ organizationId, tournamentId: setup.tournament.id, stageId: setup.stage.id, key: "g1", label: "A", sequence: 1, qualifyCount: 1 })
+      .returning();
+    const groupId = group?.id ?? null;
+    await database.insert(tournamentMatches).values(matchValues(setup, "g1:m1", { groupId, participantOneId: one ?? null, participantTwoId: two ?? null }));
+    await database.insert(tournamentMatches).values(matchValues(setup, "g1:m2", { groupId, position: 2, participantOneId: one ?? null, participantTwoId: three ?? null }));
+  });
+
+  it("die Seite eines Teilnehmers ist A, B oder leer", async () => {
+    const setup = await newTournament();
+    const [one, two, three] = setup.playerIds;
+    const base = { organizationId, tournamentId: setup.tournament.id };
+    await database.insert(tournamentParticipants).values({ ...base, playerId: one ?? "", seed: 1, side: "A" });
+    await database.insert(tournamentParticipants).values({ ...base, playerId: two ?? "", seed: 2, side: null });
+    expect(
+      await rejectionText(database.insert(tournamentParticipants).values({ ...base, playerId: three ?? "", seed: 3, side: "C" })),
+    ).toMatch(/tournament_participants_side_check/);
   });
 });
