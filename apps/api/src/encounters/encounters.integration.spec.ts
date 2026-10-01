@@ -54,7 +54,11 @@ const competitionsService = new CompetitionsService(
   new CompetitionsRepository(databaseService),
   access,
 );
-const encountersService = new EncountersService(new EncountersRepository(databaseService), access);
+const encountersService = new EncountersService(
+  new EncountersRepository(databaseService),
+  new MatchesRepository(databaseService),
+  access,
+);
 const teamsService = new TeamsService(new TeamsRepository(databaseService), access);
 const matchesRepository = new MatchesRepository(databaseService);
 const matchesService = new MatchesService(matchesRepository, access);

@@ -44,7 +44,11 @@ import { EncountersService } from "./encounters.service.js";
 const databaseService = new DatabaseService(parseApplicationEnvironment(process.env));
 const access = new OrganizationAccessService(new OrganizationsRepository(databaseService));
 const competitionsService = new CompetitionsService(new CompetitionsRepository(databaseService), access);
-const encountersService = new EncountersService(new EncountersRepository(databaseService), access);
+const encountersService = new EncountersService(
+  new EncountersRepository(databaseService),
+  new MatchesRepository(databaseService),
+  access,
+);
 const matchesService = new MatchesService(new MatchesRepository(databaseService), access);
 
 const organizationId = randomUUID();

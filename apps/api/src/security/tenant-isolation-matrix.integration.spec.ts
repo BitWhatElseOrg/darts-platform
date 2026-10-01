@@ -178,6 +178,9 @@ const bodies: Record<string, object> = {
   "POST /api/v1/organizations/:organizationId/encounters/:encounterId/forfeit": {
     commandId: randomUUID(), expectedVersion: 0, forfeitSide: "HOME", reason: "Testforfait",
   },
+  "POST /api/v1/organizations/:organizationId/encounters/:encounterId/result-corrections": {
+    commandId: randomUUID(), expectedVersion: 0, slotId: randomUUID(), reason: "Matrix",
+  },
   "POST /api/v1/organizations/:organizationId/encounters/:encounterId/cancel": {
     commandId: randomUUID(), expectedVersion: 0, reason: "Testabbruch",
   },

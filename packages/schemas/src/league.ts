@@ -532,6 +532,17 @@ export const cancelEncounterSchema = z.object({
   reason: z.string().trim().min(3).max(500),
 });
 
+/**
+ * Die Leitung oeffnet ein gespieltes Spiel einer abgeschlossenen Begegnung
+ * wieder; es wird neu gescort (Spec 2026-10-01-liga-resultatkorrektur).
+ * `expectedVersion` ist die Version der Begegnung.
+ */
+export const correctEncounterResultSchema = z.object({
+  ...encounterCommandShape,
+  slotId: z.uuid(),
+  reason: z.string().trim().min(3).max(500),
+});
+
 export type TeamStatus = z.infer<typeof teamStatusSchema>;
 export type TeamPlayerRole = z.infer<typeof teamPlayerRoleSchema>;
 export type TeamMember = z.infer<typeof teamMemberSchema>;
@@ -572,3 +583,4 @@ export type ReleaseEncounterSlotInput = z.infer<typeof releaseEncounterSlotSchem
 export type DeclareSlotWalkoverInput = z.infer<typeof declareSlotWalkoverSchema>;
 export type DeclareEncounterForfeitInput = z.infer<typeof declareEncounterForfeitSchema>;
 export type CancelEncounterInput = z.infer<typeof cancelEncounterSchema>;
+export type CorrectEncounterResultInput = z.infer<typeof correctEncounterResultSchema>;
