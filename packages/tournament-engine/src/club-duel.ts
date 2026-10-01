@@ -376,6 +376,7 @@ export function pairClubSwissRound(input: ClubSwissPairingInput): ClubSwissRound
   return { round: input.round, pairings, pausedPlayerIds, warnings };
 }
 
+/** Resultatform, gemeinsam mit den Gruppen (`GroupMatchResult`). */
 export type ClubMatchResult = GroupMatchResult;
 
 export interface ClubStandingRow {
@@ -529,6 +530,10 @@ export function calculateCrossRoundStandings(input: {
   readonly results: readonly ClubMatchResult[];
   readonly unopposedWalkoverWinnerIds?: readonly string[];
 }): { readonly sideA: readonly CrossRoundStandingRow[]; readonly sideB: readonly CrossRoundStandingRow[] } {
+  const entrantIds = [...input.sideA, ...input.sideB].map((entrant) => entrant.playerId);
+  if (new Set(entrantIds).size !== entrantIds.length) {
+    throw new TournamentValidationError("DUPLICATE_PARTICIPANT", "A participant may only appear once.");
+  }
   const sideOf = new Map<string, ClubSide>([
     ...input.sideA.map((entrant) => [entrant.playerId, "A"] as const),
     ...input.sideB.map((entrant) => [entrant.playerId, "B"] as const),
@@ -541,6 +546,7 @@ export function calculateCrossRoundStandings(input: {
     assertClubResult(result, sideOf);
     applyResult(tallies, result);
   }
+  // Jeder Eintrag ist ein unbesetzter Platz: Wer zwei unbesetzte Plätze gewinnt, steht zweimal in der Liste.
   for (const playerId of input.unopposedWalkoverWinnerIds ?? []) {
     const tally = tallies.get(playerId);
     if (tally === undefined) throw new TournamentValidationError("INVALID_GROUP_RESULT", "A walkover references an invalid participant.");

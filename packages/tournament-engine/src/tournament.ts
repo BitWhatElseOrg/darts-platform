@@ -107,19 +107,24 @@ export interface TournamentLifecycle {
   }[];
 }
 
-/** Reihenfolge der Phasen eines Vereinsduells; die erste mit offenen Spielen ist die laufende. */
-const CLUB_DUEL_STAGE_ORDER: readonly PlannedStageType[] = ["CLUB_SWISS", "CLUB_CROSS_ROUND_ROBIN", "SINGLE_ELIMINATION"];
-const CLUB_DUEL_STATUS_BY_STAGE = ["GROUP_STAGE", "FINAL_ROUND", "KNOCKOUT"] as const;
+/** Phasen eines Vereinsduells in Spielfolge; die erste mit offenen Spielen ist die laufende. */
+const CLUB_DUEL_PHASES: readonly {
+  readonly type: PlannedStageType;
+  readonly status: Exclude<TournamentLifecycle["tournamentStatus"], "COMPLETED">;
+}[] = [
+  { type: "CLUB_SWISS", status: "GROUP_STAGE" },
+  { type: "CLUB_CROSS_ROUND_ROBIN", status: "FINAL_ROUND" },
+  { type: "SINGLE_ELIMINATION", status: "KNOCKOUT" },
+];
 
 function calculateClubDuelLifecycle(stages: readonly TournamentLifecycleStage[]): TournamentLifecycle {
   const openTypes = new Set(stages.filter((stage) => stage.hasOpenMatches).map((stage) => stage.type));
-  const currentIndex = CLUB_DUEL_STAGE_ORDER.findIndex((type) => openTypes.has(type));
-  const tournamentStatus = currentIndex === -1 ? "COMPLETED" : (CLUB_DUEL_STATUS_BY_STAGE[currentIndex] ?? "COMPLETED");
+  const current = CLUB_DUEL_PHASES.find((phase) => openTypes.has(phase.type));
   return {
-    tournamentStatus,
+    tournamentStatus: current === undefined ? "COMPLETED" : current.status,
     stages: stages.map((stage) => ({
       id: stage.id,
-      status: !stage.hasOpenMatches ? "COMPLETED" : CLUB_DUEL_STAGE_ORDER.indexOf(stage.type) === currentIndex ? "OPEN" : "WAITING",
+      status: !stage.hasOpenMatches ? "COMPLETED" : stage.type === current?.type ? "OPEN" : "WAITING",
     })),
   };
 }

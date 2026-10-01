@@ -404,3 +404,85 @@ describe("calculateClubScore", () => {
     expect(calculateClubScore({ sideOf, results: [], unopposedWalkoverWinnerIds: ["b-1"] })).toEqual({ pointsA: 0, pointsB: 1, legDifferenceA: 0, leader: "B" });
   });
 });
+
+describe("pairClubSwissRound – Optimalität", () => {
+  it("findet für n ≤ 6 dieselbe minimale Kostensumme wie eine erschöpfende Suche", () => {
+    let state = 4242;
+    const next = () => {
+      state = (state * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return state / 2_147_483_648;
+    };
+    const permutations = (items: readonly number[]): number[][] =>
+      items.length <= 1
+        ? [[...items]]
+        : items.flatMap((item, index) =>
+            permutations([...items.slice(0, index), ...items.slice(index + 1)]).map((rest) => [item, ...rest]),
+          );
+    for (let iteration = 0; iteration < 60; iteration += 1) {
+      const n = 2 + Math.floor(next() * 5);
+      const sideA = ranked("a", n);
+      const sideB = ranked("b", n, n);
+      const previous = sideA.flatMap((a) =>
+        sideB.filter(() => next() < 0.3).map((b) => ({ playerAId: a.playerId, playerBId: b.playerId })),
+      );
+      const previousSet = new Set(previous.map((pair) => `${pair.playerAId}:${pair.playerBId}`));
+      const penalty = n * n + 1;
+      const cost = (i: number, j: number) =>
+        Math.abs(i - j) + (previousSet.has(`${sideA[i]?.playerId}:${sideB[j]?.playerId}`) ? penalty : 0);
+      const best = Math.min(
+        ...permutations(sideB.map((_, j) => j)).map((perm) => perm.reduce((sum, j, i) => sum + cost(i, j), 0)),
+      );
+      const paired = pairClubSwissRound({ round: 2, sideA, sideB, previousPairings: previous, pauses: new Map(), played: new Map() });
+      const actual = paired.pairings.reduce(
+        (sum, pairing) =>
+          sum +
+          cost(
+            sideA.findIndex((a) => a.playerId === pairing.playerAId),
+            sideB.findIndex((b) => b.playerId === pairing.playerBId),
+          ),
+        0,
+      );
+      expect(paired.pairings).toHaveLength(n);
+      expect(actual).toBe(best);
+    }
+  });
+});
+
+describe("Validierung", () => {
+  it("lehnt doppelte Seeds und leere Seiten ab", () => {
+    const duplicateSeed = [...clubParticipants(2, 2).slice(0, 3), { playerId: "b-2", seed: 1, side: "B" as const }];
+    expect(() => planClubDuel({ participants: duplicateSeed, qualifyingRounds: 1, finalRoundSize: 2, thirdPlaceMatch: false }))
+      .toThrowError(new TournamentValidationError("DUPLICATE_SEED", "Every seed must be unique."));
+    expect(() => planClubDuel({ participants: clubParticipants(3, 0), qualifyingRounds: 1, finalRoundSize: 2, thirdPlaceMatch: false }))
+      .toThrowError(new TournamentValidationError("CLUB_DUEL_SIDE_EMPTY", "Beide Vereine brauchen mindestens einen Spieler."));
+    expect(() => previewClubDuel({ sideACount: 4, sideBCount: 4, qualifyingRounds: 2, finalRoundSize: 2, thirdPlaceMatch: false, boardCount: 0, bestOfLegs: 3 }))
+      .toThrowError(new TournamentValidationError("INVALID_STRUCTURE", "Mindestens eine Scheibe ist nötig."));
+  });
+
+  it("Kreuzwertung: Walkover zählt ohne Legs, doppelte Teilnehmer werden abgelehnt", () => {
+    const standings = calculateCrossRoundStandings({
+      sideA: [{ playerId: "a-1", qualifyingRank: 1 }],
+      sideB: [{ playerId: "b-1", qualifyingRank: 1 }],
+      results: [walkover("a-1", "b-1", "b-1")],
+    });
+    expect(standings.sideB[0]).toMatchObject({ won: 1, legsFor: 0, legsAgainst: 0 });
+    const duplicate = new TournamentValidationError("DUPLICATE_PARTICIPANT", "A participant may only appear once.");
+    expect(() => calculateCrossRoundStandings({ sideA: [{ playerId: "x", qualifyingRank: 1 }], sideB: [{ playerId: "x", qualifyingRank: 1 }], results: [] }))
+      .toThrowError(duplicate);
+    expect(() => calculateCrossRoundStandings({
+      sideA: [{ playerId: "a-1", qualifyingRank: 1 }, { playerId: "a-1", qualifyingRank: 2 }],
+      sideB: [{ playerId: "b-1", qualifyingRank: 1 }],
+      results: [],
+    })).toThrowError(duplicate);
+  });
+
+  it("Kreuzwertung: doppelte kampflose Siege zählen je Eintrag", () => {
+    const standings = calculateCrossRoundStandings({
+      sideA: [{ playerId: "a-1", qualifyingRank: 1 }],
+      sideB: [{ playerId: "b-1", qualifyingRank: 1 }],
+      results: [],
+      unopposedWalkoverWinnerIds: ["a-1", "a-1"],
+    });
+    expect(standings.sideA[0]).toMatchObject({ played: 2, won: 2 });
+  });
+});
