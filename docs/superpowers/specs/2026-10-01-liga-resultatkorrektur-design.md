@@ -76,18 +76,19 @@ Schreibzugriff. Trifft eine nicht zu, wird nichts geschrieben.
 | Bedingung | Fehlercode | HTTP |
 |---|---|---|
 | Begegnung nicht `COMPLETED` | `ENCOUNTER_NOT_CORRECTABLE` | 409 |
-| Begegnung durch Forfait entschieden (`resultType` ≠ gespielt) | `ENCOUNTER_NOT_CORRECTABLE` | 409 |
+| Begegnung durch Forfait entschieden (`resultType = FORFEIT`; korrigierbar sind `PLAYED` und `DECIDER`) | `ENCOUNTER_NOT_CORRECTABLE` | 409 |
 | Slot gehört nicht zur Begegnung | 404 | 404 |
 | Slot nicht `COMPLETED` mit `resultType = PLAYED` oder ohne `matchId` | `SLOT_NOT_CORRECTABLE` | 409 |
 | Match nicht `COMPLETED` oder letzte Aufnahme ist kein Leg-Gewinn | `SLOT_NOT_CORRECTABLE` | 409 |
 | Regulärer Slot, Entscheidungsdoppel `IN_PROGRESS`, `COMPLETED` oder `WALKOVER` | `DECIDER_CORRECTION_REQUIRED` | 409 |
-| Scheibe des Matches fehlt, nicht `AVAILABLE` oder belegt | `BOARD_NOT_AVAILABLE` (bestehend) | 409 |
+| Scheibe des Matches fehlt, nicht `AVAILABLE` oder belegt | `BOARD_UNAVAILABLE` (bestehend im EncountersService) | 409 |
 | Beteiligte Person spielt an einer anderen Scheibe | `PLAYER_BUSY` (bestehend) | 409 |
 | Version der Begegnung passt nicht | `ENCOUNTER_VERSION_CONFLICT` (bestehend) | 409 |
 
-Die genauen Werte von `resultType` für «gespielt» bzw. «Forfait» stehen in
-`schema.ts` (`encounters`) und `calculateEncounterResult`; die Umsetzung nimmt
-die dortigen Konstanten.
+`encounters.result_type` kennt `PLAYED`, `DECIDER` und `FORFEIT`
+(`encounters_result_type_check`). Die Checks `encounters_completed_result_check`
+und `encounters_result_pair_check` verlangen, dass `result` und `result_type`
+gemeinsam leer werden, sobald die Begegnung nicht mehr `COMPLETED` ist.
 
 ## 3. Wirkung
 
