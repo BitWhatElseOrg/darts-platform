@@ -90,6 +90,8 @@ export const clubRoundMatchSchema = z.object({
   winnerPlayerId: z.uuid().nullable(),
   /** Legs [A, B]; null solange nicht gespielt oder Walkover. */
   legs: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]).nullable(),
+  /** Scheibe des Spiels (laufend oder gespielt); null, solange keine zugewiesen ist. */
+  boardName: z.string().nullable().default(null),
 });
 
 export const clubFinalMatchSchema = clubRoundMatchSchema;

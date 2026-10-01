@@ -30,7 +30,10 @@ export function ClubRounds({ clubDuel, names }: {
               key={match.matchId}
             >
               <span className="min-w-0 flex-1 truncate">{name(match.playerAId)} – {name(match.playerBId)}</span>
-              <span className="font-numerals tabular">{matchOutcomeText(match, walkover, name)}</span>
+              <span>
+                <span className="font-numerals tabular">{matchOutcomeText(match, walkover, name)}</span>
+                {match.boardName !== null ? <span className="text-sisal-500"> · {match.boardName}</span> : null}
+              </span>
               <StateTag label={state.label} tone={state.tone} />
             </li>
           );

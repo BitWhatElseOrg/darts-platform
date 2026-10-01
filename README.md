@@ -88,13 +88,17 @@ Papierhilfen durchzuführen. Der Vollausbau umfasst:
   Verein, Final mit optionalem Spiel um Platz 3. Die Vereinswertung (1 Punkt je
   gewonnenem Spiel) wird berechnet. Gastspieler anderer Vereine werden als
   kontolose Spieler (`kind = GUEST`) in der eigenen Organisation erfasst
-  (`POST /api/v1/organizations/:organizationId/players/guests`; die HTTP-Spielerliste zeigt standardmässig nur
+  (`POST /api/v1/organizations/:organizationId/players/guests`, idempotent über
+  `commandId`, abweichende Nutzdaten zur selben `commandId` ergeben 409
+  `COMMAND_PAYLOAD_MISMATCH`; die HTTP-Spielerliste zeigt standardmässig nur
   Mitglieder, `?kind=GUEST|ALL` blendet Gäste ein). Vorschau über
   `POST /api/v1/organizations/:organizationId/tournaments/club-duel-preview`, Details in
   [ADR 0021](./docs/adr/0021-vereinsduell-rundenpaarung.md). In der Oberfläche
   sind vorhanden: Anlage (Format-Option «Vereinsduell», Schnellerfassung von
-  Gastspielern), Kommandozentrale (Banner mit Vereinswertung, Tabs Runden,
-  Rangliste und Finalrunde), öffentliche Live-Ansicht, Beamer-Modus
+  Gastspielern, auf schmalen Bildschirmen ein Umschalter zwischen den
+  Spielerspalten von Verein A und B), Kommandozentrale (Banner mit
+  Vereinswertung, Tabs Runden mit Scheibe je Spiel, Rangliste und Finalrunde),
+  öffentliche Live-Ansicht, Beamer-Modus
   (Vereinswertung gross, laufende und nächste Spiele) sowie das Vereinskürzel
   neben dem Spielernamen auf Scoreboard und Scheiben-Tablet. Das
   Anlageformular sendet nicht mehr per Enter ab; gestartet wird mit

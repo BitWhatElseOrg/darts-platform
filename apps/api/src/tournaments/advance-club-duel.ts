@@ -49,12 +49,12 @@ function toSide(value: string | null): ClubSide {
 }
 
 /**
- * Treibt ein Vereinsduell nach einem Matchabschluss weiter (Spec, API und
- * Ablauf; ADR 0021). Laeuft in der Transaktion des Abschlusses, direkt vor
- * `updateTournamentProgress`. Die Turnierzeile wird FOR UPDATE gesperrt,
- * BEVOR offene Spiele gezaehlt werden: Zwei parallel abgeschlossene letzte
- * Spiele einer Runde sehen so nacheinander denselben Stand, und nur das
- * zweite paart. Fuer andere Formate ein No-op.
+ * Treibt ein Vereinsduell nach einem Matchabschluss oder Rueckzug weiter
+ * (Spec, API und Ablauf; ADR 0021). Laeuft in der Transaktion des Aufrufers,
+ * der danach `updateTournamentProgress` aufruft. Die Turnierzeile wird FOR
+ * UPDATE gesperrt, BEVOR offene Spiele gezaehlt werden: Zwei parallel
+ * abgeschlossene letzte Spiele einer Runde sehen so nacheinander denselben
+ * Stand, und nur das zweite paart. Fuer andere Formate ein No-op ohne Sperre.
  */
 export async function advanceClubDuel(transaction: DatabaseTransaction, input: AdvanceClubDuelInput): Promise<void> {
   // Hoechstens zwei Durchgaenge: Werden alle Plaetze der Finalrunde kampflos
@@ -67,11 +67,18 @@ export async function advanceClubDuel(transaction: DatabaseTransaction, input: A
 }
 
 async function advanceClubDuelOnce(transaction: DatabaseTransaction, input: AdvanceClubDuelInput): Promise<"DONE" | "RERUN"> {
+  // Format zuerst ohne Sperre: es aendert sich nach der Anlage nie, und
+  // klassische Turniere sollen die Turnierzeile hier nicht sperren.
+  const [format] = await transaction.select({ format: tournaments.format }).from(tournaments).where(and(
+    eq(tournaments.organizationId, input.organizationId),
+    eq(tournaments.id, input.tournamentId),
+  )).limit(1);
+  if (format === undefined || format.format !== "CLUB_DUEL") return "DONE";
   const [tournament] = await transaction.select().from(tournaments).where(and(
     eq(tournaments.organizationId, input.organizationId),
     eq(tournaments.id, input.tournamentId),
   )).for("update").limit(1);
-  if (tournament === undefined || tournament.format !== "CLUB_DUEL") return "DONE";
+  if (tournament === undefined) return "DONE";
   if (tournament.qualifyingRounds === null || tournament.finalRoundSize === null) {
     throw new Error("Club duel configuration invariant violated.");
   }
@@ -110,7 +117,7 @@ async function advanceClubDuelOnce(transaction: DatabaseTransaction, input: Adva
   const finalRoundMatches = matchRows.filter((match) => match.stageId === finalRound.id);
   if (finalRoundMatches.some((match) => match.status === "WAITING")) {
     const qualifiers = projectedQualifiers(standings, tournament.finalRoundSize);
-    const ready = await resolveSideRanks(transaction, input, CLUB_DUEL_STAGE_KEYS.qualifying, qualifiers, finalRoundMatches);
+    const ready = await resolveSideRanks(transaction, input, { sourceStageKey: CLUB_DUEL_STAGE_KEYS.qualifying, targetStageKey: CLUB_DUEL_STAGE_KEYS.finalRound }, qualifiers, finalRoundMatches);
     // Waren alle Plaetze unbesetzt oder kampflos, gibt es keinen offenen Abschluss mehr, der weitertreibt.
     return ready === 0 ? "RERUN" : "DONE";
   }
@@ -129,7 +136,7 @@ async function advanceClubDuelOnce(transaction: DatabaseTransaction, input: Adva
     unopposedWalkoverWinnerIds: crossResults.unopposedWalkoverWinnerIds,
   });
   // Wer sich waehrend der Finalrunde zurueckgezogen hat, wird nicht fuer Final oder Platz 3 gesetzt.
-  await resolveSideRanks(transaction, input, CLUB_DUEL_STAGE_KEYS.finalRound, {
+  await resolveSideRanks(transaction, input, { sourceStageKey: CLUB_DUEL_STAGE_KEYS.finalRound, targetStageKey: CLUB_DUEL_STAGE_KEYS.final }, {
     A: cross.sideA.filter((row) => activeIds.has(row.playerId)).map((row) => row.playerId),
     B: cross.sideB.filter((row) => activeIds.has(row.playerId)).map((row) => row.playerId),
   }, finalMatches);
@@ -204,6 +211,11 @@ async function pairNextRound(
       participantTwoId: pairing.playerBId,
       participantOneRef: planned.participantOne,
       participantTwoRef: planned.participantTwo,
+      // Gleiche Uhr wie der ausloesende Schritt (etwa `withdrawnAt`): der
+      // DB-Default laege am Transaktionsbeginn und damit vor dem Rueckzug,
+      // die Pausenliste (`pairedAt`) zaehlte den Zurueckgezogenen sonst (R8).
+      createdAt: input.now,
+      updatedAt: input.now,
     };
   }));
   const payload = {
@@ -237,21 +249,26 @@ async function pairNextRound(
 /**
  * Setzt `SIDE_RANK`-Platzhalter einer Phase ein. Fehlt ein Rang (Seite hat
  * zu wenig aktive Spieler), gewinnt der Gegner kampflos; fehlen beide, ist
- * das Spiel abgesagt. Gibt die Zahl der spielbereiten Matches zurueck.
+ * das Spiel abgesagt. Wurde mindestens ein Match besetzt, folgen in derselben
+ * Transaktion ein Outbox-Ereignis und ein Audit-Eintrag
+ * `TOURNAMENT_PHASE_RESOLVED` (Realtime erst nach dem Commit). Gibt die Zahl
+ * der spielbereiten Matches zurueck.
  */
 async function resolveSideRanks(
   transaction: DatabaseTransaction,
   input: AdvanceClubDuelInput,
-  stageKey: string,
+  stages: { readonly sourceStageKey: string; readonly targetStageKey: string },
   ranking: { readonly A: readonly string[]; readonly B: readonly string[] },
   matches: readonly MatchRow[],
 ): Promise<number> {
   let readyCount = 0;
+  const resolvedMatchIds: string[] = [];
+  const { sourceStageKey } = stages;
   for (const match of matches) {
     if (match.status !== "WAITING") continue;
     const first = sideRankReferenceSchema.safeParse(match.participantOneRef);
     const second = sideRankReferenceSchema.safeParse(match.participantTwoRef);
-    if (!first.success || !second.success || first.data.stageKey !== stageKey || second.data.stageKey !== stageKey) {
+    if (!first.success || !second.success || first.data.stageKey !== sourceStageKey || second.data.stageKey !== sourceStageKey) {
       throw new Error("Club duel placeholder invariant violated: unresolved WAITING match.");
     }
     const playerOneId = ranking[first.data.side][first.data.rank - 1] ?? null;
@@ -270,6 +287,28 @@ async function resolveSideRanks(
       version: match.version + 1,
       updatedAt: input.now,
     }).where(and(eq(tournamentMatches.organizationId, input.organizationId), eq(tournamentMatches.id, match.id)));
+    resolvedMatchIds.push(match.id);
+  }
+  if (resolvedMatchIds.length > 0) {
+    const payload = { tournamentId: input.tournamentId, stageKey: stages.targetStageKey, resolvedMatchIds };
+    await transaction.insert(outboxEvents).values({
+      organizationId: input.organizationId,
+      aggregateType: "Tournament",
+      aggregateId: input.tournamentId,
+      eventType: "TOURNAMENT_PHASE_RESOLVED",
+      payload,
+    });
+    await transaction.insert(auditEvents).values({
+      organizationId: input.organizationId,
+      ...auditActor(input.actor.principal),
+      action: "TOURNAMENT_PHASE_RESOLVED",
+      entityType: "Tournament",
+      entityId: input.tournamentId,
+      newValue: payload,
+      ip: input.actor.audit.ip,
+      userAgent: input.actor.audit.userAgent,
+      correlationId: input.actor.audit.correlationId,
+    });
   }
   return readyCount;
 }

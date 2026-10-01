@@ -10,21 +10,10 @@ import {
   type CreateGuestPlayersInput,
   type PlayerResponse,
 } from "@darts-platform/schemas";
-import { Control, Field, Rule, SheetLabel, TextInput, Wedge } from "@darts-platform/ui";
+import { Control, Field, Rule, SheetLabel, TextArea, TextInput, Wedge } from "@darts-platform/ui";
 
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { generateId } from "@/lib/id";
-
-/**
- * Dieselben Klassen wie `TextInput` in `packages/ui/src/sektorenring/field.tsx`
- * (dort nicht exportiert), nur mit Platz für mehrere Zeilen.
- */
-const textareaClassName = [
-  "min-h-32 w-full rounded-lg border border-sisal-400 bg-sisal-50 px-3 py-2 font-plate text-field text-wedge-900",
-  "placeholder:text-sisal-500 focus:border-ring-green",
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green",
-  "disabled:cursor-not-allowed disabled:bg-sisal-100 disabled:text-sisal-500",
-].join(" ");
 
 interface GuestPlayersFormValues {
   readonly clubName: string;
@@ -168,10 +157,9 @@ export function GuestPlayersPanel({
           htmlFor="guest-names"
           label="Gastspieler (ein Name pro Zeile)"
         >
-          <textarea
+          <TextArea
             aria-describedby={namesError ? "guest-names-error" : "guest-names-hint"}
             aria-invalid={namesError ? true : undefined}
-            className={textareaClassName}
             id="guest-names"
             {...form.register("namesText")}
           />

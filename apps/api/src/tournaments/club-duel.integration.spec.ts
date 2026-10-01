@@ -52,6 +52,11 @@ const sideB: string[] = Array.from({ length: 9 }, () => randomUUID());
 const seedOf = new Map<string, number>([...sideA, ...sideB].map((id, index) => [id, index + 1]));
 const boardIds = [randomUUID(), randomUUID(), randomUUID()] as const;
 const foreignPlayerId = randomUUID();
+const foreignBoardId = randomUUID();
+/** Eigene Personen und Scheibe fuer den getStates-Test: keine Kopplung ueber die vereinsweite Belegung. */
+const labelSideA = [randomUUID(), randomUUID()] as const;
+const labelSideB = [randomUUID(), randomUUID()] as const;
+const labelBoardId = randomUUID();
 
 function sideOf(id: string | null): "A" | "B" | null {
   if (id === null) return null;
@@ -109,8 +114,14 @@ beforeAll(async () => {
       guestClubName: "DC Musterdorf",
     })),
     { id: foreignPlayerId, organizationId: foreignOrganizationId, displayName: "Fremder Spieler", status: "ACTIVE" },
+    ...labelSideA.map((id, index) => ({ id, organizationId, displayName: `Kuerzel Mitglied ${index + 1}`, status: "ACTIVE" })),
+    ...labelSideB.map((id, index) => ({ id, organizationId, displayName: `Kuerzel Gast ${index + 1}`, status: "ACTIVE", kind: "GUEST", guestClubName: "DC Musterdorf" })),
   ]);
-  await database.insert(boards).values(boardIds.map((id, index) => ({ id, organizationId, name: `Duell Board ${index + 1}` })));
+  await database.insert(boards).values([
+    ...boardIds.map((id, index) => ({ id, organizationId, name: `Duell Board ${index + 1}` })),
+    { id: foreignBoardId, organizationId: foreignOrganizationId, name: "Fremde Scheibe" },
+    { id: labelBoardId, organizationId, name: "Kuerzel Board" },
+  ]);
 });
 
 afterAll(async () => {
@@ -168,6 +179,25 @@ describe("Vereinsduell anlegen", () => {
     await expect(
       service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 6, sideBCount: 5 }), auth, audit }),
     ).rejects.toMatchObject({ response: { code: "CLUB_DUEL_SIDE_TOO_SMALL" } });
+  });
+
+  it("lehnt eine Scheibe einer fremden Organisation mit INVALID_TOURNAMENT_BOARDS ab und legt nichts an", async () => {
+    const data = { ...clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), boardIds: [boardIds[0], foreignBoardId] };
+    await expect(service.create({ organizationId, data, auth, audit })).rejects.toMatchObject({
+      response: { code: "INVALID_TOURNAMENT_BOARDS" },
+    });
+    expect(await databaseService.database.select().from(tournaments).where(and(eq(tournaments.organizationId, organizationId), eq(tournaments.name, data.name)))).toHaveLength(0);
+  });
+
+  it("schreibt bei der Anlage genau ein TOURNAMENT_CREATED-Ereignis und einen Audit-Eintrag", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
+    const events = await databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_CREATED")));
+    expect(events).toHaveLength(1);
+    expect(events[0]?.organizationId).toBe(organizationId);
+    expect(events[0]?.payload).toEqual({ tournamentId: created.id, format: "CLUB_DUEL" });
+    const audits = await databaseService.database.select().from(auditEvents).where(and(eq(auditEvents.entityId, created.id), eq(auditEvents.action, "TOURNAMENT_CREATED")));
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ organizationId, actorUserId: userId, entityType: "Tournament", correlationId: audit.correlationId });
   });
 
   it("rechnet die Vorschau", async () => {
@@ -362,6 +392,10 @@ describe("Vereinsduell Ablauf", () => {
 
     const total = 9 + await playOut(created.id);
     expect(total).toBe(18 + 4 + 2);
+    // Zwei Quali-Runden: genau eine Paarung über den ganzen Durchlauf; Finalrunde und Final je einmal besetzt.
+    expect(await databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_ROUND_PAIRED")))).toHaveLength(1);
+    const phaseEvents = await databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_PHASE_RESOLVED")));
+    expect(phaseEvents.map((event) => (event.payload as { stageKey: string }).stageKey).sort()).toEqual(["final", "final-round"]);
     const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
     expect(dashboard.tournament.status).toBe("COMPLETED");
     const finalMatches = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Final")));
@@ -469,6 +503,122 @@ describe("Vereinsduell Ablauf", () => {
     expect(finals.filter((match) => match.resultType === "WALKOVER")).toHaveLength(1);
   }, 120_000);
 
+  it("liefert je Rundenspiel die Scheibe und behält Pausierende früherer Runden nach ihrem Rückzug", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 3, sideBCount: 2 }), auth, audit });
+    const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    expect(roundOne).toHaveLength(2);
+    const pausedInRoundOne = sideA.slice(0, 3).filter((id) => !roundOne.some((match) => match.participantOneId === id || match.participantTwoId === id));
+    expect(pausedInRoundOne).toHaveLength(1);
+    const boardNameOf = new Map<string, string>();
+    for (const [index, match] of roundOne.entries()) {
+      const boardId = boardIds[index] ?? boardIds[0];
+      if (!match.participantOneId || !match.participantTwoId) throw new Error("unexpected");
+      await playMatch(created.id, match.id, match.participantOneId, boardId);
+      boardNameOf.set(match.id, `Duell Board ${boardIds.indexOf(boardId) + 1}`);
+    }
+    const before = (await service.dashboard({ organizationId, tournamentId: created.id, auth })).clubDuel;
+    expect(before?.currentRound).toBe(2);
+    expect(before?.rounds[0]?.pausedPlayerIds).toEqual(pausedInRoundOne);
+    // Laufende, noch nicht gestartete Spiele haben keine Scheibe.
+    expect(before?.rounds[1]?.matches.every((match) => match.boardName === null)).toBe(true);
+
+    const [withdrawn] = pausedInRoundOne;
+    if (withdrawn === undefined) throw new Error("unexpected");
+    await withdraw(created.id, withdrawn);
+    const after = (await service.dashboard({ organizationId, tournamentId: created.id, auth })).clubDuel;
+    const roundOneView = after?.rounds[0];
+    expect(roundOneView?.matches.map((match) => [match.matchId, match.boardName]).sort()).toEqual([...boardNameOf.entries()].sort());
+    expect(roundOneView?.pausedPlayerIds).toEqual([withdrawn]);
+    // Aktuelle Runde: Zurückgezogene pausieren nicht.
+    expect(after?.rounds[1]?.pausedPlayerIds).not.toContain(withdrawn);
+
+    // Letzte Quali-Runde: wer dort pausiert und sich erst in der Finalrunde zurückzieht, bleibt in der Pausenliste.
+    const pausedInRoundTwo = after?.rounds[1]?.pausedPlayerIds ?? [];
+    expect(pausedInRoundTwo).toHaveLength(1);
+    const [lateWithdrawn] = pausedInRoundTwo;
+    if (lateWithdrawn === undefined) throw new Error("unexpected");
+    const openRoundTwo = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 2"), eq(tournamentMatches.status, "READY")));
+    for (const match of openRoundTwo) {
+      if (!match.participantOneId || !match.participantTwoId) throw new Error("unexpected");
+      await playMatch(created.id, match.id, match.participantOneId, boardIds[0]);
+    }
+    const occupied = (await service.dashboard({ organizationId, tournamentId: created.id, auth })).clubDuel;
+    expect(occupied?.finalRound.matches.some((match) => match.playerAId !== null)).toBe(true);
+    expect(occupied?.rounds[1]?.pausedPlayerIds).toEqual([lateWithdrawn]);
+    await withdraw(created.id, lateWithdrawn);
+    const afterLate = (await service.dashboard({ organizationId, tournamentId: created.id, auth })).clubDuel;
+    expect(afterLate?.rounds[1]?.pausedPlayerIds).toEqual([lateWithdrawn]);
+    expect(afterLate?.rounds[0]?.pausedPlayerIds).toEqual([withdrawn]);
+  }, 180_000);
+
+  it("fuehrt Pausierende, die sich noch waehrend ihrer Runde zurueckziehen, in deren Pausenliste (R7)", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 3, sideBCount: 2 }), auth, audit });
+    const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    const [withdrawn, ...others] = sideA.slice(0, 3).filter((id) => !roundOne.some((match) => match.participantOneId === id || match.participantTwoId === id));
+    if (withdrawn === undefined || others.length > 0) throw new Error("unexpected");
+    // Rueckzug noch in Runde 1, bevor Runde 2 gepaart ist.
+    await withdraw(created.id, withdrawn);
+    for (const match of roundOne) {
+      if (!match.participantOneId || !match.participantTwoId) throw new Error("unexpected");
+      await playMatch(created.id, match.id, match.participantOneId, boardIds[0]);
+    }
+    const view = (await service.dashboard({ organizationId, tournamentId: created.id, auth })).clubDuel;
+    expect(view?.currentRound).toBe(2);
+    expect(view?.rounds[0]?.pausedPlayerIds).toEqual([withdrawn]);
+    // In Runde 2 war er bei der Paarung schon zurueckgezogen.
+    expect(view?.rounds[1]?.pausedPlayerIds).not.toContain(withdrawn);
+  }, 120_000);
+
+  it("zaehlt einen Rueckzug, der die Runde schliesst und die naechste paart, nicht als Pause der neuen Runde (R8)", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 3, sideBCount: 2 }), auth, audit });
+    const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    const [first, second] = roundOne;
+    if (!first?.participantOneId || !first.participantTwoId || !second?.participantOneId || !second.participantTwoId) throw new Error("unexpected");
+    const pausedInRoundOne = sideA.slice(0, 3).filter((id) => !roundOne.some((match) => match.participantOneId === id || match.participantTwoId === id));
+    await playMatch(created.id, first.id, first.participantOneId, boardIds[0]);
+    // Rueckzug im noch offenen Spiel: Walkover schliesst Runde 1 und paart Runde 2 in derselben Transaktion.
+    const withdrawn = sideA.includes(second.participantOneId) ? second.participantOneId : second.participantTwoId;
+    await withdraw(created.id, withdrawn);
+    const view = (await service.dashboard({ organizationId, tournamentId: created.id, auth })).clubDuel;
+    expect(view?.currentRound).toBe(2);
+    expect(view?.rounds[0]?.pausedPlayerIds).toEqual(pausedInRoundOne);
+    expect(view?.rounds[1]?.pausedPlayerIds).not.toContain(withdrawn);
+    const roundTwo = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 2")));
+    expect(roundTwo.length).toBeGreaterThan(0);
+    expect(roundTwo.some((match) => match.participantOneId === withdrawn || match.participantTwoId === withdrawn)).toBe(false);
+  }, 120_000);
+
+  it("schreibt beim Besetzen von Finalrunde und Final je genau ein Outbox- und ein Audit-Ereignis", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
+    const resolvedEvents = () => databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_PHASE_RESOLVED")));
+    const resolvedAudits = () => databaseService.database.select().from(auditEvents).where(and(eq(auditEvents.entityId, created.id), eq(auditEvents.action, "TOURNAMENT_PHASE_RESOLVED")));
+    const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    const [first, second] = roundOne;
+    if (!first?.participantOneId || !second?.participantOneId) throw new Error("unexpected");
+    await playMatch(created.id, first.id, first.participantOneId, boardIds[0]);
+    expect(await resolvedEvents()).toHaveLength(0);
+    await playMatch(created.id, second.id, second.participantOneId, boardIds[0]);
+
+    const [finalRoundStage] = await databaseService.database.select().from(tournamentStages).where(and(eq(tournamentStages.tournamentId, created.id), eq(tournamentStages.key, "final-round")));
+    if (finalRoundStage === undefined) throw new Error("unexpected");
+    const finalRoundIds = (await databaseService.database.select().from(tournamentMatches).where(eq(tournamentMatches.stageId, finalRoundStage.id)))
+      .map((match) => match.id)
+      .sort();
+    expect(finalRoundIds).toHaveLength(4);
+    const afterQualifying = await resolvedEvents();
+    expect(afterQualifying).toHaveLength(1);
+    expect(afterQualifying[0]?.payload).toEqual({ tournamentId: created.id, stageKey: "final-round", resolvedMatchIds: expect.any(Array) });
+    expect([...((afterQualifying[0]?.payload as { resolvedMatchIds: string[] }).resolvedMatchIds)].sort()).toEqual(finalRoundIds);
+    const auditsAfterQualifying = await resolvedAudits();
+    expect(auditsAfterQualifying).toHaveLength(1);
+    expect(auditsAfterQualifying[0]?.actorUserId).toBe(userId);
+
+    await playOut(created.id);
+    const all = await resolvedEvents();
+    expect(all.map((event) => (event.payload as { stageKey: string }).stageKey).sort()).toEqual(["final", "final-round"]);
+    expect(await resolvedAudits()).toHaveLength(2);
+  }, 120_000);
+
   it("beendet die Quali vorzeitig, wenn eine Seite keinen aktiven Spieler mehr hat, und besetzt alles kampflos", async () => {
     const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
     const [bOne, bTwo] = sideB;
@@ -482,6 +632,33 @@ describe("Vereinsduell Ablauf", () => {
     expect(all.some((match) => match.status === "WAITING" || match.status === "READY")).toBe(false);
     expect(all.filter((match) => match.stageLabel === "Final" || match.stageLabel === "Spiel um Platz 3").every((match) => match.status === "COMPLETED" && match.resultType === "WALKOVER")).toBe(true);
   }, 120_000);
+});
+
+describe("Vereinsduell Scoring-Zustand", () => {
+  it("liefert in getStates je Person das Vereinskuerzel ihrer Seite", async () => {
+    const created = await service.create({
+      organizationId,
+      data: {
+        ...clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2 }),
+        boardIds: [labelBoardId],
+        participants: [...labelSideA.map((playerId) => ({ playerId, side: "A" as const })), ...labelSideB.map((playerId) => ({ playerId, side: "B" as const }))],
+      },
+      auth,
+      audit,
+    });
+    const [match] = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    if (!match?.participantOneId || !match.participantTwoId) throw new Error("unexpected");
+    expect(labelSideA).toContain(match.participantOneId);
+    expect(labelSideB).toContain(match.participantTwoId);
+    const state = await startOnBoard(created.id, match.id, labelBoardId);
+    const states = await matchesRepository.getStates(organizationId, [state.id]);
+    const labels = new Map(states.get(state.id)?.participants.flatMap((participant) => participant.players.map((player) => [player.playerId, player.clubLabel] as const)) ?? []);
+    expect(labels).toEqual(new Map([[match.participantOneId, "VFC"], [match.participantTwoId, "DM"]]));
+    // Fremder Mandant sieht den Zustand nicht.
+    expect((await matchesRepository.getStates(foreignOrganizationId, [state.id])).size).toBe(0);
+    const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    expect(dashboard.boards.find((board) => board.boardId === labelBoardId)?.match?.matchId).toBe(match.id);
+  }, 60_000);
 });
 
 describe("Vereinsduell Korrektur und Rueckzug", () => {
@@ -574,6 +751,44 @@ describe("Vereinsduell Korrektur und Rueckzug", () => {
     expect(audits).toHaveLength(1);
     const events = await databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_ROUND_PAIRED")));
     expect(events).toHaveLength(1);
+  }, 60_000);
+
+  it("schreibt bei einem abgelehnten letzten Wurf der Runde kein Ereignis und bei der Wiederholung des Checkouts kein zweites", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
+    const pairedEvents = () => databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_ROUND_PAIRED")));
+    const pairedAudits = () => databaseService.database.select().from(auditEvents).where(and(eq(auditEvents.entityId, created.id), eq(auditEvents.action, "TOURNAMENT_ROUND_PAIRED")));
+    const roundTwo = () => databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 2")));
+    const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    const [first, second] = roundOne;
+    if (!first?.participantOneId || !second?.participantOneId) throw new Error("unexpected");
+    await playMatch(created.id, first.id, first.participantOneId, boardIds[0]);
+
+    const state = await startOnBoard(created.id, second.id, boardIds[1]);
+    const script = scriptToFinish(state, second.participantOneId);
+    const last = script.at(-1);
+    if (last === undefined) throw new Error("Empty script.");
+    const before = await submitSteps(state, script.slice(0, -1));
+    const checkout = {
+      commandId: randomUUID(), playerId: last.playerId, points: last.points, dartsThrown: 1 as const,
+      checkoutSegment: { segment: 20, multiplier: 2 as const },
+    };
+    await expect(matchesService.submitVisit({ organizationId, matchId: before.id, auth, audit, data: { ...checkout, expectedVersion: before.version - 1 } }))
+      .rejects.toMatchObject({ status: 409 });
+    expect(await pairedEvents()).toHaveLength(0);
+    expect(await pairedAudits()).toHaveLength(0);
+    expect(await roundTwo()).toHaveLength(0);
+    const [stillOpen] = await databaseService.database.select().from(tournamentMatches).where(eq(tournamentMatches.id, second.id));
+    expect(stillOpen?.status).toBe("IN_PROGRESS");
+
+    const finished = await matchesService.submitVisit({ organizationId, matchId: before.id, auth, audit, data: { ...checkout, expectedVersion: before.version } });
+    expect(finished.status).toBe("COMPLETED");
+    expect(await pairedEvents()).toHaveLength(1);
+    expect(await roundTwo()).toHaveLength(2);
+    // Dieselbe commandId noch einmal: idempotent, keine zweite Paarung.
+    await matchesService.submitVisit({ organizationId, matchId: before.id, auth, audit, data: { ...checkout, expectedVersion: before.version } });
+    expect(await pairedEvents()).toHaveLength(1);
+    expect(await pairedAudits()).toHaveLength(1);
+    expect(await roundTwo()).toHaveLength(2);
   }, 60_000);
 
   it("Rueckzug in der Quali: offenes Spiel wird Walkover, Spieler wird nicht mehr gepaart, fehlender Finalrunden-Platz wird Walkover", async () => {

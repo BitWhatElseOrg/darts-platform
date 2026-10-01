@@ -9,10 +9,11 @@ import {
 import type { ClubDuelDashboard, ClubRoundMatchResponse } from "@darts-platform/schemas";
 
 import { isFinalRoundOccupied, occupiedFinalRoundEntrants, projectedQualifiers, type FinalRoundEntrant } from "./club-duel-entrants.js";
+import { toCompletedResult, type LegsOf } from "./completed-match-results.js";
 import type { TournamentDashboardData } from "./tournaments.repository.js";
 
 type MatchRow = TournamentDashboardData["matches"][number];
-type LegsOf = (scoringMatchId: string, playerId: string) => number | undefined;
+type ParticipantRow = TournamentDashboardData["participants"][number];
 
 function sideRankOf(reference: unknown): { readonly rank: number } | null {
   if (typeof reference !== "object" || reference === null) return null;
@@ -26,29 +27,16 @@ function toSide(value: string | null): ClubSide {
   throw new Error("Club duel participant without side.");
 }
 
-function resultOf(match: MatchRow, legsOf: LegsOf): ClubMatchResult | "unopposed" | null {
-  if (match.status !== "COMPLETED" || match.winnerPlayerId === null) return null;
-  if (match.participantOneId === null || match.participantTwoId === null) return match.resultType === "WALKOVER" ? "unopposed" : null;
-  if (match.resultType === "WALKOVER") {
-    return { type: "WALKOVER", playerOneId: match.participantOneId, playerTwoId: match.participantTwoId, playerOneLegs: 0, playerTwoLegs: 0, winnerPlayerId: match.winnerPlayerId };
-  }
-  if (match.scoringMatchId === null) return null;
-  const legsOne = legsOf(match.scoringMatchId, match.participantOneId);
-  const legsTwo = legsOf(match.scoringMatchId, match.participantTwoId);
-  if (legsOne === undefined || legsTwo === undefined) return null;
-  return { type: "PLAYED", playerOneId: match.participantOneId, playerTwoId: match.participantTwoId, playerOneLegs: legsOne, playerTwoLegs: legsTwo, winnerPlayerId: match.winnerPlayerId };
-}
-
 function resultTypeOf(match: MatchRow): "PLAYED" | "WALKOVER" | "BYE" | null {
   return match.resultType === "PLAYED" || match.resultType === "WALKOVER" || match.resultType === "BYE" ? match.resultType : null;
 }
 
 /** Match aus Sicht A/B; die Seite eines vorhandenen Spielers bestimmt die Ausrichtung. */
-function toRoundMatch(match: MatchRow, sideOf: ReadonlyMap<string, ClubSide>, legsOf: LegsOf): ClubRoundMatchResponse {
+function toRoundMatch(match: MatchRow, sideOf: ReadonlyMap<string, ClubSide>, legsOf: LegsOf, boardNameOf: ReadonlyMap<string, string>): ClubRoundMatchResponse {
   const swapped = match.participantOneId !== null ? sideOf.get(match.participantOneId) === "B" : match.participantTwoId !== null && sideOf.get(match.participantTwoId) === "A";
   const [playerAId, playerBId] = swapped ? [match.participantTwoId, match.participantOneId] : [match.participantOneId, match.participantTwoId];
-  const result = resultOf(match, legsOf);
-  const legs = typeof result === "object" && result !== null && result.type === "PLAYED"
+  const result = toCompletedResult(match, legsOf);
+  const legs = result?.type === "PLAYED"
     ? (swapped ? [result.playerTwoLegs, result.playerOneLegs] : [result.playerOneLegs, result.playerTwoLegs]) as [number, number]
     : null;
   return {
@@ -60,17 +48,36 @@ function toRoundMatch(match: MatchRow, sideOf: ReadonlyMap<string, ClubSide>, le
     resultType: resultTypeOf(match),
     winnerPlayerId: match.winnerPlayerId,
     legs,
+    // `boardId` bleibt nach dem Abschluss stehen (nur die Korrektur leert ihn).
+    boardName: match.boardId === null ? null : boardNameOf.get(match.boardId) ?? null,
   };
+}
+
+/**
+ * Wer in einer Runde pausiert haben kann (Entscheid R7): heute aktiv oder erst
+ * nach der Paarung dieser Runde zurueckgezogen. Bezugszeitpunkt ist die
+ * eigene Paarung der Runde (`pairedAt`); wer davor zurueckgezogen hat, war
+ * in der Runde schon nicht mehr dabei. Ohne Paarungszeitpunkt (`null`) zaehlt
+ * nur der heutige Status.
+ */
+function wasActive(participant: ParticipantRow, pairedAt: Date | null): boolean {
+  if (participant.status === "ACTIVE") return true;
+  return pairedAt !== null && participant.withdrawnAt !== null && participant.withdrawnAt > pairedAt;
+}
+
+/** Paarungszeitpunkt einer Runde: das frueheste `createdAt` ihrer Matches (Runde 1: Turnieranlage). */
+function pairedAtOf(roundMatches: readonly MatchRow[]): Date | null {
+  return roundMatches.length === 0 ? null : new Date(Math.min(...roundMatches.map((match) => match.createdAt.getTime())));
 }
 
 function collect(matches: readonly MatchRow[], legsOf: LegsOf): { results: ClubMatchResult[]; unopposedWalkoverWinnerIds: string[] } {
   const results: ClubMatchResult[] = [];
   const unopposedWalkoverWinnerIds: string[] = [];
   for (const match of matches) {
-    const result = resultOf(match, legsOf);
+    const result = toCompletedResult(match, legsOf);
     if (result === null) continue;
-    if (result === "unopposed") {
-      if (match.winnerPlayerId !== null) unopposedWalkoverWinnerIds.push(match.winnerPlayerId);
+    if (result.type === "UNOPPOSED") {
+      unopposedWalkoverWinnerIds.push(result.winnerPlayerId);
       continue;
     }
     results.push(result);
@@ -104,8 +111,8 @@ export function projectClubDuel(input: {
   const nameOf = (playerId: string) => names.get(playerId) ?? "Unbekannter Teilnehmer";
   const participants = input.data.participants.map((participant) => ({ playerId: participant.playerId, seed: participant.seed, side: toSide(participant.side) }));
   const withdrawnPlayerIds = input.data.participants.filter((participant) => participant.status === "WITHDRAWN").map((participant) => participant.playerId);
-  const activeIds = new Set(input.data.participants.filter((participant) => participant.status === "ACTIVE").map((participant) => participant.playerId));
   const sideOf = new Map(participants.map((participant) => [participant.playerId, participant.side]));
+  const boardNameOf = new Map(input.data.boards.map((board) => [board.boardId, board.boardName]));
 
   const qualifyingMatches = input.data.matches.filter((match) => match.stageId === qualifyingId);
   const finalRoundMatches = input.data.matches.filter((match) => match.stageId === finalRoundId);
@@ -135,18 +142,21 @@ export function projectClubDuel(input: {
     const round = index + 1;
     const inRound = qualifyingMatches.filter((match) => match.round === round);
     const playing = new Set(inRound.flatMap((match) => [match.participantOneId, match.participantTwoId]));
+    const pairedAt = pairedAtOf(inRound);
     return {
       round,
       matchIds: inRound.map((match) => match.id),
-      matches: inRound.map((match) => toRoundMatch(match, sideOf, input.legsOf)),
-      pausedPlayerIds: [...activeIds].filter((playerId) => !playing.has(playerId)),
+      matches: inRound.map((match) => toRoundMatch(match, sideOf, input.legsOf, boardNameOf)),
+      pausedPlayerIds: input.data.participants
+        .filter((participant) => wasActive(participant, pairedAt) && !playing.has(participant.playerId))
+        .map((participant) => participant.playerId),
     };
   });
 
   const finalStageMatches = input.data.matches.filter((match) => match.stageId === finalId);
   const finalMatchAt = (position: number): ClubRoundMatchResponse | null => {
     const match = finalStageMatches.find((candidate) => candidate.position === position);
-    return match === undefined ? null : toRoundMatch(match, sideOf, input.legsOf);
+    return match === undefined ? null : toRoundMatch(match, sideOf, input.legsOf, boardNameOf);
   };
 
   const crossResults = collect(finalRoundMatches, input.legsOf);
@@ -180,7 +190,7 @@ export function projectClubDuel(input: {
       matches: finalRoundMatches.map((match) => {
         const first = sideRankOf(match.participantOneRef);
         const second = sideRankOf(match.participantTwoRef);
-        const result = resultOf(match, input.legsOf);
+        const result = toCompletedResult(match, input.legsOf);
         return {
           matchId: match.id,
           round: match.round,
@@ -190,7 +200,7 @@ export function projectClubDuel(input: {
           playerBId: match.participantTwoId,
           status: match.status as "WAITING" | "READY" | "IN_PROGRESS" | "COMPLETED" | "BYE" | "CANCELLED",
           winnerPlayerId: match.winnerPlayerId,
-          legs: typeof result === "object" && result !== null && result.type === "PLAYED" ? [result.playerOneLegs, result.playerTwoLegs] : null,
+          legs: result?.type === "PLAYED" ? [result.playerOneLegs, result.playerTwoLegs] : null,
         };
       }),
     },

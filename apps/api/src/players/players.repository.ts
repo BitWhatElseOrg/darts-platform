@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 
 import {
   auditEvents,
@@ -226,10 +226,34 @@ async function findAvatarChecksum(
   return avatar?.checksum ?? null;
 }
 
+type DatabaseTransaction = Parameters<Parameters<DatabaseService["database"]["transaction"]>[0]>[0];
+
 interface TenantActorInput {
   readonly organizationId: string;
   readonly userId: string;
   readonly audit: AuditContext;
+}
+
+/** Ergebnis der Gastspieler-Erfassung; `PAYLOAD_MISMATCH` bei bekannter commandId mit anderen Nutzdaten. */
+export type CreateGuestsResult =
+  | { readonly type: "OK"; readonly players: ReturnType<typeof toPlayerResponse>[] }
+  | { readonly type: "PAYLOAD_MISMATCH" };
+
+function normalizedGuestKey(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+/** Vergleicht die gespeicherten Gaeste einer commandId mit den neuen Nutzdaten. */
+function replayResult(
+  existing: ReturnType<typeof toPlayerResponse>[],
+  data: CreateGuestPlayersInput,
+): CreateGuestsResult {
+  const clubName = normalizedGuestKey(data.clubName);
+  const storedNames = new Set(existing.map((player) => normalizedGuestKey(player.displayName)));
+  const requestedNames = new Set(data.names.map(normalizedGuestKey));
+  const sameClub = existing.every((player) => player.guestClubName !== null && normalizedGuestKey(player.guestClubName) === clubName);
+  const sameNames = storedNames.size === requestedNames.size && [...requestedNames].every((name) => storedNames.has(name));
+  return sameClub && sameNames ? { type: "OK", players: existing } : { type: "PAYLOAD_MISMATCH" };
 }
 
 @Injectable()
@@ -328,15 +352,31 @@ export class PlayersRepository {
    * Schnellerfassung von Gastspielern eines anderen Vereins (Spec 2026-10-01-
    * vereinsduell). Idempotent ueber `guest_command_id`: der partielle Unique-
    * Index `players_guest_command_name_unique` laesst dieselbe commandId keine
-   * zweite Reihe je Name anlegen; bei Kollision wird der Bestand gelesen.
+   * zweite Reihe je Name anlegen. Eine transaktionsgebundene Advisory-Sperre
+   * je Organisation und commandId reiht gleichzeitige Anfragen, damit auch
+   * disjunkte Namensmengen nie zwei Gastsets ergeben; nach der Sperre wird der
+   * Bestand erneut gelesen.
+   *
+   * Replay-Semantik: Eine bekannte commandId liefert die damals angelegten
+   * Gaeste in ihrem heutigen Zustand (nicht die urspruengliche Antwort) und
+   * schreibt kein zweites Audit. Das gilt nur bei gleichen Nutzdaten (Verein
+   * und Namensmenge, ohne Gross-/Kleinschreibung und Randleerzeichen);
+   * abweichende Nutzdaten ergeben `PAYLOAD_MISMATCH`. Wurde ein Gast seither
+   * umbenannt, gilt der Replay mit dem alten Namen ebenfalls als abweichend.
    */
   public async createGuests(
     input: TenantActorInput & { readonly data: CreateGuestPlayersInput },
-  ): Promise<ReturnType<typeof toPlayerResponse>[]> {
-    const existing = await this.guestsByCommand(input.organizationId, input.data.commandId);
-    if (existing.length > 0) return existing;
+  ): Promise<CreateGuestsResult> {
+    // Schneller Weg ohne Sperre fuer die uebliche Wiederholung.
+    const existing = await this.guestsByCommand(this.databaseService.database, input.organizationId, input.data.commandId);
+    if (existing.length > 0) return replayResult(existing, input.data);
     try {
       return await this.databaseService.database.transaction(async (transaction) => {
+        // Gleichzeitige Anfragen derselben commandId nacheinander: der Unique-
+        // Index greift nur je Name, disjunkte Namensmengen kaemen sonst beide durch.
+        await transaction.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${input.organizationId}:${input.data.commandId}`}, 0))`);
+        const locked = await this.guestsByCommand(transaction, input.organizationId, input.data.commandId);
+        if (locked.length > 0) return replayResult(locked, input.data);
         const rows = await transaction
           .insert(players)
           .values(
@@ -365,19 +405,23 @@ export class PlayersRepository {
           userAgent: input.audit.userAgent,
           correlationId: input.audit.correlationId,
         });
-        return rows.map((row) => toPlayerResponse(row, null));
+        return { type: "OK" as const, players: rows.map((row) => toPlayerResponse(row, null)) };
       });
     } catch (error) {
       // Zwei gleichzeitige Wiederholungen: die zweite laeuft in den Unique-Index.
       if (isUniqueViolation(error, "players_guest_command_name_unique")) {
-        return this.guestsByCommand(input.organizationId, input.data.commandId);
+        return replayResult(await this.guestsByCommand(this.databaseService.database, input.organizationId, input.data.commandId), input.data);
       }
       throw error;
     }
   }
 
-  private async guestsByCommand(organizationId: string, commandId: string) {
-    const rows = await this.databaseService.database
+  private async guestsByCommand(
+    executor: DatabaseService["database"] | DatabaseTransaction,
+    organizationId: string,
+    commandId: string,
+  ) {
+    const rows = await executor
       .select()
       .from(players)
       .where(

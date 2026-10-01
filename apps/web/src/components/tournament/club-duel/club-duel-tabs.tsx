@@ -7,6 +7,12 @@ export interface ClubDuelTab {
   readonly id: string;
   readonly label: string;
   readonly panel: ReactNode;
+  /**
+   * Das Panel enthält selbst fokussierbare Bereiche (etwa scrollbare Tabellen).
+   * Ohne diese Angabe wird das Panel zum Tab-Stopp, damit es per Tastatur
+   * erreichbar bleibt (APG Tabs).
+   */
+  readonly focusable?: boolean;
 }
 
 /**
@@ -69,13 +75,14 @@ export function ClubDuelTabs({ tabs, initial }: {
       {tabs.map((tab) => (
         <div
           aria-labelledby={`${baseId}-${tab.id}-tab`}
-          className="mt-4 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
+          className="mt-4"
           hidden={tab.id !== active}
           id={`${baseId}-${tab.id}-panel`}
           key={tab.id}
           role="tabpanel"
-          tabIndex={0}
+          tabIndex={tab.focusable === true ? undefined : 0}
         >
+          {/* APG Tabs: ein Panel ohne fokussierbaren Inhalt ist selbst Tab-Stopp; enthält es fokussierbare Bereiche, entfällt der doppelte Stopp. */}
           {/* Alle Panels bleiben gemountet: der Zustand darin (etwa Gesamt/A/B der Rangliste) überlebt den Tabwechsel. */}
           {tab.panel}
         </div>

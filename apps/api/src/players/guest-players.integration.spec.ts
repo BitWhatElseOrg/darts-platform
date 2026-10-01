@@ -22,6 +22,7 @@ const databaseService = new DatabaseService(parseApplicationEnvironment(process.
 const access = new OrganizationAccessService(new OrganizationsRepository(databaseService));
 const service = new PlayersService(new PlayersRepository(databaseService), access);
 const organizationId = randomUUID();
+const secondOrganizationId = randomUUID();
 const userId = randomUUID();
 const auth: AuthContext = {
   user: { id: userId, email: `guests-${userId}@example.test`, name: "Owner" },
@@ -44,13 +45,22 @@ beforeAll(async () => {
     timezone: "Europe/Zurich",
     locale: "de-CH",
   });
-  await databaseService.database
-    .insert(memberships)
-    .values({ organizationId, userId, role: "OWNER", status: "ACTIVE" });
+  await databaseService.database.insert(organizations).values({
+    id: secondOrganizationId,
+    name: `Guests second ${secondOrganizationId}`,
+    slug: `guests-second-${secondOrganizationId}`,
+    timezone: "Europe/Zurich",
+    locale: "de-CH",
+  });
+  await databaseService.database.insert(memberships).values([
+    { organizationId, userId, role: "OWNER", status: "ACTIVE" },
+    { organizationId: secondOrganizationId, userId, role: "OWNER", status: "ACTIVE" },
+  ]);
 });
 
 afterAll(async () => {
   await databaseService.database.delete(organizations).where(eq(organizations.id, organizationId));
+  await databaseService.database.delete(organizations).where(eq(organizations.id, secondOrganizationId));
   await databaseService.database.delete(users).where(eq(users.id, userId));
   await databaseService.onApplicationShutdown();
 });
@@ -109,6 +119,83 @@ describe("Gastspieler-Schnellerfassung", () => {
     ).toEqual(["Anna Muster", "Beat Beispiel"]);
     expect(await service.list({ organizationId, auth, kind: "ALL" })).toHaveLength(3);
   }, 30_000);
+
+  it("lehnt dieselbe commandId mit anderen Nutzdaten mit 409 COMMAND_PAYLOAD_MISMATCH ab", async () => {
+    const commandId = randomUUID();
+    const first = await service.createGuests({ organizationId, data: { commandId, clubName: "DC Payload", names: ["Anna Payload"] }, auth, audit });
+    expect(first).toHaveLength(1);
+    await expect(
+      service.createGuests({ organizationId, data: { commandId, clubName: "DC Payload", names: ["Anna Payload", "Beat Payload"] }, auth, audit }),
+    ).rejects.toMatchObject({ status: 409, response: { code: "COMMAND_PAYLOAD_MISMATCH" } });
+    await expect(
+      service.createGuests({ organizationId, data: { commandId, clubName: "DC Anders", names: ["Anna Payload"] }, auth, audit }),
+    ).rejects.toMatchObject({ response: { code: "COMMAND_PAYLOAD_MISMATCH" } });
+    await expect(
+      service.createGuests({ organizationId, data: { commandId, clubName: "DC Payload", names: ["Carla Payload"] }, auth, audit }),
+    ).rejects.toMatchObject({ response: { code: "COMMAND_PAYLOAD_MISMATCH" } });
+    // Gleiche Nutzdaten (Gross-/Kleinschreibung und Leerzeichen egal) liefern das fruehere Ergebnis.
+    const replay = await service.createGuests({ organizationId, data: { commandId, clubName: "dc payload ", names: [" anna payload"] }, auth, audit });
+    expect(replay.map((player) => player.id)).toEqual(first.map((player) => player.id));
+    const rows = await databaseService.database
+      .select()
+      .from(players)
+      .where(and(eq(players.organizationId, organizationId), eq(players.guestCommandId, commandId)));
+    expect(rows).toHaveLength(1);
+  });
+
+  it("prueft die Nutzdaten auch bei gleichzeitigen Wiederholungen", async () => {
+    const commandId = randomUUID();
+    const results = await Promise.allSettled([
+      service.createGuests({ organizationId, data: { commandId, clubName: "DC Race", names: ["Dora Race"] }, auth, audit }),
+      service.createGuests({ organizationId, data: { commandId, clubName: "DC Race", names: ["Dora Race", "Emil Race"] }, auth, audit }),
+    ]);
+    const fulfilled = results.filter((result) => result.status === "fulfilled");
+    const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]?.reason).toMatchObject({ response: { code: "COMMAND_PAYLOAD_MISMATCH" } });
+  });
+
+  it("legt bei gleichzeitiger commandId mit disjunkten Namen nie zwei Gastsets an", async () => {
+    const commandId = randomUUID();
+    const variants = [["Fritz Lock"], ["Gina Lock", "Hugo Lock"]] as const;
+    const results = await Promise.allSettled(
+      variants.map((names) => service.createGuests({ organizationId, data: { commandId, clubName: "DC Lock", names: [...names] }, auth, audit })),
+    );
+    const winnerIndex = results.findIndex((result) => result.status === "fulfilled");
+    const winner = results[winnerIndex];
+    const loser = results[1 - winnerIndex];
+    if (winner?.status !== "fulfilled" || loser?.status !== "rejected") throw new Error(`expected one success and one failure: ${JSON.stringify(results.map((result) => result.status))}`);
+    expect(loser.reason).toMatchObject({ response: { code: "COMMAND_PAYLOAD_MISMATCH" } });
+    const winnerNames = [...(variants[winnerIndex] ?? [])].sort();
+    expect(winner.value.map((player) => player.displayName).sort()).toEqual(winnerNames);
+    const rows = await databaseService.database
+      .select()
+      .from(players)
+      .where(and(eq(players.organizationId, organizationId), eq(players.guestCommandId, commandId)));
+    expect(rows.map((row) => row.displayName).sort()).toEqual(winnerNames);
+  });
+
+  it("legt dieselbe commandId in zwei Organisationen als zwei getrennte Gastsets an", async () => {
+    const commandId = randomUUID();
+    const data = { commandId, clubName: "DC Mandant", names: ["Ida Mandant"] };
+    const inFirst = await service.createGuests({ organizationId, data, auth, audit });
+    // Andere Nutzdaten in der zweiten Organisation: kein COMMAND_PAYLOAD_MISMATCH, denn die commandId gilt je Mandant.
+    const inSecond = await service.createGuests({ organizationId: secondOrganizationId, data: { ...data, names: ["Jan Mandant", "Kim Mandant"] }, auth, audit });
+    expect(inFirst.map((player) => player.displayName)).toEqual(["Ida Mandant"]);
+    expect(inSecond.map((player) => player.displayName).sort()).toEqual(["Jan Mandant", "Kim Mandant"]);
+    expect(inSecond.some((player) => inFirst.some((other) => other.id === player.id))).toBe(false);
+    const rowsOf = (orgId: string) => databaseService.database
+      .select()
+      .from(players)
+      .where(and(eq(players.organizationId, orgId), eq(players.guestCommandId, commandId)));
+    expect((await rowsOf(organizationId)).map((row) => row.displayName)).toEqual(["Ida Mandant"]);
+    expect((await rowsOf(secondOrganizationId)).map((row) => row.displayName).sort()).toEqual(["Jan Mandant", "Kim Mandant"]);
+    // Wiederholung in der ersten Organisation liefert weiterhin deren Set.
+    const replay = await service.createGuests({ organizationId, data, auth, audit });
+    expect(replay.map((player) => player.id)).toEqual(inFirst.map((player) => player.id));
+    expect((await service.list({ organizationId: secondOrganizationId, auth, kind: "GUEST" })).map((player) => player.displayName).sort()).toEqual(["Jan Mandant", "Kim Mandant"]);
+  });
 
   it("verlangt player:create", async () => {
     const strangerId = randomUUID();

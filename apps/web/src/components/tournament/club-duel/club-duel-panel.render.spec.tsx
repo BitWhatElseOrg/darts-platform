@@ -22,12 +22,12 @@ const clubDuel: ClubDuelDashboard = {
   sideAName: "VFC", sideBName: "DC Musterdorf", qualifyingRounds: 2, finalRoundSize: 2, thirdPlaceMatch: true, currentRound: 2,
   rounds: [
     { round: 1, matchIds: [id(10), id(11)], pausedPlayerIds: [], matches: [
-      { matchId: id(10), position: 1, playerAId: id(1), playerBId: id(3), status: "COMPLETED", resultType: "PLAYED", winnerPlayerId: id(1), legs: [2, 0] },
-      { matchId: id(11), position: 2, playerAId: id(2), playerBId: id(4), status: "COMPLETED", resultType: "PLAYED", winnerPlayerId: id(4), legs: [1, 2] },
+      { matchId: id(10), position: 1, playerAId: id(1), playerBId: id(3), status: "COMPLETED", resultType: "PLAYED", winnerPlayerId: id(1), legs: [2, 0], boardName: null },
+      { matchId: id(11), position: 2, playerAId: id(2), playerBId: id(4), status: "COMPLETED", resultType: "PLAYED", winnerPlayerId: id(4), legs: [1, 2], boardName: null },
     ] },
     { round: 2, matchIds: [id(12), id(13)], pausedPlayerIds: [], matches: [
-      { matchId: id(12), position: 1, playerAId: id(1), playerBId: id(4), status: "READY", resultType: null, winnerPlayerId: null, legs: null },
-      { matchId: id(13), position: 2, playerAId: id(2), playerBId: id(3), status: "READY", resultType: null, winnerPlayerId: null, legs: null },
+      { matchId: id(12), position: 1, playerAId: id(1), playerBId: id(4), status: "READY", resultType: null, winnerPlayerId: null, legs: null, boardName: null },
+      { matchId: id(13), position: 2, playerAId: id(2), playerBId: id(3), status: "READY", resultType: null, winnerPlayerId: null, legs: null, boardName: null },
     ] },
   ],
   standings: {
@@ -41,7 +41,7 @@ const clubDuel: ClubDuelDashboard = {
     { matchId: id(22), round: 2, rankA: 1, rankB: 2, playerAId: null, playerBId: null, status: "WAITING", winnerPlayerId: null, legs: null },
     { matchId: id(23), round: 2, rankA: 2, rankB: 1, playerAId: null, playerBId: null, status: "WAITING", winnerPlayerId: null, legs: null },
   ] },
-  finals: { final: { matchId: id(30), position: 1, playerAId: null, playerBId: null, status: "WAITING", resultType: null, winnerPlayerId: null, legs: null }, thirdPlace: null },
+  finals: { final: { matchId: id(30), position: 1, playerAId: null, playerBId: null, status: "WAITING", resultType: null, winnerPlayerId: null, legs: null, boardName: null }, thirdPlace: null },
   score: { pointsA: 1, pointsB: 1, legDifferenceA: 1, leader: "A" },
 };
 
@@ -56,6 +56,19 @@ describe("ClubDuelPanel", () => {
     const earlier = within(panel).getByText("Runde 1").closest("details");
     expect(earlier).not.toBeNull();
     expect(within(earlier as HTMLElement).getByText("2:0")).toBeTruthy();
+  });
+
+  it("nennt die Scheibe je Spiel, sofern zugewiesen", () => {
+    const [first, second] = clubDuel.rounds;
+    const withBoard: ClubDuelDashboard = {
+      ...clubDuel,
+      rounds: [first!, { ...second!, matches: second!.matches.map((match, index) => index === 0 ? { ...match, boardName: "Scheibe 3" } : match) }],
+    };
+    render(createElement(ClubDuelPanel, { clubDuel: withBoard, participants, defaultTab: "rounds" }));
+    const panel = screen.getByRole("tabpanel", { name: "Runden" });
+    const lines = within(panel).getByRole("heading", { name: "Runde 2" }).parentElement!.querySelectorAll("li");
+    expect(lines[0]?.textContent).toContain("· Scheibe 3");
+    expect(lines[1]?.textContent).not.toContain("·");
   });
 
   it("schaltet die Rangliste zwischen Gesamt und Verein um und markiert Ausgefallene", () => {
@@ -196,11 +209,69 @@ describe("ClubDuelPanel – Tastatur und Randfälle", () => {
     expect(within(bia).getByText("DC Musterdorf").className).toContain("sr-only");
   });
 
+  it("macht nur Panels ohne fokussierbaren Inhalt zum Tab-Stopp (APG Tabs)", () => {
+    render(createElement(ClubDuelPanel, { clubDuel, participants, defaultTab: "standings" }));
+    const panelOf = (label: string) => document.getElementById(screen.getByRole("tab", { name: label }).getAttribute("aria-controls") ?? "");
+    expect(panelOf("Runden")?.getAttribute("tabindex")).toBe("0");
+    expect(panelOf("Rangliste")?.hasAttribute("tabindex")).toBe(false);
+    expect(panelOf("Finalrunde")?.hasAttribute("tabindex")).toBe(false);
+  });
+
+  it("rundet die Legdifferenz symmetrisch: der Betrag zählt, das Vorzeichen folgt", () => {
+    const values = [0.25, -0.25, 0.05, -0.05, -0.04, 1.96, -0];
+    const sideA = values.map((value, index) => ({ ...row(index + 1, id(100 + index), `P${index}`, "A", 1), legDifferencePerMatch: value, withdrawn: false }));
+    render(createElement(ClubDuelPanel, { clubDuel: { ...clubDuel, standings: { ...clubDuel.standings, sideA } }, participants, defaultTab: "standings" }));
+    fireEvent.click(screen.getByRole("radio", { name: "VFC" }));
+    const cells = screen.getAllByRole("row").slice(1).map((tr) => tr.lastElementChild?.textContent);
+    expect(cells).toEqual(["+0.3", "-0.3", "+0.1", "-0.1", "0.0", "+2.0", "0.0"]);
+  });
+
   it("wählt den Tab passend zum Turnierstatus", () => {
     expect(clubDuelTabForStatus("FINAL_ROUND")).toBe("final");
     expect(clubDuelTabForStatus("KNOCKOUT")).toBe("final");
     expect(clubDuelTabForStatus("COMPLETED")).toBe("final");
     expect(clubDuelTabForStatus("IN_PROGRESS")).toBe("rounds");
+  });
+});
+
+describe("ClubDuelPanel – Finalspiele und Teildaten", () => {
+  it("zeigt ein kampflos entschiedenes Finalspiel mit Sieger statt Legs", () => {
+    const walkoverFinal: ClubDuelDashboard = {
+      ...clubDuel,
+      finals: {
+        final: { matchId: id(30), position: 1, playerAId: id(1), playerBId: id(3), status: "COMPLETED", resultType: "WALKOVER", winnerPlayerId: id(3), legs: null, boardName: null },
+        thirdPlace: null,
+      },
+    };
+    render(createElement(ClubDuelPanel, { clubDuel: walkoverFinal, participants, defaultTab: "final" }));
+    const panel = screen.getByRole("tabpanel", { name: "Finalrunde" });
+    const line = within(panel).getByText("Final").closest("li") as HTMLElement;
+    expect(within(line).getByText("kampflos · Sieg Beat")).toBeTruthy();
+    expect(within(line).getByText("kampflos")).toBeTruthy();
+    expect(line.textContent).not.toContain("–:");
+  });
+
+  it("meldet ohne gepaarte Runde «Noch keine Runde gepaart.»", () => {
+    render(createElement(ClubDuelPanel, { clubDuel: { ...clubDuel, currentRound: 0, rounds: [] }, participants, defaultTab: "rounds" }));
+    const panel = screen.getByRole("tabpanel", { name: "Runden" });
+    expect(within(panel).getByText("Noch keine Runde gepaart.")).toBeTruthy();
+    expect(within(panel).queryByRole("heading", { name: /Runde/ })).toBeNull();
+    expect(within(panel).queryByText("Frühere Runden")).toBeNull();
+  });
+
+  it("meldet ohne Final und Spiel um Platz 3 «Noch nicht angesetzt.»", () => {
+    render(createElement(ClubDuelPanel, { clubDuel: { ...clubDuel, finals: { final: null, thirdPlace: null } }, participants, defaultTab: "final" }));
+    const panel = screen.getByRole("tabpanel", { name: "Finalrunde" });
+    expect(within(panel).getByText("Noch nicht angesetzt.")).toBeTruthy();
+    expect(within(panel).queryByText("Final")).toBeNull();
+  });
+
+  it("nennt die Pausierenden einer Runde beim Namen", () => {
+    const [first, second] = clubDuel.rounds;
+    const paused: ClubDuelDashboard = { ...clubDuel, rounds: [first!, { ...second!, pausedPlayerIds: [id(2), id(3)] }] };
+    render(createElement(ClubDuelPanel, { clubDuel: paused, participants, defaultTab: "rounds" }));
+    const panel = screen.getByRole("tabpanel", { name: "Runden" });
+    expect(within(panel).getByText("Pausieren: Aron, Beat")).toBeTruthy();
   });
 });
 

@@ -60,4 +60,8 @@ describe("tournamentWinner", () => {
       }),
     ).toBeNull();
   });
+
+  it("nimmt im klassischen Tableau ohne Vereinsduell den Sieger der letzten Runde", () => {
+    expect(tournamentWinner({ tournament: { status: "COMPLETED" }, bracket, groups, clubDuel: null })).toBe("Melanie Lüthi");
+  });
 });

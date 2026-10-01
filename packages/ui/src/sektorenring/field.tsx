@@ -123,6 +123,18 @@ export function TextInput({ className, type = "text", ...props }: TextInputProps
   );
 }
 
+export type TextAreaProps = ComponentProps<"textarea">;
+
+/** Mehrzeilige Eingabe mit denselben Grundklassen wie `TextInput`. */
+export function TextArea({ className, ...props }: TextAreaProps) {
+  return (
+    <textarea
+      className={cn(inputBase, "min-h-32 border-sisal-400 py-2 focus:border-ring-green", className)}
+      {...props}
+    />
+  );
+}
+
 export type SelectInputProps = ComponentProps<"select">;
 
 export function SelectInput({ children, className, ...props }: SelectInputProps) {
