@@ -425,7 +425,10 @@ function assertClubResult(result: ClubMatchResult, sideOf: ReadonlyMap<string, C
   const validScore = result.type === "WALKOVER"
     ? result.playerOneLegs === 0 && result.playerTwoLegs === 0
     : result.playerOneLegs >= 0 && result.playerTwoLegs >= 0 && result.playerOneLegs !== result.playerTwoLegs;
-  if (!validWinner || !validScore) {
+  const winnerMatchesLegs = result.type === "WALKOVER"
+    ? true
+    : (result.winnerPlayerId === result.playerOneId) === (result.playerOneLegs > result.playerTwoLegs);
+  if (!validWinner || !validScore || !winnerMatchesLegs) {
     throw new TournamentValidationError("INVALID_GROUP_RESULT", "A result is invalid.");
   }
 }

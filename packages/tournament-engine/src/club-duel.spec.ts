@@ -291,6 +291,32 @@ const walkover = (a: string, b: string, winner: string): ClubMatchResult => ({
 describe("calculateClubStandings", () => {
   const participants = clubParticipants(3, 2);
 
+  it("lehnt ein PLAYED-Resultat ab, dessen Sieger nicht zu den Legs passt", () => {
+    expect(() => calculateClubStandings({
+      participants,
+      results: [{
+        type: "PLAYED",
+        playerOneId: "a-1",
+        playerTwoId: "b-1",
+        playerOneLegs: 2,
+        playerTwoLegs: 0,
+        winnerPlayerId: "b-1",
+      }],
+    })).toThrowError(new TournamentValidationError("INVALID_GROUP_RESULT", "A result is invalid."));
+  });
+
+  it("ordnet bei gleicher Siegquote und Legdifferenz pro Spiel nach Legs pro Spiel", () => {
+    const standings = calculateClubStandings({
+      participants: clubParticipants(2, 2),
+      results: [
+        played("a-2", "b-1", 3, 2), // a-2: 1/1, +1, 3 Legs ; b-1: 0/1
+        played("a-1", "b-2", 2, 1), // a-1: 1/1, +1, 2 Legs ; b-2: 0/1
+      ],
+    });
+    // Quote: a-2 und a-1 je 1/1; Legdifferenz pro Spiel: beide +1; Legs pro Spiel: a-2 3 vs a-1 2
+    expect(standings.overall.map((row) => row.playerId)).toEqual(["a-2", "a-1", "b-1", "b-2"]);
+  });
+
   it("ordnet nach Siegquote, dann Legdifferenz pro Spiel, dann Legs pro Spiel, dann Seed", () => {
     const standings = calculateClubStandings({
       participants,
