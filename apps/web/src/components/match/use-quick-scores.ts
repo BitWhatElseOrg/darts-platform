@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { frequentScoresSchema, type FrequentScores } from "@darts-platform/schemas";
 import { apiRequest } from "@/lib/api-client";
+import { useDeviceSecret } from "@/lib/device-credential-context";
 
 /** Ohne Historie der Person oder der Organisation greift dieser feste Satz. */
 export const defaultQuickScores: readonly number[] = [26, 41, 45, 60, 81, 85];
@@ -23,12 +24,14 @@ export function useQuickScores({ organizationId, playerId, enabled }: {
   readonly playerId: string | null;
   readonly enabled: boolean;
 }): QuickScores {
+  const deviceSecret = useDeviceSecret();
   const query = useQuery({
     queryKey: ["frequent-scores", organizationId, playerId],
     queryFn: ({ signal }) => apiRequest({
       path: `/organizations/${organizationId}/players/${playerId ?? ""}/statistics/frequent-scores`,
       schema: frequentScoresSchema,
       signal,
+      deviceSecret,
     }),
     enabled: playerId !== null && enabled,
     staleTime: 10 * 60 * 1000,

@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 
 import { AuthModule } from "./auth/auth.module.js";
+import { BoardDevicesModule } from "./board-devices/board-devices.module.js";
 import { BoardsModule } from "./boards/boards.module.js";
 import { CompetitionsModule } from "./competitions/competitions.module.js";
 import { EnvironmentModule } from "./config/environment.module.js";
@@ -25,6 +26,7 @@ import { TeamsModule } from "./teams/teams.module.js";
     RealtimeModule,
     AuthModule,
     BoardsModule,
+    BoardDevicesModule,
     OrganizationsModule,
     PlayersModule,
     HealthModule,

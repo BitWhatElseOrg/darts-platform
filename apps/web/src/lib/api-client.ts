@@ -82,6 +82,10 @@ function localizedMessage(code: string): string {
     PLAYER_HAS_HISTORY:
       "Dieser Spieler hat bereits gespielt oder steht in einem Turnier, Team oder einer Begegnung. Er lässt sich nur archivieren.",
     ORGANIZATION_NAME_MISMATCH: "Der eingegebene Name stimmt nicht mit dem Namen der Organisation überein.",
+    DEVICE_REVOKED: "Dieses Tablet ist nicht mehr gekoppelt.",
+    DEVICE_NOT_ALLOWED: "Das darf ein Scheiben-Tablet nicht.",
+    DEVICE_BOARD_MISMATCH: "Dieses Match läuft nicht mehr auf dieser Scheibe.",
+    DEVICE_MATCH_NOT_ACTIVE: "Dieses Match läuft nicht mehr.",
   };
   const translated = messages[code];
   if (translated !== undefined) return translated;
@@ -108,14 +112,23 @@ export async function apiRequest<T>(input: {
    */
   readonly rawBody?: Blob;
   readonly signal?: AbortSignal;
+  /**
+   * Der Geraeteschluessel eines Scheiben-Tablets (Spec 2026-09-30-scheiben-tablet),
+   * `bd_…`. Gesetzt: die Anfrage traegt ihn als `Authorization: Bearer …` und
+   * verzichtet auf Cookies -- ein Kiosk ist nie in derselben Sitzung wie eine
+   * Admin-Anmeldung angemeldet. Nicht gesetzt (der Normalfall ausserhalb des
+   * Kiosks): unveraendert die Cookie-Sitzung.
+   */
+  readonly deviceSecret?: string | undefined;
 }): Promise<T> {
   const response = await fetch(
     `${publicEnvironment.NEXT_PUBLIC_API_URL}${input.path}`,
     {
       method: input.method ?? "GET",
-      credentials: "include",
+      credentials: input.deviceSecret === undefined ? "include" : "omit",
       headers: {
         Accept: "application/json",
+        ...(input.deviceSecret === undefined ? {} : { Authorization: `Bearer ${input.deviceSecret}` }),
         ...(input.rawBody !== undefined
           ? { "Content-Type": input.rawBody.type }
           : input.body === undefined

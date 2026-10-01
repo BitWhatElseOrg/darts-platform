@@ -1,7 +1,7 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { calculatePlayerStatistics, type StatisticsMatch } from "@darts-platform/statistics";
 import { frequentScoresSchema, playerStatisticsProfileSchema, type FrequentScores, type PlayerStatisticsProfile } from "@darts-platform/schemas";
-import type { AuthContext } from "../auth/auth.types.js";
+import { isDevicePrincipal, type AuthContext, type Principal } from "../auth/auth.types.js";
 import { MatchesRepository } from "../matches/matches.repository.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { StatisticsRepository } from "./statistics.repository.js";
@@ -59,8 +59,20 @@ export class StatisticsService {
    * fixer Default-Satz. `getData` waere hier ueberdimensioniert - das laedt
    * alle Matches, Legs und Visits der Person, nur um ihre Existenz zu klaeren.
    */
-  public async frequentScores(input: { readonly organizationId: string; readonly playerId: string; readonly auth: AuthContext }): Promise<FrequentScores> {
-    await this.access.requirePermission({ organizationId: input.organizationId, userId: input.auth.user.id, permission: "statistics:read" });
+  public async frequentScores(input: { readonly organizationId: string; readonly playerId: string; readonly auth: Principal }): Promise<FrequentScores> {
+    if (isDevicePrincipal(input.auth)) {
+      if (input.auth.device.organizationId !== input.organizationId) throw new NotFoundException("Spieler nicht gefunden.");
+      const playing = await this.repository.isPlayerOnActiveBoardMatch({
+        organizationId: input.organizationId,
+        boardId: input.auth.device.boardId,
+        playerId: input.playerId,
+      });
+      if (!playing) {
+        throw new ForbiddenException({ code: "DEVICE_BOARD_MISMATCH", message: "This player is not playing on this device's board." });
+      }
+    } else {
+      await this.access.requirePermission({ organizationId: input.organizationId, userId: input.auth.user.id, permission: "statistics:read" });
+    }
     if (!(await this.repository.playerExists(input.organizationId, input.playerId))) {
       throw new NotFoundException("Spieler nicht gefunden.");
     }

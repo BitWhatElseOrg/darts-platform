@@ -12,6 +12,10 @@
     "./display-key-secret": {
       "types": "./dist/display-key-secret.d.ts",
       "default": "./dist/display-key-secret.js"
+    },
+    "./board-device-secret": {
+      "types": "./dist/board-device-secret.d.ts",
+      "default": "./dist/board-device-secret.js"
     }
   },
   "files": ["dist"],

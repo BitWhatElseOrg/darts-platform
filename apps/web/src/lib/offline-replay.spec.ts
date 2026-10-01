@@ -109,6 +109,25 @@ describe("replayFailure", () => {
   it("wiederholt, solange kein Status bekannt ist", () => {
     expect(replayFailure(new ApiClientError("Die API hat nicht geantwortet.")).kind).toBe("RETRY");
   });
+
+  /**
+   * Scheiben-Tablets (Spec 2026-09-30-scheiben-tablet): ein widerrufenes
+   * Geraet (401) urteilt nicht ueber das Kommando -- nach erneutem Einrichten
+   * darf derselbe Eintrag noch durchgehen, genau wie eine abgelaufene
+   * Session. `DEVICE_BOARD_MISMATCH` (403) und `DEVICE_MATCH_NOT_ACTIVE`
+   * (409) sind dagegen endgueltige Urteile ueber genau dieses Kommando.
+   */
+  it("wiederholt ein widerrufenes Geraet (DEVICE_REVOKED, 401)", () => {
+    expect(replayFailure(apiError("DEVICE_REVOKED", 401)).kind).toBe("RETRY");
+  });
+
+  it("lehnt ein Kommando fuer die falsche Scheibe endgueltig ab (DEVICE_BOARD_MISMATCH, 403)", () => {
+    expect(replayFailure(apiError("DEVICE_BOARD_MISMATCH", 403)).kind).toBe("REJECTED");
+  });
+
+  it("lehnt ein Kommando fuer ein nicht mehr aktives Match endgueltig ab (DEVICE_MATCH_NOT_ACTIVE, 409)", () => {
+    expect(replayFailure(apiError("DEVICE_MATCH_NOT_ACTIVE", 409)).kind).toBe("REJECTED");
+  });
 });
 
 describe("nextReplayable", () => {

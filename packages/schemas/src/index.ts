@@ -19,6 +19,18 @@ export {
 } from "./advanced-tournament";
 export { boardListSchema, boardSchema, boardStatusSchema, createBoardSchema, type BoardResponse, type CreateBoardInput } from "./board";
 export {
+  boardDeviceSelfSchema,
+  type BoardDeviceSelf,
+  createBoardDeviceSchema,
+  type CreateBoardDeviceInput,
+  boardDeviceSchema,
+  type BoardDeviceResponse,
+  boardDeviceListSchema,
+  type BoardDeviceList,
+  createdBoardDeviceSchema,
+  type CreatedBoardDevice,
+} from "./board-device";
+export {
   abortMatchResponseSchema, abortMatchSchema, boardControllerLeaseRequestSchema, boardControllerLeaseSchema, createMatchSchema, dartSchema, decideLegByBullSchema, decideLegStartSchema, matchListSchema, matchLiveTargetSchema, matchStateSchema, matchStatusSchema, matchVisitSchema,
   submitVisitSchema, undoVisitSchema, visitOutcomeSchema,
   type AbortMatchInput, type AbortMatchResponse, type BoardControllerLeaseRequest, type BoardControllerLeaseResponse, type CreateMatchInput, type Dart, type DecideLegByBullInput, type DecideLegStartInput, type MatchLiveTarget, type MatchStateResponse, type SubmitVisitInput, type UndoVisitInput,

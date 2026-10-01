@@ -86,4 +86,29 @@ describe("apiRequest", () => {
 
     await expect(apiRequest({ path: "/probe", schema: z.void() })).resolves.toBeUndefined();
   });
+
+  /**
+   * Scheiben-Tablets (Spec 2026-09-30-scheiben-tablet) senden ihren
+   * Geraeteschluessel statt einer Cookie-Sitzung -- ein Kiosk ist nie in
+   * derselben Sitzung wie eine Admin-Anmeldung angemeldet.
+   */
+  it("sendet den Geräteschlüssel als Bearer und ohne Cookies", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 200));
+
+    await apiRequest({ path: "/board-devices/me", schema: z.object({}), deviceSecret: "bd_x" });
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer bd_x");
+    expect(init.credentials).toBe("omit");
+  });
+
+  it("sendet ohne Geräteschlüssel keinen Authorization-Header", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 200));
+
+    await apiRequest({ path: "/board-devices/me", schema: z.object({}) });
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
+    expect(init.credentials).toBe("include");
+  });
 });

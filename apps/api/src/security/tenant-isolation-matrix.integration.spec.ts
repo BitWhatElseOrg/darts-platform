@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import {
   auditEvents,
+  boardDevices,
   boards,
   competitions,
   encounters,
@@ -20,6 +21,7 @@ import {
   tournaments,
   users,
 } from "@darts-platform/database";
+import { createBoardDeviceSecret, hashBoardDeviceSecret } from "@darts-platform/domain/board-device-secret";
 import { buildEncounterTemplate } from "@darts-platform/league-engine";
 
 import { AuthService } from "../auth/auth.service.js";
@@ -73,6 +75,7 @@ const bodies: Record<string, object> = {
   // jemals hinter die Berechtigungspruefung vordraenge.
   "DELETE /api/v1/organizations/:organizationId": { confirmName: "Verein B" },
   "POST /api/v1/organizations/:organizationId/boards": { name: "Board 1" },
+  "POST /api/v1/organizations/:organizationId/boards/:boardId/devices": { label: "Matrix" },
   "POST /api/v1/organizations/:organizationId/players": { displayName: "Fremde Spielerin", status: "ACTIVE" },
   "PATCH /api/v1/organizations/:organizationId/players/:playerId": { displayName: "Umbenannt" },
   "POST /api/v1/organizations/:organizationId/matches": {
@@ -180,6 +183,40 @@ const bodies: Record<string, object> = {
   },
 };
 
+/**
+ * Routen, die ein Scheiben-Tablet aufrufen darf (`@AllowDevice()`). Ein
+ * neuer Endpunkt mit `@AllowDevice()` ohne Eintrag hier laesst die
+ * Geraete-Zeile der Matrix rot werden — das ist beabsichtigt.
+ */
+const deviceRoutes = new Set([
+  "GET /api/v1/board-devices/me",
+  "GET /api/v1/organizations/:organizationId/matches/:matchId",
+  "POST /api/v1/organizations/:organizationId/matches/:matchId/visits",
+  "POST /api/v1/organizations/:organizationId/matches/:matchId/undo",
+  "POST /api/v1/organizations/:organizationId/matches/:matchId/leg-start",
+  "POST /api/v1/organizations/:organizationId/matches/:matchId/leg-by-bull",
+  "POST /api/v1/organizations/:organizationId/matches/:matchId/controller-lease",
+  "GET /api/v1/organizations/:organizationId/players/:playerId/statistics/frequent-scores",
+]);
+
+/**
+ * Oeffentliche Routen aus `organizations/invitation-preview.controller.ts`
+ * (`@Public()`), einzeln aufgefuehrt statt ueber ein Praefix: die uebrigen
+ * `/api/v1/invitations/...`-Routen (`invitations.controller.ts`) sind nicht
+ * oeffentlich und muessen wie jede andere Route 403 DEVICE_NOT_ALLOWED
+ * liefern.
+ */
+const publicEndpoints = new Set(["POST /api/v1/invitations/:invitationId/preview"]);
+
+/** Routen, die die Geraete-Zeile der Matrix nicht bewertet. */
+function isExemptFromDeviceRow(route: RouteEntry): boolean {
+  if (route.url.startsWith("/api/v1/public/")) return true;
+  if (route.url === "/api/v1/auth" || route.url.startsWith("/api/v1/auth/")) return true;
+  if (route.url.startsWith("/api/v1/csp-reports")) return true;
+  if (route.url === "/api/v1/health") return true;
+  return publicEndpoints.has(`${route.method} ${route.url}`);
+}
+
 let app: NestFastifyApplication;
 let routes: readonly RouteEntry[];
 
@@ -198,6 +235,7 @@ beforeAll(async () => {
   ]);
   ({ app, routes } = await collectRoutes({
     RATE_LIMIT_MAX_PER_MINUTE: 100_000, RATE_LIMIT_PUBLIC_MAX_PER_MINUTE: 100_000, RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE: 100_000,
+    RATE_LIMIT_DEVICE_MAX_PER_MINUTE: 100_000,
   }));
   vi.spyOn(app.get(AuthService), "getSession").mockImplementation(async () => currentAuth);
 }, 60_000);
@@ -242,6 +280,9 @@ async function createResourcesInB(): Promise<Record<string, string>> {
     playerIds.push(player.id);
   }
   const board = await createAsOwnerB<{ id: string }>("POST", `${base}/boards`, { name: "B-Scheibe" });
+  const device = await createAsOwnerB<{ device: { id: string } }>(
+    "POST", `${base}/boards/${board.id}/devices`, { label: "B-Tablet" },
+  );
   const match = await createAsOwnerB<{ id: string }>("POST", `${base}/matches`, {
     playerOneId: playerIds[4], playerTwoId: playerIds[5], boardId: null, bestOfLegs: 1, bestOfSets: 1,
   });
@@ -304,7 +345,20 @@ async function createResourcesInB(): Promise<Record<string, string>> {
     competitionId: competition.id,
     encounterId: encounter.id,
     slotId,
+    boardId: board.id,
+    deviceId: device.device.id,
   };
+}
+
+/**
+ * `createResourcesInB` legt jedes Mal neue Datensaetze an (eindeutige Namen
+ * wie "B-Scheibe" kollidieren bei doppeltem Aufruf). Beide Tests, die echte
+ * Ressourcen von B brauchen, teilen sich deshalb denselben Aufbau.
+ */
+let resourcesInB: Record<string, string> | undefined;
+async function ensureResourcesInB(): Promise<Record<string, string>> {
+  resourcesInB ??= await createResourcesInB();
+  return resourcesInB;
 }
 
 /**
@@ -330,6 +384,8 @@ async function snapshotOrganizationB() {
       .from(players).where(inB(players.organizationId)).orderBy(players.id),
     boards: await database.select({ id: boards.id, name: boards.name, status: boards.status, updatedAt: boards.updatedAt })
       .from(boards).where(inB(boards.organizationId)).orderBy(boards.id),
+    boardDevices: await database.select({ id: boardDevices.id, revokedAt: boardDevices.revokedAt, lastSeenAt: boardDevices.lastSeenAt })
+      .from(boardDevices).where(inB(boardDevices.organizationId)).orderBy(boardDevices.id),
     matches: await database.select({ id: matches.id, status: matches.status, version: matches.version, updatedAt: matches.updatedAt })
       .from(matches).where(inB(matches.organizationId)).orderBy(matches.id),
     teams: await database.select({ id: teams.id, name: teams.name, status: teams.status, updatedAt: teams.updatedAt })
@@ -416,7 +472,7 @@ describe("Tenant-Isolation: Owner von A gegen Ressourcen von B", () => {
   }, 120_000);
 
   it("prüft jede Route mit :organizationId gegen echte Ressourcen von B (nur 403, keine Änderung)", async () => {
-    const realIds = await createResourcesInB();
+    const realIds = await ensureResourcesInB();
     const before = await snapshotOrganizationB();
     expect(before.players).toHaveLength(6);
     expect(before.encounters).toHaveLength(1);
@@ -436,4 +492,50 @@ describe("Tenant-Isolation: Owner von A gegen Ressourcen von B", () => {
     expect(wrong, `Nicht 403 bei existierender fremder Ressource:\n${wrong.join("\n")}`).toEqual([]);
     expect(await snapshotOrganizationB()).toEqual(before);
   }, 180_000);
+});
+
+describe("Tenant-Isolation: Scheiben-Tablet von A", () => {
+  it("darf nur die geräte-fähigen Routen nutzen und dringt nicht zu Ressourcen von B durch", async () => {
+    const realIds = await ensureResourcesInB();
+    const before = await snapshotOrganizationB();
+
+    const [boardA] = await databaseService.database
+      .insert(boards)
+      .values({ organizationId: organizationA, name: "A-Scheibe" })
+      .returning();
+    if (boardA === undefined) throw new Error("Die Scheibe von A wurde nicht angelegt.");
+    const secret = createBoardDeviceSecret();
+    await databaseService.database.insert(boardDevices).values({
+      organizationId: organizationA,
+      boardId: boardA.id,
+      secretHash: hashBoardDeviceSecret(secret),
+      label: "Matrix-Tablet",
+      createdBy: ownerA,
+    });
+    const deviceHeaders = { authorization: `Bearer ${secret}` };
+
+    const wrong: string[] = [];
+    for (const route of routes) {
+      if (isExemptFromDeviceRow(route)) continue;
+      const key = `${route.method} ${route.url}`;
+      const { headers, ...rest } = payloadFor(route);
+      const response = await app.inject({
+        method: route.method as Method,
+        url: fillRealParams(route.url, realIds),
+        ...rest,
+        headers: { ...headers, ...deviceHeaders },
+      });
+
+      if (key === "GET /api/v1/board-devices/me") {
+        if (response.statusCode !== 200) wrong.push(`${key} -> ${response.statusCode} (erwartet 200)`);
+      } else if (deviceRoutes.has(key)) {
+        if (response.statusCode !== 404) wrong.push(`${key} -> ${response.statusCode} (erwartet 404)`);
+      } else if (response.statusCode !== 403 || response.json().error?.code !== "DEVICE_NOT_ALLOWED") {
+        wrong.push(`${key} -> ${response.statusCode} (erwartet 403 DEVICE_NOT_ALLOWED)`);
+      }
+    }
+
+    expect(wrong, `Geraete-Zeile verletzt:\n${wrong.join("\n")}`).toEqual([]);
+    expect(await snapshotOrganizationB()).toEqual(before);
+  }, 120_000);
 });

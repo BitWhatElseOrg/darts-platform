@@ -6,6 +6,7 @@
 // umlegt (globals.css). Ginge sie in einem Refactor verloren, faellt die
 // ganze Flaeche stillschweigend auf die helle `:root`-Palette zurueck --
 // ein Regressionstest fehlte dafuer bislang (Backlog PR #37).
+import type { ComponentProps } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -100,7 +101,13 @@ const completedMatch = {
   winnerPlayerId: playerOneId,
 } as unknown as MatchStateResponse;
 
-function scoreboard(state: MatchStateResponse) {
+/** Dasselbe Match mit Wettbewerbsbezug -- nur dann zeigt die Kopfzeile LIVE. */
+const matchWithLiveTarget = {
+  ...match,
+  liveTarget: { kind: "TOURNAMENT", tournamentId: organizationId, publicId: organizationId },
+} as unknown as MatchStateResponse;
+
+function scoreboard(state: MatchStateResponse, overrides: Partial<ComponentProps<typeof MatchScoreboard>> = {}) {
   return (
     <MatchScoreboard
       backHref="/matches?organisation=x"
@@ -109,21 +116,22 @@ function scoreboard(state: MatchStateResponse) {
       canScore={false}
       match={state}
       organizationId={organizationId}
+      {...overrides}
     />
   );
 }
 
-function renderScoreboard(state: MatchStateResponse = match) {
+function renderScoreboard(state: MatchStateResponse = match, overrides: Partial<ComponentProps<typeof MatchScoreboard>> = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const view = render(
-    <QueryClientProvider client={queryClient}>{scoreboard(state)}</QueryClientProvider>,
+    <QueryClientProvider client={queryClient}>{scoreboard(state, overrides)}</QueryClientProvider>,
   );
   return {
     ...view,
     show: (next: MatchStateResponse) =>
-      view.rerender(<QueryClientProvider client={queryClient}>{scoreboard(next)}</QueryClientProvider>),
+      view.rerender(<QueryClientProvider client={queryClient}>{scoreboard(next, overrides)}</QueryClientProvider>),
   };
 }
 
@@ -177,5 +185,30 @@ describe("MatchScoreboard", () => {
 
     act(() => { vi.advanceTimersByTime(matchEndRedirectDelayMs * 3); });
     expect(router.push).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Scheiben-Tablets (Spec 2026-09-30-scheiben-tablet) bekommen keinen
+   * `backHref`: der Kiosk hat keinen Rückweg und keinen Grund, die Fläche zu
+   * verlassen.
+   */
+  it("rendert ohne backHref keinen Zurueck-Link in der Kopfzeile", () => {
+    renderScoreboard(match, { backHref: undefined, backLabel: undefined });
+
+    expect(screen.queryByLabelText("Zur Übersicht")).toBeNull();
+  });
+
+  it("rendert mit showHeaderLinks={false} weder LIVE noch Bedienungsanleitung", () => {
+    renderScoreboard(matchWithLiveTarget, { showHeaderLinks: false });
+
+    expect(screen.queryByText("LIVE")).toBeNull();
+    expect(screen.queryByLabelText("Bedienungsanleitung")).toBeNull();
+  });
+
+  it("rendert mit Wettbewerbsbezug und showHeaderLinks={true} LIVE und Bedienungsanleitung", () => {
+    renderScoreboard(matchWithLiveTarget);
+
+    expect(screen.getByText("LIVE")).toBeTruthy();
+    expect(screen.getByLabelText("Bedienungsanleitung")).toBeTruthy();
   });
 });
