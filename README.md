@@ -91,9 +91,14 @@ Papierhilfen durchzuführen. Der Vollausbau umfasst:
   (`POST /api/v1/organizations/:organizationId/players/guests`; die HTTP-Spielerliste zeigt standardmässig nur
   Mitglieder, `?kind=GUEST|ALL` blendet Gäste ein). Vorschau über
   `POST /api/v1/organizations/:organizationId/tournaments/club-duel-preview`, Details in
-  [ADR 0021](./docs/adr/0021-vereinsduell-rundenpaarung.md). Die Oberfläche
-  folgt mit Plan 2; bis dahin nur per API. Die Datenschutzprüfung für
-  Gastspieler ist offen.
+  [ADR 0021](./docs/adr/0021-vereinsduell-rundenpaarung.md). In der Oberfläche
+  sind vorhanden: Anlage (Format-Option «Vereinsduell», Schnellerfassung von
+  Gastspielern), Kommandozentrale (Banner mit Vereinswertung, Tabs Runden,
+  Rangliste und Finalrunde), öffentliche Live-Ansicht, Beamer-Modus
+  (Vereinswertung gross, laufende und nächste Spiele) sowie das Vereinskürzel
+  neben dem Spielernamen auf Scoreboard und Scheiben-Tablet. Das
+  Anlageformular sendet nicht mehr per Enter ab; gestartet wird mit
+  «Turnier starten». Die Datenschutzprüfung für Gastspieler ist offen.
 - Team-Begegnungen als Ligamodus nach [VFC-Reglement](./LIGA-REGLEMENT.md):
   Teams mit Kader, Begegnungsvorlage, beidseitige Aufstellung, 18 beziehungsweise
   19 Spiele auf mehreren Boards, automatische Wertung und Ligatabelle
