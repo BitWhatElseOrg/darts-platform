@@ -245,15 +245,31 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
     if (matchQuery.data === undefined) return;
     const previous = seenMatch.current;
     seenMatch.current = { matchId: matchQuery.data.id, status: matchQuery.data.status };
-    if (
+    const isTransition =
       previous !== null &&
       previous.matchId === matchQuery.data.id &&
       previous.status === "IN_PROGRESS" &&
-      matchQuery.data.status === "COMPLETED"
-    ) {
+      matchQuery.data.status === "COMPLETED";
+    // Abschlussreview-Befund 2 (final-fix-findings.md): im Nachladezustand
+    // (`endedMatch.completedAt === null`, siehe oben) kann die allererste
+    // Antwort fuer genau dieses Match bereits COMPLETED sein -- etwa wenn das
+    // Tablet neu laedt oder `/me` schneller pollt als die Match-Query einen
+    // IN_PROGRESS-Stand je gesehen hat. `isTransition` greift dann nie, weil
+    // kein vorheriger IN_PROGRESS-Stand existiert. Ohne diesen zweiten Zweig
+    // bliebe `completedAt` fuer immer `null`: `kioskView` zeigt dauerhaft
+    // "idle", der Endstand erscheint nie. `endedMatch` steht bewusst in den
+    // Deps: der Render-Zweig oben setzt `completedAt: null` oft, NACHDEM die
+    // Match-Query ihre (gecachte) COMPLETED-Antwort schon hat -- ohne diese
+    // Abhaengigkeit liefe der Effect dann nicht erneut.
+    const isUnresolvedEndAlreadyComplete =
+      endedMatch !== null &&
+      endedMatch.matchId === matchQuery.data.id &&
+      endedMatch.completedAt === null &&
+      matchQuery.data.status === "COMPLETED";
+    if (isTransition || isUnresolvedEndAlreadyComplete) {
       setEndedMatch({ matchId: matchQuery.data.id, completedAt: Date.now() });
     }
-  }, [matchQuery.data]);
+  }, [matchQuery.data, endedMatch]);
 
   // Das Match ist fuer dieses Geraet nicht mehr gueltig (abgebrochen, auf
   // eine andere Scheibe verschoben, nicht mehr aktiv): zurueck in den
@@ -343,14 +359,24 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
         </button>
         <p className="truncate text-caption text-spider-dim">{organizationName}</p>
       </header>
-      <ScoreboardStatus
-        busy={null}
-        lockState="EIGEN"
-        message={null}
-        online={online}
-        onTakeOver={() => {}}
-        queuedCount={0}
-      />
+      {/* Abschlussreview-Befund 5 (final-fix-findings.md): `MatchScoreboard`
+          (unten) bringt seine eigene `ScoreboardStatus`-Leiste mit -- diese
+          hier also nur zeigen, solange kein `MatchScoreboard` rendert
+          (Leerlauf oder "Match wird geladen"), sonst stehen zwei
+          Statuszeilen uebereinander, von denen die aeussere ohnehin nie
+          etwas anzeigt (Kiosk kennt weder Board-Sperre noch Warteschlange).
+          Dieselbe Bedingung wie unten, unter der `MatchScoreboard` tatsaechlich
+          rendert (dritter Zweig der Ternary). */}
+      {view.kind === "idle" || matchQuery.data === undefined || organizationId === null ? (
+        <ScoreboardStatus
+          busy={null}
+          lockState="EIGEN"
+          message={null}
+          online={online}
+          onTakeOver={() => {}}
+          queuedCount={0}
+        />
+      ) : null}
       <div className="flex flex-1 flex-col">
         {view.kind === "idle" ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">

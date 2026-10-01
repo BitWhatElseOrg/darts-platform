@@ -187,6 +187,15 @@ describe("KioskRoute", () => {
     expect(client.apiRequest).toHaveBeenCalledWith(
       expect.objectContaining({ path: `/organizations/${organizationId}/matches/${matchId}`, deviceSecret }),
     );
+
+    // Abschlussreview-Befund 5 (final-fix-findings.md): die eigene
+    // Statuszeile des Kiosk stand bisher zusaetzlich zu der des (echten)
+    // `MatchScoreboard` -- zwei sichtbare "status"-Leisten uebereinander, von
+    // denen die aeussere nie etwas anzeigt (Kiosk kennt weder Sperre noch
+    // Warteschlange). `MatchScoreboard` ist hier eine Attrappe ohne eigenen
+    // `role="status"`, daher zaehlt ein direkter DOM-Scan statt
+    // `getAllByRole`.
+    expect(document.querySelectorAll('[role="status"]').length).toBe(0);
   });
 
   it("vergisst den Geraeteschluessel und meldet den Widerruf", async () => {
@@ -350,6 +359,32 @@ describe("KioskRoute", () => {
       await vi.advanceTimersByTimeAsync(KIOSK_POLL_MS * 5);
     });
     expect(client.apiRequest.mock.calls.length).toBe(callsAfterRevocation);
+  });
+
+  // Abschlussreview-Befund 2 (final-fix-findings.md): die allererste
+  // Antwort der nachgeladenen Match-Query ist bereits COMPLETED -- `seenMatch`
+  // sieht also nie einen IN_PROGRESS -> COMPLETED-Uebergang fuer dieses Match.
+  // Ohne Fix bliebe `completedAt` fuer immer `null`, `kioskView` zeigte
+  // dauerhaft "idle" und der Endstand erschiene nie, obwohl die Match-Query
+  // alle `KIOSK_POLL_MS` weiter denselben (bereits beendeten) Stand holt.
+  it("zeigt den Endstand, wenn die erste Antwort des nachgeladenen Matches bereits COMPLETED ist", async () => {
+    deviceKeyStorage.stored = { secret: deviceSecret, boardName: "Scheibe 1", organizationName: "VFC Musterstadt" };
+    server.self = selfResponse(matchId);
+    server.match = { ...matchState, status: "COMPLETED" };
+    const { queryClient } = renderRoute();
+
+    await screen.findByTestId("match-scoreboard-stub");
+    expect(screen.queryByRole("button", { name: "Weiter" })).toBeNull();
+
+    // `/me` zieht nach: das Match ist nicht mehr aktuell. Die Match-Query
+    // selbst hatte fuer diese ID nie einen IN_PROGRESS-Stand gesehen.
+    server.self = selfResponse(null);
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ["board-device-self"] });
+    });
+
+    await screen.findByRole("button", { name: "Weiter" });
+    expect(screen.getByTestId("match-scoreboard-stub")).not.toBeNull();
   });
 
   // Task-Review-Befund GAP 4: offene Warteschlangen-Eintraege eines

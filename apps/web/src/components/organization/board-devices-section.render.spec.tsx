@@ -23,9 +23,13 @@ vi.mock("@/lib/standalone-display", () => ({
   isStandaloneDisplay: () => environment.standalone,
 }));
 
-const signOut = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+// Better-Auth wirft bei `signOut()` nicht, sondern liefert `{ error }`
+// (Task-Review-Befund 1, final-fix-findings.md) -- Default hier ist der
+// Erfolgsfall, einzelne Faelle ueberschreiben mit `mockResolvedValueOnce`.
+const signOut = vi.hoisted(() => vi.fn().mockResolvedValue({ error: null }));
+const getSession = vi.hoisted(() => vi.fn().mockResolvedValue({ data: null, error: null }));
 vi.mock("@/lib/auth-client", () => ({
-  authClient: { signOut: () => signOut() },
+  authClient: { signOut: () => signOut(), getSession: () => getSession() },
 }));
 
 // `recallBoardDevice` liest per Default zurueck, was `rememberBoardDevice`
@@ -149,6 +153,7 @@ beforeEach(() => {
   server.revokeRejection = null;
   routerReplace.mockReset();
   signOut.mockClear();
+  getSession.mockClear();
   rememberBoardDevice.mockClear();
   deviceKeyStorage.recallBoardDevice.mockClear();
   deviceKeyStorage.reset();
@@ -272,6 +277,49 @@ describe("BoardDevicesSection", () => {
         ),
       ).toBe(true);
     });
+  });
+
+  it("zeigt eine Meldung und bricht die Navigation ab, wenn das Abmelden fehlschlaegt, erlaubt aber Wiederholung", async () => {
+    // Task-Review-Befund 1 (final-fix-findings.md): Better-Auth wirft nicht,
+    // sondern liefert `{ error }`. Ungeprueft weiterzunavigieren liesse die
+    // Admin-Session auf dem oeffentlichen Tablet leben.
+    environment.standalone = true;
+    signOut.mockResolvedValueOnce({ error: { message: "network", status: 0, statusText: "" } });
+    renderSection();
+
+    const setupButton = await screen.findByRole("button", { name: "Dieses Gerät einrichten" });
+    fireEvent.click(setupButton);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(
+      "Die Anmeldung auf diesem Tablet konnte nicht beendet werden. Melde dich ab, bevor du das Tablet im Raum lässt.",
+    );
+    expect(routerReplace).not.toHaveBeenCalled();
+
+    const retryButton = screen.getByRole("button", { name: "Abmelden wiederholen" });
+    fireEvent.click(retryButton);
+
+    await waitFor(() => {
+      expect(routerReplace).toHaveBeenCalledWith("/scheibe");
+    });
+  });
+
+  it("zeigt eine Meldung, wenn signOut keinen Fehler liefert, aber die Sitzung danach noch besteht", async () => {
+    // Zusaetzliche Absicherung aus Befund 1: `signOut()` kann ohne `error`
+    // zurueckkommen, obwohl die Sitzung (z. B. wegen eines Race mit einem
+    // parallelen Request) noch lebt -- `getSession()` deckt genau das auf.
+    environment.standalone = true;
+    getSession.mockResolvedValueOnce({ data: { user: { id: "u1" } }, error: null });
+    renderSection();
+
+    const setupButton = await screen.findByRole("button", { name: "Dieses Gerät einrichten" });
+    fireEvent.click(setupButton);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(
+      "Die Anmeldung auf diesem Tablet konnte nicht beendet werden. Melde dich ab, bevor du das Tablet im Raum lässt.",
+    );
+    expect(routerReplace).not.toHaveBeenCalled();
   });
 
   it("fragt vor dem Ersatz-Einrichten eines bereits gekoppelten Boards nach", async () => {

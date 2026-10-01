@@ -23,6 +23,8 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 
 const STORAGE_FAILED_MESSAGE =
   "Dieses Tablet konnte die Kopplung nicht speichern. Erlaube Website-Daten für DartBase und richte das Tablet erneut ein.";
+const SIGN_OUT_FAILED_MESSAGE =
+  "Die Anmeldung auf diesem Tablet konnte nicht beendet werden. Melde dich ab, bevor du das Tablet im Raum lässt.";
 
 const relativeTime = new Intl.RelativeTimeFormat("de-CH", { numeric: "auto" });
 const dateFormat = new Intl.DateTimeFormat("de-CH");
@@ -66,6 +68,17 @@ function subscribeStandaloneDisplay(): () => void {
  * schlaegt das Schreiben in `localStorage` fehl, bleibt die Sitzung bestehen,
  * die eben angelegte Kopplung wird best effort zurueckgezogen, und die Person
  * sieht eine sichtbare Meldung statt unbemerkt abgemeldet im Kiosk zu landen.
+ *
+ * Nach dem Speichern bestaetigt `attemptSignOut()` auch das Abmelden selbst
+ * (Abschlussreview-Befund 1, final-fix-findings.md): Better-Auth wirft bei
+ * `signOut()` nicht, sondern liefert `{ error }` -- ein ungeprueftes
+ * `await authClient.signOut()` navigierte trotz gescheitertem Abmelden nach
+ * `/scheibe`, das Admin-Session-Cookie lebte auf dem oeffentlichen Tablet
+ * weiter. Zusaetzlich prueft `getSession()` nach einem fehlerfreien
+ * `signOut()` gegen, ob tatsaechlich keine Sitzung mehr besteht (etwa bei
+ * einem Race mit einer parallelen Anfrage). Schlaegt eine der beiden Pruefungen
+ * fehl, bleibt die Seite stehen, zeigt eine Meldung und erlaubt eine gezielte
+ * Wiederholung -- die Kopplung selbst bleibt dabei gueltig.
  */
 export function BoardDevicesSection({ organizationId, organizationName, role }: {
   readonly organizationId: string;
@@ -100,6 +113,30 @@ export function BoardDevicesSection({ organizationId, organizationName, role }: 
     await queryClient.invalidateQueries({ queryKey: ["board-devices", organizationId] });
   };
 
+  const [signOutFailed, setSignOutFailed] = useState(false);
+
+  /**
+   * Abmelden und erst danach in den Kiosk wechseln -- siehe JSDoc oben.
+   * Wird sowohl nach erfolgreicher Einrichtung als auch vom
+   * «Abmelden wiederholen»-Knopf aufgerufen.
+   */
+  const attemptSignOut = async (): Promise<void> => {
+    const signOutResult = await authClient.signOut();
+    if (signOutResult.error !== null) {
+      setSignOutFailed(true);
+      return;
+    }
+    // Best effort: schlaegt diese Nachfrage selbst fehl, blockiert sie den
+    // ansonsten erfolgreichen Abmelde-Vorgang nicht zusaetzlich.
+    const sessionResult = await authClient.getSession().catch(() => null);
+    if (sessionResult !== null && sessionResult.error === null && sessionResult.data !== null) {
+      setSignOutFailed(true);
+      return;
+    }
+    setSignOutFailed(false);
+    router.replace("/scheibe");
+  };
+
   const pairDevice = useMutation({
     mutationFn: (board: BoardResponse) =>
       apiRequest({
@@ -132,8 +169,8 @@ export function BoardDevicesSection({ organizationId, organizationName, role }: 
         setStorageFailed(true);
         return;
       }
-      await authClient.signOut();
-      router.replace("/scheibe");
+      setSignOutFailed(false);
+      await attemptSignOut();
     },
   });
   const revokeDevice = useMutation({
@@ -164,6 +201,7 @@ export function BoardDevicesSection({ organizationId, organizationName, role }: 
 
   const startPairing = (board: BoardResponse) => {
     setStorageFailed(false);
+    setSignOutFailed(false);
     pairDevice.reset();
     pairDevice.mutate(board);
   };
@@ -177,6 +215,13 @@ export function BoardDevicesSection({ organizationId, organizationName, role }: 
       </p>
       {storageFailed ? (
         <p className="text-body text-rose-300" role="alert">{STORAGE_FAILED_MESSAGE}</p>
+      ) : signOutFailed ? (
+        <div className="space-y-2">
+          <p className="text-body text-rose-300" role="alert">{SIGN_OUT_FAILED_MESSAGE}</p>
+          <Button onClick={() => void attemptSignOut()} type="button" variant="outline">
+            Abmelden wiederholen
+          </Button>
+        </div>
       ) : pairDevice.isError ? (
         <p className="text-body text-rose-300" role="alert">{userFacingErrorMessage(pairDevice.error)}</p>
       ) : null}
