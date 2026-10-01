@@ -978,10 +978,11 @@ export class MatchesRepository {
           ),
         )
         .for("update");
-      // Reglement 2.2.9: das Entscheidungsdoppel beruht auf dem Stand der
-      // regulaeren Spiele. Ist es angesetzt, gespielt oder kampflos gewertet,
-      // wird zuerst das Doppel korrigiert. Ein als nicht gebraucht
-      // gestrichenes Doppel (CANCELLED) geht unten zurueck auf WAITING.
+      // Reglement 2.2.2 und A1.4: das Entscheidungsdoppel (sudden death) baut
+      // auf dem Stand der regulaeren Spiele auf. Ist es angesetzt, gespielt
+      // oder kampflos gewertet, wird zuerst das Doppel korrigiert. Ein als
+      // nicht gebraucht gestrichenes Doppel (CANCELLED) geht unten zurueck
+      // auf WAITING.
       if (
         slot.role !== "DECIDER" &&
         deciders.some((decider) => ["IN_PROGRESS", "COMPLETED", "WALKOVER"].includes(decider.status))
@@ -996,6 +997,20 @@ export class MatchesRepository {
         .for("update")
         .limit(1);
       if (match === undefined || match.status !== "COMPLETED") return "slot-not-correctable";
+
+      // Die Korrektur traegt ihre commandId auch in den Scoringstrom
+      // (`score_commands`, global eindeutig). Diese Pruefung muss vor
+      // `planResultReopen` laufen: eine commandId, die fuer DIESES Match schon
+      // als Visit verwendet wurde, waere der Scoring Engine sonst ein
+      // Duplikat und ergaebe ueber deren projizierten (abgeschlossenen)
+      // Zustand faelschlich SLOT_NOT_CORRECTABLE statt COMMAND_ID_ALREADY_USED.
+      const [usedForScoring] = await transaction
+        .select({ commandId: scoreCommands.commandId })
+        .from(scoreCommands)
+        .where(eq(scoreCommands.commandId, input.data.commandId))
+        .limit(1);
+      if (usedForScoring !== undefined) return "command-id-reused";
+
       const plan = await this.planResultReopen(transaction, input.organizationId, match, input.data.commandId);
       if (plan === null) return "slot-not-correctable";
 
@@ -1019,16 +1034,6 @@ export class MatchesRepository {
       const activePlayerIds = await loadActivePlayerIds(transaction, input.organizationId);
       if (participantIds.some((playerId) => activePlayerIds.has(playerId))) return "player-busy";
 
-      // Die Korrektur traegt ihre commandId auch in den Scoringstrom
-      // (`score_commands`, global eindeutig). Ist sie dort schon vergeben,
-      // gehoert sie zu einem anderen Kommando.
-      const [usedForScoring] = await transaction
-        .select({ commandId: scoreCommands.commandId })
-        .from(scoreCommands)
-        .where(eq(scoreCommands.commandId, input.data.commandId))
-        .limit(1);
-      if (usedForScoring !== undefined) return "command-id-reused";
-
       const now = new Date();
       const nextEncounterVersion = encounter.version + 1;
       // Status und Resultat fallen in einer Anweisung:
@@ -1048,6 +1053,7 @@ export class MatchesRepository {
           updatedAt: now,
         })
         .where(and(eq(encounters.organizationId, input.organizationId), eq(encounters.id, input.encounterId)));
+      const reopenedDeciderSlotIds: string[] = [];
       if (slot.role !== "DECIDER") {
         // Ergibt die Korrektur wieder kein Unentschieden, streicht
         // `updateEncounterProgress` das Doppel beim Abschluss erneut.
@@ -1056,6 +1062,7 @@ export class MatchesRepository {
             .update(encounterSlots)
             .set({ status: "WAITING", version: decider.version + 1, updatedAt: now })
             .where(and(eq(encounterSlots.organizationId, input.organizationId), eq(encounterSlots.id, decider.id)));
+          reopenedDeciderSlotIds.push(decider.id);
         }
       }
       await reopenPlayedEncounterSlot(transaction, {
@@ -1069,7 +1076,7 @@ export class MatchesRepository {
       });
       await this.applyResultReopen(
         transaction,
-        { organizationId: input.organizationId, match, auth: input.auth, audit: input.audit },
+        { organizationId: input.organizationId, match, auth: input.auth, audit: input.audit, now },
         plan,
       );
       await updateEncounterProgress(transaction, input.organizationId, input.encounterId, now);
@@ -1116,7 +1123,13 @@ export class MatchesRepository {
           },
           slot,
         },
-        newValue: { status: "RUNNING", slotId: slot.id, matchId: match.id, reason: input.data.reason },
+        newValue: {
+          status: "RUNNING",
+          slotId: slot.id,
+          matchId: match.id,
+          reason: input.data.reason,
+          reopenedDeciderSlotIds,
+        },
         ip: input.audit.ip,
         userAgent: input.audit.userAgent,
         correlationId: input.audit.correlationId,
@@ -1188,15 +1201,20 @@ export class MatchesRepository {
       readonly match: typeof matches.$inferSelect;
       readonly auth: Principal;
       readonly audit: AuditContext;
+      /** Teilt sich den Zeitstempel mit dem Aufrufer, sofern er einen fuehrt
+       * (die Liga-Korrektur hat bereits ein `now`); ohne Angabe — wie bei der
+       * Turnier-Korrektur — erzeugt die Funktion ihr eigenes. */
+      readonly now?: Date;
     },
     plan: ResultReopenPlan,
   ): Promise<number> {
     const { organizationId, match } = input;
+    const now = input.now ?? new Date();
     const commandId = plan.undoCommand.commandId;
     const nextMatchVersion = match.version + 1;
     await transaction
       .update(visits)
-      .set({ revertedAt: new Date(), revertedByCommandId: commandId })
+      .set({ revertedAt: now, revertedByCommandId: commandId })
       .where(
         and(
           eq(visits.organizationId, organizationId),
@@ -1232,7 +1250,7 @@ export class MatchesRepository {
         winnerSeat: null,
         completedAt: null,
         version: currentLeg.version + 1,
-        updatedAt: new Date(),
+        updatedAt: now,
       })
       .where(and(eq(legs.organizationId, organizationId), eq(legs.id, currentLeg.id)));
     await this.syncProjection(

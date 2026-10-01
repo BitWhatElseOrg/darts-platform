@@ -9,6 +9,7 @@ import {
   boards,
   encounterSlots,
   encounters,
+  legs,
   matchParticipantPlayers,
   matches as matchesTable,
   memberships,
@@ -313,6 +314,16 @@ async function matchRow(matchId: string): Promise<typeof matchesTable.$inferSele
   return row;
 }
 
+/** Das wieder geoeffnete Leg eines korrigierten Matches (genau eines ist `IN_PROGRESS`). */
+async function reopenedLegRow(matchId: string): Promise<typeof legs.$inferSelect> {
+  const [row] = await databaseService.database
+    .select()
+    .from(legs)
+    .where(and(eq(legs.organizationId, organizationId), eq(legs.matchId, matchId), eq(legs.status, "IN_PROGRESS")));
+  if (row === undefined) throw new Error("Expected a reopened leg.");
+  return row;
+}
+
 async function visitRows(matchId: string): Promise<(typeof visits.$inferSelect)[]> {
   return databaseService.database
     .select()
@@ -488,7 +499,8 @@ describe("result correction of a completed league encounter", () => {
       matchId,
       boardId: boardIds[0],
     });
-    expect(await encounterRow(encounter.id)).toMatchObject({
+    const encounterAfter = await encounterRow(encounter.id);
+    expect(encounterAfter).toMatchObject({
       status: "RUNNING",
       result: null,
       resultType: null,
@@ -515,6 +527,11 @@ describe("result correction of a completed league encounter", () => {
     const reverted = (await visitRows(matchId)).find((visit) => visit.id === checkout.id);
     expect(reverted?.revertedAt).not.toBeNull();
     expect(reverted?.revertedByCommandId).toBe(commandId);
+    // `applyResultReopen` teilt sich denselben Zeitstempel mit der uebrigen
+    // Korrektur (Befund 7): Visit-Ruecknahme und Leg-Wiedereroeffnung tragen
+    // dasselbe `now` wie die Begegnung.
+    expect(reverted?.revertedAt?.getTime()).toBe(encounterAfter.updatedAt.getTime());
+    expect((await reopenedLegRow(matchId)).updatedAt.getTime()).toBe(encounterAfter.updatedAt.getTime());
     expect(await standingOf(encounter, homeTeamId)).toMatchObject({ played: 0, points: 0 });
 
     expect(await eventsOf(encounter.id, "ENCOUNTER_RESULT_CORRECTED")).toEqual([
@@ -542,7 +559,7 @@ describe("result correction of a completed league encounter", () => {
         encounter: { status: "COMPLETED", result: "HOME_WIN", resultType: "PLAYED", homePoints: 3, awayPoints: 0 },
         slot: { id: slotId, status: "COMPLETED", winnerSide: "HOME", resultType: "PLAYED", homeLegs: 1, awayLegs: 0 },
       },
-      newValue: { status: "RUNNING", slotId, matchId, reason: "Checkout falsch eingetragen." },
+      newValue: { status: "RUNNING", slotId, matchId, reason: "Checkout falsch eingetragen.", reopenedDeciderSlotIds: [] },
     });
     const slotAudits = await databaseService.database
       .select()
@@ -635,6 +652,18 @@ describe("result correction of a completed league encounter", () => {
 
     await correct(encounter, slotId);
     expect(await slotRow(deciderSlotId)).toMatchObject({ status: "WAITING" });
+    const audits = await databaseService.database
+      .select()
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.organizationId, organizationId),
+          eq(auditEvents.entityId, encounter.id),
+          eq(auditEvents.action, "ENCOUNTER_RESULT_CORRECTED"),
+        ),
+      );
+    expect(audits).toHaveLength(1);
+    expect(audits[0]?.newValue).toMatchObject({ reopenedDeciderSlotIds: [deciderSlotId] });
 
     await playOut(matchId, "HOME");
     expect(await slotRow(deciderSlotId)).toMatchObject({ status: "CANCELLED" });
@@ -766,6 +795,19 @@ describe("result correction of a completed league encounter", () => {
     expect(reverted).toHaveLength(1);
     expect(await eventsOf(encounter.id, "ENCOUNTER_RESULT_CORRECTED")).toHaveLength(1);
     expect(await matchRow(matchId)).toMatchObject({ status: "IN_PROGRESS" });
+  });
+
+  it("rejects a commandId already used as a visit on the same match, regardless of which match it belongs to", async () => {
+    const { encounter, slotId, matchId } = await completedEncounter();
+    const checkout = (await visitRows(matchId)).at(-1);
+    if (checkout === undefined) throw new Error("Expected a checkout visit.");
+    const before = await snapshot(encounter.id, matchId);
+
+    await expect(correct(encounter, slotId, { commandId: checkout.commandId })).rejects.toMatchObject({
+      status: 409,
+      response: { code: "COMMAND_ID_ALREADY_USED" },
+    });
+    expect(await snapshot(encounter.id, matchId)).toEqual(before);
   });
 
   it("requires encounter:manage", async () => {

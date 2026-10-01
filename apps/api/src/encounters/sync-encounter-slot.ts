@@ -140,9 +140,9 @@ export type ReopenEncounterSlotOutcome = "no-slot" | "slot-not-completed" | "enc
  *   widersprüchlicher Zustand, den ein Undo nicht still übergehen darf;
  * - die Begegnung COMPLETED oder CANCELLED ist (`"encounter-closed"`): Punkte und Resultat sind
  *   festgeschrieben, ein Undo darf sie nicht still zurückdrehen;
- * - ein Entscheidungsdoppel (Reglement 2.2.9) nicht mehr im Ausgangszustand
- *   steht. Der Decider-Slot entsteht mit der Begegnung als `WAITING` und
- *   verlässt diesen Zustand nur, wenn er angesetzt (IN_PROGRESS), gespielt
+ * - ein Entscheidungsdoppel (Reglement 2.2.2, A1.4) nicht mehr im
+ *   Ausgangszustand steht. Der Decider-Slot entsteht mit der Begegnung als
+ *   `WAITING` und verlässt diesen Zustand nur, wenn er angesetzt (IN_PROGRESS), gespielt
  *   (COMPLETED), per Walkover gewertet (WALKOVER) oder von
  *   `updateEncounterProgress` als nicht gebraucht gestrichen wird
  *   (CANCELLED). Jeder dieser Zustände beruht auf dem Stand der regulären
