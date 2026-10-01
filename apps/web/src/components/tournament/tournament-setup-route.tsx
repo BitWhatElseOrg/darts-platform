@@ -11,8 +11,9 @@ import { useTournamentOrganization } from "./use-tournament-organization";
 export function TournamentSetupRoute({ requestedOrganizationId }: { readonly requestedOrganizationId: string | undefined }) {
   const { query: organizationsQuery, organization } = useTournamentOrganization(requestedOrganizationId);
   const playersQuery = useQuery({
-    queryKey: ["players", organization?.id],
-    queryFn: ({ signal }) => apiRequest({ path: `/organizations/${organization?.id ?? ""}/players`, schema: playerListSchema, signal }),
+    // Mitglieder und Gäste: das Vereinsduell braucht beide, das klassische Turnier filtert selbst.
+    queryKey: ["players", organization?.id, "ALL"],
+    queryFn: ({ signal }) => apiRequest({ path: `/organizations/${organization?.id ?? ""}/players?kind=ALL`, schema: playerListSchema, signal }),
     enabled: organization !== null,
   });
   const boardsQuery = useQuery({
@@ -33,6 +34,7 @@ export function TournamentSetupRoute({ requestedOrganizationId }: { readonly req
       boards={(boardsQuery.data ?? []).filter((board) => board.status === "AVAILABLE")}
       key={organization.id}
       organizationId={organization.id}
+      organizationName={organization.name}
       players={(playersQuery.data ?? []).filter((player) => player.status === "ACTIVE")}
     />
   );
