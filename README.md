@@ -88,9 +88,9 @@ Papierhilfen durchzuführen. Der Vollausbau umfasst:
   Verein, Final mit optionalem Spiel um Platz 3. Die Vereinswertung (1 Punkt je
   gewonnenem Spiel) wird berechnet. Gastspieler anderer Vereine werden als
   kontolose Spieler (`kind = GUEST`) in der eigenen Organisation erfasst
-  (`POST /api/v1/players/guests`; die Spielerliste zeigt standardmässig nur
+  (`POST /api/v1/organizations/:organizationId/players/guests`; die HTTP-Spielerliste zeigt standardmässig nur
   Mitglieder, `?kind=GUEST|ALL` blendet Gäste ein). Vorschau über
-  `POST /api/v1/tournaments/club-duel-preview`, Details in
+  `POST /api/v1/organizations/:organizationId/tournaments/club-duel-preview`, Details in
   [ADR 0021](./docs/adr/0021-vereinsduell-rundenpaarung.md). Die Oberfläche
   folgt mit Plan 2; bis dahin nur per API. Die Datenschutzprüfung für
   Gastspieler ist offen.

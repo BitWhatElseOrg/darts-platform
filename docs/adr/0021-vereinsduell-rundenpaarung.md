@@ -61,16 +61,16 @@ Platz 3 (`SINGLE_ELIMINATION`). Engine: `packages/tournament-engine/src/club-due
   Zähler, der von den Spielen abweichen könnte.
 - **Gastspieler als `players.kind = 'GUEST'`** in der eigenen Organisation, mit
   `guest_club_name`, ohne Konto (DB-Check: `GUEST` ⇒ `user_id is null`).
-  Erfassung über `POST /api/v1/players/guests` (idempotent über `commandId`).
+  Erfassung über `POST /api/v1/organizations/:organizationId/players/guests` (idempotent über `commandId`).
   Die HTTP-Spielerliste zeigt standardmässig nur Mitglieder; `?kind=GUEST` oder
   `?kind=ALL` blenden Gastspieler ein. Kein organisationsübergreifendes Turnier.
-- **Korrektur-Sperre nach Paarung.** `club-duel-correction-lock.ts` lehnt die
+- **Korrektur-Sperre nach Paarung.** Der Service (`tournaments.service.ts`) lehnt die
   bestehende Resultatkorrektur mit 409 `CLUB_DUEL_ROUND_ALREADY_PAIRED` ab,
-  sobald die Phase nach dem Spiel feststeht (Folgerunde gepaart,
+  wenn das Prädikat aus `club-duel-correction-lock.ts` zutrifft, also sobald die Phase nach dem Spiel feststeht (Folgerunde gepaart,
   Finalrunde besetzt beziehungsweise Final aufgelöst). Die Prüfung läuft unter
   derselben Turniersperre, damit zwischen Prüfung und Korrektur keine Paarung
   entsteht. Final und Platz 3 bleiben korrigierbar.
-- **Vorschau** über eigene Route `POST …/tournaments/club-duel-preview`. Die
+- **Vorschau** über eigene Route `POST /api/v1/organizations/:organizationId/tournaments/club-duel-preview`. Die
   klassische Strukturvorschau akzeptiert `CLUB_DUEL` bewusst nicht (400).
 - **Lesepfad:** `club-duel-projection.ts` liefert den Block `clubDuel`
   (Ranglisten, Pausierende, Finalrunde, Vereinswertung) im Turnier-Dashboard,
