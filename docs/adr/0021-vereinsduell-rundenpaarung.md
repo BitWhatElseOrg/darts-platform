@@ -111,6 +111,44 @@ Platz 3 (`SINGLE_ELIMINATION`). Engine: `packages/tournament-engine/src/club-due
   HTTP 500. Ein Datenfehler darf nicht alle Zuschauer aussperren; er bleibt im
   UI unsichtbar, ausser im Log.
 
+### Nacharbeit 02.10.2026
+
+- **Scheibe je Rundenspiel im Vertrag.** `clubRoundMatchSchema` trägt
+  `boardName` (nullable, Default `null`, additiv); `club-duel-projection.ts`
+  füllt es für Quali-Runden und Finals. Der Runden-Tab zeigt so die Scheibe
+  jedes laufenden oder gespielten Spiels ohne Zusatzabfrage.
+- **Abweichende Nutzdaten zur bekannten `commandId`: 409.** Die
+  Gastspieler-Erfassung liefert bei gleicher `commandId` und gleichen
+  Nutzdaten (Verein und Namensmenge, ohne Gross-/Kleinschreibung und
+  Randleerzeichen) die damals angelegten Gäste, bei abweichenden Nutzdaten
+  409 `COMMAND_PAYLOAD_MISMATCH` (`players.service.ts`). Gleichzeitige
+  Anfragen derselben `commandId` serialisiert eine transaktionsgebundene
+  Advisory-Sperre je Organisation und `commandId`
+  (`pg_advisory_xact_lock(hashtextextended('<organizationId>:<commandId>', 0))`
+  in `players.repository.ts`); der Unique-Index greift nur je Name, disjunkte
+  Namensmengen hätten sonst zwei Gastsets angelegt. Die `commandId` gilt je
+  Mandant.
+- **Pausenliste früherer Runden.** `pausedPlayerIds` einer abgeschlossenen
+  Runde zählt auch Spieler, die erst danach zurückgezogen wurden. Bezugszeit
+  ist die Paarung der Folgerunde (kleinstes `createdAt` ihrer Spiele); für die
+  letzte Quali-Runde der Abschluss ihres letzten Spiels, weil die Finalrunde in
+  derselben Transaktion besetzt wird (`completedAt`; sind alle Spiele
+  abgesagt, ersatzweise das kleinste `updatedAt` der Finalrunde). Für die
+  laufende Runde zählt nur der heutige Status.
+- **Ereignis beim Besetzen einer Phase.** Werden `SIDE_RANK`-Platzhalter von
+  Finalrunde oder Final aufgelöst, schreibt `advance-club-duel.ts` in derselben
+  Transaktion ein Outbox-Ereignis und einen Audit-Eintrag
+  `TOURNAMENT_PHASE_RESOLVED` (Nutzdaten: `tournamentId`, `stageKey`,
+  `resolvedMatchIds`). Realtime sendet erst nach dem Commit.
+- **Query-Parameter mit eigenem Fehlercode.** `parseQuery`
+  (`common/parse-query.ts`) validiert Query-Parameter, derzeit `?kind=` der
+  Spielerliste, und antwortet bei ungültigen Werten mit 400 `INVALID_QUERY`;
+  die Meldung nennt den Parameter statt «body».
+- **Formatprüfung vor der Sperre.** `advanceClubDuel` liest das Format zuerst
+  ohne Sperre und nimmt die Turnierzeile nur bei `CLUB_DUEL` `FOR UPDATE`. Das
+  Format ändert sich nach der Anlage nicht; klassische Turniere sperren die
+  Turnierzeile hier deshalb nicht.
+
 ## Verworfen
 
 - **Encounter-Modell (Liga).** Es bildet Mannschaftsbegegnungen mit
@@ -140,5 +178,4 @@ Platz 3 (`SINGLE_ELIMINATION`). Engine: `packages/tournament-engine/src/club-due
   trifft dazu keine Aussage.
 - **Nicht im Umfang:** mehr als zwei Vereine, Teams als Teilnehmer, Spielmodus je
   Phase.
-- **Plan 2 (Web)** folgt: Erstellen, Turnieransicht, Beamer. Bis dahin ist das
-  Format nur über die API nutzbar.
+- **Plan 2 (Web)** ist umgesetzt (PR #97): Erstellen, Turnieransicht, Beamer.
