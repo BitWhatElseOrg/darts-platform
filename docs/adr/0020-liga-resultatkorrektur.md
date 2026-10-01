@@ -28,8 +28,9 @@ diesen Mechanismus auf die Begegnung.
   Scoring Engine und könnte ein Resultat erzeugen, das kein gültiger
   Dartverlauf je ergeben hätte.
 - **Umfang: jedes gespielte Spiel einer abgeschlossenen Begegnung**, mit
-  einer Ausnahme nach Reglement 2.2.9: Das Entscheidungsdoppel beruht auf dem
-  Stand der regulären Spiele. Ist es angesetzt (`IN_PROGRESS`), gespielt
+  einer Ausnahme nach Reglement 2.2.2 und A1.4: Bei 9:9 entscheidet ein
+  Entscheidungsdoppel (sudden death) mit Zusatzpunkt, und dieses Doppel baut
+  auf dem Stand der regulären Spiele auf. Ist es angesetzt (`IN_PROGRESS`), gespielt
   (`COMPLETED`) oder kampflos gewertet (`WALKOVER`), muss zuerst das Doppel
   selbst korrigiert werden (`DECIDER_CORRECTION_REQUIRED`) — sonst stünde ein
   Entscheidungsdoppel neben regulären Spielen, deren Korrektur seinen eigenen
@@ -79,6 +80,18 @@ diesen Mechanismus auf die Begegnung.
   (`RUNNING`) fällt automatisch aus der Wertung, bis
   `updateEncounterProgress` sie nach dem nächsten Checkout erneut
   abschliesst und die Punkte aus dem neuen Resultat herleitet.
+- **Bewusste Abweichung vom Reglement (AGENTS.md §6).** Reglement 2.4.1 sagt,
+  ein von beiden Captains unterschriebener Spielrapport sei gültig und könne
+  nicht mehr angefochten werden; Reglement 2.6.1 sieht dafür den Protest beim
+  Sportkoordinator des VFC vor, einzureichen innert der dort gesetzten Frist.
+  Diese Korrektur ist kein Protestentscheid und ersetzt keinen der beiden
+  Wege: Sie ist eine auditierte Erfassungskorrektur durch den Verein (Tenant)
+  selbst — der elektronische Spielbericht wird berichtigt, nicht neu
+  verhandelt. Spielrapport-Unterschrift (2.4.1) und Protestfrist (2.6.1)
+  bleiben Sache des VFC beziehungsweise der Captains; jede Korrektur trägt
+  ihren Grund im Audit nachvollziehbar nach. Eine eigene zeitliche
+  Begrenzung setzt die Plattform dafür bewusst nicht (siehe «Bekannte
+  Grenzen»).
 
 ## Verworfen
 
@@ -114,6 +127,14 @@ diesen Mechanismus auf die Begegnung.
     reguläres Spiel dieser Begegnung mehr korrigieren.
   - Keine zeitliche Begrenzung der Korrektur — eine Begegnung bleibt
     beliebig lange nach Spielende korrigierbar.
+  - Ist die Scheibe des Matches nicht mehr `AVAILABLE` (zum Beispiel
+    stillgelegt), ist das Spiel nicht korrigierbar — die Korrektur öffnet das
+    Match auf derselben Scheibe wieder und kann es nicht auf eine andere
+    verlegen.
+  - Nach der Korrektur ist die Scheibe belegt (`IN_USE`), bis neu gescort
+    oder das Spiel freigegeben beziehungsweise abgebrochen wird. Ein
+    Scheiben-Tablet an dieser Scheibe übernimmt das wieder geöffnete Spiel
+    automatisch (ADR 0019).
 - **Nicht umgesetzt:** direktes Eintragen eines Resultats ohne Neu-Scoren,
   Korrektur von Walkover/Forfait, zeitliche Begrenzung der Korrektur (alle
   drei bewusst ausserhalb dieser Spec, siehe «Nicht Teil dieser Spec»).

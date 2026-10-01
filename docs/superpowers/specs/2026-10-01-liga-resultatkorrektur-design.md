@@ -28,6 +28,12 @@ stimmen danach ohne weiteren Schritt.
 | Umfang | Jedes gespielte Spiel einer abgeschlossenen Begegnung. Ausnahme: ein reguläres Spiel, nachdem das Entscheidungsdoppel gespielt wurde oder läuft – dann zuerst das Doppel korrigieren. Walkover und Forfait sind ausgenommen. |
 | Recht | `encounter:manage` (wie Start, Walkover, Forfait, Absage). |
 
+Bewusste Abweichung vom Reglement (AGENTS.md §6): Reglement 2.4.1 (ein von
+beiden Captains unterschriebener Spielrapport ist gültig und nicht mehr
+anfechtbar) und 2.6.1 (Protest beim Sportkoordinator des VFC) bleiben
+unberührt. Diese Korrektur ist kein Protestentscheid, sondern eine auditierte
+Erfassungskorrektur durch den Verein selbst — Begründung in ADR 0020.
+
 ## Grundlage im Bestand
 
 - Die Tabelle (`CompetitionsService.standings`) und die Einzelrangliste rechnet
