@@ -140,6 +140,9 @@ const bodies: Record<string, object> = {
   "POST /api/v1/organizations/:organizationId/tournaments/structure-preview": {
     format: "GROUPS_THEN_KNOCKOUT", participantCount: 8, groupCount: 2, qualifyPerGroup: 2, knockoutSize: 4,
   },
+  "POST /api/v1/organizations/:organizationId/tournaments/club-duel-preview": {
+    sideACount: 4, sideBCount: 4, qualifyingRounds: 2, finalRoundSize: 2, thirdPlaceMatch: true, boardCount: 2, bestOfLegs: 3,
+  },
   "POST /api/v1/organizations/:organizationId/tournaments/advanced-format-preview": {
     participantCount: 8, competitorKind: "PLAYER", bestOfLegs: 5, bestOfSets: 1,
     stages: [{ key: "group", type: "ROUND_ROBIN", advance: 4 }],

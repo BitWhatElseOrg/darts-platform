@@ -10,6 +10,7 @@ import { evaluateMatchReadiness } from "@darts-platform/scheduling-engine";
 import {
   calculateGroupStandings,
   generateDoubleElimination,
+  previewClubDuel,
   previewTournamentStructure,
   TournamentValidationError,
   validateStageComposition,
@@ -19,10 +20,13 @@ import {
   publicTournamentDashboardSchema,
   tournamentDashboardSchema,
   advancedFormatPreviewSchema,
+  clubDuelPreviewSchema,
   tournamentListSchema,
   tournamentStructurePreviewSchema,
   tournamentSummarySchema,
   type AssignMatchInput,
+  type ClubDuelPreviewInput,
+  type ClubDuelPreviewResponse,
   type AdvancedFormatPreview,
   type AdvancedFormatPreviewInput,
   type CorrectTournamentResultInput,
@@ -132,6 +136,19 @@ export class TournamentsService {
     });
   }
 
+  public async clubDuelPreview(input: {
+    readonly organizationId: string;
+    readonly data: ClubDuelPreviewInput;
+    readonly auth: AuthContext;
+  }): Promise<ClubDuelPreviewResponse> {
+    await this.require(input, "tournament:read");
+    try {
+      return clubDuelPreviewSchema.parse(previewClubDuel(input.data));
+    } catch (error) {
+      this.rethrowDomainError(error);
+    }
+  }
+
   public async create(input: {
     readonly organizationId: string;
     readonly data: CreateTournamentInput;
@@ -202,6 +219,7 @@ export class TournamentsService {
         displayName: participant.displayName,
         seed: participant.seed,
         status: participant.status,
+        side: participant.side,
       })),
       boards: dashboard.boards.map(({ blockedReason, ...board }) => {
         void blockedReason;
@@ -214,6 +232,7 @@ export class TournamentsService {
       groups: dashboard.groups,
       bracket: dashboard.bracket,
       recentResults: dashboard.recentResults,
+      clubDuel: dashboard.clubDuel,
       generatedAt: dashboard.generatedAt,
     });
   }
@@ -679,7 +698,9 @@ export class TournamentsService {
         status: participant.status,
         withdrawnAt: participant.withdrawnAt,
         withdrawalReason: participant.withdrawalReason,
+        side: participant.side === "A" || participant.side === "B" ? participant.side : null,
       })),
+      clubDuel: null,
       boards,
       queue,
       conflicts,

@@ -46,6 +46,7 @@ describe("PublicTournamentsController", () => {
     groups: [],
     bracket: [],
     recentResults: [],
+    clubDuel: null,
     generatedAt: new Date("2026-09-07T12:00:00.000Z"),
   });
 

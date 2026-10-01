@@ -21,7 +21,9 @@ import {
   tournamentStages,
 } from "@darts-platform/database";
 import {
+  CLUB_DUEL_STAGE_KEYS,
   createTournamentPlan,
+  planClubDuel,
   resolveTournamentWithdrawals,
   TournamentValidationError,
   type KnockoutParticipantReference,
@@ -30,6 +32,8 @@ import {
 import type { TournamentVisibility } from "@darts-platform/domain";
 import type {
   AssignMatchInput,
+  CreateClassicTournamentInput,
+  CreateClubDuelTournamentInput,
   CreateTournamentInput,
   ReleaseBoardInput,
   TournamentSummary,
@@ -49,6 +53,7 @@ import type { AuditContext } from "../common/audit-context.js";
 import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
 import { DatabaseService } from "../database/database.service.js";
 import { abortScoringMatch } from "../matches/abort-match.js";
+import { clubDuelStageLabel } from "./club-duel-labels.js";
 import { resolveCompletedTournamentGroup } from "./resolve-completed-group.js";
 import { updateTournamentProgress } from "./update-tournament-progress.js";
 import { getWalkoverWithdrawnPlayerId } from "./walkover-provenance.js";
@@ -83,7 +88,9 @@ export interface TournamentDashboardData {
     readonly status: string;
     readonly withdrawnAt: Date | null;
     readonly withdrawalReason: string | null;
+    readonly side: string | null;
   }[];
+  readonly stages: readonly (typeof tournamentStages.$inferSelect)[];
   readonly boards: readonly {
     readonly boardId: string;
     readonly boardName: string;
@@ -107,6 +114,8 @@ function playerIdFrom(reference: KnockoutParticipantReference | null): string | 
 }
 
 function stageLabel(match: PlannedMatch, groupLabels: ReadonlyMap<string, string>): string {
+  const clubDuelLabel = clubDuelStageLabel(match);
+  if (clubDuelLabel !== null) return clubDuelLabel;
   if (match.stageType === "GROUP" && match.groupKey !== null) {
     return `Gruppe ${groupLabels.get(match.groupKey) ?? match.groupKey}`;
   }
@@ -300,6 +309,7 @@ export class TournamentsRepository {
     // Rundreise hinterher -- auf dem heissesten Leseweg der Turnieransicht.
     const [
       participantRows,
+      stageRows,
       boardRows,
       groupRows,
       groupParticipantRows,
@@ -316,6 +326,7 @@ export class TournamentsRepository {
             status: tournamentParticipants.status,
             withdrawnAt: tournamentParticipants.withdrawnAt,
             withdrawalReason: tournamentParticipants.withdrawalReason,
+            side: tournamentParticipants.side,
           })
           .from(tournamentParticipants)
           .innerJoin(
@@ -332,6 +343,16 @@ export class TournamentsRepository {
             ),
           )
           .orderBy(asc(tournamentParticipants.seed)),
+        this.databaseService.database
+          .select()
+          .from(tournamentStages)
+          .where(
+            and(
+              eq(tournamentStages.organizationId, organizationId),
+              eq(tournamentStages.tournamentId, tournamentId),
+            ),
+          )
+          .orderBy(asc(tournamentStages.sequence)),
         this.databaseService.database
           .select({
             boardId: tournamentBoards.boardId,
@@ -390,6 +411,7 @@ export class TournamentsRepository {
     return {
       tournament,
       participants: participantRows,
+      stages: stageRows,
       boards: boardRows,
       groups: groupRows,
       groupParticipants: groupParticipantRows,
@@ -402,6 +424,47 @@ export class TournamentsRepository {
   public async create(input: {
     readonly organizationId: string;
     readonly data: CreateTournamentInput;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<string> {
+    if (input.data.format === "CLUB_DUEL") return this.createClubDuel({ ...input, data: input.data });
+    return this.createClassic({ ...input, data: input.data });
+  }
+
+  /** Spieler und Scheiben eines neuen Turniers: aktiv, verfuegbar, eigene Organisation. */
+  private async assertParticipantsAndBoards(
+    transaction: DatabaseTransaction,
+    organizationId: string,
+    playerIds: readonly string[],
+    boardIds: readonly string[],
+  ): Promise<void> {
+    const [playerRows, boardRows] = await Promise.all([
+      transaction
+        .select({ id: players.id, status: players.status })
+        .from(players)
+        .where(and(eq(players.organizationId, organizationId), inArray(players.id, [...playerIds]))),
+      transaction
+        .select({ id: boards.id, status: boards.status })
+        .from(boards)
+        .where(and(eq(boards.organizationId, organizationId), inArray(boards.id, [...boardIds]))),
+    ]);
+    if (playerRows.length !== playerIds.length || playerRows.some((player) => player.status !== "ACTIVE")) {
+      throw new TournamentValidationError(
+        "INVALID_TOURNAMENT_PARTICIPANTS",
+        "Every participant must be active and belong to the organization.",
+      );
+    }
+    if (boardRows.length !== boardIds.length || boardRows.some((board) => board.status !== "AVAILABLE")) {
+      throw new TournamentValidationError(
+        "INVALID_TOURNAMENT_BOARDS",
+        "Every board must be available and belong to the organization.",
+      );
+    }
+  }
+
+  private async createClassic(input: {
+    readonly organizationId: string;
+    readonly data: CreateClassicTournamentInput;
     readonly auth: AuthContext;
     readonly audit: AuditContext;
   }): Promise<string> {
@@ -424,44 +487,12 @@ export class TournamentsRepository {
     });
 
     return this.databaseService.database.transaction(async (transaction) => {
-      const [playerRows, boardRows] = await Promise.all([
-        transaction
-          .select({ id: players.id, status: players.status })
-          .from(players)
-          .where(
-            and(
-              eq(players.organizationId, input.organizationId),
-              inArray(players.id, input.data.participantIds),
-            ),
-          ),
-        transaction
-          .select({ id: boards.id, status: boards.status })
-          .from(boards)
-          .where(
-            and(
-              eq(boards.organizationId, input.organizationId),
-              inArray(boards.id, input.data.boardIds),
-            ),
-          ),
-      ]);
-      if (
-        playerRows.length !== input.data.participantIds.length ||
-        playerRows.some((player) => player.status !== "ACTIVE")
-      ) {
-        throw new TournamentValidationError(
-          "INVALID_TOURNAMENT_PARTICIPANTS",
-          "Every participant must be active and belong to the organization.",
-        );
-      }
-      if (
-        boardRows.length !== input.data.boardIds.length ||
-        boardRows.some((board) => board.status !== "AVAILABLE")
-      ) {
-        throw new TournamentValidationError(
-          "INVALID_TOURNAMENT_BOARDS",
-          "Every board must be available and belong to the organization.",
-        );
-      }
+      await this.assertParticipantsAndBoards(
+        transaction,
+        input.organizationId,
+        input.data.participantIds,
+        input.data.boardIds,
+      );
 
       const initialStatus =
         input.data.format === "SINGLE_ELIMINATION" ? "KNOCKOUT" : "GROUP_STAGE";
@@ -669,6 +700,140 @@ export class TournamentsRepository {
         entityType: "Tournament",
         entityId: created.id,
         newValue: created,
+        ip: input.audit.ip,
+        userAgent: input.audit.userAgent,
+        correlationId: input.audit.correlationId,
+      });
+      return created.id;
+    });
+  }
+
+  private async createClubDuel(input: {
+    readonly organizationId: string;
+    readonly data: CreateClubDuelTournamentInput;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<string> {
+    const engineParticipants = input.data.participants.map((participant, index) => ({
+      playerId: participant.playerId,
+      seed: index + 1,
+      side: participant.side,
+    }));
+    const plan = planClubDuel({
+      participants: engineParticipants,
+      qualifyingRounds: input.data.qualifyingRounds,
+      finalRoundSize: input.data.finalRoundSize,
+      thirdPlaceMatch: input.data.thirdPlaceMatch,
+    });
+
+    return this.databaseService.database.transaction(async (transaction) => {
+      await this.assertParticipantsAndBoards(
+        transaction,
+        input.organizationId,
+        engineParticipants.map((participant) => participant.playerId),
+        input.data.boardIds,
+      );
+
+      const [created] = await transaction
+        .insert(tournaments)
+        .values({
+          organizationId: input.organizationId,
+          name: input.data.name,
+          status: "GROUP_STAGE",
+          format: "CLUB_DUEL",
+          startingScore: input.data.startingScore,
+          inRule: input.data.inRule,
+          outRule: input.data.outRule,
+          maxRounds: input.data.maxRounds,
+          bestOfLegs: input.data.bestOfLegs,
+          legsToWinSet: Math.floor(input.data.bestOfLegs / 2) + 1,
+          setsToWin: Math.floor(input.data.bestOfSets / 2) + 1,
+          // Neutrale Werte: die Gruppen-Constraints bleiben unangetastet (Spec, Datenmodell).
+          groupCount: 1,
+          qualifyPerGroup: 1,
+          knockoutSize: 2,
+          seeding: "SEEDED",
+          sideAName: input.data.sideAName,
+          sideBName: input.data.sideBName,
+          qualifyingRounds: input.data.qualifyingRounds,
+          finalRoundSize: input.data.finalRoundSize,
+          thirdPlaceMatch: input.data.thirdPlaceMatch,
+          startsAt: input.data.startsAt,
+        })
+        .returning();
+      if (created === undefined) throw new Error("Tournament insert did not return a row.");
+
+      await transaction.insert(tournamentParticipants).values(
+        engineParticipants.map((participant) => ({
+          organizationId: input.organizationId,
+          tournamentId: created.id,
+          playerId: participant.playerId,
+          seed: participant.seed,
+          side: participant.side,
+        })),
+      );
+      await transaction.insert(tournamentBoards).values(
+        input.data.boardIds.map((boardId, index) => ({
+          organizationId: input.organizationId,
+          tournamentId: created.id,
+          boardId,
+          ringNumber: index + 1,
+        })),
+      );
+
+      const createdStages = await transaction
+        .insert(tournamentStages)
+        .values(
+          [
+            { key: CLUB_DUEL_STAGE_KEYS.qualifying, sequence: 1, name: "Qualifikation", type: "CLUB_SWISS", status: "OPEN" },
+            { key: CLUB_DUEL_STAGE_KEYS.finalRound, sequence: 2, name: "Finalrunde", type: "CLUB_CROSS_ROUND_ROBIN", status: "WAITING" },
+            { key: CLUB_DUEL_STAGE_KEYS.final, sequence: 3, name: "Final", type: "SINGLE_ELIMINATION", status: "WAITING" },
+          ].map((stage) => ({ ...stage, organizationId: input.organizationId, tournamentId: created.id })),
+        )
+        .returning();
+      const stageByKey = new Map(createdStages.map((stage) => [stage.key, stage]));
+
+      await transaction.insert(tournamentMatches).values(
+        plan.matches.map((match) => {
+          const stage = stageByKey.get(match.stageKey);
+          if (stage === undefined) throw new Error(`Stage ${match.stageKey} was not stored.`);
+          return {
+            organizationId: input.organizationId,
+            tournamentId: created.id,
+            stageId: stage.id,
+            groupId: null,
+            key: match.key,
+            stageLabel: stageLabel(match, new Map()),
+            round: match.round,
+            position: match.position,
+            status: match.state,
+            resultType: null,
+            participantOneId: playerIdFrom(match.participantOne),
+            participantTwoId: playerIdFrom(match.participantTwo),
+            participantOneRef: match.participantOne,
+            participantTwoRef: match.participantTwo,
+            winnerPlayerId: null,
+          };
+        }),
+      );
+
+      await transaction.insert(outboxEvents).values({
+        organizationId: input.organizationId,
+        aggregateType: "Tournament",
+        aggregateId: created.id,
+        eventType: "TOURNAMENT_CREATED",
+        payload: { tournamentId: created.id, format: created.format },
+      });
+      await transaction.insert(auditEvents).values({
+        organizationId: input.organizationId,
+        actorUserId: input.auth.user.id,
+        action: "TOURNAMENT_CREATED",
+        entityType: "Tournament",
+        entityId: created.id,
+        newValue: {
+          ...created,
+          roundOne: { pairings: plan.roundOne.pairings, pausedPlayerIds: plan.roundOne.pausedPlayerIds },
+        },
         ip: input.audit.ip,
         userAgent: input.audit.userAgent,
         correlationId: input.audit.correlationId,
