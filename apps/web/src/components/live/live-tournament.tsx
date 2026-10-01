@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { publicTournamentDashboardSchema, type PublicBoardSlot } from "@darts-platform/schemas";
+import { publicTournamentDashboardSchema, type ClubDuelDashboard, type PublicBoardSlot } from "@darts-platform/schemas";
+import { StateTag } from "@darts-platform/ui";
 import QRCode from "qrcode";
 import Image from "next/image";
 import Link from "next/link";
@@ -10,9 +11,13 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { apiRequest } from "@/lib/api-client";
 import { ApiClientError } from "@/lib/api-error";
+import { ClubDuelPanel, clubDuelTabForStatus } from "@/components/tournament/club-duel/club-duel-panel";
+import { matchOutcomeText, walkoverState } from "@/components/tournament/club-duel/club-match-outcome";
+import { ClubScoreBanner } from "@/components/tournament/club-duel/club-score-banner";
 import { buildBracketRounds, knockoutLeadsLiveView, type BracketNode, type BracketRound, type BracketSlot } from "@/lib/bracket-tree";
 import { recallDisplayKey, rememberDisplayKey } from "@/lib/display-key-storage";
 import { resolvePublicId } from "@/lib/live-address";
+import { participantNames, roundMatchStateLabel } from "@/lib/club-duel-view";
 import { liveDotClass } from "@/lib/live-status";
 import { tournamentWinner } from "@/lib/tournament-winner";
 import { connectTournamentRealtime, type RealtimeConnection } from "@/lib/realtime";
@@ -188,6 +193,22 @@ export function LiveTournament({ boardId, displayKeySecret, mode, publicId }: Li
       <BracketTree rounds={buildBracketRounds(dashboard.bracket)} />
     </LiveSection>
   ) : null;
+  const clubDuel = dashboard.clubDuel;
+  const clubDuelSection = clubDuel === null ? null : mode === "tv" ? (
+    <>
+      {/* Der Banner traegt Region und Ueberschrift «Vereinswertung» selbst. */}
+      <div className="mx-auto mt-7 max-w-[1500px]"><ClubScoreBanner clubDuel={clubDuel} size="tv" /></div>
+      <ClubMatchList clubDuel={clubDuel} empty="Kein Spiel läuft." participants={dashboard.participants} status="IN_PROGRESS" title="Laufende Spiele" />
+      <ClubMatchList clubDuel={clubDuel} empty="Keine Spiele bereit." participants={dashboard.participants} status="READY" title="Nächste Spiele" />
+    </>
+  ) : (
+    <>
+      <div className="mx-auto mt-7 max-w-[1500px]"><ClubScoreBanner clubDuel={clubDuel} /></div>
+      <LiveSection title="Vereinsduell">
+        <ClubDuelPanel clubDuel={clubDuel} defaultTab={clubDuelTabForStatus(dashboard.tournament.status)} participants={dashboard.participants} />
+      </LiveSection>
+    </>
+  );
 
   return (
     <main className={`sektorenring min-h-screen bg-sisal-200 text-chalk ${mode === "tv" ? "p-8 xl:p-12" : "p-4 sm:p-7"}`}>
@@ -229,6 +250,7 @@ export function LiveTournament({ boardId, displayKeySecret, mode, publicId }: Li
 
       {mode !== "board" ? (
         <>
+          {clubDuelSection}
           {knockoutFirst ? <>{bracketSection}{groupsSection}</> : <>{groupsSection}{bracketSection}</>}
           <details className="mx-auto mt-7 max-w-[1500px] overflow-hidden rounded-xl border border-sisal-400">
             <summary className="cursor-pointer px-4 py-3 text-caption font-semibold uppercase tracking-[0.12em] text-sisal-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green">
@@ -254,6 +276,52 @@ function LiveSection({ children, title }: { readonly children: ReactNode; readon
       <h2 className="mb-3 text-caption font-semibold uppercase tracking-[0.12em] text-sisal-500">{title}</h2>
       {children}
     </section>
+  );
+}
+
+type ClubLiveMatch = Pick<ClubDuelDashboard["rounds"][number]["matches"][number], "matchId" | "playerAId" | "playerBId" | "status" | "winnerPlayerId" | "legs">
+  & { readonly resultType?: ClubDuelDashboard["rounds"][number]["matches"][number]["resultType"] };
+
+/**
+ * Alle Spiele, die gerade auf einer Scheibe laufen oder als naechste anstehen:
+ * aktuelle Quali-Runde, Finalrunde, Final und Platz 3. Nur Auswahl nach dem
+ * Status, den der Server liefert -- ohne die Finalrunde stuende der Beamer
+ * dort leer, weil die letzte Quali-Runde dann abgeschlossen ist.
+ */
+function clubLiveMatches(clubDuel: ClubDuelDashboard): readonly ClubLiveMatch[] {
+  const currentRound = clubDuel.rounds.find((round) => round.round === clubDuel.currentRound);
+  const finals = [clubDuel.finals.final, clubDuel.finals.thirdPlace].filter((match) => match !== null);
+  return [...(currentRound?.matches ?? []), ...clubDuel.finalRound.matches, ...finals];
+}
+
+function ClubMatchList({ clubDuel, empty, participants, status, title }: {
+  readonly clubDuel: ClubDuelDashboard;
+  readonly empty: string;
+  readonly participants: readonly { readonly playerId: string; readonly displayName: string }[];
+  readonly status: "IN_PROGRESS" | "READY";
+  readonly title: string;
+}) {
+  const names = participantNames(participants);
+  const name = (playerId: string | null) => (playerId === null ? "offen" : (names.get(playerId) ?? "Unbekannt"));
+  const matches = clubLiveMatches(clubDuel).filter((match) => match.status === status);
+  return (
+    <LiveSection title={title}>
+      {matches.length === 0 ? <p className="text-body text-sisal-500">{empty}</p> : (
+        <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          {matches.map((match) => {
+            const walkover = match.resultType === "WALKOVER";
+            const state = walkover ? walkoverState : roundMatchStateLabel(match.status);
+            return (
+              <li className="flex items-center justify-between gap-3 rounded-lg border border-sisal-400 bg-sisal-100 px-4 py-3 text-title-sm" key={match.matchId}>
+                <span className="min-w-0 flex-1 truncate">{name(match.playerAId)} – {name(match.playerBId)}</span>
+                <span className="shrink-0 font-numerals tabular">{matchOutcomeText(match, walkover, name)}</span>
+                <StateTag label={state.label} tone={state.tone} />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </LiveSection>
   );
 }
 
