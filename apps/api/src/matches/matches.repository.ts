@@ -21,6 +21,7 @@ import { resolveCompletedTournamentGroup } from "../tournaments/resolve-complete
 import { updateTournamentProgress } from "../tournaments/update-tournament-progress.js";
 import {
   completeEncounterSlotForMatch,
+  reopenEncounterSlotForMatch,
   resetEncounterSlotForMatch,
 } from "../encounters/sync-encounter-slot.js";
 import { abortScoringMatch } from "./abort-match.js";
@@ -983,6 +984,7 @@ export class MatchesRepository {
       if (match.version !== input.data.expectedVersion) return "version-conflict";
       const [lease] = await transaction.select().from(boardControllerLeases).where(and(eq(boardControllerLeases.organizationId, input.organizationId), eq(boardControllerLeases.matchId, input.matchId))).for("update").limit(1);
       if (lease !== undefined && lease.expiresAt > new Date() && lease.controllerId !== input.data.controllerId) return "controller-conflict";
+      let slotReopened = false;
       if (match.status === "COMPLETED") {
         const [publishedTournamentResult] = await transaction
           .select({ id: tournamentMatches.id })
@@ -1019,6 +1021,25 @@ export class MatchesRepository {
             return "board-unavailable";
           }
         }
+        // Liga: der Slot geht mit dem Match zurueck auf IN_PROGRESS, sonst
+        // erreichte das korrigierte Resultat ihn beim naechsten Checkout nicht
+        // mehr. Eine abgeschlossene Begegnung oder ein schon angesetztes
+        // Entscheidungsdoppel lehnt das ab (Regel in `sync-encounter-slot.ts`).
+        // Die Sperren auf Begegnung und Slot haelt bereits
+        // `lockEncounterScoringContext` oben; Reihenfolge bleibt
+        // Encounter -> EncounterSlot -> Match.
+        const reopened = await reopenEncounterSlotForMatch(transaction, {
+          organizationId: input.organizationId,
+          matchId: input.matchId,
+          boardId: match.boardId,
+        });
+        if (reopened === "encounter-closed") {
+          throw new ScoringValidationError(
+            "ENCOUNTER_RESULT_REQUIRES_CORRECTION",
+            "Completed encounter results cannot be reopened by undo.",
+          );
+        }
+        slotReopened = reopened === "reopened";
       }
       const [latest] = await transaction.select().from(visits).where(and(eq(visits.organizationId, input.organizationId), eq(visits.matchId, input.matchId), isNull(visits.revertedAt))).orderBy(desc(visits.sequence)).limit(1);
       if (latest === undefined) throw new ScoringValidationError("NOTHING_TO_UNDO", "There is no visit to undo.");
@@ -1027,6 +1048,11 @@ export class MatchesRepository {
       const aggregate = this.aggregate(match, loadedSides, commandRows.map((row) => row.payload));
       const command: X01Command = { type: "UNDO_LAST_VISIT", commandId: input.data.commandId, targetCommandId: latest.commandId };
       const result = executeX01Command(aggregate, command);
+      // Ein geoeffneter Slot setzt ein wieder laufendes Match voraus; sonst
+      // stuenden Slot und Match auseinander. Der Fehler rollt alles zurueck.
+      if (slotReopened && result.state.status !== "IN_PROGRESS") {
+        throw new Error("Undo reopened an encounter slot without reopening its match.");
+      }
       const nextVersion = match.version + 1;
       await transaction.update(visits).set({ revertedAt: new Date(), revertedByCommandId: input.data.commandId }).where(and(eq(visits.organizationId, input.organizationId), eq(visits.id, latest.id)));
       await transaction.delete(legs).where(and(eq(legs.organizationId, input.organizationId), eq(legs.matchId, input.matchId), eq(legs.legNumber, result.state.legNumber + 1)));

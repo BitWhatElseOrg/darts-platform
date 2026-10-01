@@ -52,6 +52,8 @@ function localizedMessage(code: string): string {
       "Die Einzel bilden kein vollständiges Rundenturnier über alle Aufstellungspositionen.",
     LEAGUE_VALIDATION_ERROR: "Die Eingabe verletzt eine Ligaregel.",
     ENCOUNTER_CLOSED: "Die Begegnung ist beendet oder abgebrochen.",
+    ENCOUNTER_RESULT_REQUIRES_CORRECTION:
+      "Die Begegnung ist abgeschlossen. Ein Resultat lässt sich hier nicht mehr zurücknehmen.",
     ENCOUNTER_STATUS_INVALID: "Der Zustand der Begegnung lässt diesen Schritt nicht zu.",
     ENCOUNTER_SLOT_NOT_READY: "Dieses Spiel ist noch nicht bereit.",
     ENCOUNTER_SLOT_RUNNING: "Dieses Spiel läuft bereits.",
