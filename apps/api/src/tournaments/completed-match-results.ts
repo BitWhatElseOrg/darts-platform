@@ -17,6 +17,12 @@ export interface CompletedMatchResults {
 /** Gewonnene Legs einer Person in einem Scoring-Match; `undefined`, wenn unbekannt. */
 export type LegsOf = (scoringMatchId: string, playerId: string) => number | undefined;
 
+/** Kampfloser Sieg ohne Gegner (Vereinsduell: unbesetzter Finalrunden-Platz). */
+export interface UnopposedResult {
+  readonly type: "UNOPPOSED";
+  readonly winnerPlayerId: string;
+}
+
 /** Die Felder eines Turniermatches, die das Resultat bestimmen. */
 export type CompletedResultSource = Pick<
   TournamentMatchRow,
@@ -25,14 +31,14 @@ export type CompletedResultSource = Pick<
 
 /**
  * Reines Mapping eines Turniermatches auf sein Resultat: Walkover als 0:0 mit
- * Sieger, kampfloser Sieg ohne Gegner als `"unopposed"`, gespielte Matches mit
+ * Sieger, kampfloser Sieg ohne Gegner als `UNOPPOSED`, gespielte Matches mit
  * den Legs aus `legsOf`. `null`, wenn das Match (noch) kein verwertbares
  * Resultat traegt – der Lesepfad ueberspringt es, der Schreibpfad
  * (`loadCompletedMatchResults`) wertet das bei COMPLETED als Invariantenbruch.
  */
-export function toCompletedResult(match: CompletedResultSource, legsOf: LegsOf): GroupMatchResult | "unopposed" | null {
+export function toCompletedResult(match: CompletedResultSource, legsOf: LegsOf): GroupMatchResult | UnopposedResult | null {
   if (match.status !== "COMPLETED" || match.winnerPlayerId === null) return null;
-  if (match.participantOneId === null || match.participantTwoId === null) return match.resultType === "WALKOVER" ? "unopposed" : null;
+  if (match.participantOneId === null || match.participantTwoId === null) return match.resultType === "WALKOVER" ? { type: "UNOPPOSED", winnerPlayerId: match.winnerPlayerId } : null;
   if (match.resultType === "WALKOVER") {
     return { type: "WALKOVER", playerOneId: match.participantOneId, playerTwoId: match.participantTwoId, playerOneLegs: 0, playerTwoLegs: 0, winnerPlayerId: match.winnerPlayerId };
   }
@@ -73,10 +79,8 @@ export async function loadCompletedMatchResults(
     if (match.status !== "COMPLETED") continue;
     const result = toCompletedResult(match, legsOf);
     if (result === null) throw new Error("Completed tournament match invariant violated.");
-    if (result === "unopposed") {
-      // toCompletedResult liefert "unopposed" nur mit gesetztem Sieger.
-      if (match.winnerPlayerId === null) throw new Error("Completed tournament match invariant violated.");
-      unopposedWalkoverWinnerIds.push(match.winnerPlayerId);
+    if (result.type === "UNOPPOSED") {
+      unopposedWalkoverWinnerIds.push(result.winnerPlayerId);
       continue;
     }
     results.push(result);

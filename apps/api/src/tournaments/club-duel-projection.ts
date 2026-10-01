@@ -36,7 +36,7 @@ function toRoundMatch(match: MatchRow, sideOf: ReadonlyMap<string, ClubSide>, le
   const swapped = match.participantOneId !== null ? sideOf.get(match.participantOneId) === "B" : match.participantTwoId !== null && sideOf.get(match.participantTwoId) === "A";
   const [playerAId, playerBId] = swapped ? [match.participantTwoId, match.participantOneId] : [match.participantOneId, match.participantTwoId];
   const result = toCompletedResult(match, legsOf);
-  const legs = typeof result === "object" && result !== null && result.type === "PLAYED"
+  const legs = result?.type === "PLAYED"
     ? (swapped ? [result.playerTwoLegs, result.playerOneLegs] : [result.playerOneLegs, result.playerTwoLegs]) as [number, number]
     : null;
   return {
@@ -84,8 +84,8 @@ function collect(matches: readonly MatchRow[], legsOf: LegsOf): { results: ClubM
   for (const match of matches) {
     const result = toCompletedResult(match, legsOf);
     if (result === null) continue;
-    if (result === "unopposed") {
-      if (match.winnerPlayerId !== null) unopposedWalkoverWinnerIds.push(match.winnerPlayerId);
+    if (result.type === "UNOPPOSED") {
+      unopposedWalkoverWinnerIds.push(result.winnerPlayerId);
       continue;
     }
     results.push(result);
@@ -212,7 +212,7 @@ export function projectClubDuel(input: {
           playerBId: match.participantTwoId,
           status: match.status as "WAITING" | "READY" | "IN_PROGRESS" | "COMPLETED" | "BYE" | "CANCELLED",
           winnerPlayerId: match.winnerPlayerId,
-          legs: typeof result === "object" && result !== null && result.type === "PLAYED" ? [result.playerOneLegs, result.playerTwoLegs] : null,
+          legs: result?.type === "PLAYED" ? [result.playerOneLegs, result.playerTwoLegs] : null,
         };
       }),
     },
