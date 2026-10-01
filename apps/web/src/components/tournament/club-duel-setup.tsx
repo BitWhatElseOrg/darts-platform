@@ -199,8 +199,11 @@ export function ClubParticipantsSection({
               />
             </details>
           ) : null}
-          <GuestPlayersPanel clubName={sideBName} onCreated={onGuestsCreated} organizationId={organizationId} />
         </div>
+      </div>
+      {/* Unter beiden Spalten: mobil ohne Umschalten erreichbar. */}
+      <div className="mt-6">
+        <GuestPlayersPanel clubName={sideBName} onCreated={onGuestsCreated} organizationId={organizationId} />
       </div>
     </section>
   );

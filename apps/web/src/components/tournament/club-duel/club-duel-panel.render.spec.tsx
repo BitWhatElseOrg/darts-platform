@@ -217,12 +217,12 @@ describe("ClubDuelPanel – Tastatur und Randfälle", () => {
   });
 
   it("rundet die Legdifferenz symmetrisch: der Betrag zählt, das Vorzeichen folgt", () => {
-    const values = [0.25, -0.25, 0.05, -0.05, -0.04, 1.96];
+    const values = [0.25, -0.25, 0.05, -0.05, -0.04, 1.96, -0];
     const sideA = values.map((value, index) => ({ ...row(index + 1, id(100 + index), `P${index}`, "A", 1), legDifferencePerMatch: value, withdrawn: false }));
     render(createElement(ClubDuelPanel, { clubDuel: { ...clubDuel, standings: { ...clubDuel.standings, sideA } }, participants, defaultTab: "standings" }));
     fireEvent.click(screen.getByRole("radio", { name: "VFC" }));
     const cells = screen.getAllByRole("row").slice(1).map((tr) => tr.lastElementChild?.textContent);
-    expect(cells).toEqual(["+0.3", "-0.3", "+0.1", "-0.1", "0.0", "+2.0"]);
+    expect(cells).toEqual(["+0.3", "-0.3", "+0.1", "-0.1", "0.0", "+2.0", "0.0"]);
   });
 
   it("wählt den Tab passend zum Turnierstatus", () => {

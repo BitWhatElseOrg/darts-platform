@@ -62,20 +62,11 @@ const MESSAGES: Record<string, string> = {
   sideAName: "Trage den Namen des eigenen Vereins ein.",
   sideBName: "Trage den Namen des Gastvereins ein.",
   qualifyingRounds: "Die Qualifikation braucht 1 bis 15 Runden.",
+  // Nur der Bereich 2–6: die Seitenprüfung meldet das Schema auf `participants`.
   finalRoundSize: "Die Finalrunde braucht 2 bis 6 Spieler je Verein.",
   participants: "Jeder Verein braucht mindestens so viele Spieler, wie die Finalrunde Plätze hat.",
 };
 
-/**
- * Meldung zu einem Zod-Issue. `finalRoundSize` verletzt entweder den Bereich
- * 2–6 (`too_small`/`too_big`/Typfehler auf dem Feld selbst) oder die
- * Seitenprüfung (Refine mit Code `custom`); diese meldet das Schema heute auf
- * `participants`, trüge sie je den Pfad `finalRoundSize`, gilt ihre Meldung.
- */
-function contractMessage(key: string, issue: { readonly code: string; readonly message: string }): string {
-  if (key === "finalRoundSize" && issue.code === "custom") return MESSAGES.participants ?? issue.message;
-  return MESSAGES[key] ?? issue.message;
-}
 
 /** Auswahlfelder ohne fokussierbares Eingabeelement: der Sprung geht zur Meldung. */
 const SELECTION_KEYS = new Set(["participantIds", "participants", "boardIds"]);
@@ -247,7 +238,7 @@ export function SetupSheet({ organizationId, organizationName, players, boards }
       const next: Record<string, string> = {};
       parsed.error.issues.forEach((issue) => {
         const key = String(issue.path[0] ?? "form");
-        next[key] = contractMessage(key, issue);
+        next[key] = MESSAGES[key] ?? issue.message;
       });
       setContractErrors(next);
       revealInvalidField(String(parsed.error.issues[0]?.path[0] ?? "form"));

@@ -331,6 +331,8 @@ describe("SetupSheet: Vereinsduell", () => {
     expect(columnOf("Spieler VFC Testverein").classList.contains("hidden")).toBe(false);
     expect(columnOf("Spieler DC Musterdorf").classList.contains("hidden")).toBe(true);
     expect(columnOf("Spieler DC Musterdorf").classList.contains("lg:flex")).toBe(true);
+    // Die Gastspieler-Erfassung steht unter beiden Spalten, nicht in der ausgeblendeten B.
+    expect(screen.getByRole("button", { name: "Gastspieler erfassen" }).closest("[data-side]")).toBeNull();
 
     fireEvent.click(sideB);
     expect(sideB.getAttribute("aria-checked")).toBe("true");
