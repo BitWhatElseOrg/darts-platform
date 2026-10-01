@@ -17,6 +17,7 @@ export {
   type PlannedMatch,
   type PlannedStageType,
   type RoundRobinPairing,
+  type TournamentFormatKey,
   type TournamentPlan,
   type TournamentPlanInput,
   type TournamentStructurePreview,
