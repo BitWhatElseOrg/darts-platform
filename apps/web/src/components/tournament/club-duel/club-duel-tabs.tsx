@@ -76,7 +76,8 @@ export function ClubDuelTabs({ tabs, initial }: {
           role="tabpanel"
           tabIndex={0}
         >
-          {tab.id === active ? tab.panel : null}
+          {/* Alle Panels bleiben gemountet: der Zustand darin (etwa Gesamt/A/B der Rangliste) überlebt den Tabwechsel. */}
+          {tab.panel}
         </div>
       ))}
     </div>

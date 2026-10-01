@@ -64,7 +64,18 @@ describe("ClubDuelPanel", () => {
     expect(screen.getAllByRole("row")).toHaveLength(5); // Kopf + 4
     fireEvent.click(screen.getByRole("radio", { name: "DC Musterdorf" }));
     expect(screen.getAllByRole("row")).toHaveLength(3);
-    expect(screen.getByText(/Bia/).closest("tr")?.textContent).toContain("Ausgefallen");
+    // Alle Panels bleiben gemountet; gesucht wird im sichtbaren Panel.
+    expect(within(screen.getByRole("tabpanel", { name: "Rangliste" })).getByText(/Bia/).closest("tr")?.textContent).toContain("Ausgefallen");
+  });
+
+  it("behält die Ranglisten-Ansicht über einen Tabwechsel", () => {
+    render(createElement(ClubDuelPanel, { clubDuel, participants, defaultTab: "standings" }));
+    fireEvent.click(screen.getByRole("radio", { name: "DC Musterdorf" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Runden" }));
+    expect(screen.queryByRole("radio", { name: "DC Musterdorf" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Rangliste" }));
+    expect(screen.getByRole("radio", { name: "DC Musterdorf" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getAllByRole("row")).toHaveLength(3);
   });
 
   it("rendert die Finalrunde als Kreuztabelle mit Zeilen- und Spaltenköpfen", () => {
@@ -167,7 +178,7 @@ describe("ClubDuelPanel – Tastatur und Randfälle", () => {
     const sideB = clubDuel.standings.sideB.map((entry) => ({ ...entry, legDifferencePerMatch: entry.withdrawn ? -0.04 : entry.legDifferencePerMatch }));
     render(createElement(ClubDuelPanel, { clubDuel: { ...clubDuel, standings: { ...clubDuel.standings, sideB } }, participants, defaultTab: "standings" }));
     fireEvent.click(screen.getByRole("radio", { name: "DC Musterdorf" }));
-    const bia = screen.getByText(/Bia/).closest("tr") as HTMLElement;
+    const bia = within(screen.getByRole("tabpanel", { name: "Rangliste" })).getByText(/Bia/).closest("tr") as HTMLElement;
     expect(bia.getAttribute("data-qualified")).toBe("true");
     expect(bia.textContent).toContain("0.0");
     expect(bia.textContent).not.toContain("-0.0");
