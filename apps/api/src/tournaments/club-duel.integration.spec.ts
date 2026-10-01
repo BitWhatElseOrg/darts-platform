@@ -469,6 +469,36 @@ describe("Vereinsduell Ablauf", () => {
     expect(finals.filter((match) => match.resultType === "WALKOVER")).toHaveLength(1);
   }, 120_000);
 
+  it("liefert je Rundenspiel die Scheibe und behält Pausierende früherer Runden nach ihrem Rückzug", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 3, sideBCount: 2 }), auth, audit });
+    const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    expect(roundOne).toHaveLength(2);
+    const pausedInRoundOne = sideA.slice(0, 3).filter((id) => !roundOne.some((match) => match.participantOneId === id || match.participantTwoId === id));
+    expect(pausedInRoundOne).toHaveLength(1);
+    const boardNameOf = new Map<string, string>();
+    for (const [index, match] of roundOne.entries()) {
+      const boardId = boardIds[index] ?? boardIds[0];
+      if (!match.participantOneId || !match.participantTwoId) throw new Error("unexpected");
+      await playMatch(created.id, match.id, match.participantOneId, boardId);
+      boardNameOf.set(match.id, `Duell Board ${boardIds.indexOf(boardId) + 1}`);
+    }
+    const before = (await service.dashboard({ organizationId, tournamentId: created.id, auth })).clubDuel;
+    expect(before?.currentRound).toBe(2);
+    expect(before?.rounds[0]?.pausedPlayerIds).toEqual(pausedInRoundOne);
+    // Laufende, noch nicht gestartete Spiele haben keine Scheibe.
+    expect(before?.rounds[1]?.matches.every((match) => match.boardName === null)).toBe(true);
+
+    const [withdrawn] = pausedInRoundOne;
+    if (withdrawn === undefined) throw new Error("unexpected");
+    await withdraw(created.id, withdrawn);
+    const after = (await service.dashboard({ organizationId, tournamentId: created.id, auth })).clubDuel;
+    const roundOneView = after?.rounds[0];
+    expect(roundOneView?.matches.map((match) => [match.matchId, match.boardName]).sort()).toEqual([...boardNameOf.entries()].sort());
+    expect(roundOneView?.pausedPlayerIds).toEqual([withdrawn]);
+    // Aktuelle Runde: Zurückgezogene pausieren nicht.
+    expect(after?.rounds[1]?.pausedPlayerIds).not.toContain(withdrawn);
+  }, 120_000);
+
   it("beendet die Quali vorzeitig, wenn eine Seite keinen aktiven Spieler mehr hat, und besetzt alles kampflos", async () => {
     const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
     const [bOne, bTwo] = sideB;

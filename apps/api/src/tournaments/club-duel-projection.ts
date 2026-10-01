@@ -13,6 +13,7 @@ import { toCompletedResult, type LegsOf } from "./completed-match-results.js";
 import type { TournamentDashboardData } from "./tournaments.repository.js";
 
 type MatchRow = TournamentDashboardData["matches"][number];
+type ParticipantRow = TournamentDashboardData["participants"][number];
 
 function sideRankOf(reference: unknown): { readonly rank: number } | null {
   if (typeof reference !== "object" || reference === null) return null;
@@ -50,6 +51,16 @@ function toRoundMatch(match: MatchRow, sideOf: ReadonlyMap<string, ClubSide>, le
     // `boardId` bleibt nach dem Abschluss stehen (nur die Korrektur leert ihn).
     boardName: match.boardId === null ? null : boardNameOf.get(match.boardId) ?? null,
   };
+}
+
+/**
+ * Wer zum Zeitpunkt einer frueheren Runde aktiv war: heute aktiv oder erst
+ * nach der Paarung der Folgerunde zurueckgezogen (`followingRoundPairedAt`).
+ * Fuer die aktuelle Runde (`null`) zaehlt nur der heutige Status.
+ */
+function wasActive(participant: ParticipantRow, followingRoundPairedAt: Date | null): boolean {
+  if (participant.status === "ACTIVE") return true;
+  return followingRoundPairedAt !== null && participant.withdrawnAt !== null && participant.withdrawnAt > followingRoundPairedAt;
 }
 
 function collect(matches: readonly MatchRow[], legsOf: LegsOf): { results: ClubMatchResult[]; unopposedWalkoverWinnerIds: string[] } {
@@ -93,7 +104,6 @@ export function projectClubDuel(input: {
   const nameOf = (playerId: string) => names.get(playerId) ?? "Unbekannter Teilnehmer";
   const participants = input.data.participants.map((participant) => ({ playerId: participant.playerId, seed: participant.seed, side: toSide(participant.side) }));
   const withdrawnPlayerIds = input.data.participants.filter((participant) => participant.status === "WITHDRAWN").map((participant) => participant.playerId);
-  const activeIds = new Set(input.data.participants.filter((participant) => participant.status === "ACTIVE").map((participant) => participant.playerId));
   const sideOf = new Map(participants.map((participant) => [participant.playerId, participant.side]));
   const boardNameOf = new Map(input.data.boards.map((board) => [board.boardId, board.boardName]));
 
@@ -125,11 +135,17 @@ export function projectClubDuel(input: {
     const round = index + 1;
     const inRound = qualifyingMatches.filter((match) => match.round === round);
     const playing = new Set(inRound.flatMap((match) => [match.participantOneId, match.participantTwoId]));
+    const followingRound = qualifyingMatches.filter((match) => match.round === round + 1);
+    const followingRoundPairedAt = followingRound.length === 0
+      ? null
+      : new Date(Math.min(...followingRound.map((match) => match.createdAt.getTime())));
     return {
       round,
       matchIds: inRound.map((match) => match.id),
       matches: inRound.map((match) => toRoundMatch(match, sideOf, input.legsOf, boardNameOf)),
-      pausedPlayerIds: [...activeIds].filter((playerId) => !playing.has(playerId)),
+      pausedPlayerIds: input.data.participants
+        .filter((participant) => wasActive(participant, followingRoundPairedAt) && !playing.has(participant.playerId))
+        .map((participant) => participant.playerId),
     };
   });
 
