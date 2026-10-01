@@ -13,6 +13,7 @@ import { useState } from "react";
 import { encounterTally, slotAvailability } from "@/lib/encounter-view";
 import { matchScoreboardHref } from "@/lib/match-navigation";
 import { disciplineLabel, slotOutcomeLabel, slotStatusLabel, slotTone, variantLabel } from "@/lib/league-format";
+import { EncounterCorrection } from "./encounter-correction";
 
 export interface SlotListProps {
   readonly encounter: EncounterDetail;
@@ -24,6 +25,7 @@ export interface SlotListProps {
   readonly onAssign: (slotId: string, boardId: string) => void;
   readonly onRelease: (slotId: string) => void;
   readonly onWalkover: (slotId: string, winnerSide: EncounterSide, reason: string) => void;
+  readonly onCorrect: (slotId: string, reason: string) => void;
 }
 
 function names(players: readonly { readonly displayName: string }[]): string {
@@ -63,6 +65,7 @@ function SlotRow({
   encounter,
   freeBoards,
   onAssign,
+  onCorrect,
   onRelease,
   onWalkover,
   organizationId,
@@ -148,7 +151,7 @@ function SlotRow({
                     encounterId: encounter.id,
                   })}
                 >
-                  Scoreboard
+                  Zum Scoreboard
                 </Link>
               )}
               {canManage ? (
@@ -276,6 +279,15 @@ function SlotRow({
                 </Control>
               </form>
             </details>
+          ) : null}
+
+          {canManage &&
+          encounter.status === "COMPLETED" &&
+          slot.status === "COMPLETED" &&
+          slot.resultType === "PLAYED" ? (
+            <div className="mt-3 border-t border-sisal-300 pt-3">
+              <EncounterCorrection busy={busy} onCorrect={onCorrect} slotId={slot.id} />
+            </div>
           ) : null}
         </div>
       ) : null}

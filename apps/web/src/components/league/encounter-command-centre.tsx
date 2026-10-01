@@ -101,6 +101,14 @@ export function EncounterCommandCentre({
     void commands
       .run({ path: `${base}/forfeit`, body: { forfeitSide, reason }, announce: "Nichtantritt gewertet." })
       .then(refreshBoards);
+  const correct = (slotId: string, reason: string) =>
+    void commands
+      .run({
+        path: `${base}/result-corrections`,
+        body: { slotId, reason },
+        announce: "Spiel wieder geöffnet.",
+      })
+      .then(refreshBoards);
   const cancel = (reason: string) =>
     void commands
       .run({ path: `${base}/cancel`, body: { reason }, announce: "Begegnung abgesagt." })
@@ -213,6 +221,7 @@ export function EncounterCommandCentre({
             canScore={abilities.score}
             encounter={encounter}
             onAssign={assign}
+            onCorrect={correct}
             onRelease={release}
             onWalkover={walkover}
             organizationId={organizationId}
