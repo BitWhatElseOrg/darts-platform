@@ -2,6 +2,20 @@ import { z } from "zod";
 
 export const playerStatusSchema = z.enum(["ACTIVE", "INACTIVE"]);
 
+export const playerKindSchema = z.enum(["MEMBER", "GUEST"]);
+export const playerKindFilterSchema = z.enum(["MEMBER", "GUEST", "ALL"]).default("MEMBER");
+
+export const createGuestPlayersSchema = z
+  .object({
+    commandId: z.uuid(),
+    clubName: z.string().trim().min(1).max(120),
+    names: z.array(z.string().trim().min(1).max(255)).min(1).max(64),
+  })
+  .refine((value) => new Set(value.names.map((name) => name.toLowerCase())).size === value.names.length, {
+    message: "Jeder Name darf nur einmal vorkommen.",
+    path: ["names"],
+  });
+
 /**
  * Ein wirklich optionales Textfeld: fehlend, `null` und der Leerstring
  * bedeuten dasselbe. Formulare schicken fuer ein angetipptes und wieder
@@ -55,6 +69,8 @@ export const playerSchema = z.object({
   email: z.string().nullable(),
   externalReference: z.string().nullable(),
   status: playerStatusSchema,
+  kind: playerKindSchema,
+  guestClubName: z.string().nullable(),
   /**
    * Ob dem Spieler ein Konto zugeordnet ist. Bewusst ein Wahrheitswert und
    * nicht die `userId` oder die Kontoadresse: `player:read` haben auch
@@ -77,3 +93,6 @@ export const playerListSchema = z.array(playerSchema);
 export type CreatePlayerInput = z.infer<typeof createPlayerSchema>;
 export type UpdatePlayerInput = z.infer<typeof updatePlayerSchema>;
 export type PlayerResponse = z.infer<typeof playerSchema>;
+export type PlayerKind = z.infer<typeof playerKindSchema>;
+export type PlayerKindFilter = z.infer<typeof playerKindFilterSchema>;
+export type CreateGuestPlayersInput = z.infer<typeof createGuestPlayersSchema>;

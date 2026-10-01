@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { clubDuelDashboardSchema, createClubDuelTournamentSchema, tournamentStatusSchema } from "./index";
 import {
   createTournamentSchema,
   publicTournamentDashboardSchema,
@@ -92,10 +93,11 @@ describe("tournament disruption projection", () => {
   it("exposes withdrawn participants and walkover results", () => {
     const parsed = tournamentDashboardSchema.parse({
       tournament: { id: id(1), publicId: id(6), visibility: "PUBLIC", organizationId: id(2), name: "Cup", status: "KNOCKOUT", format: "SINGLE_ELIMINATION", version: 4, stageLabel: "K.-o.-Runde", startingScore: 501, inRule: "STRAIGHT", outRule: "DOUBLE", playedMatches: 1, totalMatches: 3, startsAt: new Date() },
-      participants: [{ playerId: id(3), displayName: "Alex", seed: 1, status: "WITHDRAWN", withdrawnAt: new Date(), withdrawalReason: "Verletzung" }],
+      participants: [{ playerId: id(3), displayName: "Alex", seed: 1, status: "WITHDRAWN", withdrawnAt: new Date(), withdrawalReason: "Verletzung", side: null }],
       boards: [], queue: [], conflicts: [], groups: [],
       bracket: [{ matchId: id(4), stageLabel: "K.-o. · Runde 1", round: 1, position: 1, status: "COMPLETED", resultType: "WALKOVER", participantNames: ["Alex", "Bea"], winnerDisplayName: "Bea" }],
       recentResults: [{ matchId: id(4), stageLabel: "K.-o. · Runde 1", resultType: "WALKOVER", participantNames: ["Alex", "Bea"], winnerPlayerId: id(5), winnerDisplayName: "Bea", completedAt: new Date() }],
+      clubDuel: null,
       generatedAt: new Date(),
     });
     expect(parsed.participants).toEqual([
@@ -133,5 +135,53 @@ describe("publicTournamentDashboardSchema", () => {
     expect(Object.keys(shape)).not.toContain("id");
     expect(Object.keys(shape)).not.toContain("organizationId");
     expect(Object.keys(shape)).not.toContain("visibility");
+  });
+});
+
+describe("club duel contracts", () => {
+  const base = {
+    name: "Vereinsduell",
+    startsAt: new Date().toISOString(),
+    format: "CLUB_DUEL" as const,
+    startingScore: 501,
+    inRule: "STRAIGHT",
+    outRule: "DOUBLE",
+    bestOfLegs: 3,
+    bestOfSets: 1,
+    sideAName: "VFC",
+    sideBName: "DC Musterdorf",
+    qualifyingRounds: 4,
+    finalRoundSize: 4,
+    thirdPlaceMatch: true,
+    participants: [
+      ...Array.from({ length: 5 }, (_, index) => ({ playerId: id(index + 1), side: "A" })),
+      ...Array.from({ length: 4 }, (_, index) => ({ playerId: id(index + 10), side: "B" })),
+    ],
+    boardIds: [id(90)],
+  };
+
+  it("accepts a club duel through the shared create schema", () => {
+    const parsed = createTournamentSchema.parse(base);
+    expect(parsed.format).toBe("CLUB_DUEL");
+    if (parsed.format === "CLUB_DUEL") expect(parsed.participants).toHaveLength(9);
+  });
+
+  it("rejects duplicate players, out-of-range rounds and a one-sided field", () => {
+    expect(createClubDuelTournamentSchema.safeParse({ ...base, participants: [...base.participants, { playerId: id(1), side: "B" }] }).success).toBe(false);
+    expect(createClubDuelTournamentSchema.safeParse({ ...base, qualifyingRounds: 16 }).success).toBe(false);
+    expect(createClubDuelTournamentSchema.safeParse({ ...base, finalRoundSize: 7 }).success).toBe(false);
+    expect(createClubDuelTournamentSchema.safeParse({ ...base, participants: base.participants.filter((entry) => entry.side === "A") }).success).toBe(false);
+  });
+
+  it("knows the FINAL_ROUND status and the clubDuel block", () => {
+    expect(tournamentStatusSchema.parse("FINAL_ROUND")).toBe("FINAL_ROUND");
+    expect(clubDuelDashboardSchema.safeParse({
+      sideAName: "VFC", sideBName: "DC", qualifyingRounds: 2, finalRoundSize: 2, thirdPlaceMatch: false,
+      currentRound: 1,
+      rounds: [{ round: 1, matchIds: [id(1)], pausedPlayerIds: [id(5)] }],
+      standings: { overall: [], sideA: [], sideB: [] },
+      finalRound: { sideA: [], sideB: [], matches: [] },
+      score: { pointsA: 0, pointsB: 0, legDifferenceA: 0, leader: "TIED" },
+    }).success).toBe(true);
   });
 });
