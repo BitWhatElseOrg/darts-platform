@@ -497,7 +497,25 @@ describe("Vereinsduell Ablauf", () => {
     expect(roundOneView?.pausedPlayerIds).toEqual([withdrawn]);
     // Aktuelle Runde: Zurückgezogene pausieren nicht.
     expect(after?.rounds[1]?.pausedPlayerIds).not.toContain(withdrawn);
-  }, 120_000);
+
+    // Letzte Quali-Runde: wer dort pausiert und sich erst in der Finalrunde zurückzieht, bleibt in der Pausenliste.
+    const pausedInRoundTwo = after?.rounds[1]?.pausedPlayerIds ?? [];
+    expect(pausedInRoundTwo).toHaveLength(1);
+    const [lateWithdrawn] = pausedInRoundTwo;
+    if (lateWithdrawn === undefined) throw new Error("unexpected");
+    const openRoundTwo = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 2"), eq(tournamentMatches.status, "READY")));
+    for (const match of openRoundTwo) {
+      if (!match.participantOneId || !match.participantTwoId) throw new Error("unexpected");
+      await playMatch(created.id, match.id, match.participantOneId, boardIds[0]);
+    }
+    const occupied = (await service.dashboard({ organizationId, tournamentId: created.id, auth })).clubDuel;
+    expect(occupied?.finalRound.matches.some((match) => match.playerAId !== null)).toBe(true);
+    expect(occupied?.rounds[1]?.pausedPlayerIds).toEqual([lateWithdrawn]);
+    await withdraw(created.id, lateWithdrawn);
+    const afterLate = (await service.dashboard({ organizationId, tournamentId: created.id, auth })).clubDuel;
+    expect(afterLate?.rounds[1]?.pausedPlayerIds).toEqual([lateWithdrawn]);
+    expect(afterLate?.rounds[0]?.pausedPlayerIds).toEqual([withdrawn]);
+  }, 180_000);
 
   it("schreibt beim Besetzen von Finalrunde und Final je genau ein Outbox- und ein Audit-Ereignis", async () => {
     const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });

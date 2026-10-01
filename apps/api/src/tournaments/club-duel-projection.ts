@@ -54,13 +54,28 @@ function toRoundMatch(match: MatchRow, sideOf: ReadonlyMap<string, ClubSide>, le
 }
 
 /**
- * Wer zum Zeitpunkt einer frueheren Runde aktiv war: heute aktiv oder erst
- * nach der Paarung der Folgerunde zurueckgezogen (`followingRoundPairedAt`).
- * Fuer die aktuelle Runde (`null`) zaehlt nur der heutige Status.
+ * Wer zum Zeitpunkt einer abgeschlossenen Runde aktiv war: heute aktiv oder
+ * erst nach dem Abschluss der Runde zurueckgezogen (`roundClosedAt`). Fuer
+ * die laufende Runde (`null`) zaehlt nur der heutige Status.
  */
-function wasActive(participant: ParticipantRow, followingRoundPairedAt: Date | null): boolean {
+function wasActive(participant: ParticipantRow, roundClosedAt: Date | null): boolean {
   if (participant.status === "ACTIVE") return true;
-  return followingRoundPairedAt !== null && participant.withdrawnAt !== null && participant.withdrawnAt > followingRoundPairedAt;
+  return roundClosedAt !== null && participant.withdrawnAt !== null && participant.withdrawnAt > roundClosedAt;
+}
+
+/**
+ * Zeitpunkt, an dem die letzte Quali-Runde in die Finalrunde ueberging. Die
+ * Finalrunde wird in derselben Transaktion besetzt, die das letzte Spiel der
+ * Runde abschliesst; dessen `completedAt` ist deshalb der Besetzungszeitpunkt.
+ * `updatedAt` der Finalrunden-Matches taugt nicht als Dauerreferenz: es
+ * wandert mit Start, Abschluss und Rueckzug nach vorn. Nur wenn kein Spiel der
+ * Runde einen Abschlusszeitpunkt traegt (alle abgesagt), dient das kleinste
+ * `updatedAt` der Finalrunde als Naeherung.
+ */
+function finalRoundOccupiedAt(lastRound: readonly MatchRow[], finalRoundMatches: readonly MatchRow[]): Date | null {
+  const completed = lastRound.flatMap((match) => (match.completedAt === null ? [] : [match.completedAt.getTime()]));
+  if (completed.length > 0) return new Date(Math.max(...completed));
+  return finalRoundMatches.length === 0 ? null : new Date(Math.min(...finalRoundMatches.map((match) => match.updatedAt.getTime())));
 }
 
 function collect(matches: readonly MatchRow[], legsOf: LegsOf): { results: ClubMatchResult[]; unopposedWalkoverWinnerIds: string[] } {
@@ -135,16 +150,17 @@ export function projectClubDuel(input: {
     const round = index + 1;
     const inRound = qualifyingMatches.filter((match) => match.round === round);
     const playing = new Set(inRound.flatMap((match) => [match.participantOneId, match.participantTwoId]));
+    // Abschluss einer Runde: Paarung der Folgerunde, fuer die letzte Runde die Besetzung der Finalrunde.
     const followingRound = qualifyingMatches.filter((match) => match.round === round + 1);
-    const followingRoundPairedAt = followingRound.length === 0
-      ? null
-      : new Date(Math.min(...followingRound.map((match) => match.createdAt.getTime())));
+    const roundClosedAt = followingRound.length > 0
+      ? new Date(Math.min(...followingRound.map((match) => match.createdAt.getTime())))
+      : round === currentRound && occupied ? finalRoundOccupiedAt(inRound, finalRoundMatches) : null;
     return {
       round,
       matchIds: inRound.map((match) => match.id),
       matches: inRound.map((match) => toRoundMatch(match, sideOf, input.legsOf, boardNameOf)),
       pausedPlayerIds: input.data.participants
-        .filter((participant) => wasActive(participant, followingRoundPairedAt) && !playing.has(participant.playerId))
+        .filter((participant) => wasActive(participant, roundClosedAt) && !playing.has(participant.playerId))
         .map((participant) => participant.playerId),
     };
   });
