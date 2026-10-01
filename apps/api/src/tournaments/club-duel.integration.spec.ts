@@ -148,6 +148,7 @@ describe("Vereinsduell anlegen", () => {
     expect(matches.filter((match) => match.stageId === stages[2]?.id).map((match) => match.stageLabel).sort()).toEqual(["Final", "Spiel um Platz 3"]);
     expect(dashboard.participants.filter((participant) => participant.side === "A")).toHaveLength(13);
     expect(dashboard.participants.filter((participant) => participant.side === "B")).toHaveLength(9);
+    expect(dashboard.participants.every((participant) => participant.seed === seedOf.get(participant.playerId))).toBe(true);
     expect(dashboard.queue.some((entry) => entry.readiness === "READY")).toBe(true);
   });
 
