@@ -201,10 +201,28 @@ export const players = pgTable(
     userId: uuid("user_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    /**
+     * Gastspieler eines anderen Vereins fuer Vereinsduelle (Spec 2026-10-01-
+     * vereinsduell). Sie leben in der Organisation des Gastgebers, ohne Konto.
+     */
+    kind: varchar("kind", { length: 10 }).default("MEMBER").notNull(),
+    guestClubName: varchar("guest_club_name", { length: 120 }),
+    /** Idempotenz der Schnellerfassung: dieselbe commandId legt keine zweite Reihe an. */
+    guestCommandId: uuid("guest_command_id"),
     ...timestamps,
   },
   (table) => [
     uniqueIndex("players_public_id_unique").on(table.publicId),
+    check("players_kind_check", sql`${table.kind} in ('MEMBER', 'GUEST')`),
+    check(
+      "players_guest_club_name_check",
+      sql`(${table.kind} = 'GUEST' and ${table.guestClubName} is not null and length(trim(${table.guestClubName})) > 0) or (${table.kind} = 'MEMBER' and ${table.guestClubName} is null)`,
+    ),
+    check("players_guest_no_account_check", sql`${table.kind} = 'MEMBER' or ${table.userId} is null`),
+    uniqueIndex("players_guest_command_name_unique")
+      .on(table.organizationId, table.guestCommandId, table.displayName)
+      .where(sql`${table.guestCommandId} is not null`),
+    index("players_organization_kind_idx").on(table.organizationId, table.kind),
     // Ein Konto ist je Organisation hoechstens ein Spieler; beliebig viele
     // Spieler bleiben kontolos. Deshalb partiell statt Unique-Constraint.
     uniqueIndex("players_organization_user_unique")
@@ -893,6 +911,11 @@ export const tournaments = pgTable(
     qualifyPerGroup: integer("qualify_per_group").notNull(),
     knockoutSize: integer("knockout_size").notNull(),
     seeding: varchar("seeding", { length: 20 }).notNull(),
+    sideAName: varchar("side_a_name", { length: 120 }),
+    sideBName: varchar("side_b_name", { length: 120 }),
+    qualifyingRounds: integer("qualifying_rounds"),
+    finalRoundSize: integer("final_round_size"),
+    thirdPlaceMatch: boolean("third_place_match").default(true).notNull(),
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     ...timestamps,
   },
@@ -902,11 +925,23 @@ export const tournaments = pgTable(
     check("tournaments_name_not_empty", sql`length(trim(${table.name})) > 0`),
     check(
       "tournaments_status_check",
-      sql`${table.status} in ('READY', 'GROUP_STAGE', 'KNOCKOUT', 'COMPLETED')`,
+      sql`${table.status} in ('READY', 'GROUP_STAGE', 'FINAL_ROUND', 'KNOCKOUT', 'COMPLETED')`,
     ),
     check(
       "tournaments_format_check",
-      sql`${table.format} in ('GROUPS_THEN_KNOCKOUT', 'ROUND_ROBIN', 'SINGLE_ELIMINATION')`,
+      sql`${table.format} in ('GROUPS_THEN_KNOCKOUT', 'ROUND_ROBIN', 'SINGLE_ELIMINATION', 'CLUB_DUEL')`,
+    ),
+    check(
+      "tournaments_qualifying_rounds_check",
+      sql`${table.qualifyingRounds} is null or ${table.qualifyingRounds} between 1 and 15`,
+    ),
+    check(
+      "tournaments_final_round_size_check",
+      sql`${table.finalRoundSize} is null or ${table.finalRoundSize} between 2 and 6`,
+    ),
+    check(
+      "tournaments_club_duel_settings_check",
+      sql`(${table.format} = 'CLUB_DUEL' and ${table.sideAName} is not null and ${table.sideBName} is not null and ${table.qualifyingRounds} is not null and ${table.finalRoundSize} is not null) or (${table.format} <> 'CLUB_DUEL' and ${table.sideAName} is null and ${table.sideBName} is null and ${table.qualifyingRounds} is null and ${table.finalRoundSize} is null)`,
     ),
     check("tournaments_version_check", sql`${table.version} >= 0`),
     check("tournaments_starting_score_check", sql`${table.startingScore} in (301, 501, 701)`),
@@ -985,6 +1020,8 @@ export const tournamentParticipants = pgTable(
       .notNull()
       .references(() => players.id, { onDelete: "restrict" }),
     seed: integer("seed").notNull(),
+    /** Seite A/B im Vereinsduell; sonst null. */
+    side: char("side", { length: 1 }),
     status: varchar("status", { length: 20 }).default("ACTIVE").notNull(),
     withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
     withdrawalReason: text("withdrawal_reason"),
@@ -1001,6 +1038,10 @@ export const tournamentParticipants = pgTable(
     ),
     index("tournament_participants_organization_idx").on(table.organizationId),
     check("tournament_participants_seed_check", sql`${table.seed} > 0`),
+    check(
+      "tournament_participants_side_check",
+      sql`${table.side} is null or ${table.side} in ('A', 'B')`,
+    ),
     check("tournament_participants_status_check", sql`${table.status} in ('ACTIVE', 'WITHDRAWN')`),
     check(
       "tournament_participants_withdrawal_check",
@@ -1065,7 +1106,7 @@ export const tournamentStages = pgTable(
     check("tournament_stages_sequence_check", sql`${table.sequence} > 0`),
     check(
       "tournament_stages_type_check",
-      sql`${table.type} in ('GROUP', 'ROUND_ROBIN', 'SINGLE_ELIMINATION')`,
+      sql`${table.type} in ('GROUP', 'ROUND_ROBIN', 'SINGLE_ELIMINATION', 'CLUB_SWISS', 'CLUB_CROSS_ROUND_ROBIN')`,
     ),
     check(
       "tournament_stages_status_check",
@@ -1185,6 +1226,18 @@ export const tournamentMatches = pgTable(
       table.tournamentId,
       table.status,
     ),
+    // Ausserhalb von Gruppen (dort teilen mehrere Gruppen stageId und round)
+    // steht ein Spieler je Runde nur einmal.
+    uniqueIndex("tournament_matches_stage_round_participant_one_unique")
+      .on(table.stageId, table.round, table.participantOneId)
+      .where(
+        sql`${table.participantOneId} is not null and ${table.groupId} is null and ${table.status} <> 'CANCELLED'`,
+      ),
+    uniqueIndex("tournament_matches_stage_round_participant_two_unique")
+      .on(table.stageId, table.round, table.participantTwoId)
+      .where(
+        sql`${table.participantTwoId} is not null and ${table.groupId} is null and ${table.status} <> 'CANCELLED'`,
+      ),
     index("tournament_matches_source_one_idx").on(table.sourceOneMatchId),
     index("tournament_matches_source_two_idx").on(table.sourceTwoMatchId),
     check("tournament_matches_round_check", sql`${table.round} > 0`),

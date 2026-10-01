@@ -2,16 +2,15 @@ import { and, eq, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
 import {
-  matchParticipantPlayers,
-  matchParticipants,
   tournamentGroupParticipants,
   tournamentGroups,
   tournamentMatches,
   tournamentParticipants,
 } from "@darts-platform/database";
-import { calculateGroupStandings, type GroupMatchResult } from "@darts-platform/tournament-engine";
+import { calculateGroupStandings } from "@darts-platform/tournament-engine";
 
 import type { DatabaseService } from "../database/database.service.js";
+import { loadCompletedMatchResults } from "./completed-match-results.js";
 
 type DatabaseTransaction = Parameters<Parameters<DatabaseService["database"]["transaction"]>[0]>[0];
 
@@ -57,32 +56,7 @@ export async function resolveCompletedTournamentGroup(
     )),
   ]);
 
-  const results: GroupMatchResult[] = [];
-  for (const match of completed) {
-    if (match.participantOneId === null || match.participantTwoId === null || match.winnerPlayerId === null) {
-      throw new Error("Completed tournament match invariant violated.");
-    }
-    if (match.resultType === "WALKOVER") {
-      results.push({ type: "WALKOVER", playerOneId: match.participantOneId, playerTwoId: match.participantTwoId, playerOneLegs: 0, playerTwoLegs: 0, winnerPlayerId: match.winnerPlayerId });
-      continue;
-    }
-    if (match.scoringMatchId === null) throw new Error("Completed tournament match invariant violated.");
-    const participantRows = await transaction
-      .select({ playerId: matchParticipantPlayers.playerId, legsWon: matchParticipants.legsWon })
-      .from(matchParticipants)
-      .innerJoin(matchParticipantPlayers, and(
-        eq(matchParticipantPlayers.participantId, matchParticipants.id),
-        eq(matchParticipantPlayers.organizationId, organizationId),
-      ))
-      .where(and(
-        eq(matchParticipants.organizationId, organizationId),
-        eq(matchParticipants.matchId, match.scoringMatchId),
-      ));
-    const first = participantRows.find((participant) => participant.playerId === match.participantOneId);
-    const second = participantRows.find((participant) => participant.playerId === match.participantTwoId);
-    if (first === undefined || second === undefined) throw new Error("Completed match participant invariant violated.");
-    results.push({ type: "PLAYED", playerOneId: first.playerId, playerTwoId: second.playerId, playerOneLegs: first.legsWon, playerTwoLegs: second.legsWon, winnerPlayerId: match.winnerPlayerId });
-  }
+  const { results } = await loadCompletedMatchResults(transaction, organizationId, completed);
 
   const standings = calculateGroupStandings({
     participants: members.map((member) => ({ playerId: member.playerId, seed: member.seed })),

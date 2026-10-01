@@ -37,6 +37,8 @@ const players = Array.from({ length: 4 }, (_, index) => ({
   status: "ACTIVE" as const,
   hasAccount: false,
   avatarChecksum: null,
+  kind: "MEMBER" as const,
+  guestClubName: null,
   createdAt: now,
   updatedAt: now,
 }));

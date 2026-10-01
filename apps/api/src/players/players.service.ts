@@ -9,7 +9,9 @@ import {
 import {
   playerListSchema,
   playerSchema,
+  type CreateGuestPlayersInput,
   type CreatePlayerInput,
+  type PlayerKindFilter,
   type PlayerResponse,
   type UpdatePlayerInput,
 } from "@darts-platform/schemas";
@@ -43,6 +45,7 @@ export class PlayersService {
   public async list(input: {
     readonly organizationId: string;
     readonly auth: AuthContext;
+    readonly kind?: PlayerKindFilter;
   }): Promise<PlayerResponse[]> {
     await this.organizationAccessService.requirePermission({
       organizationId: input.organizationId,
@@ -50,7 +53,7 @@ export class PlayersService {
       permission: "player:read",
     });
     return playerListSchema.parse(
-      await this.playersRepository.list(input.organizationId),
+      await this.playersRepository.list(input.organizationId, input.kind ?? "MEMBER"),
     );
   }
 
@@ -84,6 +87,27 @@ export class PlayersService {
     });
     return playerSchema.parse(
       await this.playersRepository.create({
+        organizationId: input.organizationId,
+        data: input.data,
+        userId: input.auth.user.id,
+        audit: input.audit,
+      }),
+    );
+  }
+
+  public async createGuests(input: {
+    readonly organizationId: string;
+    readonly data: CreateGuestPlayersInput;
+    readonly auth: AuthContext;
+    readonly audit: AuditContext;
+  }): Promise<PlayerResponse[]> {
+    await this.organizationAccessService.requirePermission({
+      organizationId: input.organizationId,
+      userId: input.auth.user.id,
+      permission: "player:create",
+    });
+    return playerListSchema.parse(
+      await this.playersRepository.createGuests({
         organizationId: input.organizationId,
         data: input.data,
         userId: input.auth.user.id,

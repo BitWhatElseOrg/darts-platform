@@ -44,6 +44,24 @@ describe("tournament lifecycle", () => {
       ],
     });
   });
+
+  it("führt ein Vereinsduell durch Quali, Finalrunde und Final", () => {
+    const stages = (open: readonly boolean[]) => [
+      { id: "qualifying", type: "CLUB_SWISS" as const, hasOpenMatches: open[0] ?? false },
+      { id: "final-round", type: "CLUB_CROSS_ROUND_ROBIN" as const, hasOpenMatches: open[1] ?? false },
+      { id: "final", type: "SINGLE_ELIMINATION" as const, hasOpenMatches: open[2] ?? false },
+    ];
+    expect(calculateTournamentLifecycle({ format: "CLUB_DUEL", stages: stages([true, true, true]) })).toEqual({
+      tournamentStatus: "GROUP_STAGE",
+      stages: [{ id: "qualifying", status: "OPEN" }, { id: "final-round", status: "WAITING" }, { id: "final", status: "WAITING" }],
+    });
+    expect(calculateTournamentLifecycle({ format: "CLUB_DUEL", stages: stages([false, true, true]) })).toEqual({
+      tournamentStatus: "FINAL_ROUND",
+      stages: [{ id: "qualifying", status: "COMPLETED" }, { id: "final-round", status: "OPEN" }, { id: "final", status: "WAITING" }],
+    });
+    expect(calculateTournamentLifecycle({ format: "CLUB_DUEL", stages: stages([false, false, true]) }).tournamentStatus).toBe("KNOCKOUT");
+    expect(calculateTournamentLifecycle({ format: "CLUB_DUEL", stages: stages([false, false, false]) }).tournamentStatus).toBe("COMPLETED");
+  });
 });
 
 describe("round robin", () => {

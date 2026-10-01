@@ -47,6 +47,7 @@ const dashboard = {
   groups: [],
   bracket: [],
   participants: [],
+  clubDuel: null,
 };
 
 function renderLiveTournament(): QueryClient {

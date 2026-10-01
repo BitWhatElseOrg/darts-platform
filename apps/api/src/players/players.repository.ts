@@ -17,11 +17,14 @@ import {
   type DatabaseExecutor,
 } from "@darts-platform/database";
 import type {
+  CreateGuestPlayersInput,
   CreatePlayerInput,
+  PlayerKindFilter,
   UpdatePlayerInput,
 } from "@darts-platform/schemas";
 
 import type { AuditContext } from "../common/audit-context.js";
+import { isUniqueViolation } from "../common/postgres-error.js";
 import { DatabaseService } from "../database/database.service.js";
 
 type PlayerRow = typeof players.$inferSelect;
@@ -45,6 +48,8 @@ function toPlayerResponse(row: PlayerRow, avatarChecksum: string | null) {
     email: row.email,
     externalReference: row.externalReference,
     status: row.status,
+    kind: row.kind,
+    guestClubName: row.guestClubName,
     hasAccount: row.userId !== null,
     avatarChecksum,
     createdAt: row.createdAt,
@@ -233,12 +238,17 @@ export class PlayersRepository {
     @Inject(DatabaseService) private readonly databaseService: DatabaseService,
   ) {}
 
-  public async list(organizationId: string) {
+  public async list(organizationId: string, kind: PlayerKindFilter = "ALL") {
     const rows = await this.databaseService.database
       .select({ player: players, avatarChecksum: playerAvatars.checksum })
       .from(players)
       .leftJoin(playerAvatars, eq(playerAvatars.playerId, players.id))
-      .where(eq(players.organizationId, organizationId))
+      .where(
+        and(
+          eq(players.organizationId, organizationId),
+          kind === "ALL" ? undefined : eq(players.kind, kind),
+        ),
+      )
       .orderBy(players.displayName);
 
     return rows.map((row) =>
@@ -312,6 +322,72 @@ export class PlayersRepository {
       // Ein frisch angelegter Spieler kann noch kein Profilbild haben.
       return toPlayerResponse(player, null);
     });
+  }
+
+  /**
+   * Schnellerfassung von Gastspielern eines anderen Vereins (Spec 2026-10-01-
+   * vereinsduell). Idempotent ueber `guest_command_id`: der partielle Unique-
+   * Index `players_guest_command_name_unique` laesst dieselbe commandId keine
+   * zweite Reihe je Name anlegen; bei Kollision wird der Bestand gelesen.
+   */
+  public async createGuests(
+    input: TenantActorInput & { readonly data: CreateGuestPlayersInput },
+  ): Promise<ReturnType<typeof toPlayerResponse>[]> {
+    const existing = await this.guestsByCommand(input.organizationId, input.data.commandId);
+    if (existing.length > 0) return existing;
+    try {
+      return await this.databaseService.database.transaction(async (transaction) => {
+        const rows = await transaction
+          .insert(players)
+          .values(
+            input.data.names.map((displayName) => ({
+              organizationId: input.organizationId,
+              displayName,
+              status: "ACTIVE" as const,
+              kind: "GUEST" as const,
+              guestClubName: input.data.clubName,
+              guestCommandId: input.data.commandId,
+            })),
+          )
+          .returning();
+        await transaction.insert(auditEvents).values({
+          organizationId: input.organizationId,
+          actorUserId: input.userId,
+          action: "PLAYERS_GUESTS_CREATED",
+          entityType: "Player",
+          entityId: input.data.commandId,
+          newValue: {
+            clubName: input.data.clubName,
+            playerIds: rows.map((row) => row.id),
+            names: input.data.names,
+          },
+          ip: input.audit.ip,
+          userAgent: input.audit.userAgent,
+          correlationId: input.audit.correlationId,
+        });
+        return rows.map((row) => toPlayerResponse(row, null));
+      });
+    } catch (error) {
+      // Zwei gleichzeitige Wiederholungen: die zweite laeuft in den Unique-Index.
+      if (isUniqueViolation(error, "players_guest_command_name_unique")) {
+        return this.guestsByCommand(input.organizationId, input.data.commandId);
+      }
+      throw error;
+    }
+  }
+
+  private async guestsByCommand(organizationId: string, commandId: string) {
+    const rows = await this.databaseService.database
+      .select()
+      .from(players)
+      .where(
+        and(
+          eq(players.organizationId, organizationId),
+          eq(players.guestCommandId, commandId),
+        ),
+      )
+      .orderBy(players.displayName);
+    return rows.map((row) => toPlayerResponse(row, null));
   }
 
   public async update(

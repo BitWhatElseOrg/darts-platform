@@ -82,6 +82,18 @@ Papierhilfen durchzuführen. Der Vollausbau umfasst:
 
 - Turnierverwaltung für Round Robin, Gruppen und K.-o. inklusive Setzung,
   Board-Zuweisung und auditierter Ergebniskorrektur
+- Vereinsduell (`CLUB_DUEL`): Freundschaftsturnier Verein gegen Verein, jedes
+  Spiel A gegen B. Drei Phasen: Qualifikation im Schweizer System mit
+  Pausen-Rotation (Paarung Runde für Runde), Kreuz-Finalrunde der besten N je
+  Verein, Final mit optionalem Spiel um Platz 3. Die Vereinswertung (1 Punkt je
+  gewonnenem Spiel) wird berechnet. Gastspieler anderer Vereine werden als
+  kontolose Spieler (`kind = GUEST`) in der eigenen Organisation erfasst
+  (`POST /api/v1/organizations/:organizationId/players/guests`; die HTTP-Spielerliste zeigt standardmässig nur
+  Mitglieder, `?kind=GUEST|ALL` blendet Gäste ein). Vorschau über
+  `POST /api/v1/organizations/:organizationId/tournaments/club-duel-preview`, Details in
+  [ADR 0021](./docs/adr/0021-vereinsduell-rundenpaarung.md). Die Oberfläche
+  folgt mit Plan 2; bis dahin nur per API. Die Datenschutzprüfung für
+  Gastspieler ist offen.
 - Team-Begegnungen als Ligamodus nach [VFC-Reglement](./LIGA-REGLEMENT.md):
   Teams mit Kader, Begegnungsvorlage, beidseitige Aufstellung, 18 beziehungsweise
   19 Spiele auf mehreren Boards, automatische Wertung und Ligatabelle
@@ -358,6 +370,7 @@ Verbindliche Architektur- und Arbeitsregeln stehen in [AGENTS.md](./AGENTS.md).
 | [ADR 0018](./docs/adr/0018-loeschkonzept.md) | Löschkonzept für Spieler, Mitglieder und Organisationen |
 | [ADR 0019](./docs/adr/0019-scheiben-geraete.md) | Scheiben-Tablets als eigener Principal mit `@AllowDevice()` |
 | [ADR 0020](./docs/adr/0020-liga-resultatkorrektur.md) | Korrektur von Liga-Resultaten durch Wiedereröffnen und Neu-Scoren |
+| [ADR 0021](./docs/adr/0021-vereinsduell-rundenpaarung.md) | Vereinsduell: Paarung Runde für Runde, Kreuz-Finalrunde, Gastspieler |
 | [Team-Begegnung als Ligamodus](./docs/superpowers/specs/2026-09-02-team-encounter-league-design.md) | Fachliche Umsetzung des VFC-Reglements in Vorlage, Aufstellung und Wertung |
 | [Bedienungsanleitung](./apps/web/public/bedienungsanleitung.html) | Öffentlich zugängliche deutsche Anleitung für Administration, Turnierleitung und Scoring |
 | [Scheiben-Tablet einrichten](./docs/betrieb/scheiben-tablet-einrichten.md) | iPad und Android als Kiosk an einer Scheibe einrichten, entkoppeln und ersetzen |

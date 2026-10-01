@@ -67,7 +67,8 @@ export type LinkMemberPlayerResult =
   | { readonly outcome: "linked"; readonly member: OrganizationMember }
   | { readonly outcome: "membership-not-found" }
   | { readonly outcome: "player-not-assignable" }
-  | { readonly outcome: "player-already-linked" };
+  | { readonly outcome: "player-already-linked" }
+  | { readonly outcome: "player-is-guest" };
 
 export type UnlinkMemberPlayerResult =
   | { readonly outcome: "unlinked" }
@@ -75,7 +76,8 @@ export type UnlinkMemberPlayerResult =
 
 export type CreateInvitationResult =
   | { readonly outcome: "created"; readonly invitation: InvitationRow }
-  | { readonly outcome: "player-not-assignable" };
+  | { readonly outcome: "player-not-assignable" }
+  | { readonly outcome: "player-is-guest" };
 
 export type ResendInvitationResult =
   | { readonly outcome: "resent"; readonly invitation: InvitationRow }
@@ -432,7 +434,11 @@ export class OrganizationsRepository {
       // `WHERE`, nicht im Aufrufer (AGENTS.md §14).
       if (input.playerId !== undefined) {
         const [player] = await transaction
-          .select({ status: players.status, userId: players.userId })
+          .select({
+            status: players.status,
+            userId: players.userId,
+            kind: players.kind,
+          })
           .from(players)
           .where(
             and(
@@ -448,6 +454,11 @@ export class OrganizationsRepository {
           player.userId !== null
         ) {
           return { outcome: "player-not-assignable" } as const;
+        }
+        // Gaeste haben nie ein Konto (DB-Check players_guest_no_account_check);
+        // schon die Einladung darf deshalb nicht auf sie zeigen.
+        if (player.kind === "GUEST") {
+          return { outcome: "player-is-guest" } as const;
         }
       }
 
@@ -1551,6 +1562,7 @@ export class OrganizationsRepository {
           displayName: players.displayName,
           status: players.status,
           userId: players.userId,
+          kind: players.kind,
         })
         .from(players)
         .where(
@@ -1564,6 +1576,9 @@ export class OrganizationsRepository {
 
       if (player === undefined || player.status !== "ACTIVE") {
         return { outcome: "player-not-assignable" };
+      }
+      if (player.kind === "GUEST") {
+        return { outcome: "player-is-guest" };
       }
       if (player.userId !== null && player.userId !== input.targetUserId) {
         return { outcome: "player-already-linked" };

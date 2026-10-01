@@ -8,6 +8,7 @@ import {
   visitDarts, visits,
 } from "@darts-platform/database";
 import { decideDeviceMatchAccess, matchTargets, type DeviceMatchAction } from "@darts-platform/domain";
+import { CLUB_DUEL_STAGE_KEYS } from "@darts-platform/tournament-engine";
 import { ScoringValidationError, createX01Match, defaultCheckoutAttempts, executeX01Command, projectX01Match, type InRule, type LegStartRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
 import type { AbortMatchInput, AbortMatchResponse, CorrectEncounterResultInput, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
 import { isDevicePrincipal, type AuthContext, type Principal } from "../auth/auth.types.js";
@@ -16,6 +17,8 @@ import { auditActor, leaseActor } from "../common/audit-actor.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
 import { DatabaseService } from "../database/database.service.js";
+import { isClubDuelResultLocked } from "../tournaments/club-duel-correction-lock.js";
+import { advanceClubDuel } from "../tournaments/advance-club-duel.js";
 import { applyWithdrawalPropagation } from "../tournaments/apply-withdrawal-propagation.js";
 import { resolveCompletedTournamentGroup } from "../tournaments/resolve-completed-group.js";
 import { updateTournamentProgress } from "../tournaments/update-tournament-progress.js";
@@ -51,6 +54,7 @@ export type TournamentCorrectionResult =
   | Exclude<MutationResult, "controller-conflict" | DeviceDenial>
   | "result-not-correctable"
   | "downstream-started"
+  | "club-duel-round-paired"
   | "board-unavailable";
 /**
  * Die Ergebnisse der Resultatkorrektur einer Liga-Begegnung tragen die Namen
@@ -617,6 +621,7 @@ export class MatchesRepository {
           input.organizationId,
           input.matchId,
           matchWinnerPlayerId,
+          { principal: input.auth, audit: input.audit },
         );
       }
       if (result.state.status === "COMPLETED" && result.state.winnerSeat !== null) {
@@ -679,6 +684,8 @@ export class MatchesRepository {
         scheduled.scoringMatchId === null ||
         scheduled.winnerPlayerId === null
       ) return "result-not-correctable";
+      // Vereinsduell: nach der Paarung der Folgephase steht das Resultat fest.
+      if (await isClubDuelResultLocked(transaction, input.organizationId, input.tournamentId, scheduled)) return "club-duel-round-paired";
 
       const [scoringMatch] = await transaction
         .select()
@@ -814,9 +821,11 @@ export class MatchesRepository {
       }
 
       const reopenedStatus =
-        scheduled.groupId !== null || tournament.format === "ROUND_ROBIN"
-          ? "GROUP_STAGE"
-          : "KNOCKOUT";
+        tournament.format === "CLUB_DUEL"
+          ? await this.clubDuelStatusForStage(transaction, input.organizationId, scheduled.stageId)
+          : scheduled.groupId !== null || tournament.format === "ROUND_ROBIN"
+            ? "GROUP_STAGE"
+            : "KNOCKOUT";
       await transaction
         .update(tournamentStages)
         .set({ status: "OPEN", updatedAt: new Date() })
@@ -887,6 +896,22 @@ export class MatchesRepository {
       });
       return "ok";
     });
+  }
+
+  /** Turnierstatus eines Vereinsduells, dessen Spiel in `stageId` wieder geoeffnet wird. */
+  private async clubDuelStatusForStage(
+    transaction: Parameters<Parameters<DatabaseService["database"]["transaction"]>[0]>[0],
+    organizationId: string,
+    stageId: string,
+  ): Promise<"GROUP_STAGE" | "FINAL_ROUND" | "KNOCKOUT"> {
+    const [stage] = await transaction
+      .select({ key: tournamentStages.key })
+      .from(tournamentStages)
+      .where(and(eq(tournamentStages.organizationId, organizationId), eq(tournamentStages.id, stageId)))
+      .limit(1);
+    if (stage?.key === CLUB_DUEL_STAGE_KEYS.qualifying) return "GROUP_STAGE";
+    if (stage?.key === CLUB_DUEL_STAGE_KEYS.finalRound) return "FINAL_ROUND";
+    return "KNOCKOUT";
   }
 
   /**
@@ -1490,7 +1515,7 @@ export class MatchesRepository {
       await this.syncProjection(transaction, input, match.boardId, nextVersion, result.state);
       const matchWinnerPlayerId = playerOfSeat(result.state, result.state.winnerSeat);
       if (result.state.status === "COMPLETED" && matchWinnerPlayerId !== null) {
-        await this.syncTournamentProgress(transaction, input.organizationId, input.matchId, matchWinnerPlayerId);
+        await this.syncTournamentProgress(transaction, input.organizationId, input.matchId, matchWinnerPlayerId, { principal: input.auth, audit: input.audit });
       }
       if (result.state.status === "COMPLETED" && result.state.winnerSeat !== null) {
         await completeEncounterSlotForMatch(transaction, {
@@ -1665,6 +1690,7 @@ export class MatchesRepository {
     organizationId: string,
     scoringMatchId: string,
     winnerPlayerId: string,
+    actor: { readonly principal: Principal; readonly audit: AuditContext },
   ): Promise<void> {
     const [scheduled] = await transaction
       .select()
@@ -1751,6 +1777,7 @@ export class MatchesRepository {
 
     const now = new Date();
     await applyWithdrawalPropagation(transaction, organizationId, scheduled.tournamentId, now);
+    await advanceClubDuel(transaction, { organizationId, tournamentId: scheduled.tournamentId, now, actor });
     await updateTournamentProgress(transaction, organizationId, scheduled.tournamentId, now);
     await transaction
       .update(tournaments)

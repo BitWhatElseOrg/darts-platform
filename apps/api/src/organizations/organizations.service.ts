@@ -231,6 +231,13 @@ export class OrganizationsService {
       });
     }
 
+    if (result.outcome === "player-is-guest") {
+      throw new ConflictException({
+        code: "PLAYER_IS_GUEST",
+        message: "Ein Gastspieler kann nicht mit einem Konto verknüpft werden.",
+      });
+    }
+
     return createdInvitationSchema.parse(result.invitation);
   }
 
@@ -602,6 +609,11 @@ export class OrganizationsService {
         throw new ConflictException({
           code: "PLAYER_ALREADY_LINKED",
           message: "This player is already linked to another account.",
+        });
+      case "player-is-guest":
+        throw new ConflictException({
+          code: "PLAYER_IS_GUEST",
+          message: "Ein Gastspieler kann nicht mit einem Konto verknüpft werden.",
         });
       case "linked":
         return result.member;
