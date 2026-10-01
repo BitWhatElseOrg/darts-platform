@@ -82,10 +82,11 @@ export const applicationEnvironmentSchema = z.object({
    */
   RATE_LIMIT_SOCKET_MAX_PER_MINUTE: rateLimitMaxSchema.default(60),
   /**
-   * Je Scheiben-Tablet; ein Tablet erzeugt im Match rechnerisch rund 55
-   * Anfragen pro Minute (Heartbeat 3 s = 20, Selbstauskunft `/me` 5 s = 12,
-   * Match-Poll 4 s = 15, Wuerfe/Nachladen ~6-10), im Leerlauf rund 12 --
-   * nicht live gemessen.
+   * Je Scheiben-Tablet. Gemessen (E2E-Fall `board-device-kiosk.spec.ts`):
+   * rund 46 Anfragen pro Minute im laufenden Match OHNE Eingaben (Heartbeat,
+   * Selbstauskunft `/me`, Match-Poll), rund 12 im Leerlauf. Mit tatsaechlich
+   * geworfenen Darts (zusaetzliche Score-/Undo-Anfragen) rechnerisch rund
+   * 52-56 pro Minute im Match -- nicht separat gemessen.
    */
   RATE_LIMIT_DEVICE_MAX_PER_MINUTE: rateLimitMaxSchema.default(120),
   /**

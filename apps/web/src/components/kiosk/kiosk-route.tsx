@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { boardDeviceSelfSchema, matchStateSchema, type MatchStateResponse } from "@darts-platform/schemas";
 
@@ -25,7 +25,13 @@ import { KIOSK_POLL_MS, kioskView } from "./kiosk-view";
 
 const LONG_PRESS_MS = 800;
 
-/** Fehler der Selbstauskunft, die (noch) keine Reaktion der Fläche auslösen. */
+/**
+ * Typwache: ein vom Server geurteilter Fehler (mit `code`/`status`) statt
+ * eines rohen Netzwerk- oder Transportfehlers. Drei Aufrufer in dieser
+ * Datei: `isRevoked`, `matchNoLongerValid` und die `retry`-Entscheidung der
+ * Selbstauskunft (`selfQuery`) -- ein Fehlercode ist ein Urteil des Servers,
+ * das eine Wiederholung nicht aendert.
+ */
 function isApiError(error: unknown): error is ApiClientError {
   return error instanceof ApiClientError;
 }
@@ -117,8 +123,24 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
   // wurde (404/403/409) -- und wie viele Aufnahmen dafuer noch in der
   // Warteschlange lagen (Task-Review GAP 4). Bleibt stehen, bis ein neues
   // Match beginnt.
+  //
+  // `rejectedMatchId` und `handledRejectionRef` (siehe der Effect weiter
+  // unten) setzen sich NIE von selbst auf das gleiche Match zurueck: ein
+  // abgelehntes Match kehrt nicht zurueck. `matches.board_id` ist unveraenderlich
+  // (Spec §5), ein abgebrochenes Match bleibt ABORTED, ein auf eine andere
+  // Scheibe verschobenes gehoert endgueltig dieser nicht mehr. Die einzigen
+  // Rueckstellungen sind deshalb: ein NEUES, anderes Match beginnt (siehe
+  // `rejectedMatchId !== null`-Zweig oben in der Render-Anpassung) oder das
+  // Geraet wird neu gemountet. Anders als `dismissedMatchId` (B2.4), das
+  // genau fuer den umgekehrten Fall -- dasselbe Match kehrt per Undo
+  // zurueck -- zurueckgesetzt werden muss.
   const [rejectedMatchId, setRejectedMatchId] = useState<string | null>(null);
   const [rejectedQueueCount, setRejectedQueueCount] = useState<number | null>(null);
+  // Welches zuletzt beendete Match die Person bereits per „Weiter" quittiert
+  // hat (vorgezogen vor die Render-Anpassung unten, die diesen Zustand bei
+  // B2.4 mitliest). `kioskView` zeigt den Endstand nur, solange
+  // `dismissedMatchId` NICHT dem zuletzt beendeten Match entspricht.
+  const [dismissedMatchId, setDismissedMatchId] = useState<string | null>(null);
 
   // Reine Anpassung waehrend des Renders (`react-hooks/set-state-in-effect`),
   // kein Effect: `/me` treibt drei Faelle.
@@ -164,6 +186,17 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
         // hinfaellig.
         setEndedMatch(null);
       }
+      if (reported !== null && dismissedMatchId === reported) {
+        // Dieses Match lief bereits einmal bis zum Endstand und wurde per
+        // „Weiter" quittiert -- die Leitung
+        // hat es seither per Undo wieder geoeffnet (`/me` meldet es erneut
+        // als laufend). Ohne diese Ruecksetzung bliebe `dismissedMatchId`
+        // auf dieser ID stehen, `kioskView` zeigte den zweiten Abschluss
+        // desselben Matches nie als "ended" (Bedingung `dismissedMatchId !==
+        // lastMatchId` bliebe falsch), der „Weiter"-Knopf erschiene nicht
+        // noch einmal.
+        setDismissedMatchId(null);
+      }
       if (reported !== null && rejectedMatchId !== null) {
         // Ein neues Match beginnt -- eine gemeldete Ablehnung des vorigen ist
         // damit erledigt. Bewusst NICHT bei `reported === null` geloescht:
@@ -199,9 +232,9 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
   }, [revoked, organizationId, lastShownMatchId]);
 
   // Tickt nur im Zustand "ended" (siehe Effect unten), haelt aber immer einen
-  // Wert bereit.
+  // Wert bereit. `dismissedMatchId` selbst ist weiter oben deklariert (B2.4:
+  // die Render-Anpassung dort muss es lesen koennen).
   const [now, setNow] = useState(() => Date.now());
-  const [dismissedMatchId, setDismissedMatchId] = useState<string | null>(null);
   const view = kioskView({ currentMatchId, lastMatchId, lastMatchCompletedAt, dismissedMatchId, now });
   useEffect(() => {
     if (view.kind !== "ended") return;
@@ -294,9 +327,19 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
     // ankommen -- ein sofortiger, gezielter Refetch beschleunigt die
     // Rueckkehr in einen stimmigen Zustand (Spec §5).
     void refetchSelf();
+    // `handledRejectionRef.current` traegt bereits die ID dieses Laufs
+    // (siehe oben) und ruckt bei der naechsten Ablehnung weiter -- die Wache
+    // vor jedem Setzen stellt sicher, dass ein spaetes Ergebnis DIESES
+    // Aufrufs keinen bereits fuer ein NEUERES Match ermittelten Zaehler mehr
+    // ueberschreibt, falls das vorige Match erst nach dem naechsten noch
+    // aufloest.
     listOfflineCommands(`match:${organizationId}:${rejected}`)
-      .then((commands) => setRejectedQueueCount(commands.length))
-      .catch(() => setRejectedQueueCount(0));
+      .then((commands) => {
+        if (handledRejectionRef.current === rejected) setRejectedQueueCount(commands.length);
+      })
+      .catch(() => {
+        if (handledRejectionRef.current === rejected) setRejectedQueueCount(0);
+      });
   }, [matchId, matchQuery.error, organizationId, refetchSelf]);
 
   const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
@@ -327,38 +370,89 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
     pressTimer.current = setTimeout(() => setResetOpen(true), LONG_PRESS_MS);
   };
 
+  // Spec §4 „Kopfzeile in allen Zuständen":
+  // Scheiben- und Organisationsname plus Verbindungsindikator gelten auch im
+  // Widerrufszustand, nicht nur solange ein `MatchScoreboard` oder der
+  // Leerlauf rendert -- deshalb hier einmal gebaut und in beiden Zweigen
+  // unten verwendet. Der lange Druck (Geraet zuruecksetzen) bleibt an der
+  // Kopfzeile, auch wenn Spec §2 ihn im Widerruf nicht mehr verlangt: siehe
+  // Kommentar bei `ConfirmDialog` unten.
+  const header = (
+    <header className="flex items-center justify-between gap-3 border-b border-sisal-300 bg-sisal-200 px-4 py-2">
+      <button
+        className="min-h-12 rounded-lg px-2 text-body font-semibold text-chalk"
+        onContextMenu={(event) => event.preventDefault()}
+        onPointerCancel={clearPressTimer}
+        onPointerDown={startPress}
+        onPointerLeave={clearPressTimer}
+        onPointerUp={clearPressTimer}
+        type="button"
+      >
+        {boardName}
+      </button>
+      <p className="truncate text-caption text-spider-dim">{organizationName}</p>
+    </header>
+  );
+  // Dasselbe „Geraet zuruecksetzen"-Konto wie im normalen Betrieb (Spec §2):
+  // der lange Druck auf die Kopfzeile loest ihn in beiden Zweigen aus, der
+  // Dialog selbst bleibt deshalb ebenfalls gemeinsam.
+  const resetDialog = (
+    <ConfirmDialog
+      confirmLabel="Zurücksetzen"
+      confirmVariant="danger"
+      description="Löscht die Kopplung nur auf diesem Tablet. Entkoppeln kannst du es in der Organisationsverwaltung."
+      error={null}
+      onCancel={() => setResetOpen(false)}
+      onConfirm={() => {
+        setResetOpen(false);
+        forgetBoardDevice();
+        router.replace("/");
+      }}
+      open={resetOpen}
+      pending={false}
+      title="Gerät zurücksetzen?"
+    />
+  );
+
   if (revoked) {
     return (
-      <main className="sektorenring flex min-h-screen items-center justify-center bg-sisal-200 px-4 py-6 text-chalk">
-        <div className="flex max-w-md flex-col gap-2 rounded-xl border border-sisal-400 bg-sisal-100/80 p-5 text-body text-spider">
-          <p role="alert">
-            Dieses Tablet ist nicht mehr gekoppelt – bitte in der Organisationsverwaltung unter «Scheiben-Tablets» neu
-            einrichten.
-          </p>
-          {revokedQueueCount !== null && revokedQueueCount > 0 ? (
-            <p>{revokedQueueCount} Aufnahmen konnten nicht mehr übertragen werden.</p>
+      <main className="sektorenring flex min-h-screen flex-col bg-sisal-200 text-chalk">
+        {header}
+        {/* Verbindungsindikator (Spec §4): absichtlich NICHT dieselbe
+            `ScoreboardStatus` wie im Leerlauf -- die meldet bei Offline
+            zusaetzlich "Aufnahmen werden lokal gespeichert", ein Versprechen,
+            das hier nicht mehr gilt: ein widerrufenes Geraet zeigt keine
+            Eingabeflaeche mehr (dieser fruehe Rueckgabepfad ersetzt sie
+            vollstaendig), es entstehen also keine neuen Aufnahmen, die lokal
+            gespeichert werden koennten. Nur die reine Online/Offline-Anzeige
+            bleibt. */}
+        <div className="flex flex-col gap-2 text-body" role="status">
+          {!online ? (
+            <p className="border-b border-sisal-300 bg-sisal-100 px-4 py-2 text-spider">Offline</p>
           ) : null}
         </div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-6 text-center">
+          <div className="flex max-w-md flex-col gap-2 rounded-xl border border-sisal-400 bg-sisal-100/80 p-5 text-body text-spider">
+            <p role="alert">
+              Dieses Tablet ist nicht mehr gekoppelt – bitte in der Organisationsverwaltung unter «Scheiben-Tablets»
+              neu einrichten.
+            </p>
+            {revokedQueueCount !== null && revokedQueueCount > 0 ? (
+              <p>
+                {revokedQueueCount} Aufnahme{revokedQueueCount === 1 ? "" : "n"}{" "}
+                {revokedQueueCount === 1 ? "konnte" : "konnten"} nicht mehr übertragen werden.
+              </p>
+            ) : null}
+          </div>
+        </div>
+        {resetDialog}
       </main>
     );
   }
 
   return (
     <main className="sektorenring flex min-h-screen flex-col bg-sisal-200 text-chalk">
-      <header className="flex items-center justify-between gap-3 border-b border-sisal-300 bg-sisal-200 px-4 py-2">
-        <button
-          className="min-h-12 rounded-lg px-2 text-body font-semibold text-chalk"
-          onContextMenu={(event) => event.preventDefault()}
-          onPointerCancel={clearPressTimer}
-          onPointerDown={startPress}
-          onPointerLeave={clearPressTimer}
-          onPointerUp={clearPressTimer}
-          type="button"
-        >
-          {boardName}
-        </button>
-        <p className="truncate text-caption text-spider-dim">{organizationName}</p>
-      </header>
+      {header}
       {/* Abschlussreview-Befund 5 (final-fix-findings.md): `MatchScoreboard`
           (unten) bringt seine eigene `ScoreboardStatus`-Leiste mit -- diese
           hier also nur zeigen, solange kein `MatchScoreboard` rendert
@@ -379,15 +473,29 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
       ) : null}
       <div className="flex flex-1 flex-col">
         {view.kind === "idle" ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
-            <p className="font-numerals text-title font-bold text-chalk">{boardName} – wartet auf nächstes Match</p>
-            {rejectedMatchId !== null && rejectedQueueCount !== null && rejectedQueueCount > 0 ? (
-              <p className="text-body text-spider" role="alert">
-                {rejectedQueueCount} Aufnahme{rejectedQueueCount === 1 ? "" : "n"} des abgebrochenen Matches{" "}
-                {rejectedQueueCount === 1 ? "konnte" : "konnten"} nicht mehr übertragen werden.
+          selfQuery.isPending ? (
+            // Spec §4 Zeile „Laden": solange die allererste
+            // `/board-devices/me`-Antwort noch aussteht, ist
+            // "wartet auf nächstes Match" eine Behauptung ohne Deckung -- das
+            // Geraet weiss noch gar nicht, ob gerade ein Match laeuft. Ein
+            // neutraler Ladeindikator statt des Leerlauftexts, ohne
+            // Scheibennamen (der kommt ohnehin nur aus dem lokalen Speicher).
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
+              <p className="text-body text-spider" role="status">
+                Wird geladen …
               </p>
-            ) : null}
-          </div>
+            </div>
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
+              <p className="font-numerals text-title font-bold text-chalk">{boardName} – wartet auf nächstes Match</p>
+              {rejectedMatchId !== null && rejectedQueueCount !== null && rejectedQueueCount > 0 ? (
+                <p className="text-body text-spider" role="alert">
+                  {rejectedQueueCount} Aufnahme{rejectedQueueCount === 1 ? "" : "n"} des abgebrochenen Matches{" "}
+                  {rejectedQueueCount === 1 ? "konnte" : "konnten"} nicht mehr übertragen werden.
+                </p>
+              ) : null}
+            </div>
+          )
         ) : matchQuery.data === undefined || organizationId === null ? (
           <div className="flex flex-1 items-center justify-center px-4 text-center">
             <p className="text-body text-spider" role="status">
@@ -417,21 +525,7 @@ function KioskContent({ stored }: { readonly stored: StoredBoardDevice }) {
           </div>
         )}
       </div>
-      <ConfirmDialog
-        confirmLabel="Zurücksetzen"
-        confirmVariant="danger"
-        description="Löscht die Kopplung nur auf diesem Tablet. Entkoppeln kannst du es in der Organisationsverwaltung."
-        error={null}
-        onCancel={() => setResetOpen(false)}
-        onConfirm={() => {
-          setResetOpen(false);
-          forgetBoardDevice();
-          router.replace("/");
-        }}
-        open={resetOpen}
-        pending={false}
-        title="Gerät zurücksetzen?"
-      />
+      {resetDialog}
     </main>
   );
 }
@@ -469,13 +563,64 @@ function getServerBoardDeviceSnapshot(): StoredBoardDevice | null | undefined {
  * von `KioskContent` bleibt dadurch ohne Rueckwirkung auf diese Komponente
  * und unmountet nicht mitten in der bewusst weiter angezeigten
  * Widerrufsmeldung.
+ *
+ * Das allein reicht nicht. `getBoardDeviceSnapshot` liest `localStorage` bei
+ * JEDEM Aufruf frisch, und React ruft `getSnapshot` nicht nur nach einer
+ * Benachrichtigung von `subscribe` auf, sondern bei jedem Render-Durchlauf
+ * DIESER Komponente -- auch einem, den ein voellig anderer Grund ausgeloest
+ * hat: `KioskRoute` ist nicht memoisiert, re-rendert also mit, sobald ein
+ * Vorfahre (etwa die Seite selbst) aus einem eigenen, unabhaengigen Anlass
+ * neu rendert, und bekommt dabei denselben frischen `localStorage`-Wert zu
+ * sehen wie ein vom `subscribe`-Aufruf echt benachrichtigter Render. Ein
+ * `forgetBoardDevice()` im selben Tab (Widerrufs-Zweig von `KioskContent`)
+ * aendert `localStorage` sofort; der naechste solche Render liefert dann
+ * `null` statt des bisherigen Geraets -- und ersetzte die gerade angezeigte
+ * Widerrufsmeldung samt Warteschlangen-Stand durch «nicht gekoppelt», obwohl
+ * nichts aus einem ANDEREN Tab geschah.
+ *
+ * `committed` (State, nicht Ref -- `react-hooks/refs` verbietet Lesen/Schreiben
+ * von Refs waehrend des Renders) haelt deshalb den ERSTEN tatsaechlich
+ * gelesenen Wert fest. Ein Effect uebernimmt einen NEUEN `storeValue` nur,
+ * wenn entweder noch nichts committet wurde (allererste Aufloesung nach der
+ * Hydration) oder `subscribeBoardDeviceChanges` selbst eine Aenderung
+ * gemeldet hat (`crossTabChangeRef`, von der umhuellten `subscribe`-Funktion
+ * gesetzt, bevor sie Reacts eigenes `onChange` aufruft) -- also bei einem
+ * echten Wechsel aus einem anderen Tab/Fenster, der laut Spec §4 weiterhin
+ * wirken soll. Ein unbeteiligter Re-Render, der `storeValue` nur durch den
+ * gleichen `localStorage`-Seiteneffekt veraendert sieht, lehnt die
+ * Uebernahme ab.
  */
 export function KioskRoute() {
-  const stored = useSyncExternalStore(
-    subscribeBoardDeviceChanges,
-    getBoardDeviceSnapshot,
-    getServerBoardDeviceSnapshot,
-  );
+  const crossTabChangeRef = useRef(false);
+  const hasCommittedRef = useRef(false);
+  const subscribe = useCallback((onChange: () => void) => {
+    return subscribeBoardDeviceChanges(() => {
+      crossTabChangeRef.current = true;
+      onChange();
+    });
+  }, []);
+  const storeValue = useSyncExternalStore(subscribe, getBoardDeviceSnapshot, getServerBoardDeviceSnapshot);
+
+  const [committed, setCommitted] = useState<StoredBoardDevice | null | undefined>(undefined);
+  useEffect(() => {
+    // `storeValue === undefined` ist NIE eine echte Ablesung (nur
+    // `getServerBoardDeviceSnapshot`s SSR-/Hydration-Platzhalter liefert das) --
+    // der allererste Hydration-Render dieses Effects sieht deshalb oft noch
+    // GENAU diesen Platzhalter, bevor Reacts eigener Konsistenz-Check kurz
+    // danach den echten Wert nachreicht. Wuerde dieser Lauf schon als "erste
+    // echte Ablesung" zaehlen, haette `hasCommittedRef` bereits VOR dem
+    // eigentlichen Wert auf "erledigt" gestellt -- der naechste Lauf (mit dem
+    // echten Wert) uebernaehme ihn dann NIE mehr, `committed` bliebe fuer
+    // immer `undefined` (E2E-Befund `board-device-kiosk.spec.ts`:
+    // `confirmDeviceOnlySession` nach `context.clearCookies()` + `reload()`).
+    const isFirstRealRead = !hasCommittedRef.current && storeValue !== undefined;
+    if (isFirstRealRead || crossTabChangeRef.current) {
+      hasCommittedRef.current = true;
+      crossTabChangeRef.current = false;
+      setCommitted(storeValue);
+    }
+  }, [storeValue]);
+  const stored = committed;
 
   if (stored === undefined) {
     return (

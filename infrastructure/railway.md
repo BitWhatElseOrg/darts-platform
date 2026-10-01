@@ -282,6 +282,13 @@ Ablauf:
    keinem Antwort-Header und lässt sich nur indirekt über das Verhalten der
    Socket-Verbindungen selbst prüfen.
 
+**Lastlauf mit vielen Scheiben-Tablets.** Keiner der Fälle A3/A4/A6/B4/B5
+simuliert bisher Kiosk-Tablet-Traffic; sollte ein künftiger Lastlauf das
+tun, gehört `RATE_LIMIT_DEVICE_MAX_PER_MINUTE` (Vorgabe 120, gemessen rund
+46/min pro Tablet im Match — siehe Abschnitt „Variablen" weiter unten) mit demselben
+Ablauf (Schritt 1 setzen, Schritt 4 wieder löschen) zu den hochzusetzenden
+Variablen dazu.
+
 **Redis- und Worker-Neustart unter Last (B4/B5).** Dieselben expliziten
 Flags gelten für die Restart-Proben, jeweils mit dem Namen des betroffenen
 Service statt der API:
@@ -499,6 +506,7 @@ Mindestens diese Shared beziehungsweise Service-Variablen werden benötigt:
 | `RATE_LIMIT_PUBLIC_MAX_PER_MINUTE` | `600` | Obergrenze für `/api/v1/public/**` (optional, Vorgabe 600) |
 | `RATE_LIMIT_SENSITIVE_MAX_PER_MINUTE` | `10` | Obergrenze für Anmeldung, Registrierung, Annahme, Vorschau und erneutes Senden einer Einladung sowie `/auth/request-password-reset` (optional, Vorgabe 10) |
 | `RATE_LIMIT_SOCKET_MAX_PER_MINUTE` | `60` | Obergrenze für Socket.IO-Handshakes je Client-Adresse und Minute (optional, Vorgabe 60) |
+| `RATE_LIMIT_DEVICE_MAX_PER_MINUTE` | `120` | Obergrenze je Scheiben-Tablet (Geräte-ID statt IP) für Pfade der allgemeinen Stufe mit gültigem `bd_…`-Schlüssel; gemessen rund 46/min im Match, rund 12/min im Leerlauf (optional, Vorgabe 120) |
 | `TRUST_PROXY_HOPS` | `1` | **Pflicht.** Anzahl vertrauter Reverse-Proxy-Hops vor der Anwendung |
 | `ALLOW_SELF_SERVICE_ORGANIZATIONS` | nicht gesetzt (`false`) | öffnet `POST /organizations` für jede angemeldete Person; in Production bewusst aus |
 | `LOG_CLIENT_ADDRESS` | nicht gesetzt (`false`) | Diagnose: schreibt `request.ip` und die rohen Adress-Header ins Request-Log (Staging, Plan Task 3) |

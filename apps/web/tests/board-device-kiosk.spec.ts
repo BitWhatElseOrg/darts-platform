@@ -1,4 +1,4 @@
-import type { BrowserContext, Locator, Page } from "@playwright/test";
+import type { BrowserContext, Locator, Page, Request } from "@playwright/test";
 
 import { expect, test } from "./fixtures";
 import { randomUUID } from "node:crypto";
@@ -451,6 +451,183 @@ test(
       await expect(homeScore).toHaveText("501");
       await recordDartVisit(tabletPage, ["D20", "T20", "MISS"]);
       await expect(homeScore).toHaveText("401");
+    } finally {
+      await tabletContext.close();
+    }
+  },
+);
+
+/**
+ * Bis hierher war die Anfragenzahl eines Kiosk-Tablets nur gerechnet
+ * (Spec §3, ADR 0019, Kommentar bei
+ * `RATE_LIMIT_DEVICE_MAX_PER_MINUTE`), nicht live gemessen. Dieser Fall
+ * zaehlt tatsaechliche Anfragen -- ein 30s-Fenster waehrend ein Match laeuft
+ * (ohne Eingaben), ein 60s-Fenster im Leerlauf -- und rechnet sie auf eine
+ * Minute hoch. Prueft dabei auch Ober- UND Untergrenze: eine zu niedrige
+ * Zahl waere genauso ein Befund (URL-Filter greift nicht mehr, Polling
+ * faellt aus) wie eine zu hohe.
+ */
+test(
+  "measures the request rate of a paired board tablet during a match and while idle",
+  async ({ browser, page }) => {
+    test.slow();
+    // Ein 30s-Messfenster im Match, ein 60s-Fenster im Leerlauf (siehe
+    // Kommentar bei dessen Grenze unten) plus Turnieraufbau, Zuweisung und
+    // ein komplettes Leg (siehe Kommentar beim ersten Fall dieser Datei zum
+    // kalten `next dev`) brauchen deutlich mehr als das Standardbudget.
+    test.setTimeout(330_000);
+
+    const suffix = randomUUID();
+    const short = suffix.slice(0, 8);
+    const email = `e2e-scheibe-messung-${suffix}@example.test`;
+    const boardName = "Scheibe 1";
+    const tournamentName = `E2E Messcup ${short}`;
+    const players = [
+      `E2E Messung Eins ${short}`,
+      `E2E Messung Zwei ${short}`,
+      `E2E Messung Drei ${short}`,
+      `E2E Messung Vier ${short}`,
+    ];
+
+    const invitation = await createRegistrationInvitation(email);
+    registrationSeeds.push(invitation);
+
+    const { organizationId } = await signUpWithOrganization(page, {
+      claimToken: invitation.claimToken,
+      email,
+      organizationName: `E2E Messung Club ${short}`,
+      organizationSlug: `e2e-messung-club-${suffix}`,
+      ownerName: "E2E Messung Leitung",
+    });
+
+    await page.goto(`/spieler?organisation=${organizationId}`);
+    await expect(page.getByRole("heading", { level: 1, name: "Spieler & Team" })).toBeVisible();
+    for (const name of players) await addPlayer(page, name);
+
+    await page.goto(`/matches?organisation=${organizationId}`);
+    await expect(page.getByRole("heading", { level: 1, name: "Matches" })).toBeVisible();
+    await addBoard(page, boardName);
+
+    const tabletContext = await browser.newContext();
+    try {
+      const tabletPage = await tabletContext.newPage();
+      await overrideStandaloneDisplay(tabletPage);
+      await signInAsAdmin(tabletPage, email);
+      await pairBoardDevice(tabletPage, organizationId, boardName);
+      await confirmDeviceOnlySession(tabletContext, tabletPage, boardName);
+
+      // API-Basis dieser Testumgebung: `playwright.config.ts` setzt den
+      // Web-Server auf `NEXT_PUBLIC_API_URL` mit demselben Port (Muster wie
+      // `foundation.spec.ts`).
+      const apiOrigin = `http://localhost:${process.env.PLAYWRIGHT_API_PORT ?? 3_101}/api/v1`;
+      // CORS-Preflights (`OPTIONS`) werden bewusst NICHT separat gezaehlt:
+      // ein gezielter Vorabtest (Fetch mit `Authorization` plus einem
+      // zusaetzlichen, nicht erlaubten Header auf eine frische Seite ohne
+      // jede vorherige Anfrage) erzeugte serverseitig nachweislich einen
+      // Preflight, `page.on("request")` meldete dafuer aber kein `OPTIONS`-
+      // Ereignis -- Playwright/Chromium geben vom Browser selbst erzeugte
+      // CORS-Preflights ueber dieses Ereignis nicht zuverlaessig weiter. Eine
+      // Zaehlung waere damit nicht belegbar. Fuer das Rate-Limit selbst ist
+      // das ohne Belang: `app.enableCors(...)` registriert NestJS/Fastify vor
+      // `registerRateLimit(...)` (`configure-application.ts`), ein Preflight
+      // bekommt seine Antwort also bereits dort und erreicht den
+      // Rate-Limit-Hook nie.
+      let requestCount = 0;
+      const onRequest = (request: Request) => {
+        if (!request.url().startsWith(apiOrigin)) return;
+        if (request.method() === "OPTIONS") return;
+        requestCount += 1;
+      };
+      tabletPage.on("request", onRequest);
+
+      // Admin: Turnier anlegen und das Match der Scheibe zuweisen -- danach
+      // laeuft das Match auf dem Tablet, ohne dass dort schon jemand etwas
+      // eingibt.
+      await page.goto(`/turniere/neu?organisation=${organizationId}`);
+      await page.getByLabel("Format").selectOption("ROUND_ROBIN");
+      await page.getByLabel("Name").fill(tournamentName);
+      await page.getByLabel("Best of Legs").selectOption("1");
+      await Promise.all([
+        page.waitForURL(/\/turniere\/[^/?]+\?organisation=/u),
+        page.getByRole("button", { name: "Turnier starten" }).click(),
+      ]);
+      await expect(page.getByRole("heading", { level: 1, name: tournamentName })).toBeVisible();
+      await page.getByRole("button", { name: `Auf ${boardName} starten` }).click();
+      await expect(page.getByRole("heading", { level: 3, name: boardName })).toBeVisible();
+
+      await expect(tabletPage.getByRole("region", { name: "Match-Scoreboard" })).toBeVisible({
+        timeout: 10_000,
+      });
+      await decideLegStart(tabletPage);
+      await switchInputMode(tabletPage, "Runde");
+
+      // Messfenster 1: Match laeuft, keine Eingaben am Tablet. 30s wie im
+      // Brief -- bei einer nominell zweistelligen Anfragenzahl pro Fenster
+      // ist eine einzelne Anfrage Unterschied beim Hochrechnen auf eine
+      // Minute kein nennenswertes Rauschen.
+      requestCount = 0;
+      await tabletPage.waitForTimeout(30_000);
+      const matchPerMinute = requestCount * 2;
+      console.log(`Match-Phase: ${requestCount} Anfragen/30s (${matchPerMinute}/min, ohne OPTIONS)`);
+
+      // Leg zuegig beenden (wie im ersten Fall dieser Datei): 180 / 0 / 180 /
+      // 0 / 141 (Checkout T20 T19 D12) -- diese Eingaben liegen bewusst
+      // AUSSERHALB der beiden Messfenster.
+      const record = async (
+        score: number,
+        checkout?: { readonly field: number; readonly darts: 1 | 2 | 3 },
+      ) => {
+        await typeRoundScore(tabletPage, score);
+        if (checkout === undefined) {
+          await expect(
+            tabletPage.getByRole("button", { name: /^(Fehlwurf|Ziffer 0)$/u }).first(),
+          ).toBeEnabled();
+          return;
+        }
+        const dialog = tabletPage.getByRole("dialog", { name: "Checkout erfassen" });
+        await expect(dialog).toBeVisible();
+        await dialog.getByLabel("Checkout-Feld").selectOption(String(checkout.field));
+        await selectCheckoutDarts(dialog, checkout.darts);
+        await dialog.getByRole("button", { name: "Checkout speichern" }).click();
+      };
+      await record(180);
+      await record(0);
+      await record(180);
+      await record(0);
+      await record(141, { field: 12, darts: 3 });
+
+      await expect(tabletPage.getByText("Match beendet")).toBeVisible({ timeout: 15_000 });
+      const weiterButton = tabletPage.getByRole("button", { name: "Weiter" });
+      await expect(weiterButton).toBeVisible({ timeout: 15_000 });
+      await weiterButton.click();
+      await expect(tabletPage.getByText(`${boardName} – wartet auf nächstes Match`)).toBeVisible({
+        timeout: 10_000,
+      });
+
+      // Messfenster 2: Leerlauf, keine Eingaben. 60s statt 30s: die
+      // Leerlauf-Grenze (<= 15/min) liegt mit nominell rund 6 Anfragen pro
+      // 30s so knapp an der Hochrechnung (7 statt 6 waeren bereits 14/min,
+      // 8 schon 16/min), dass ein einzelnes zusaetzliches Poll am
+      // Fensterrand den Fall faelschlich rot faerben koennte. Ueber 60s
+      // gemessen zaehlt die rohe Anzahl direkt als Anfragen pro Minute, ohne
+      // Verdopplung und ohne dieses Rundungsrisiko.
+      requestCount = 0;
+      await tabletPage.waitForTimeout(60_000);
+      const idlePerMinute = requestCount;
+      console.log(`Leerlauf-Phase: ${idlePerMinute} Anfragen/min (ohne OPTIONS)`);
+
+      tabletPage.off("request", onRequest);
+
+      // Grenzen aus dem Brief: im Match 30-60/min, im Leerlauf 8-15/min
+      // (jeweils ohne OPTIONS-Preflights). Die Untergrenzen sind ein eigener
+      // Befund wert: faellt die Zahl darunter, hat entweder der URL-Filter
+      // (`apiOrigin`) aufgehoert zu greifen oder das Polling ist ausgefallen
+      // -- ein stummes "0 Anfragen" waere sonst ebenso gruen wie ein
+      // korrekter Lauf.
+      expect(matchPerMinute).toBeGreaterThanOrEqual(30);
+      expect(matchPerMinute).toBeLessThanOrEqual(60);
+      expect(idlePerMinute).toBeGreaterThanOrEqual(8);
+      expect(idlePerMinute).toBeLessThanOrEqual(15);
     } finally {
       await tabletContext.close();
     }
