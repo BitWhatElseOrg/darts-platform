@@ -58,6 +58,19 @@ describe("ClubDuelPanel", () => {
     expect(within(earlier as HTMLElement).getByText("2:0")).toBeTruthy();
   });
 
+  it("nennt die Scheibe je Spiel, sofern zugewiesen", () => {
+    const [first, second] = clubDuel.rounds;
+    const withBoard: ClubDuelDashboard = {
+      ...clubDuel,
+      rounds: [first!, { ...second!, matches: second!.matches.map((match, index) => index === 0 ? { ...match, boardName: "Scheibe 3" } : match) }],
+    };
+    render(createElement(ClubDuelPanel, { clubDuel: withBoard, participants, defaultTab: "rounds" }));
+    const panel = screen.getByRole("tabpanel", { name: "Runden" });
+    const lines = within(panel).getByRole("heading", { name: "Runde 2" }).parentElement!.querySelectorAll("li");
+    expect(lines[0]?.textContent).toContain("· Scheibe 3");
+    expect(lines[1]?.textContent).not.toContain("·");
+  });
+
   it("schaltet die Rangliste zwischen Gesamt und Verein um und markiert Ausgefallene", () => {
     render(createElement(ClubDuelPanel, { clubDuel, participants, defaultTab: "standings" }));
     fireEvent.click(screen.getByRole("tab", { name: "Rangliste" }));
