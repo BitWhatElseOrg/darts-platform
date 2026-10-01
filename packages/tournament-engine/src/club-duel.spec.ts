@@ -3,9 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   CLUB_DUEL_STAGE_KEYS,
   TournamentValidationError,
+  pairClubSwissRound,
   planClubDuel,
   previewClubDuel,
   type ClubDuelParticipant,
+  type ClubRankedPlayer,
+  type ClubSwissPairingInput,
+  type ClubSwissRound,
 } from "./index";
 
 export function clubParticipants(sideACount: number, sideBCount: number): ClubDuelParticipant[] {
@@ -120,5 +124,134 @@ describe("previewClubDuel", () => {
     expect(preview.warnings).toEqual(["Ab Runde 5 sind Wiederholungen von Paarungen unvermeidbar."]);
     expect(() => previewClubDuel({ sideACount: 3, sideBCount: 9, qualifyingRounds: 2, finalRoundSize: 4, thirdPlaceMatch: true, boardCount: 2, bestOfLegs: 3 }))
       .toThrowError(TournamentValidationError);
+  });
+});
+
+function ranked(prefix: string, count: number, seedOffset = 0): ClubRankedPlayer[] {
+  return Array.from({ length: count }, (_, index) => ({ playerId: `${prefix}-${index + 1}`, seed: seedOffset + index + 1 }));
+}
+
+/** Spielt `rounds` Runden durch; Rangfolge bleibt die Seed-Folge (nur die Paarungslogik steht im Test). */
+function simulateRounds(sideA: ClubRankedPlayer[], sideB: ClubRankedPlayer[], rounds: number) {
+  const pauses = new Map<string, number>();
+  const played = new Map<string, number>();
+  const previous: { playerAId: string; playerBId: string }[] = [];
+  const result: ClubSwissRound[] = [];
+  for (let round = 1; round <= rounds; round += 1) {
+    const paired = pairClubSwissRound({ round, sideA, sideB, previousPairings: previous, pauses, played });
+    for (const id of paired.pausedPlayerIds) pauses.set(id, (pauses.get(id) ?? 0) + 1);
+    for (const pairing of paired.pairings) {
+      played.set(pairing.playerAId, (played.get(pairing.playerAId) ?? 0) + 1);
+      played.set(pairing.playerBId, (played.get(pairing.playerBId) ?? 0) + 1);
+      previous.push({ playerAId: pairing.playerAId, playerBId: pairing.playerBId });
+    }
+    result.push(paired);
+  }
+  return { rounds: result, pauses, played };
+}
+
+describe("pairClubSwissRound", () => {
+  it("rotiert die Pausen bei 13 gegen 9 über 4 Runden gleichmässig", () => {
+    const { rounds, pauses } = simulateRounds(ranked("a", 13), ranked("b", 9, 13), 4);
+    expect(rounds[0]?.pausedPlayerIds).toEqual(["a-13", "a-12", "a-11", "a-10"]);
+    expect(rounds[1]?.pausedPlayerIds).toEqual(["a-9", "a-8", "a-7", "a-6"]);
+    expect(rounds[2]?.pausedPlayerIds).toEqual(["a-5", "a-4", "a-3", "a-2"]);
+    // Runde 4: a-1 ist der Einzige mit 0 Pausen; alle anderen haben 1 Pause und 2 Spiele → höchste Seed-Nummern
+    expect(rounds[3]?.pausedPlayerIds).toEqual(["a-1", "a-13", "a-12", "a-11"]);
+    for (let index = 1; index <= 13; index += 1) {
+      expect(pauses.get(`a-${index}`) ?? 0).toBeGreaterThanOrEqual(1);
+      expect(pauses.get(`a-${index}`) ?? 0).toBeLessThanOrEqual(2);
+    }
+    expect([...pauses.keys()].some((id) => id.startsWith("b-"))).toBe(false);
+  });
+
+  it("vermeidet Wiederholungen, solange es aufgeht, und meldet sie danach als Warnung", () => {
+    const sideA = ranked("a", 4);
+    const sideB = ranked("b", 4, 4);
+    const { rounds } = simulateRounds(sideA, sideB, 5);
+    for (const round of rounds.slice(0, 4)) {
+      expect(round.pairings.every((pairing) => !pairing.repeated)).toBe(true);
+      expect(round.warnings).toEqual([]);
+    }
+    const fifth = rounds[4];
+    expect(fifth?.pairings.filter((pairing) => pairing.repeated)).toHaveLength(4);
+    expect(fifth?.warnings).toEqual(["Runde 5: 4 Paarungen wiederholen sich, weil keine neuen Gegner mehr frei sind."]);
+  });
+
+  it("paart nahe Ränge: nach Rang sortierte Seiten ergeben Rang i gegen Rang i, wenn keine Wiederholung droht", () => {
+    const paired = pairClubSwissRound({
+      round: 2,
+      sideA: ranked("a", 3),
+      sideB: ranked("b", 3, 3),
+      previousPairings: [],
+      pauses: new Map(),
+      played: new Map(),
+    });
+    expect(paired.pairings.map((pairing) => [pairing.playerAId, pairing.playerBId])).toEqual([["a-1", "b-1"], ["a-2", "b-2"], ["a-3", "b-3"]]);
+  });
+
+  it("weicht minimal aus, wenn Rang i gegen Rang i eine Wiederholung wäre", () => {
+    const paired = pairClubSwissRound({
+      round: 2,
+      sideA: ranked("a", 3),
+      sideB: ranked("b", 3, 3),
+      previousPairings: [{ playerAId: "a-1", playerBId: "b-1" }],
+      pauses: new Map(),
+      played: new Map(),
+    });
+    expect(paired.pairings.every((pairing) => !pairing.repeated)).toBe(true);
+    expect(paired.pairings.find((pairing) => pairing.playerAId === "a-1")?.playerBId).toBe("b-2");
+  });
+
+  it("ist deterministisch", () => {
+    const input: ClubSwissPairingInput = { round: 3, sideA: ranked("a", 7), sideB: ranked("b", 5, 7), previousPairings: [{ playerAId: "a-2", playerBId: "b-2" }], pauses: new Map([["a-7", 1]]), played: new Map([["a-7", 1]]) };
+    expect(pairClubSwissRound(input)).toEqual(pairClubSwissRound(input));
+  });
+
+  it("Property: nie zweimal pro Runde, nie A gegen A, Pausen gleichmässig (zufällige Grössen 2–32)", () => {
+    let state = 12345;
+    const next = () => {
+      state = (state * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return state / 2_147_483_648;
+    };
+    for (let iteration = 0; iteration < 40; iteration += 1) {
+      const sizeA = 2 + Math.floor(next() * 31);
+      const sizeB = 2 + Math.floor(next() * 31);
+      const rounds = 1 + Math.floor(next() * 6);
+      const sideA = ranked("a", sizeA);
+      const sideB = ranked("b", sizeB, sizeA);
+      const pauses = new Map<string, number>();
+      const played = new Map<string, number>();
+      const previous: { playerAId: string; playerBId: string }[] = [];
+      for (let round = 1; round <= rounds; round += 1) {
+        // zufällige Rangfolge wie nach echten Ergebnissen
+        const shuffledA = [...sideA].sort(() => next() - 0.5);
+        const shuffledB = [...sideB].sort(() => next() - 0.5);
+        const paired = pairClubSwissRound({ round, sideA: shuffledA, sideB: shuffledB, previousPairings: previous, pauses, played });
+        const seen = new Set<string>();
+        for (const pairing of paired.pairings) {
+          expect(pairing.playerAId.startsWith("a-")).toBe(true);
+          expect(pairing.playerBId.startsWith("b-")).toBe(true);
+          expect(seen.has(pairing.playerAId)).toBe(false);
+          expect(seen.has(pairing.playerBId)).toBe(false);
+          seen.add(pairing.playerAId);
+          seen.add(pairing.playerBId);
+          played.set(pairing.playerAId, (played.get(pairing.playerAId) ?? 0) + 1);
+          played.set(pairing.playerBId, (played.get(pairing.playerBId) ?? 0) + 1);
+          previous.push({ playerAId: pairing.playerAId, playerBId: pairing.playerBId });
+        }
+        expect(paired.pairings).toHaveLength(Math.min(sizeA, sizeB));
+        expect(paired.pausedPlayerIds).toHaveLength(Math.abs(sizeA - sizeB));
+        for (const id of paired.pausedPlayerIds) {
+          expect(seen.has(id)).toBe(false);
+          pauses.set(id, (pauses.get(id) ?? 0) + 1);
+        }
+      }
+      const largerPrefix = sizeA >= sizeB ? "a-" : "b-";
+      const larger = sizeA >= sizeB ? sideA : sideB;
+      const pauseValues = larger.map((player) => pauses.get(player.playerId) ?? 0);
+      expect(Math.max(...pauseValues) - Math.min(...pauseValues)).toBeLessThanOrEqual(1);
+      expect([...pauses.keys()].every((id) => id.startsWith(largerPrefix))).toBe(true);
+    }
   });
 });

@@ -248,23 +248,128 @@ export function previewClubDuel(input: ClubDuelPreviewInput): ClubDuelPreview {
   };
 }
 
+/** Wiederholung kostet mehr als jede denkbare Summe von Rangabständen (n ≤ 64 → Summe < 64·63). */
+const REPEAT_PENALTY = 10_000;
+
+function numberAt(values: readonly number[], index: number): number {
+  const value = values[index];
+  if (value === undefined) throw new Error("Assignment index invariant violated.");
+  return value;
+}
+
 /**
- * Vorläufig (Task 1): paart Rang i gegen Rang i ohne Historie. Task 2 ersetzt
- * den Rumpf durch Pausen-Rotation und Zuordnungsproblem.
+ * Ungarischer Algorithmus (Kuhn–Munkres, Potentialform), O(n³). Liefert für
+ * jede Zeile i die Spalte `assignment[i]` mit minimalen Gesamtkosten.
+ * Deterministisch: gleiche Matrix, gleiche Zuordnung.
+ */
+function solveAssignment(cost: readonly (readonly number[])[]): readonly number[] {
+  const n = cost.length;
+  const INF = Number.MAX_SAFE_INTEGER;
+  const u = new Array<number>(n + 1).fill(0);
+  const v = new Array<number>(n + 1).fill(0);
+  const p = new Array<number>(n + 1).fill(0);
+  const way = new Array<number>(n + 1).fill(0);
+  for (let i = 1; i <= n; i += 1) {
+    p[0] = i;
+    let j0 = 0;
+    const minv = new Array<number>(n + 1).fill(INF);
+    const used = new Array<boolean>(n + 1).fill(false);
+    do {
+      used[j0] = true;
+      const i0 = numberAt(p, j0);
+      let delta = INF;
+      let j1 = 0;
+      const row = cost[i0 - 1];
+      if (row === undefined) throw new Error("Assignment row invariant violated.");
+      for (let j = 1; j <= n; j += 1) {
+        if (used[j] === true) continue;
+        const current = numberAt(row, j - 1) - numberAt(u, i0) - numberAt(v, j);
+        if (current < numberAt(minv, j)) {
+          minv[j] = current;
+          way[j] = j0;
+        }
+        if (numberAt(minv, j) < delta) {
+          delta = numberAt(minv, j);
+          j1 = j;
+        }
+      }
+      for (let j = 0; j <= n; j += 1) {
+        if (used[j] === true) {
+          u[numberAt(p, j)] = numberAt(u, numberAt(p, j)) + delta;
+          v[j] = numberAt(v, j) - delta;
+        } else {
+          minv[j] = numberAt(minv, j) - delta;
+        }
+      }
+      j0 = j1;
+    } while (numberAt(p, j0) !== 0);
+    do {
+      const j1 = numberAt(way, j0);
+      p[j0] = numberAt(p, j1);
+      j0 = j1;
+    } while (j0 !== 0);
+  }
+  const assignment = new Array<number>(n).fill(-1);
+  for (let j = 1; j <= n; j += 1) assignment[numberAt(p, j) - 1] = j - 1;
+  return assignment;
+}
+
+function selectPaused(
+  larger: readonly ClubRankedPlayer[],
+  count: number,
+  pauses: ReadonlyMap<string, number>,
+  played: ReadonlyMap<string, number>,
+): readonly string[] {
+  // Spec: wenigste Pausen → bei Gleichstand mehr Spiele → höhere Seed-Nummer
+  return [...larger]
+    .sort((left, right) =>
+      (pauses.get(left.playerId) ?? 0) - (pauses.get(right.playerId) ?? 0) ||
+      (played.get(right.playerId) ?? 0) - (played.get(left.playerId) ?? 0) ||
+      right.seed - left.seed,
+    )
+    .slice(0, count)
+    .map((player) => player.playerId);
+}
+
+/**
+ * Paart eine Quali-Runde (Spec, Engine). Pausen nur bei der grösseren Seite;
+ * dann Zuordnung A×B mit Kosten `|RangA − RangB|` plus Strafe je Wiederholung,
+ * so dass Wiederholungen zuerst minimiert werden und danach die Rangnähe.
  */
 export function pairClubSwissRound(input: ClubSwissPairingInput): ClubSwissRound {
+  if (input.sideA.length === 0 || input.sideB.length === 0) {
+    throw new TournamentValidationError("CLUB_DUEL_SIDE_EMPTY", "Beide Vereine brauchen mindestens einen aktiven Spieler.");
+  }
   const larger = input.sideA.length >= input.sideB.length ? input.sideA : input.sideB;
   const pauseCount = Math.abs(input.sideA.length - input.sideB.length);
-  const pausedPlayerIds = [...larger].reverse().slice(0, pauseCount).map((player) => player.playerId);
+  const pausedPlayerIds = selectPaused(larger, pauseCount, input.pauses, input.played);
   const paused = new Set(pausedPlayerIds);
   const playingA = input.sideA.filter((player) => !paused.has(player.playerId));
   const playingB = input.sideB.filter((player) => !paused.has(player.playerId));
+  if (playingA.length !== playingB.length) throw new Error("Club duel pause invariant violated.");
+
+  const previous = new Set(input.previousPairings.map((pair) => `${pair.playerAId}:${pair.playerBId}`));
+  const cost = playingA.map((playerA, rankA) =>
+    playingB.map((playerB, rankB) =>
+      Math.abs(rankA - rankB) + (previous.has(`${playerA.playerId}:${playerB.playerId}`) ? REPEAT_PENALTY : 0),
+    ),
+  );
+  const assignment = solveAssignment(cost);
   const pairings = playingA.map((playerA, index) => {
-    const playerB = playingB[index];
-    if (playerB === undefined) throw new Error("Club duel pairing invariant violated.");
-    return { position: index + 1, playerAId: playerA.playerId, playerBId: playerB.playerId, repeated: false };
+    const playerB = playingB[numberAt(assignment, index)];
+    if (playerB === undefined) throw new Error("Club duel assignment invariant violated.");
+    return {
+      position: index + 1,
+      playerAId: playerA.playerId,
+      playerBId: playerB.playerId,
+      repeated: previous.has(`${playerA.playerId}:${playerB.playerId}`),
+    };
   });
-  return { round: input.round, pairings, pausedPlayerIds, warnings: [] };
+  const repeated = pairings.filter((pairing) => pairing.repeated).length;
+  const warnings = repeated === 0
+    ? []
+    : [`Runde ${input.round}: ${repeated} Paarungen wiederholen sich, weil keine neuen Gegner mehr frei sind.`];
+  return { round: input.round, pairings, pausedPlayerIds, warnings };
 }
 
 // `GroupMatchResult` wird in Task 3 für die Ranglisten wiederverwendet.
