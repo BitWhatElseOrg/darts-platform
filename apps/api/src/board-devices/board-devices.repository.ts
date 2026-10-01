@@ -112,9 +112,14 @@ export class BoardDevicesRepository {
       if (device === undefined) return "not-found";
       if (device.revokedAt !== null) return "ok";
 
+      // Abschlussreview-Befund 6 (final-fix-findings.md): eine Variable statt
+      // zweier unabhaengiger `new Date()` -- Zeile und Audit-`newValue`
+      // trugen sonst zwei (wenn auch meist nur minimal) verschiedene
+      // Zeitpunkte.
+      const revokedAt = new Date();
       await transaction
         .update(boardDevices)
-        .set({ revokedAt: new Date(), updatedAt: new Date() })
+        .set({ revokedAt, updatedAt: revokedAt })
         .where(eq(boardDevices.id, device.id));
       await transaction.insert(auditEvents).values({
         organizationId: input.organizationId,
@@ -123,7 +128,7 @@ export class BoardDevicesRepository {
         entityType: "BoardDevice",
         entityId: device.id,
         oldValue: { label: device.label, boardId: device.boardId },
-        newValue: { revokedAt: new Date(), reason: "MANUAL" },
+        newValue: { revokedAt, reason: "MANUAL" },
         ip: input.audit.ip,
         userAgent: input.audit.userAgent,
         correlationId: input.audit.correlationId,

@@ -138,6 +138,22 @@ describe("GET /api/v1/board-devices/me", () => {
     expect(row?.lastSeenAt).not.toBeNull();
   });
 
+  // Abschlussreview-Befund 3 (final-fix-findings.md): innerhalb der
+  // Aufloesung (`LAST_SEEN_RESOLUTION_MS`) darf eine zweite Anfrage kein
+  // weiteres UPDATE auslösen -- der vorherige Test hat `last_seen_at` bereits
+  // frisch gesetzt, dieser hier prüft, dass eine unmittelbar folgende Anfrage
+  // genau diesen Wert unverändert lässt statt ihn erneut zu schreiben.
+  it("schreibt last_seen_at innerhalb derselben Minute kein zweites Mal", async () => {
+    await app.inject({ method: "GET", url: "/api/v1/board-devices/me", headers: bearer });
+    const [before] = await databaseService.database.select().from(boardDevices).where(eq(boardDevices.id, deviceId));
+
+    await app.inject({ method: "GET", url: "/api/v1/board-devices/me", headers: bearer });
+    const [after] = await databaseService.database.select().from(boardDevices).where(eq(boardDevices.id, deviceId));
+
+    expect(before?.lastSeenAt).not.toBeNull();
+    expect(after?.lastSeenAt?.getTime()).toBe(before?.lastSeenAt?.getTime());
+  });
+
   it("lehnt einen unbekannten Schlüssel mit DEVICE_REVOKED ab", async () => {
     const response = await app.inject({
       method: "GET",

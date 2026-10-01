@@ -16,24 +16,47 @@ export class BoardDeviceAuthenticator {
 
   public constructor(@Inject(DatabaseService) private readonly databaseService: DatabaseService) {}
 
-  /** Frisch gegen die Datenbank, damit ein Widerruf mit der naechsten Anfrage wirkt. */
+  /**
+   * Frisch gegen die Datenbank, damit ein Widerruf mit der naechsten Anfrage
+   * wirkt.
+   *
+   * Abschlussreview-Befund 3 (final-fix-findings.md): `lastSeenAt` steht
+   * schon in diesem SELECT, damit das anschliessende UPDATE nur noch
+   * abgesetzt wird, wenn es wirklich noetig ist (noch nie gesehen oder
+   * laenger als `LAST_SEEN_RESOLUTION_MS` her) -- vorher lief bei jeder
+   * Anfrage (Wurf, Heartbeat, Poll) ein SELECT **und** ein UPDATE, auch
+   * innerhalb derselben Minute, in der das UPDATE ohnehin nichts geaendert
+   * haette.
+   */
   public async authenticate(secret: string): Promise<AuthenticatedDevice | null> {
     const secretHash = hashBoardDeviceSecret(secret);
     const [device] = await this.databaseService.database
-      .select({ id: boardDevices.id, organizationId: boardDevices.organizationId, boardId: boardDevices.boardId })
+      .select({
+        id: boardDevices.id,
+        organizationId: boardDevices.organizationId,
+        boardId: boardDevices.boardId,
+        lastSeenAt: boardDevices.lastSeenAt,
+      })
       .from(boardDevices)
       .where(and(eq(boardDevices.secretHash, secretHash), isNull(boardDevices.revokedAt)))
       .limit(1);
     if (device === undefined) return null;
-    // Hoechstens ein Schreibzugriff pro Minute, nicht einer pro Wurf.
-    await this.databaseService.database
-      .update(boardDevices)
-      .set({ lastSeenAt: new Date() })
-      .where(and(
-        eq(boardDevices.id, device.id),
-        or(isNull(boardDevices.lastSeenAt), lt(boardDevices.lastSeenAt, new Date(Date.now() - LAST_SEEN_RESOLUTION_MS))),
-      ));
-    return device;
+    const lastSeenStale =
+      device.lastSeenAt === null || device.lastSeenAt.getTime() < Date.now() - LAST_SEEN_RESOLUTION_MS;
+    if (lastSeenStale) {
+      // Hoechstens ein Schreibzugriff pro Minute, nicht einer pro Wurf. Die
+      // Bedingung im WHERE bleibt als zweite Absicherung gegen ein knappes
+      // Rennen mit einer parallelen Anfrage desselben Geraets stehen -- der
+      // obige Lesewert kann in dem Moment schon wieder veraltet sein.
+      await this.databaseService.database
+        .update(boardDevices)
+        .set({ lastSeenAt: new Date() })
+        .where(and(
+          eq(boardDevices.id, device.id),
+          or(isNull(boardDevices.lastSeenAt), lt(boardDevices.lastSeenAt, new Date(Date.now() - LAST_SEEN_RESOLUTION_MS))),
+        ));
+    }
+    return { id: device.id, organizationId: device.organizationId, boardId: device.boardId };
   }
 
   /**
