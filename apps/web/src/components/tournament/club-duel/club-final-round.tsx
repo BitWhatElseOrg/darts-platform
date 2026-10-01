@@ -1,7 +1,9 @@
 import type { ClubDuelDashboard } from "@darts-platform/schemas";
 import { Rule, SheetLabel, StateTag, Table, Td, Th } from "@darts-platform/ui";
 
-import { legsLabel, roundMatchStateLabel, sideLabel, type ClubSide } from "@/lib/club-duel-view";
+import { roundMatchStateLabel, sideLabel, type ClubSide } from "@/lib/club-duel-view";
+
+import { matchOutcomeText, walkoverState } from "./club-match-outcome";
 
 type FinalMatch = NonNullable<ClubDuelDashboard["finals"]["final"]>;
 
@@ -10,7 +12,7 @@ const nameHeader = "normal-case tracking-normal text-body text-wedge-900";
 /**
  * Finalrunde als Kreuztabelle (A-Spieler in Zeilen nach `rankA`, B-Spieler in
  * Spalten nach `rankB`), Rangliste je Verein und die Finalspiele.
- * Noch nicht bestimmte Plätze heissen «Platz n», damit Kopfzeilen nicht alle
+ * Noch nicht bestimmte Plätze heissen «{Kürzel} Platz n», damit Kopfzeilen nicht alle
  * gleich «offen» lauten.
  */
 export function ClubFinalRound({ clubDuel, names }: {
@@ -28,29 +30,39 @@ export function ClubFinalRound({ clubDuel, names }: {
       .filter((entry) => (side === "A" ? entry.rankA : entry.rankB) === rank)
       .map((entry) => (side === "A" ? entry.playerAId : entry.playerBId))
       .find((id) => id !== null) ?? null;
-    return playerId === null ? `Platz ${rank}` : name(playerId);
+    if (playerId !== null) return name(playerId);
+    const club = side === "A" ? sideA : sideB;
+    return (
+      <>
+        <abbr aria-hidden="true" className="no-underline" title={club.name}>{club.short}</abbr>
+        <span className="sr-only">{club.name}</span> Platz {rank}
+      </>
+    );
   };
 
   const cell = (rankA: number, rankB: number) => {
     const match = matches.find((entry) => entry.rankA === rankA && entry.rankB === rankB);
     if (match === undefined) return <Td className="text-center" key={rankB}>–</Td>;
+    // Kreuzspiele tragen kein resultType: kampflos heisst beendet, Sieger, keine Legs.
+    const walkover = match.status === "COMPLETED" && match.legs === null && match.winnerPlayerId !== null;
     const state = roundMatchStateLabel(match.status);
     return (
       <Td className="text-center" key={rankB}>
-        {match.legs !== null
-          ? <span className="font-numerals tabular">{legsLabel(match.legs)}</span>
+        {match.legs !== null || walkover
+          ? <span className="font-numerals tabular">{matchOutcomeText(match, walkover, name)}</span>
           : <StateTag label={state.label} tone={state.tone} />}
       </Td>
     );
   };
 
   const finalLine = (label: string, match: FinalMatch) => {
-    const state = roundMatchStateLabel(match.status);
+    const walkover = match.resultType === "WALKOVER";
+    const state = walkover ? walkoverState : roundMatchStateLabel(match.status);
     return (
       <li className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-sisal-300 py-2 font-plate text-body text-wedge-900" key={label}>
         <span className="font-semibold">{label}</span>
         <span className="min-w-0 flex-1 truncate">{name(match.playerAId)} – {name(match.playerBId)}</span>
-        <span className="font-numerals tabular">{legsLabel(match.legs)}</span>
+        <span className="font-numerals tabular">{matchOutcomeText(match, walkover, name)}</span>
         <StateTag label={state.label} tone={state.tone} />
       </li>
     );
@@ -85,11 +97,12 @@ export function ClubFinalRound({ clubDuel, names }: {
         <Table aria-label="Kreuztabelle">
           <thead>
             <tr>
-              <Th>
+              {/* Ecke ohne Kopf-Rolle: jeder Zeilen- und Spaltenkopf nennt seinen Verein selbst. */}
+              <td aria-hidden="true" className="border-b border-sisal-400 pb-1.5 font-plate text-label font-semibold text-sisal-500">
                 <abbr className="no-underline" title={`Zeilen: ${sideA.name}`}>{sideA.short}</abbr>
                 {" \\ "}
                 <abbr className="no-underline" title={`Spalten: ${sideB.name}`}>{sideB.short}</abbr>
-              </Th>
+              </td>
               {ranks.map((rank) => <Th className={`text-center ${nameHeader}`} key={rank}>{headerName("B", rank)}</Th>)}
             </tr>
           </thead>

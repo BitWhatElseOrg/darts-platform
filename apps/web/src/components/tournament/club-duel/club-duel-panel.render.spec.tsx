@@ -126,6 +126,53 @@ describe("ClubDuelPanel – Tastatur und Randfälle", () => {
     expect(within(table).getByRole("columnheader", { name: "Bia" })).toBeTruthy();
   });
 
+  it("zeigt kampflose Siege mit Sieger statt «–» und «gespielt»", () => {
+    const [first, second] = clubDuel.rounds;
+    const walkover: ClubDuelDashboard = {
+      ...clubDuel,
+      rounds: [
+        { ...first!, matches: first!.matches.map((match, index) => index === 1 ? { ...match, resultType: "WALKOVER" as const, legs: null } : match) },
+        second!,
+      ],
+      finalRound: {
+        ...clubDuel.finalRound,
+        matches: clubDuel.finalRound.matches.map((match, index) => index === 0
+          ? { ...match, playerAId: id(1), playerBId: id(4), status: "COMPLETED" as const, winnerPlayerId: id(1), legs: null }
+          : match),
+      },
+    };
+    render(createElement(ClubDuelPanel, { clubDuel: walkover, participants, defaultTab: "rounds" }));
+    const earlier = screen.getByText("Runde 1").closest("details") as HTMLElement;
+    const line = within(earlier).getByText("kampflos · Sieg Bia").closest("li") as HTMLElement;
+    expect(within(line).getByText("kampflos")).toBeTruthy();
+    expect(line.textContent).not.toContain("gespielt");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Finalrunde" }));
+    const table = screen.getByRole("table", { name: "Kreuztabelle" });
+    expect(within(table).getByText("kampflos · Sieg Anna")).toBeTruthy();
+  });
+
+  it("benennt unbesetzte Plätze je Verein, die Ecke ist kein Spaltenkopf", () => {
+    render(createElement(ClubDuelPanel, { clubDuel, participants, defaultTab: "final" }));
+    const table = screen.getByRole("table", { name: "Kreuztabelle" });
+    expect(within(table).getAllByRole("columnheader")).toHaveLength(2);
+    const head = within(table).getByRole("columnheader", { name: "DC Musterdorf Platz 1" });
+    expect(head.querySelector("abbr")?.textContent).toBe("DM");
+    expect(head.querySelector("abbr")?.getAttribute("title")).toBe("DC Musterdorf");
+    expect(within(table).getByRole("rowheader", { name: "VFC Platz 2" })).toBeTruthy();
+  });
+
+  it("übernimmt qualified vom Server, auch bei Ausgefallenen, und zeigt kein «-0.0»", () => {
+    const sideB = clubDuel.standings.sideB.map((entry) => ({ ...entry, legDifferencePerMatch: entry.withdrawn ? -0.04 : entry.legDifferencePerMatch }));
+    render(createElement(ClubDuelPanel, { clubDuel: { ...clubDuel, standings: { ...clubDuel.standings, sideB } }, participants, defaultTab: "standings" }));
+    fireEvent.click(screen.getByRole("radio", { name: "DC Musterdorf" }));
+    const bia = screen.getByText(/Bia/).closest("tr") as HTMLElement;
+    expect(bia.getAttribute("data-qualified")).toBe("true");
+    expect(bia.textContent).toContain("0.0");
+    expect(bia.textContent).not.toContain("-0.0");
+    expect(within(bia).getByText("DC Musterdorf").className).toContain("sr-only");
+  });
+
   it("wählt den Tab passend zum Turnierstatus", () => {
     expect(clubDuelTabForStatus("FINAL_ROUND")).toBe("final");
     expect(clubDuelTabForStatus("KNOCKOUT")).toBe("final");

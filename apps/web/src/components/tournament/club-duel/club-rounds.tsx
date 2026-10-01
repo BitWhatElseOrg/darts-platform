@@ -1,7 +1,9 @@
 import type { ClubDuelDashboard } from "@darts-platform/schemas";
 import { Rule, SheetLabel, StateTag } from "@darts-platform/ui";
 
-import { legsLabel, roundMatchStateLabel } from "@/lib/club-duel-view";
+import { roundMatchStateLabel } from "@/lib/club-duel-view";
+
+import { matchOutcomeText, walkoverState } from "./club-match-outcome";
 
 type Round = ClubDuelDashboard["rounds"][number];
 
@@ -20,14 +22,15 @@ export function ClubRounds({ clubDuel, names }: {
     <>
       <ul className="mt-2 flex flex-col">
         {round.matches.map((match) => {
-          const state = roundMatchStateLabel(match.status);
+          const walkover = match.resultType === "WALKOVER";
+          const state = walkover ? walkoverState : roundMatchStateLabel(match.status);
           return (
             <li
               className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-sisal-300 py-2 font-plate text-body text-wedge-900"
               key={match.matchId}
             >
               <span className="min-w-0 flex-1 truncate">{name(match.playerAId)} – {name(match.playerBId)}</span>
-              <span className="font-numerals tabular">{legsLabel(match.legs)}</span>
+              <span className="font-numerals tabular">{matchOutcomeText(match, walkover, name)}</span>
               <StateTag label={state.label} tone={state.tone} />
             </li>
           );

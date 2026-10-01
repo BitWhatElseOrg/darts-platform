@@ -9,7 +9,12 @@ import { sideLabel } from "@/lib/club-duel-view";
 type View = "overall" | "sideA" | "sideB";
 
 const percent = (rate: number) => `${Math.round(rate * 100)} %`;
-const signedOneDecimal = (value: number) => `${value > 0 ? "+" : ""}${value.toFixed(1)}`;
+/** Erst runden, dann Vorzeichen – sonst entstünde «-0.0». */
+const signedOneDecimal = (value: number) => {
+  const rounded = Math.round(value * 10) / 10;
+  const clean = rounded === 0 ? 0 : rounded;
+  return `${clean > 0 ? "+" : ""}${clean.toFixed(1)}`;
+};
 
 /**
  * Rangliste Gesamt oder je Verein. Die Ansicht wählt eine Radiogroup nach dem
@@ -82,7 +87,8 @@ export function ClubStandings({ clubDuel }: { readonly clubDuel: ClubDuelDashboa
           <tbody>
             {rows.map((row) => {
               const club = sideLabel(clubDuel, row.side);
-              const qualified = view !== "overall" && row.qualified && !row.withdrawn;
+              // qualified kommt vom Server (club-duel-projection.ts), die UI entscheidet nicht mit.
+              const qualified = view !== "overall" && row.qualified;
               return (
                 <Tr key={row.playerId} qualified={qualified}>
                   <Td className="pl-0.5">
@@ -96,7 +102,10 @@ export function ClubStandings({ clubDuel }: { readonly clubDuel: ClubDuelDashboa
                     {row.withdrawn ? <span className="text-sisal-500"> · Ausgefallen</span> : null}
                     {qualified ? <span className="sr-only"> (Finalrunde)</span> : null}
                   </Td>
-                  <Td><abbr className="no-underline" title={club.name}>{club.short}</abbr></Td>
+                  <Td>
+                    <abbr aria-hidden="true" className="no-underline" title={club.name}>{club.short}</abbr>
+                    <span className="sr-only">{club.name}</span>
+                  </Td>
                   <Td className="text-right font-numerals">{row.played}</Td>
                   <Td className="text-right font-numerals">{row.won}</Td>
                   <Td className="text-right font-numerals">{percent(row.winRate)}</Td>
