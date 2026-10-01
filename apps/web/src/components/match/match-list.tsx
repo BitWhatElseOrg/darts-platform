@@ -4,11 +4,8 @@ import Link from "next/link";
 
 import type { MatchStateResponse } from "@darts-platform/schemas";
 import { cn } from "@darts-platform/ui";
+import { sideNamesWithClub } from "@/lib/side-names";
 
-/** Eine Seite kann zwei Personen tragen; ihr Name ist beider Name. */
-function sideNames(participant: MatchStateResponse["participants"][number]): string {
-  return participant.players.map((person) => person.displayName).join(" und ");
-}
 
 function byLiveFirst(left: MatchStateResponse, right: MatchStateResponse): number {
   return Number(right.status === "IN_PROGRESS") - Number(left.status === "IN_PROGRESS");
@@ -60,10 +57,10 @@ export function MatchList({
                 <span className="min-w-0 flex-1">
                   <span
                     className="block truncate"
-                    title={`${sideNames(match.participants[0])} – ${sideNames(match.participants[1])}`}
+                    title={`${sideNamesWithClub(match.participants[0])} – ${sideNamesWithClub(match.participants[1])}`}
                   >
-                    {sideNames(match.participants[0])} <span className="text-sisal-500">–</span>{" "}
-                    {sideNames(match.participants[1])}
+                    {sideNamesWithClub(match.participants[0])} <span className="text-sisal-500">–</span>{" "}
+                    {sideNamesWithClub(match.participants[1])}
                   </span>
                   <span className="block truncate text-caption text-sisal-500" title={match.boardName ?? "Kein Board"}>
                     {match.boardName ?? "Kein Board"}

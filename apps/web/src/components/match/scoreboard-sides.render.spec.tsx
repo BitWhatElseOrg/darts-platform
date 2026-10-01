@@ -27,7 +27,7 @@ const match = {
       legsWon: 1,
       legsWonInSet: 1,
       setsWon: 0,
-      players: [{ playerId: "11111111-1111-4111-8111-111111111111", displayName: "Alex Muster", isThrowing: true }],
+      players: [{ playerId: "11111111-1111-4111-8111-111111111111", displayName: "Alex Muster", isThrowing: true, clubLabel: null }],
     },
     {
       playerId: "22222222-2222-4222-8222-222222222222",
@@ -36,7 +36,7 @@ const match = {
       legsWon: 0,
       legsWonInSet: 0,
       setsWon: 0,
-      players: [{ playerId: "22222222-2222-4222-8222-222222222222", displayName: "Jordan Beispiel", isThrowing: false }],
+      players: [{ playerId: "22222222-2222-4222-8222-222222222222", displayName: "Jordan Beispiel", isThrowing: false, clubLabel: null }],
     },
   ],
 } as unknown as MatchStateResponse;
@@ -85,5 +85,32 @@ describe("ScoreboardSides", () => {
     render(<ScoreboardSides match={done} pendingDarts={[]} showDartBand={false} />);
     expect(screen.getByText("1 / 3 Legs")).toBeTruthy();
     expect(screen.queryByText(/Sets/u)).toBeNull();
+  });
+
+  /**
+   * Im Vereinsduell steht das Vereinskuerzel neben dem Namen, nie an seiner
+   * Stelle. Der Matchzustand kennt nur das Kuerzel, deshalb benennt ein
+   * `aria-label` es als Verein; der `title` des Namens traegt es mit.
+   */
+  it("zeigt im Vereinsduell das Vereinskuerzel neben jedem Namen", () => {
+    const [home, away] = match.participants;
+    const duel = {
+      ...match,
+      participants: [
+        { ...home, players: [{ ...home.players[0], clubLabel: "VFC" }] },
+        { ...away, players: [{ ...away.players[0], clubLabel: "DM" }] },
+      ],
+    } as unknown as MatchStateResponse;
+    render(<ScoreboardSides match={duel} pendingDarts={[]} showDartBand={false} />);
+    expect(screen.getByLabelText("Verein VFC").textContent).toBe("VFC");
+    expect(screen.getByLabelText("Verein DM").textContent).toBe("DM");
+    expect(screen.getByTitle("Alex Muster (VFC)").textContent).toContain("Alex Muster");
+    expect(screen.getByTitle("Jordan Beispiel (DM)").textContent).toContain("Jordan Beispiel");
+  });
+
+  it("zeigt ohne Verein kein Kuerzel", () => {
+    render(<ScoreboardSides match={match} pendingDarts={[]} showDartBand={false} />);
+    expect(screen.queryByLabelText(/^Verein /u)).toBeNull();
+    expect(screen.getByTitle("Alex Muster")).toBeTruthy();
   });
 });

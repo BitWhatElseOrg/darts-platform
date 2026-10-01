@@ -4,13 +4,9 @@ import { matchModeOf } from "@darts-platform/domain";
 import type { Dart, MatchStateResponse } from "@darts-platform/schemas";
 import { cn, Score } from "@darts-platform/ui";
 import { dartLabel, threeDartAverage } from "@/lib/scoreboard-view";
+import { sideNames, sideNamesWithClub } from "@/lib/side-names";
 
 type Participant = MatchStateResponse["participants"][number];
-
-/** Eine Seite kann zwei Personen tragen; ihr Name ist beider Name. */
-function sideNames(participant: Participant): string {
-  return participant.players.map((person) => person.displayName).join(" und ");
-}
 
 /** Die letzte gewertete Aufnahme dieser Seite im laufenden Leg, falls vorhanden. */
 function lastVisitPoints(match: MatchStateResponse, participant: Participant): number | null {
@@ -88,7 +84,12 @@ export function ScoreboardSides({ match, pendingDarts, showDartBand }: {
                 denselben Punkt-Platz, nur eingefaerbt, wenn er zutrifft: die
                 Kuerzgrenze ist damit fuer beide Seiten gleich breit, statt
                 nur seltener zu treffen. */}
-            <p className="truncate text-body font-semibold" title={sideNames(participant)}>
+            {/* Das Vereinskuerzel (Vereinsduell) steht im selben kuerzenden
+                Absatz hinter dem Namen: auf einem 360-px-Telefon schneidet
+                die Ellipse dann am Kuerzel ab, nicht am Namen, und beide
+                Seiten behalten dieselbe Kuerzgrenze. Der `title` traegt den
+                vollen Wortlaut mit Kuerzel. */}
+            <p className="truncate text-body font-semibold" title={sideNamesWithClub(participant)}>
               {participant.players.map((person, index) => (
                 <span key={person.playerId}>
                   {index > 0 ? <span aria-hidden="true"> · </span> : null}
@@ -97,6 +98,11 @@ export function ScoreboardSides({ match, pendingDarts, showDartBand }: {
                     className={cn("mr-1.5 inline-block h-2 w-2 rounded-full align-middle", person.isThrowing ? "bg-ring-green" : "bg-transparent")}
                   />
                   {person.displayName}
+                  {person.clubLabel !== null ? (
+                    <span aria-label={`Verein ${person.clubLabel}`} className="ml-1.5 font-plate text-caption font-semibold uppercase tracking-[0.12em] text-sisal-500">
+                      {person.clubLabel}
+                    </span>
+                  ) : null}
                   {person.isThrowing ? <span className="sr-only"> (am Wurf)</span> : null}
                 </span>
               ))}
