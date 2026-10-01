@@ -569,6 +569,25 @@ describe("Vereinsduell Ablauf", () => {
     expect(view?.rounds[1]?.pausedPlayerIds).not.toContain(withdrawn);
   }, 120_000);
 
+  it("zaehlt einen Rueckzug, der die Runde schliesst und die naechste paart, nicht als Pause der neuen Runde (R8)", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 3, sideBCount: 2 }), auth, audit });
+    const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    const [first, second] = roundOne;
+    if (!first?.participantOneId || !first.participantTwoId || !second?.participantOneId || !second.participantTwoId) throw new Error("unexpected");
+    const pausedInRoundOne = sideA.slice(0, 3).filter((id) => !roundOne.some((match) => match.participantOneId === id || match.participantTwoId === id));
+    await playMatch(created.id, first.id, first.participantOneId, boardIds[0]);
+    // Rueckzug im noch offenen Spiel: Walkover schliesst Runde 1 und paart Runde 2 in derselben Transaktion.
+    const withdrawn = sideA.includes(second.participantOneId) ? second.participantOneId : second.participantTwoId;
+    await withdraw(created.id, withdrawn);
+    const view = (await service.dashboard({ organizationId, tournamentId: created.id, auth })).clubDuel;
+    expect(view?.currentRound).toBe(2);
+    expect(view?.rounds[0]?.pausedPlayerIds).toEqual(pausedInRoundOne);
+    expect(view?.rounds[1]?.pausedPlayerIds).not.toContain(withdrawn);
+    const roundTwo = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 2")));
+    expect(roundTwo.length).toBeGreaterThan(0);
+    expect(roundTwo.some((match) => match.participantOneId === withdrawn || match.participantTwoId === withdrawn)).toBe(false);
+  }, 120_000);
+
   it("schreibt beim Besetzen von Finalrunde und Final je genau ein Outbox- und ein Audit-Ereignis", async () => {
     const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
     const resolvedEvents = () => databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_PHASE_RESOLVED")));

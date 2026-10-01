@@ -211,6 +211,11 @@ async function pairNextRound(
       participantTwoId: pairing.playerBId,
       participantOneRef: planned.participantOne,
       participantTwoRef: planned.participantTwo,
+      // Gleiche Uhr wie der ausloesende Schritt (etwa `withdrawnAt`): der
+      // DB-Default laege am Transaktionsbeginn und damit vor dem Rueckzug,
+      // die Pausenliste (`pairedAt`) zaehlte den Zurueckgezogenen sonst (R8).
+      createdAt: input.now,
+      updatedAt: input.now,
     };
   }));
   const payload = {
