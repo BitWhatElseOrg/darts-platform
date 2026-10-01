@@ -92,6 +92,12 @@ function localizedMessage(code: string): string {
     DEVICE_NOT_ALLOWED: "Das darf ein Scheiben-Tablet nicht.",
     DEVICE_BOARD_MISMATCH: "Dieses Match läuft nicht mehr auf dieser Scheibe.",
     DEVICE_MATCH_NOT_ACTIVE: "Dieses Match läuft nicht mehr.",
+    CLUB_DUEL_ROUND_ALREADY_PAIRED:
+      "Die nächste Runde ist bereits gepaart. Dieses Resultat lässt sich nicht mehr korrigieren.",
+    CLUB_DUEL_SIDE_TOO_SMALL:
+      "Jeder Verein braucht mindestens so viele Spieler, wie die Finalrunde Plätze hat.",
+    INVALID_CLUB_DUEL_ROUNDS: "Die Qualifikation braucht 1 bis 15 Runden.",
+    PLAYER_IS_GUEST: "Ein Gastspieler kann nicht mit einem Konto verknüpft werden.",
   };
   const translated = messages[code];
   if (translated !== undefined) return translated;

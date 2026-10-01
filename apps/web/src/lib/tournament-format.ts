@@ -77,7 +77,8 @@ export function readinessLabel(readiness: QueueReadiness): string {
 /**
  * Jeder gegen jeden laeuft technisch als GROUP_STAGE, hat aber keine
  * Gruppenphase (Sichtprobe 25.09.2026) -- mit `format` heisst der Zustand
- * schlicht "laeuft".
+ * schlicht "laeuft". Im Vereinsduell heisst GROUP_STAGE "Qualifikation" und
+ * KNOCKOUT "Final" (Spec Vereinsduell, UI).
  */
 export function statusLabel(status: TournamentStatus, format?: TournamentFormat): string {
   switch (status) {
@@ -86,9 +87,10 @@ export function statusLabel(status: TournamentStatus, format?: TournamentFormat)
     case "READY":
       return "startbereit";
     case "GROUP_STAGE":
-      return format === "ROUND_ROBIN" ? "läuft" : "Gruppenphase";
+      if (format === "ROUND_ROBIN") return "läuft";
+      return format === "CLUB_DUEL" ? "Qualifikation" : "Gruppenphase";
     case "KNOCKOUT":
-      return "K.-o.-Runde";
+      return format === "CLUB_DUEL" ? "Final" : "K.-o.-Runde";
     case "FINAL_ROUND":
       return "Finalrunde";
     case "COMPLETED":

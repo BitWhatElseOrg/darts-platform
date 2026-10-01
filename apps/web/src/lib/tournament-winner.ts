@@ -5,16 +5,27 @@
  * Mit Tableau entscheidet das Match der hoechsten Runde; ohne Tableau (Round
  * Robin) die Spitze der einzigen Gruppe. Mehrere Gruppen ohne Tableau haben
  * keinen einen Sieger, und ein noch offenes letztes Match auch nicht: dann
- * `null`, und die Kopfzeile bleibt, wie sie ist.
+ * `null`, und die Kopfzeile bleibt, wie sie ist. Im Vereinsduell entscheidet
+ * das Final; der Name kommt ueber `participants`.
  */
 interface WinnerSource {
   readonly tournament: { readonly status: string };
   readonly bracket: readonly { readonly round: number; readonly status: string; readonly winnerDisplayName: string | null }[];
   readonly groups: readonly { readonly rows: readonly { readonly position: number; readonly displayName: string }[] }[];
+  readonly participants?: readonly { readonly playerId: string; readonly displayName: string }[];
+  readonly clubDuel?: {
+    readonly finals: { readonly final: { readonly status: string; readonly winnerPlayerId: string | null } | null };
+  } | null;
 }
 
 export function tournamentWinner(source: WinnerSource): string | null {
   if (source.tournament.status !== "COMPLETED") return null;
+  // Vereinsduell: Sieger ist, wer das Final gewinnt -- nicht der Verein.
+  const final = source.clubDuel?.finals.final;
+  if (final !== undefined && final !== null) {
+    if (final.status !== "COMPLETED" || final.winnerPlayerId === null) return null;
+    return source.participants?.find((participant) => participant.playerId === final.winnerPlayerId)?.displayName ?? null;
+  }
   if (source.bracket.length > 0) {
     const lastRound = Math.max(...source.bracket.map((match) => match.round));
     const decider = source.bracket.find((match) => match.round === lastRound);
