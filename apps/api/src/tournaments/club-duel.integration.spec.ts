@@ -52,6 +52,7 @@ const sideB: string[] = Array.from({ length: 9 }, () => randomUUID());
 const seedOf = new Map<string, number>([...sideA, ...sideB].map((id, index) => [id, index + 1]));
 const boardIds = [randomUUID(), randomUUID(), randomUUID()] as const;
 const foreignPlayerId = randomUUID();
+const foreignBoardId = randomUUID();
 
 function sideOf(id: string | null): "A" | "B" | null {
   if (id === null) return null;
@@ -110,7 +111,10 @@ beforeAll(async () => {
     })),
     { id: foreignPlayerId, organizationId: foreignOrganizationId, displayName: "Fremder Spieler", status: "ACTIVE" },
   ]);
-  await database.insert(boards).values(boardIds.map((id, index) => ({ id, organizationId, name: `Duell Board ${index + 1}` })));
+  await database.insert(boards).values([
+    ...boardIds.map((id, index) => ({ id, organizationId, name: `Duell Board ${index + 1}` })),
+    { id: foreignBoardId, organizationId: foreignOrganizationId, name: "Fremde Scheibe" },
+  ]);
 });
 
 afterAll(async () => {
@@ -168,6 +172,25 @@ describe("Vereinsduell anlegen", () => {
     await expect(
       service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 6, sideBCount: 5 }), auth, audit }),
     ).rejects.toMatchObject({ response: { code: "CLUB_DUEL_SIDE_TOO_SMALL" } });
+  });
+
+  it("lehnt eine Scheibe einer fremden Organisation mit INVALID_TOURNAMENT_BOARDS ab und legt nichts an", async () => {
+    const data = { ...clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), boardIds: [boardIds[0], foreignBoardId] };
+    await expect(service.create({ organizationId, data, auth, audit })).rejects.toMatchObject({
+      response: { code: "INVALID_TOURNAMENT_BOARDS" },
+    });
+    expect(await databaseService.database.select().from(tournaments).where(and(eq(tournaments.organizationId, organizationId), eq(tournaments.name, data.name)))).toHaveLength(0);
+  });
+
+  it("schreibt bei der Anlage genau ein TOURNAMENT_CREATED-Ereignis und einen Audit-Eintrag", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
+    const events = await databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_CREATED")));
+    expect(events).toHaveLength(1);
+    expect(events[0]?.organizationId).toBe(organizationId);
+    expect(events[0]?.payload).toEqual({ tournamentId: created.id, format: "CLUB_DUEL" });
+    const audits = await databaseService.database.select().from(auditEvents).where(and(eq(auditEvents.entityId, created.id), eq(auditEvents.action, "TOURNAMENT_CREATED")));
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ organizationId, actorUserId: userId, entityType: "Tournament", correlationId: audit.correlationId });
   });
 
   it("rechnet die Vorschau", async () => {
@@ -362,6 +385,10 @@ describe("Vereinsduell Ablauf", () => {
 
     const total = 9 + await playOut(created.id);
     expect(total).toBe(18 + 4 + 2);
+    // Zwei Quali-Runden: genau eine Paarung über den ganzen Durchlauf; Finalrunde und Final je einmal besetzt.
+    expect(await databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_ROUND_PAIRED")))).toHaveLength(1);
+    const phaseEvents = await databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_PHASE_RESOLVED")));
+    expect(phaseEvents.map((event) => (event.payload as { stageKey: string }).stageKey).sort()).toEqual(["final", "final-round"]);
     const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
     expect(dashboard.tournament.status).toBe("COMPLETED");
     const finalMatches = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Final")));
@@ -563,6 +590,24 @@ describe("Vereinsduell Ablauf", () => {
   }, 120_000);
 });
 
+describe("Vereinsduell Scoring-Zustand", () => {
+  it("liefert in getStates je Person das Vereinskuerzel ihrer Seite", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
+    const [match] = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    if (!match?.participantOneId || !match.participantTwoId) throw new Error("unexpected");
+    const state = await startOnBoard(created.id, match.id, boardIds[2]);
+    const states = await matchesRepository.getStates(organizationId, [state.id]);
+    const labels = new Map(states.get(state.id)?.participants.flatMap((participant) => participant.players.map((player) => [player.playerId, player.clubLabel] as const)) ?? []);
+    expect(labels).toEqual(new Map([[match.participantOneId, "VFC"], [match.participantTwoId, "DM"]]));
+    // Fremder Mandant sieht den Zustand nicht.
+    expect((await matchesRepository.getStates(foreignOrganizationId, [state.id])).size).toBe(0);
+    const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    expect(dashboard.boards.find((board) => board.boardId === boardIds[2])?.match?.matchId).toBe(match.id);
+    // Spiel beenden: dieselben Personen spielen in den folgenden Tests (vereinsweite Belegung).
+    expect((await submitSteps(state, scriptToFinish(state, match.participantOneId))).status).toBe("COMPLETED");
+  }, 60_000);
+});
+
 describe("Vereinsduell Korrektur und Rueckzug", () => {
   it("sperrt die Korrektur eines Quali-Resultats, sobald die Folgerunde gepaart ist", async () => {
     const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
@@ -653,6 +698,44 @@ describe("Vereinsduell Korrektur und Rueckzug", () => {
     expect(audits).toHaveLength(1);
     const events = await databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_ROUND_PAIRED")));
     expect(events).toHaveLength(1);
+  }, 60_000);
+
+  it("schreibt bei einem abgelehnten letzten Wurf der Runde kein Ereignis und bei der Wiederholung des Checkouts kein zweites", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
+    const pairedEvents = () => databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_ROUND_PAIRED")));
+    const pairedAudits = () => databaseService.database.select().from(auditEvents).where(and(eq(auditEvents.entityId, created.id), eq(auditEvents.action, "TOURNAMENT_ROUND_PAIRED")));
+    const roundTwo = () => databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 2")));
+    const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    const [first, second] = roundOne;
+    if (!first?.participantOneId || !second?.participantOneId) throw new Error("unexpected");
+    await playMatch(created.id, first.id, first.participantOneId, boardIds[0]);
+
+    const state = await startOnBoard(created.id, second.id, boardIds[1]);
+    const script = scriptToFinish(state, second.participantOneId);
+    const last = script.at(-1);
+    if (last === undefined) throw new Error("Empty script.");
+    const before = await submitSteps(state, script.slice(0, -1));
+    const checkout = {
+      commandId: randomUUID(), playerId: last.playerId, points: last.points, dartsThrown: 1 as const,
+      checkoutSegment: { segment: 20, multiplier: 2 as const },
+    };
+    await expect(matchesService.submitVisit({ organizationId, matchId: before.id, auth, audit, data: { ...checkout, expectedVersion: before.version - 1 } }))
+      .rejects.toMatchObject({ status: 409 });
+    expect(await pairedEvents()).toHaveLength(0);
+    expect(await pairedAudits()).toHaveLength(0);
+    expect(await roundTwo()).toHaveLength(0);
+    const [stillOpen] = await databaseService.database.select().from(tournamentMatches).where(eq(tournamentMatches.id, second.id));
+    expect(stillOpen?.status).toBe("IN_PROGRESS");
+
+    const finished = await matchesService.submitVisit({ organizationId, matchId: before.id, auth, audit, data: { ...checkout, expectedVersion: before.version } });
+    expect(finished.status).toBe("COMPLETED");
+    expect(await pairedEvents()).toHaveLength(1);
+    expect(await roundTwo()).toHaveLength(2);
+    // Dieselbe commandId noch einmal: idempotent, keine zweite Paarung.
+    await matchesService.submitVisit({ organizationId, matchId: before.id, auth, audit, data: { ...checkout, expectedVersion: before.version } });
+    expect(await pairedEvents()).toHaveLength(1);
+    expect(await pairedAudits()).toHaveLength(1);
+    expect(await roundTwo()).toHaveLength(2);
   }, 60_000);
 
   it("Rueckzug in der Quali: offenes Spiel wird Walkover, Spieler wird nicht mehr gepaart, fehlender Finalrunden-Platz wird Walkover", async () => {

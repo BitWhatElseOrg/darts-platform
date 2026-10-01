@@ -22,6 +22,7 @@ const databaseService = new DatabaseService(parseApplicationEnvironment(process.
 const access = new OrganizationAccessService(new OrganizationsRepository(databaseService));
 const service = new PlayersService(new PlayersRepository(databaseService), access);
 const organizationId = randomUUID();
+const secondOrganizationId = randomUUID();
 const userId = randomUUID();
 const auth: AuthContext = {
   user: { id: userId, email: `guests-${userId}@example.test`, name: "Owner" },
@@ -44,13 +45,22 @@ beforeAll(async () => {
     timezone: "Europe/Zurich",
     locale: "de-CH",
   });
-  await databaseService.database
-    .insert(memberships)
-    .values({ organizationId, userId, role: "OWNER", status: "ACTIVE" });
+  await databaseService.database.insert(organizations).values({
+    id: secondOrganizationId,
+    name: `Guests second ${secondOrganizationId}`,
+    slug: `guests-second-${secondOrganizationId}`,
+    timezone: "Europe/Zurich",
+    locale: "de-CH",
+  });
+  await databaseService.database.insert(memberships).values([
+    { organizationId, userId, role: "OWNER", status: "ACTIVE" },
+    { organizationId: secondOrganizationId, userId, role: "OWNER", status: "ACTIVE" },
+  ]);
 });
 
 afterAll(async () => {
   await databaseService.database.delete(organizations).where(eq(organizations.id, organizationId));
+  await databaseService.database.delete(organizations).where(eq(organizations.id, secondOrganizationId));
   await databaseService.database.delete(users).where(eq(users.id, userId));
   await databaseService.onApplicationShutdown();
 });
@@ -164,6 +174,27 @@ describe("Gastspieler-Schnellerfassung", () => {
       .from(players)
       .where(and(eq(players.organizationId, organizationId), eq(players.guestCommandId, commandId)));
     expect(rows.map((row) => row.displayName).sort()).toEqual(winnerNames);
+  });
+
+  it("legt dieselbe commandId in zwei Organisationen als zwei getrennte Gastsets an", async () => {
+    const commandId = randomUUID();
+    const data = { commandId, clubName: "DC Mandant", names: ["Ida Mandant"] };
+    const inFirst = await service.createGuests({ organizationId, data, auth, audit });
+    // Andere Nutzdaten in der zweiten Organisation: kein COMMAND_PAYLOAD_MISMATCH, denn die commandId gilt je Mandant.
+    const inSecond = await service.createGuests({ organizationId: secondOrganizationId, data: { ...data, names: ["Jan Mandant", "Kim Mandant"] }, auth, audit });
+    expect(inFirst.map((player) => player.displayName)).toEqual(["Ida Mandant"]);
+    expect(inSecond.map((player) => player.displayName).sort()).toEqual(["Jan Mandant", "Kim Mandant"]);
+    expect(inSecond.some((player) => inFirst.some((other) => other.id === player.id))).toBe(false);
+    const rowsOf = (orgId: string) => databaseService.database
+      .select()
+      .from(players)
+      .where(and(eq(players.organizationId, orgId), eq(players.guestCommandId, commandId)));
+    expect((await rowsOf(organizationId)).map((row) => row.displayName)).toEqual(["Ida Mandant"]);
+    expect((await rowsOf(secondOrganizationId)).map((row) => row.displayName).sort()).toEqual(["Jan Mandant", "Kim Mandant"]);
+    // Wiederholung in der ersten Organisation liefert weiterhin deren Set.
+    const replay = await service.createGuests({ organizationId, data, auth, audit });
+    expect(replay.map((player) => player.id)).toEqual(inFirst.map((player) => player.id));
+    expect((await service.list({ organizationId: secondOrganizationId, auth, kind: "GUEST" })).map((player) => player.displayName).sort()).toEqual(["Jan Mandant", "Kim Mandant"]);
   });
 
   it("verlangt player:create", async () => {
