@@ -551,6 +551,24 @@ describe("Vereinsduell Ablauf", () => {
     expect(afterLate?.rounds[0]?.pausedPlayerIds).toEqual([withdrawn]);
   }, 180_000);
 
+  it("fuehrt Pausierende, die sich noch waehrend ihrer Runde zurueckziehen, in deren Pausenliste (R7)", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 2, finalRoundSize: 2, sideACount: 3, sideBCount: 2 }), auth, audit });
+    const roundOne = await databaseService.database.select().from(tournamentMatches).where(and(eq(tournamentMatches.tournamentId, created.id), eq(tournamentMatches.stageLabel, "Quali · Runde 1")));
+    const [withdrawn, ...others] = sideA.slice(0, 3).filter((id) => !roundOne.some((match) => match.participantOneId === id || match.participantTwoId === id));
+    if (withdrawn === undefined || others.length > 0) throw new Error("unexpected");
+    // Rueckzug noch in Runde 1, bevor Runde 2 gepaart ist.
+    await withdraw(created.id, withdrawn);
+    for (const match of roundOne) {
+      if (!match.participantOneId || !match.participantTwoId) throw new Error("unexpected");
+      await playMatch(created.id, match.id, match.participantOneId, boardIds[0]);
+    }
+    const view = (await service.dashboard({ organizationId, tournamentId: created.id, auth })).clubDuel;
+    expect(view?.currentRound).toBe(2);
+    expect(view?.rounds[0]?.pausedPlayerIds).toEqual([withdrawn]);
+    // In Runde 2 war er bei der Paarung schon zurueckgezogen.
+    expect(view?.rounds[1]?.pausedPlayerIds).not.toContain(withdrawn);
+  }, 120_000);
+
   it("schreibt beim Besetzen von Finalrunde und Final je genau ein Outbox- und ein Audit-Ereignis", async () => {
     const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
     const resolvedEvents = () => databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_PHASE_RESOLVED")));
