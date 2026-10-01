@@ -20,6 +20,8 @@ import {
 import {
   publicTournamentDashboardSchema,
   tournamentDashboardSchema,
+  tournamentFormatSchema,
+  tournamentStatusSchema,
   advancedFormatPreviewSchema,
   clubDuelPreviewSchema,
   tournamentListSchema,
@@ -52,9 +54,8 @@ import { OrganizationAccessService } from "../organizations/organization-access.
 import { projectClubDuel } from "./club-duel-projection.js";
 import { DisplayKeysService } from "./display-keys.service.js";
 import { isMatchOverrunning } from "./match-overrun.js";
+import { ROUND_ROBIN_LABEL, tournamentStageLabel } from "./tournament-stage-label.js";
 
-/** Bezeichnung der einzigen Phase eines Jeder-gegen-jeden-Turniers (auch Match-Stage-Label im Repository). */
-const ROUND_ROBIN_LABEL = "Jeder gegen jeden";
 import {
   TournamentsRepository,
   type TournamentDashboardData,
@@ -694,16 +695,12 @@ export class TournamentsService {
         status: data.tournament.status,
         format: data.tournament.format,
         version: data.tournament.version,
-        stageLabel:
-          data.tournament.status === "GROUP_STAGE"
-            ? data.tournament.format === "ROUND_ROBIN"
-              ? ROUND_ROBIN_LABEL
-              : "Gruppenphase"
-            : data.tournament.status === "KNOCKOUT"
-              ? "K.-o.-Runde"
-              : data.tournament.status === "COMPLETED"
-                ? "Turnier beendet"
-                : "Startbereit",
+        stageLabel: tournamentStageLabel({
+          // Die DB-Spalten sind Text; das Dashboard-Schema prueft die Werte ohnehin.
+          status: tournamentStatusSchema.parse(data.tournament.status),
+          format: tournamentFormatSchema.parse(data.tournament.format),
+          clubDuelRound: clubDuel?.currentRound ?? null,
+        }),
         startingScore: data.tournament.startingScore,
         inRule: data.tournament.inRule,
         outRule: data.tournament.outRule,
