@@ -95,6 +95,8 @@ export function ClubFinalRound({ clubDuel, names }: {
     <div className="flex flex-col gap-6">
       <div className="overflow-x-auto">
         <Table aria-label="Kreuztabelle">
+          {/* Der Name bleibt «Kreuztabelle»; die Legende nennt die Achsen. */}
+          <caption className="sr-only">Zeilen: {sideA.name}, Spalten: {sideB.name}</caption>
           <thead>
             <tr>
               {/* Ecke ohne Kopf-Rolle: jeder Zeilen- und Spaltenkopf nennt seinen Verein selbst. */}

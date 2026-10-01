@@ -72,6 +72,7 @@ describe("ClubDuelPanel", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Finalrunde" }));
     const table = screen.getByRole("table", { name: "Kreuztabelle" });
     expect(within(table).getAllByRole("rowheader")).toHaveLength(2);
+    expect(table.querySelector("caption")?.textContent).toBe("Zeilen: VFC, Spalten: DC Musterdorf");
     expect(within(table).getAllByRole("columnheader").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Final")).toBeTruthy();
   });
