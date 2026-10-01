@@ -61,7 +61,9 @@ export async function advanceClubDuel(transaction: DatabaseTransaction, input: A
   // oder abgesagt besetzt, ist sie sofort fertig, und derselbe Abschluss muss
   // Final und Platz 3 besetzen. Mehr Stufen gibt es nicht.
   const first = await advanceClubDuelOnce(transaction, input);
-  if (first === "RERUN") await advanceClubDuelOnce(transaction, input);
+  if (first === "RERUN" && (await advanceClubDuelOnce(transaction, input)) === "RERUN") {
+    throw new Error("Club duel advance invariant violated: second pass still requires a rerun.");
+  }
 }
 
 async function advanceClubDuelOnce(transaction: DatabaseTransaction, input: AdvanceClubDuelInput): Promise<"DONE" | "RERUN"> {
