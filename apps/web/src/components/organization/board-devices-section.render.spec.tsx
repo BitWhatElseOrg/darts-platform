@@ -5,7 +5,7 @@
 // `organization-settings-route.render.spec.tsx` -- `apiRequest` gemockt,
 // keine echte Netzwerkschicht.
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -342,8 +342,26 @@ describe("BoardDevicesSection", () => {
     );
     expect(routerReplace).not.toHaveBeenCalled();
     // Keine allgemeine Mutationsfehlermeldung: die Kopplung selbst gilt als
-    // erfolgreich, nur das Abmelden ist gescheitert.
-    expect(screen.queryByText("Fehler")).toBeNull();
+    // erfolgreich, nur das Abmelden ist gescheitert. Nur genau ein `alert`
+    // (die Abmelde-Warnung) -- `userFacingErrorMessage` wuerde fuer den
+    // geworfenen `TypeError` dessen `message` ("Failed to fetch") anzeigen,
+    // nicht das wortwoertliche "Fehler" aus dem Mock-Fallback; die blosse
+    // Suche nach "Fehler" haette den Fehlertext also nie gefunden, egal ob er
+    // erschienen waere oder nicht.
+    expect(screen.queryAllByRole("alert")).toHaveLength(1);
+    expect(screen.queryByText(/Failed to fetch/)).toBeNull();
+    expect(screen.queryByText(/Anfrage ist fehlgeschlagen/)).toBeNull();
+
+    // Der Geraeteschluessel bleibt erhalten: die Kopplung gilt als
+    // erfolgreich, es gibt keinen Grund, sie zurueckzuziehen.
+    expect(deviceKeyStorage.recallBoardDevice()).toEqual({
+      secret: server.pairSecret,
+      boardName: boardA.name,
+      organizationName,
+    });
+    expect(
+      client.apiRequest.mock.calls.some(([input]: [{ readonly method?: string }]) => input.method === "DELETE"),
+    ).toBe(false);
 
     const retryButton = screen.getByRole("button", { name: "Abmelden wiederholen" });
     fireEvent.click(retryButton);
@@ -383,7 +401,7 @@ describe("BoardDevicesSection", () => {
     expect(routerReplace).not.toHaveBeenCalled();
   });
 
-  it("deaktiviert den Wiederholen-Knopf waehrend des Versuchs und loest bei doppeltem Klick nur einen signOut()-Aufruf aus", async () => {
+  it("loest bei zwei Klicks ohne zwischenliegenden Render nur einen signOut()-Aufruf aus und deaktiviert den Knopf waehrend des Versuchs", async () => {
     environment.standalone = true;
     signOut.mockResolvedValueOnce({ error: { message: "network", status: 0, statusText: "" } });
     renderSection();
@@ -394,27 +412,37 @@ describe("BoardDevicesSection", () => {
     const retryButton = await screen.findByRole("button", { name: "Abmelden wiederholen" });
     signOut.mockClear();
 
-    // Der zweite Abmelde-Versuch bleibt haengen, bis der Test ihn aufloest --
-    // so laesst sich der Pending-Zustand sicher beobachten, bevor die
-    // Wiederholung abschliesst.
     let resolveSignOut: (() => void) | undefined;
-    signOut.mockImplementationOnce(
+    signOut.mockImplementation(
       () =>
         new Promise((resolve) => {
           resolveSignOut = () => resolve({ error: null });
         }),
     );
 
-    fireEvent.click(retryButton);
+    // Beide Klicks in einem gemeinsamen `act()`-Block: ein einzelnes
+    // `fireEvent.click()` waere hier kein echter Test, weil React die
+    // Zustandsaenderung aus dem ersten Klick (inklusive `disabled`-Attribut)
+    // noch VOR dem zweiten `fireEvent.click()` committen und damit den
+    // zweiten Klick bereits auf DOM-Ebene blockieren wuerde -- unabhaengig
+    // davon, ob der `signOutInFlight`-Ref existiert. Innerhalb eines
+    // gemeinsamen `act()` werden beide Klicks dagegen verarbeitet, bevor
+    // React committet, sodass der zweite Klick den Handler tatsaechlich noch
+    // einmal erreicht und nur der Ref-Guard einen zweiten `signOut()`-Aufruf
+    // verhindern kann. Verifiziert (Task-Review): entfernt man die
+    // `signOutInFlight`-Pruefung aus `attemptSignOut()`, wird genau diese
+    // Assertion rot (`signOut` 2x statt 1x aufgerufen).
+    act(() => {
+      fireEvent.click(retryButton);
+      fireEvent.click(retryButton);
+    });
+
+    expect(signOut).toHaveBeenCalledTimes(1);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Abmelden läuft …" })).not.toBeNull();
+      const pendingButton = screen.getByRole("button", { name: "Abmelden läuft …" }) as HTMLButtonElement;
+      expect(pendingButton.disabled).toBe(true);
     });
-    const pendingButton = screen.getByRole("button", { name: "Abmelden läuft …" }) as HTMLButtonElement;
-    expect(pendingButton.disabled).toBe(true);
-
-    fireEvent.click(pendingButton);
-    expect(signOut).toHaveBeenCalledTimes(1);
 
     resolveSignOut?.();
 
