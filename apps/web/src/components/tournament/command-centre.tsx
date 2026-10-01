@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, PageNav } from "@/components/page-nav";
 import { apiRequest, userFacingErrorMessage } from "@/lib/api-client";
 import { ApiClientError } from "@/lib/api-error";
+import { visibleQueue } from "@/lib/club-duel-queue";
 import { generateId } from "@/lib/id";
 import { type OfflineCommand } from "@/lib/offline-command-queue";
 import {
@@ -623,10 +624,7 @@ export function CommandCentre({ canCorrect, canManageDisplayKeys, canShare, canW
   // Im Vereinsduell stehen die N²+2 Platzhalter der Finalrunde schon ab dem
   // Start in der Warteschlange und verstopfen die Liste. Ausgeblendet wird
   // nur in der Anzeige; der Server behaelt die Wahrheit.
-  const queueForPanel =
-    dashboard.tournament.format === "CLUB_DUEL"
-      ? dashboard.queue.filter((entry) => entry.readiness !== "BLOCKED_PARTICIPANT_UNDECIDED")
-      : dashboard.queue;
+  const queueForPanel = visibleQueue(dashboard.queue, dashboard.tournament.format);
 
   return (
     <div className="sektorenring min-h-screen">
