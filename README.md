@@ -85,6 +85,9 @@ Papierhilfen durchzuführen. Der Vollausbau umfasst:
 - Team-Begegnungen als Ligamodus nach [VFC-Reglement](./LIGA-REGLEMENT.md):
   Teams mit Kader, Begegnungsvorlage, beidseitige Aufstellung, 18 beziehungsweise
   19 Spiele auf mehreren Boards, automatische Wertung und Ligatabelle
+- auditierte Korrektur von Liga-Resultaten: die Leitung öffnet ein gespieltes
+  Spiel einer abgeschlossenen Begegnung mit Begründung wieder und lässt es neu
+  scoren
 - Einzelrangliste je Wettbewerb nach Reglement A1.6–A1.9
 - tenant-sichere Board- und Matchverwaltung mit granularen Permissions
 
@@ -92,6 +95,9 @@ Papierhilfen durchzuführen. Der Vollausbau umfasst:
 
 - öffentliche Live-, Board- und TV-Ansichten mit Socket.IO und HTTP-Fallback
 - Anzeige-Schlüssel für die Board-Ansicht nicht freigegebener Turniere
+- Scheiben-Tablets: ein fest montiertes Tablet wird einmal einer Scheibe
+  zugeordnet und scort danach in der Kiosk-Ansicht `/scheibe` jedes Match dieser
+  Scheibe ohne Benutzer-Login
 - Staging-Environment auf Railway, das `develop` folgt
 - installierbare PWA mit persistenter Offline-Queue und Board-Controller-Lock
 - Spielerprofile mit Matchverlauf, Average, Checkout-Quote, Head-to-Head und
@@ -349,8 +355,12 @@ Verbindliche Architektur- und Arbeitsregeln stehen in [AGENTS.md](./AGENTS.md).
 | [ADR 0015](./docs/adr/0015-spieler-konto-verknuepfung.md) | Konto und Spieler bleiben getrennt und werden optional verknüpft |
 | [ADR 0016](./docs/adr/0016-profilbilder-in-postgres.md) | Profilbilder liegen als Bytes in Postgres, nicht in einem Bucket |
 | [ADR 0017](./docs/adr/0017-ausgehende-emails.md) | Ausgehende E-Mails über eine Versandtabelle und den Worker |
+| [ADR 0018](./docs/adr/0018-loeschkonzept.md) | Löschkonzept für Spieler, Mitglieder und Organisationen |
+| [ADR 0019](./docs/adr/0019-scheiben-geraete.md) | Scheiben-Tablets als eigener Principal mit `@AllowDevice()` |
+| [ADR 0020](./docs/adr/0020-liga-resultatkorrektur.md) | Korrektur von Liga-Resultaten durch Wiedereröffnen und Neu-Scoren |
 | [Team-Begegnung als Ligamodus](./docs/superpowers/specs/2026-09-02-team-encounter-league-design.md) | Fachliche Umsetzung des VFC-Reglements in Vorlage, Aufstellung und Wertung |
 | [Bedienungsanleitung](./apps/web/public/bedienungsanleitung.html) | Öffentlich zugängliche deutsche Anleitung für Administration, Turnierleitung und Scoring |
+| [Scheiben-Tablet einrichten](./docs/betrieb/scheiben-tablet-einrichten.md) | iPad und Android als Kiosk an einer Scheibe einrichten, entkoppeln und ersetzen |
 | [Railway-Runbook](./infrastructure/railway.md) | Deployment, Variablen, Smoke-Test, Diagnose und Rollback |
 | [Neon-Preview-Runbook](./infrastructure/neon-preview.md) | Isolierte Development- und Preview-Datenbanken mit Neon |
 
