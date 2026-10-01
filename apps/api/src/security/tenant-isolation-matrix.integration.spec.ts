@@ -77,6 +77,7 @@ const bodies: Record<string, object> = {
   "POST /api/v1/organizations/:organizationId/boards": { name: "Board 1" },
   "POST /api/v1/organizations/:organizationId/boards/:boardId/devices": { label: "Matrix" },
   "POST /api/v1/organizations/:organizationId/players": { displayName: "Fremde Spielerin", status: "ACTIVE" },
+  "POST /api/v1/organizations/:organizationId/players/guests": { commandId: "0d1f6d2e-4b1a-4c2e-9f3a-1b2c3d4e5f60", clubName: "Fremder Verein", names: ["Gast"] },
   "PATCH /api/v1/organizations/:organizationId/players/:playerId": { displayName: "Umbenannt" },
   "POST /api/v1/organizations/:organizationId/matches": {
     playerOneId: randomUUID(), playerTwoId: randomUUID(), boardId: null, bestOfLegs: 1, bestOfSets: 1,

@@ -16,3 +16,25 @@ export function isDeadlockError(error: unknown): boolean {
   }
   return false;
 }
+
+/** SQLSTATE 23505: ein Unique-Index oder -Constraint wurde verletzt. */
+export const UNIQUE_VIOLATION = "23505";
+
+/**
+ * Trifft die Verletzung genau diesen Constraint? Drizzle verpackt den
+ * Treiberfehler, deshalb wird die `cause`-Kette wie bei `isDeadlockError`
+ * durchlaufen.
+ */
+export function isUniqueViolation(error: unknown, constraint: string): boolean {
+  for (let candidate: unknown = error, depth = 0; depth < 5; depth += 1) {
+    if (typeof candidate !== "object" || candidate === null) return false;
+    const row = candidate as {
+      readonly code?: unknown;
+      readonly constraint_name?: unknown;
+      readonly cause?: unknown;
+    };
+    if (row.code === UNIQUE_VIOLATION && row.constraint_name === constraint) return true;
+    candidate = row.cause;
+  }
+  return false;
+}

@@ -10,14 +10,18 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
   Res,
 } from "@nestjs/common";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import {
+  createGuestPlayersSchema,
   createPlayerSchema,
+  playerKindFilterSchema,
   updatePlayerSchema,
+  type CreateGuestPlayersInput,
   type CreatePlayerInput,
   type PlayerResponse,
   type UpdatePlayerInput,
@@ -43,9 +47,30 @@ export class PlayersController {
   @Get()
   public async list(
     @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Query("kind") kind: unknown,
     @CurrentAuth() auth: AuthContext,
   ): Promise<PlayerResponse[]> {
-    return this.playersService.list({ organizationId, auth });
+    return this.playersService.list({
+      organizationId,
+      auth,
+      kind: parseBody(playerKindFilterSchema, kind),
+    });
+  }
+
+  @Post("guests")
+  public async createGuests(
+    @Param("organizationId", ParseUUIDPipe) organizationId: string,
+    @Body() body: unknown,
+    @CurrentAuth() auth: AuthContext,
+    @Req() request: FastifyRequest,
+  ): Promise<PlayerResponse[]> {
+    const data: CreateGuestPlayersInput = parseBody(createGuestPlayersSchema, body);
+    return this.playersService.createGuests({
+      organizationId,
+      data,
+      auth,
+      audit: getAuditContext(request, this.environment.TRUST_PROXY_HOPS),
+    });
   }
 
   @Get(":playerId")
