@@ -1,6 +1,10 @@
 import { and, eq } from "drizzle-orm";
 
-import { boards, encounterSlots, encounters, outboxEvents } from "@darts-platform/database";
+import { auditEvents, boards, encounterSlots, encounters, outboxEvents } from "@darts-platform/database";
+
+import type { Principal } from "../auth/auth.types.js";
+import { auditActor } from "../common/audit-actor.js";
+import type { AuditContext } from "../common/audit-context.js";
 
 import type { DatabaseService } from "../database/database.service.js";
 import { updateEncounterProgress } from "./update-encounter-progress.js";
@@ -117,7 +121,7 @@ export async function resetEncounterSlotForMatch(
   return { encounterId: slot.encounterId, slotId: slot.id, sequence: slot.sequence };
 }
 
-export type ReopenEncounterSlotOutcome = "no-slot" | "not-applicable" | "encounter-closed" | "reopened";
+export type ReopenEncounterSlotOutcome = "no-slot" | "slot-not-completed" | "encounter-closed" | "reopened";
 
 /**
  * Ein Undo auf ein beendetes Liga-Match öffnet den zugehörigen Slot mit, damit
@@ -130,8 +134,11 @@ export type ReopenEncounterSlotOutcome = "no-slot" | "not-applicable" | "encount
  * hier wird die Begegnung trotzdem vor dem Slot gesperrt, damit die Funktion
  * auch ohne diese Vorsperre keine gegenläufige Reihenfolge einführt.
  *
- * Abgelehnt (`"encounter-closed"`) wird, wenn
- * - die Begegnung COMPLETED oder CANCELLED ist: Punkte und Resultat sind
+ * Abgelehnt wird, wenn
+ * - der Slot nicht als gespielt abgeschlossen ist (`"slot-not-completed"`):
+ *   ein beendetes Match mit offenem oder per Walkover gewertetem Slot ist ein
+ *   widersprüchlicher Zustand, den ein Undo nicht still übergehen darf;
+ * - die Begegnung COMPLETED oder CANCELLED ist (`"encounter-closed"`): Punkte und Resultat sind
  *   festgeschrieben, ein Undo darf sie nicht still zurückdrehen;
  * - ein Entscheidungsdoppel (Reglement 2.2.9) nicht mehr im Ausgangszustand
  *   steht. Der Decider-Slot entsteht mit der Begegnung als `WAITING` und
@@ -151,6 +158,8 @@ export async function reopenEncounterSlotForMatch(
     readonly organizationId: string;
     readonly matchId: string;
     readonly boardId: string | null;
+    readonly auth: Principal;
+    readonly audit: AuditContext;
   },
 ): Promise<ReopenEncounterSlotOutcome> {
   const [candidate] = await transaction
@@ -178,7 +187,7 @@ export async function reopenEncounterSlotForMatch(
     .limit(1);
   const slot = await lockSlotOfMatch(transaction, input.organizationId, input.matchId);
   if (slot === null) return "no-slot";
-  if (slot.status !== "COMPLETED" || slot.resultType !== "PLAYED") return "not-applicable";
+  if (slot.status !== "COMPLETED" || slot.resultType !== "PLAYED") return "slot-not-completed";
   if (encounter === undefined || encounter.id !== slot.encounterId) {
     throw new Error("Encounter slot reopen invariant violated.");
   }
@@ -201,19 +210,20 @@ export async function reopenEncounterSlotForMatch(
   }
 
   const now = new Date();
+  const reopened = {
+    status: "IN_PROGRESS",
+    boardId: input.boardId,
+    winnerSide: null,
+    resultType: null,
+    homeLegs: 0,
+    awayLegs: 0,
+    completedAt: null,
+    version: slot.version + 1,
+    updatedAt: now,
+  } as const;
   await transaction
     .update(encounterSlots)
-    .set({
-      status: "IN_PROGRESS",
-      boardId: input.boardId,
-      winnerSide: null,
-      resultType: null,
-      homeLegs: 0,
-      awayLegs: 0,
-      completedAt: null,
-      version: slot.version + 1,
-      updatedAt: now,
-    })
+    .set(reopened)
     .where(
       and(eq(encounterSlots.organizationId, input.organizationId), eq(encounterSlots.id, slot.id)),
     );
@@ -228,6 +238,18 @@ export async function reopenEncounterSlotForMatch(
       sequence: slot.sequence,
       matchId: input.matchId,
     },
+  });
+  await transaction.insert(auditEvents).values({
+    organizationId: input.organizationId,
+    ...auditActor(input.auth),
+    action: "ENCOUNTER_SLOT_REOPENED",
+    entityType: "EncounterSlot",
+    entityId: slot.id,
+    oldValue: slot,
+    newValue: { ...slot, ...reopened },
+    ip: input.audit.ip,
+    userAgent: input.audit.userAgent,
+    correlationId: input.audit.correlationId,
   });
   await updateEncounterProgress(transaction, input.organizationId, slot.encounterId, now);
   return "reopened";

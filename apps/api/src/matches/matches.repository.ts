@@ -11,7 +11,7 @@ import { decideDeviceMatchAccess, matchTargets, type DeviceMatchAction } from "@
 import { ScoringValidationError, createX01Match, defaultCheckoutAttempts, executeX01Command, projectX01Match, type InRule, type LegStartRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
 import type { AbortMatchInput, AbortMatchResponse, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
 import { isDevicePrincipal, type AuthContext, type Principal } from "../auth/auth.types.js";
-import { isBoardInProgressConflict, isBoardOccupied } from "../boards/board-occupancy.js";
+import { isBoardInProgressConflict, isBoardOccupied, loadActivePlayerIds, lockPlayers } from "../boards/board-occupancy.js";
 import { auditActor, leaseActor } from "../common/audit-actor.js";
 import type { AuditContext } from "../common/audit-context.js";
 import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
@@ -34,9 +34,11 @@ export type MutationResult = "ok" | "not-found" | "version-conflict" | "controll
 /**
  * Ein Undo eroeffnet ein beendetes Match wieder. Steht auf seiner Scheibe
  * inzwischen ein anderes Spiel, ist das keine ungueltige Eingabe, sondern ein
- * Zustand — er wird wie ueberall als belegte Scheibe beantwortet.
+ * Zustand — er wird wie ueberall als belegte Scheibe beantwortet. Spielt eine
+ * beteiligte Person schon an einer anderen Scheibe, gilt dasselbe als
+ * `player-busy`.
  */
-export type UndoMutationResult = MutationResult | "board-unavailable";
+export type UndoMutationResult = MutationResult | "board-unavailable" | "player-busy";
 export type AbortMutationResult = AbortMatchResponse | Exclude<MutationResult, "ok" | DeviceDenial>;
 export type TournamentCorrectionResult =
   | Exclude<MutationResult, "controller-conflict" | DeviceDenial>
@@ -1021,10 +1023,24 @@ export class MatchesRepository {
             return "board-unavailable";
           }
         }
+        // Dasselbe fuer die Personen: wer das Match beendet hat, kann laengst
+        // an einer anderen Scheibe stehen; ein Undo stellte ihn doppelt an
+        // die Scheibe (AGENTS.md 9). Gleiche Sperre und Pruefung wie
+        // `assignSlot`, Reihenfolge Encounter -> Slot -> Match -> Board ->
+        // Players. Das Match selbst ist COMPLETED und zaehlt nicht mit.
+        const participantRows = await transaction
+          .select({ playerId: matchParticipantPlayers.playerId })
+          .from(matchParticipantPlayers)
+          .where(and(eq(matchParticipantPlayers.organizationId, input.organizationId), eq(matchParticipantPlayers.matchId, input.matchId)));
+        const participantIds = participantRows.map((row) => row.playerId);
+        await lockPlayers(transaction, input.organizationId, participantIds);
+        const activePlayerIds = await loadActivePlayerIds(transaction, input.organizationId);
+        if (participantIds.some((playerId) => activePlayerIds.has(playerId))) return "player-busy";
         // Liga: der Slot geht mit dem Match zurueck auf IN_PROGRESS, sonst
         // erreichte das korrigierte Resultat ihn beim naechsten Checkout nicht
         // mehr. Eine abgeschlossene Begegnung oder ein schon angesetztes
-        // Entscheidungsdoppel lehnt das ab (Regel in `sync-encounter-slot.ts`).
+        // Entscheidungsdoppel lehnt das ab, ebenso ein Slot, der nicht als
+        // gespielt abgeschlossen ist (Regel in `sync-encounter-slot.ts`).
         // Die Sperren auf Begegnung und Slot haelt bereits
         // `lockEncounterScoringContext` oben; Reihenfolge bleibt
         // Encounter -> EncounterSlot -> Match.
@@ -1032,8 +1048,10 @@ export class MatchesRepository {
           organizationId: input.organizationId,
           matchId: input.matchId,
           boardId: match.boardId,
+          auth: input.auth,
+          audit: input.audit,
         });
-        if (reopened === "encounter-closed") {
+        if (reopened === "encounter-closed" || reopened === "slot-not-completed") {
           throw new ScoringValidationError(
             "ENCOUNTER_RESULT_REQUIRES_CORRECTION",
             "Completed encounter results cannot be reopened by undo.",

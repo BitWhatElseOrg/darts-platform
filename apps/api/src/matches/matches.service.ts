@@ -124,6 +124,7 @@ export class MatchesService {
       const parsed = matchStateSchema.parse(state);
       if (result === "controller-conflict") throw new ConflictException({ code: "BOARD_CONTROLLER_CONFLICT", message: "Ein anderes Gerät steuert dieses Board.", details: { currentState: parsed } });
       if (result === "board-unavailable") throw new ConflictException({ code: "BOARD_NOT_AVAILABLE", message: "Das Board ist nicht verfügbar.", details: { currentState: parsed } });
+      if (result === "player-busy") throw new ConflictException({ code: "PLAYER_BUSY", message: "Mindestens eine Person spielt bereits an einem anderen Board.", details: { currentState: parsed } });
       return parsed;
     } catch (error) {
       this.rethrowDomainError(error);

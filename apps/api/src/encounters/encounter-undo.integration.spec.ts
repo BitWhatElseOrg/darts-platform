@@ -1,11 +1,13 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import { buildEncounterTemplate } from "@darts-platform/league-engine";
 import {
+  auditEvents,
   boards,
+  encounterLineupEntries,
   encounterSlots,
   encounters,
   matches as matchesTable,
@@ -266,6 +268,20 @@ async function matchRow(matchId: string): Promise<typeof matchesTable.$inferSele
   return row;
 }
 
+async function reopenedEvents(encounterId: string): Promise<readonly unknown[]> {
+  const rows = await databaseService.database
+    .select({ payload: outboxEvents.payload })
+    .from(outboxEvents)
+    .where(
+      and(
+        eq(outboxEvents.organizationId, organizationId),
+        eq(outboxEvents.aggregateId, encounterId),
+        eq(outboxEvents.eventType, "ENCOUNTER_SLOT_REOPENED"),
+      ),
+    );
+  return rows.map((row) => row.payload);
+}
+
 function slotIdOf(encounter: EncounterDetail, sequence: number): string {
   const slot = encounter.slots.find((entry) => entry.sequence === sequence);
   if (slot === undefined) throw new Error(`Slot ${sequence} is missing.`);
@@ -348,19 +364,30 @@ describe("undo of a completed league match", () => {
       homeLegs: 0,
       awayLegs: 0,
     });
-    const events = await databaseService.database
-      .select({ payload: outboxEvents.payload })
-      .from(outboxEvents)
-      .where(
-        and(
-          eq(outboxEvents.organizationId, organizationId),
-          eq(outboxEvents.aggregateId, encounter.id),
-          eq(outboxEvents.eventType, "ENCOUNTER_SLOT_REOPENED"),
-        ),
-      );
-    expect(events.map((event) => event.payload)).toEqual([
+    expect(await reopenedEvents(encounter.id)).toEqual([
       { encounterId: encounter.id, slotId, sequence: 1, matchId },
     ]);
+    const audits = await databaseService.database
+      .select()
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.organizationId, organizationId),
+          eq(auditEvents.entityId, slotId),
+          eq(auditEvents.action, "ENCOUNTER_SLOT_REOPENED"),
+        ),
+      );
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      actorUserId: userId,
+      actorDeviceId: null,
+      entityType: "EncounterSlot",
+      correlationId: audit.correlationId,
+      ip: audit.ip,
+      userAgent: audit.userAgent,
+      oldValue: { id: slotId, status: "COMPLETED", winnerSide: "HOME", resultType: "PLAYED", homeLegs: 1 },
+      newValue: { id: slotId, status: "IN_PROGRESS", boardId: boardIds[0], winnerSide: null, resultType: null, homeLegs: 0 },
+    });
 
     // Das korrigierte Resultat erreicht den Slot.
     await playOut(matchId, "AWAY");
@@ -398,6 +425,7 @@ describe("undo of a completed league match", () => {
     expect(await matchRow(matchId)).toEqual(matchBefore);
     expect(await slotRow(slotId)).toEqual(slotBefore);
     expect(await encounterRow(encounter.id)).toEqual(encounterBefore);
+    expect(await reopenedEvents(encounter.id)).toEqual([]);
   });
 
   it("rejects the undo of a regular slot once the decider is under way", async () => {
@@ -422,6 +450,7 @@ describe("undo of a completed league match", () => {
 
     const matchBefore = await matchRow(regularMatchId);
     const slotBefore = await slotRow(regularSlotId);
+    const encounterBefore = await encounterRow(encounter.id);
 
     await expect(undo(regularMatchId)).rejects.toMatchObject({
       status: 400,
@@ -430,6 +459,99 @@ describe("undo of a completed league match", () => {
 
     expect(await matchRow(regularMatchId)).toEqual(matchBefore);
     expect(await slotRow(regularSlotId)).toEqual(slotBefore);
+    expect(await encounterRow(encounter.id)).toEqual(encounterBefore);
+    expect(await reopenedEvents(encounter.id)).toEqual([]);
+  });
+
+  it("reopens a regular slot while the required decider still waits, keeping its pairing", async () => {
+    let encounter = await openEncounter();
+    for (let sequence = 1; sequence <= 8; sequence += 1) {
+      encounter = await walkover(encounter, sequence, "HOME");
+    }
+    for (let sequence = 10; sequence <= 18; sequence += 1) {
+      encounter = await walkover(encounter, sequence, "AWAY");
+    }
+    encounter = await submitDoubles(encounter, 9, [homePlayerIds[0]!, homePlayerIds[1]!], [awayPlayerIds[0]!, awayPlayerIds[1]!]);
+    const regularSlotId = slotIdOf(encounter, 9);
+    const regularMatchId = await assign(encounter, 9, boardIds[0]!);
+    await playOut(regularMatchId, "HOME");
+    encounter = await encountersService.get({ organizationId, encounterId: encounter.id, auth });
+    expect(encounter.decider.required).toBe(true);
+    // Doppel gemeldet, aber nicht angesetzt: der Decider steht im Ausgangszustand.
+    encounter = await submitDoubles(encounter, 19, [homePlayerIds[2]!, homePlayerIds[3]!], [awayPlayerIds[2]!, awayPlayerIds[3]!]);
+    const deciderSlotId = slotIdOf(encounter, 19);
+    const lineupOfDecider = async (): Promise<readonly string[]> =>
+      (
+        await databaseService.database
+          .select({ playerId: encounterLineupEntries.playerId })
+          .from(encounterLineupEntries)
+          .where(
+            and(
+              eq(encounterLineupEntries.organizationId, organizationId),
+              eq(encounterLineupEntries.slotId, deciderSlotId),
+            ),
+          )
+      ).map((row) => row.playerId).sort();
+    const pairingBefore = await lineupOfDecider();
+    expect(pairingBefore).toHaveLength(4);
+
+    await undo(regularMatchId);
+
+    expect(await slotRow(regularSlotId)).toMatchObject({ status: "IN_PROGRESS", winnerSide: null });
+    expect(await slotRow(deciderSlotId)).toMatchObject({ status: "WAITING" });
+    expect(await lineupOfDecider()).toEqual(pairingBefore);
+    expect(await encounterRow(encounter.id)).toMatchObject({ status: "RUNNING", homeGames: 8, awayGames: 9 });
+
+    // Ohne Gleichstand braucht es den Decider nicht mehr.
+    await playOut(regularMatchId, "AWAY");
+    expect(await slotRow(deciderSlotId)).toMatchObject({ status: "CANCELLED" });
+    expect(await encounterRow(encounter.id)).toMatchObject({
+      status: "COMPLETED",
+      result: "AWAY_WIN",
+      homeGames: 8,
+      awayGames: 10,
+    });
+  });
+
+  it("rejects the undo while a player of the match already plays on another board", async () => {
+    let encounter = await openEncounter();
+    const slotId = slotIdOf(encounter, 1);
+    const matchId = await assign(encounter, 1, boardIds[0]!);
+    await playOut(matchId, "HOME");
+    encounter = await encountersService.get({ organizationId, encounterId: encounter.id, auth });
+
+    // Das nächste Einzel derselben Heimposition läuft schon an Scheibe 2.
+    const first = await slotRow(slotId);
+    const [nextOfSamePlayer] = await databaseService.database
+      .select()
+      .from(encounterSlots)
+      .where(
+        and(
+          eq(encounterSlots.organizationId, organizationId),
+          eq(encounterSlots.encounterId, encounter.id),
+          eq(encounterSlots.discipline, "SINGLES"),
+          eq(encounterSlots.homePosition, first.homePosition ?? 0),
+          ne(encounterSlots.id, slotId),
+        ),
+      )
+      .orderBy(asc(encounterSlots.sequence))
+      .limit(1);
+    if (nextOfSamePlayer === undefined) throw new Error("Expected a second singles slot of the same position.");
+    await assign(encounter, nextOfSamePlayer.sequence, boardIds[1]!);
+
+    const matchBefore = await matchRow(matchId);
+    const slotBefore = await slotRow(slotId);
+    const encounterBefore = await encounterRow(encounter.id);
+
+    await expect(undo(matchId)).rejects.toMatchObject({
+      status: 409,
+      response: { code: "PLAYER_BUSY" },
+    });
+
+    expect(await matchRow(matchId)).toEqual(matchBefore);
+    expect(await slotRow(slotId)).toEqual(slotBefore);
+    expect(await encounterRow(encounter.id)).toEqual(encounterBefore);
+    expect(await reopenedEvents(encounter.id)).toEqual([]);
   });
 
   it("keeps reopening a free match without a slot as before", async () => {
