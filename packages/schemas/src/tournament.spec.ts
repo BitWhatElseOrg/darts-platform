@@ -175,13 +175,18 @@ describe("club duel contracts", () => {
 
   it("knows the FINAL_ROUND status and the clubDuel block", () => {
     expect(tournamentStatusSchema.parse("FINAL_ROUND")).toBe("FINAL_ROUND");
-    expect(clubDuelDashboardSchema.safeParse({
+    const roundMatch = { matchId: id(1), position: 1, playerAId: id(2), playerBId: id(3), status: "COMPLETED", resultType: "PLAYED", winnerPlayerId: id(2), legs: [2, 1] };
+    const block = {
       sideAName: "VFC", sideBName: "DC", qualifyingRounds: 2, finalRoundSize: 2, thirdPlaceMatch: false,
       currentRound: 1,
-      rounds: [{ round: 1, matchIds: [id(1)], pausedPlayerIds: [id(5)] }],
+      rounds: [{ round: 1, matchIds: [id(1)], matches: [roundMatch], pausedPlayerIds: [id(5)] }],
       standings: { overall: [], sideA: [], sideB: [] },
       finalRound: { sideA: [], sideB: [], matches: [] },
+      finals: { final: roundMatch, thirdPlace: null },
       score: { pointsA: 0, pointsB: 0, legDifferenceA: 0, leader: "TIED" },
-    }).success).toBe(true);
+    };
+    expect(clubDuelDashboardSchema.safeParse(block).success).toBe(true);
+    expect(clubDuelDashboardSchema.safeParse({ ...block, finals: { final: null, thirdPlace: null } }).success).toBe(true);
+    expect(clubDuelDashboardSchema.safeParse({ ...block, rounds: [{ ...block.rounds[0], matches: [{ ...roundMatch, legs: [2] }] }] }).success).toBe(false);
   });
 });
