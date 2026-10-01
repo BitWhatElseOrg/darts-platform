@@ -128,13 +128,15 @@ Platz 3 (`SINGLE_ELIMINATION`). Engine: `packages/tournament-engine/src/club-due
   in `players.repository.ts`); der Unique-Index greift nur je Name, disjunkte
   Namensmengen hätten sonst zwei Gastsets angelegt. Die `commandId` gilt je
   Mandant.
-- **Pausenliste früherer Runden.** `pausedPlayerIds` einer abgeschlossenen
-  Runde zählt auch Spieler, die erst danach zurückgezogen wurden. Bezugszeit
-  ist die Paarung der Folgerunde (kleinstes `createdAt` ihrer Spiele); für die
-  letzte Quali-Runde der Abschluss ihres letzten Spiels, weil die Finalrunde in
-  derselben Transaktion besetzt wird (`completedAt`; sind alle Spiele
-  abgesagt, ersatzweise das kleinste `updatedAt` der Finalrunde). Für die
-  laufende Runde zählt nur der heutige Status.
+- **Pausenliste je Runde (Entscheid R7).** Bezugszeit für `pausedPlayerIds`
+  der Runde r ist ihre eigene Paarung: das kleinste `createdAt` ihrer Spiele
+  (für Runde 1 die Turnieranlage). Pausiert hat, wer in Runde r kein Spiel hat
+  und heute aktiv ist oder sich erst nach dieser Paarung zurückgezogen hat
+  (`withdrawnAt > pairedAt(r)`). Wer zur Paarung schon zurückgezogen war, war
+  nicht mehr dabei und pausiert nicht. Die Regel gilt für jede Runde gleich,
+  auch für die laufende und die letzte Quali-Runde; die frühere Bezugnahme auf
+  die Paarung der Folgerunde und die Besetzung der Finalrunde entfällt
+  (`club-duel-projection.ts`).
 - **Ereignis beim Besetzen einer Phase.** Werden `SIDE_RANK`-Platzhalter von
   Finalrunde oder Final aufgelöst, schreibt `advance-club-duel.ts` in derselben
   Transaktion ein Outbox-Ereignis und einen Audit-Eintrag
@@ -147,7 +149,10 @@ Platz 3 (`SINGLE_ELIMINATION`). Engine: `packages/tournament-engine/src/club-due
 - **Formatprüfung vor der Sperre.** `advanceClubDuel` liest das Format zuerst
   ohne Sperre und nimmt die Turnierzeile nur bei `CLUB_DUEL` `FOR UPDATE`. Das
   Format ändert sich nach der Anlage nicht; klassische Turniere sperren die
-  Turnierzeile hier deshalb nicht.
+  Turnierzeile hier deshalb nicht. Das ist Sperr-Hygiene, keine Änderung am
+  Nebenläufigkeitsverhalten: Beide Aufrufer halten die Turnierzeile bereits
+  `FOR UPDATE`, der Scoring-Pfad über `lockTournamentScoringContext`, der
+  Rückzug in `withdrawParticipant`.
 
 ## Verworfen
 
