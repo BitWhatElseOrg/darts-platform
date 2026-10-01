@@ -17,6 +17,7 @@ const organizationId = "11111111-1111-4111-8111-111111111111";
 const encounterId = "22222222-2222-4222-8222-222222222222";
 const slotId = "33333333-3333-4333-8333-333333333333";
 const matchId = "44444444-4444-4444-8444-444444444444";
+const deciderSlotId = "55555555-5555-4555-8555-555555555555";
 
 const baseSlot: EncounterSlotView = {
   id: slotId,
@@ -50,13 +51,26 @@ const baseSlot: EncounterSlotView = {
 function baseEncounter(overrides: {
   readonly status?: EncounterDetail["status"];
   readonly slot?: Partial<EncounterSlotView>;
+  readonly decider?: Partial<EncounterDetail["decider"]>;
+  readonly deciderSlot?: Partial<EncounterSlotView>;
 }): EncounterDetail {
+  const slots: EncounterSlotView[] = [{ ...baseSlot, ...overrides.slot }];
+  if (overrides.deciderSlot !== undefined) {
+    slots.push({
+      ...baseSlot,
+      id: deciderSlotId,
+      sequence: 19,
+      role: "DECIDER",
+      label: "Entscheidungsdoppel",
+      ...overrides.deciderSlot,
+    });
+  }
   return {
     id: encounterId,
     status: overrides.status ?? "COMPLETED",
-    decider: { status: "NOT_REQUIRED", required: false, slotSequence: null },
+    decider: { status: "NOT_REQUIRED", required: false, slotSequence: null, ...overrides.decider },
     busyPlayers: [],
-    slots: [{ ...baseSlot, ...overrides.slot }],
+    slots,
   } as unknown as EncounterDetail;
 }
 
@@ -158,5 +172,45 @@ describe("SlotList Resultatkorrektur", () => {
     expect(link.getAttribute("href")).toBe(
       `/matches/${matchId}?organisation=${organizationId}&begegnung=${encounterId}`,
     );
+  });
+
+  it("blendet den Knopf an einem regulären Spiel aus und zeigt stattdessen den Hinweis, wenn das Entscheidungsdoppel gespielt wurde", () => {
+    renderSlotList({
+      encounter: baseEncounter({
+        decider: { status: "COMPLETED" },
+        deciderSlot: { status: "COMPLETED", resultType: "PLAYED" },
+      }),
+      canManage: true,
+    });
+
+    // Der Decider-Slot selbst bleibt korrigierbar — nur das reguläre Spiel
+    // ist blockiert. Genau ein Knopf (der des Deciders) bleibt stehen.
+    expect(screen.getAllByRole("button", { name: "Resultat korrigieren" })).toHaveLength(1);
+    expect(screen.getByText("Zuerst das Entscheidungsdoppel korrigieren.")).toBeTruthy();
+  });
+
+  it("zeigt weder Knopf noch Hinweis an einem regulären Spiel, wenn das Entscheidungsdoppel kampflos entschieden wurde", () => {
+    renderSlotList({
+      encounter: baseEncounter({
+        decider: { status: "COMPLETED" },
+        deciderSlot: { status: "WALKOVER", resultType: "WALKOVER" },
+      }),
+      canManage: true,
+    });
+
+    expect(screen.queryByRole("button", { name: "Resultat korrigieren" })).toBeNull();
+    expect(screen.queryByText("Zuerst das Entscheidungsdoppel korrigieren.")).toBeNull();
+  });
+
+  it("zeigt den Knopf am Entscheidungsdoppel selbst, auch wenn es bereits gespielt ist", () => {
+    renderSlotList({
+      encounter: baseEncounter({
+        slot: { id: deciderSlotId, sequence: 19, role: "DECIDER", matchId },
+        decider: { status: "COMPLETED" },
+      }),
+      canManage: true,
+    });
+
+    expect(screen.getByRole("button", { name: "Resultat korrigieren" })).toBeTruthy();
   });
 });
