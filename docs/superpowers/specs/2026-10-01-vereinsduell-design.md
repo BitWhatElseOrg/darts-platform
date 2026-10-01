@@ -35,7 +35,7 @@ Neues Turnierformat `CLUB_DUEL`:
 | Vereinswertung | 1 Punkt pro gewonnenem Spiel (inkl. Walkover) über alle Phasen; Gleichstand → Legdifferenz aller Spiele → unentschieden. Nicht gespeichert, sondern berechnet. |
 | Rückzug | Offenes Spiel → Walkover für den Gegner; ab nächster Runde nicht mehr gepaart; nicht besetzbare Plätze der Finalrunde → Walkover für den Gegner. |
 | Resultatkorrektur | Nur solange die Folgerunde nicht gepaart ist; sonst 409 `CLUB_DUEL_ROUND_ALREADY_PAIRED`. |
-| Spielmodus | Je Phase wie bei den bestehenden Turnieren (z.B. Quali Best of 3, Final Best of 5). |
+| Spielmodus | Ein Modus (Best of Legs / Sets) für das ganze Turnier, wie bei allen bestehenden Formaten. Ein Modus je Phase ist nicht im Umfang; er käme als eigenes Feature für alle Formate. |
 
 ### Warum ungleiche Spielzahlen unvermeidlich sind
 
@@ -99,8 +99,11 @@ genau einen der beiden Vereine.
 - Neuer Platzhaltertyp in `participant_one_ref` / `participant_two_ref`:
   `{ "type": "SIDE_RANK", "stageKey": string, "side": "A" | "B", "rank": number }`
 - Unique-Index `(stage_id, round, participant_one_id)` und
-  `(stage_id, round, participant_two_id)` (partiell: Teilnehmer nicht null):
-  niemand spielt zweimal pro Runde.
+  `(stage_id, round, participant_two_id)` (partiell: Teilnehmer nicht null).
+  Sie fangen nur Doppel in derselben Spalte ab; dass niemand in einer Runde
+  einmal als Teilnehmer eins und einmal als Teilnehmer zwei steht, prüft der
+  Service innerhalb der `FOR UPDATE`-Transaktion vor dem Einfügen
+  (`CLUB_DUEL_DUPLICATE_IN_ROUND`), und die Engine garantiert es per Test.
 - Pausen werden nicht als Matches gespeichert, sondern abgeleitet
   (aktive Teilnehmer ohne Match in der Runde). Kein `BYE`, das Quoten
   verfälscht.
@@ -116,11 +119,13 @@ Reine, deterministische Funktionen, keine Infrastruktur.
 
 - Phasen `qualifying` (CLUB_SWISS), `final-round` (CLUB_CROSS_ROUND_ROBIN),
   `final` (SINGLE_ELIMINATION)
-- Quali-Runde 1 gepaart nach Seed (Rang i von A gegen Rang i von B; Pausen wie
-  unten)
+- Quali-Runde 1 nach Seed: Beim grösseren Verein pausieren die Spieler mit
+  den höchsten Seed-Nummern; die übrigen werden der Seed-Reihenfolge nach
+  gegeneinander gesetzt (Seed-Rang i von A gegen Seed-Rang i von B).
 - Finalrunde: N×N Spiele, `SIDE_RANK(qualifying, A, i)` gegen
   `SIDE_RANK(qualifying, B, j)`, als N Runden so angeordnet, dass jeder pro
-  Runde genau einmal spielt (Runde r: A_i gegen B_((i + r) mod N))
+  Runde genau einmal spielt. Runde r (1…N), Spieler A_i (i = 1…N) trifft
+  B_j mit j = ((i + r − 2) mod N) + 1. Runde 1 ist damit A1–B1, A2–B2, …
 - Final: `SIDE_RANK(final-round, A, 1)` gegen `SIDE_RANK(final-round, B, 1)`;
   optional Platz 3 mit Rang 2 gegen Rang 2
 - Validierung: jede Seite ≥ `finalRoundSize`, Runden 1–15, keine Duplikate,
@@ -207,9 +212,17 @@ Nach der letzten Quali-Runde: `SIDE_RANK` der Finalrunde auflösen, Status
 ### Resultatkorrektur
 
 Bestehender Korrekturweg. Bei `CLUB_DUEL` abgelehnt mit 409
-`CLUB_DUEL_ROUND_ALREADY_PAIRED`, wenn das Spiel in einer Quali-Runde liegt,
-deren Folgerunde bereits gepaart ist, oder in der Finalrunde, wenn der Final
-aufgelöst ist.
+`CLUB_DUEL_ROUND_ALREADY_PAIRED`, sobald die Phase nach dem Spiel feststeht:
+
+- Quali-Runde 1 bis n−1: wenn die Folgerunde gepaart ist. Weil die Paarung
+  beim letzten Spiel der Runde sofort erfolgt, heisst das praktisch: Ein
+  Quali-Resultat ist nur korrigierbar, solange die Runde noch offene Spiele
+  hat.
+- Letzte Quali-Runde: wenn die `SIDE_RANK`-Platzhalter der Finalrunde
+  aufgelöst sind.
+- Finalrunde: wenn Final oder Platz 3 aufgelöst sind.
+- Final und Platz 3: korrigierbar wie heute, solange das Turnier nicht
+  gelöscht ist.
 
 ### Lesen
 
@@ -222,8 +235,8 @@ aufgelöst ist.
 ### Fehlercodes
 
 `CLUB_DUEL_SIDE_TOO_SMALL`, `CLUB_DUEL_SIDE_REQUIRED`,
-`CLUB_DUEL_SAME_SIDE_PAIRING`, `CLUB_DUEL_ROUND_ALREADY_PAIRED`,
-`INVALID_CLUB_DUEL_ROUNDS`.
+`CLUB_DUEL_SAME_SIDE_PAIRING`, `CLUB_DUEL_DUPLICATE_IN_ROUND`,
+`CLUB_DUEL_ROUND_ALREADY_PAIRED`, `INVALID_CLUB_DUEL_ROUNDS`.
 
 ## UI (`apps/web`)
 
@@ -237,8 +250,9 @@ Keine Turnierlogik im Frontend.
 - Schritt «Spieler»: Spalten A | B (mobil untereinander mit Umschalter);
   «Gastspieler erfassen» als Textfeld (ein Name pro Zeile); frühere
   Gastspieler mit gleichem Vereinsnamen werden vorgeschlagen
-- Schritt «Modus»: Runden, Grösse der Finalrunde, Platz 3, Spielmodus je
-  Phase, Live-Vorschau (Spiele, Spiele pro Person, Dauer)
+- Schritt «Modus»: Runden, Grösse der Finalrunde, Platz 3, Spielmodus (ein
+  Modus für das Turnier, wie heute), Live-Vorschau (Spiele, Spiele pro
+  Person, Dauer)
 - React Hook Form + Zod-Schema aus `packages/schemas`
 
 ### Turnieransicht (Leitung und öffentlich)
@@ -318,3 +332,5 @@ Produktiveinsatz. Diese Spec trifft dazu keine Aussage.
 - Mehr als zwei Vereine
 - Doppel/Teams als Teilnehmer
 - Manuelles Umpaaren einer gepaarten Runde
+- Spielmodus je Phase (heute gibt es einen Modus pro Turnier; eine Änderung
+  beträfe alle Formate und bekäme ein eigenes ADR)
