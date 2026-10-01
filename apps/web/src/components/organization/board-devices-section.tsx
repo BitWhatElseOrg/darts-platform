@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useState, useSyncExternalStore } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { z } from "zod";
 
 import { hasOrganizationPermission, type OrganizationRole } from "@darts-platform/domain";
@@ -70,15 +70,29 @@ function subscribeStandaloneDisplay(): () => void {
  * sieht eine sichtbare Meldung statt unbemerkt abgemeldet im Kiosk zu landen.
  *
  * Nach dem Speichern bestaetigt `attemptSignOut()` auch das Abmelden selbst
- * (Abschlussreview-Befund 1, final-fix-findings.md): Better-Auth wirft bei
- * `signOut()` nicht, sondern liefert `{ error }` -- ein ungeprueftes
+ * (Abschlussreview-Befund 1, final-fix-findings.md): Better-Auth liefert bei
+ * `signOut()` ueblicherweise `{ error }` statt zu werfen -- ein ungeprueftes
  * `await authClient.signOut()` navigierte trotz gescheitertem Abmelden nach
  * `/scheibe`, das Admin-Session-Cookie lebte auf dem oeffentlichen Tablet
- * weiter. Zusaetzlich prueft `getSession()` nach einem fehlerfreien
- * `signOut()` gegen, ob tatsaechlich keine Sitzung mehr besteht (etwa bei
- * einem Race mit einer parallelen Anfrage). Schlaegt eine der beiden Pruefungen
- * fehl, bleibt die Seite stehen, zeigt eine Meldung und erlaubt eine gezielte
- * Wiederholung -- die Kopplung selbst bleibt dabei gueltig.
+ * weiter. `better-fetch` wirft jedoch ohne `catchAllError` bei echten
+ * Netzwerkfehlern (`TypeError: Failed to fetch`) eine Ausnahme statt
+ * `{ error }` zu liefern -- ungefangen riss das die `onSuccess`-Callback der
+ * Pair-Mutation ab (TanStack Query setzt die Mutation dann auf `isError`, die
+ * allgemeine Fehlermeldung erscheint, UND der Fehler wird erneut geworfen,
+ * weil `mutate()` ihn nicht abfaengt -- eine unbehandelte Promise-Rejection).
+ * Die Kopplung selbst ist zu diesem Zeitpunkt aber bereits erfolgreich
+ * gespeichert; deshalb faengt `attemptSignOut()` die Ausnahme selbst ab und
+ * behandelt sie wie ein `{ error }`-Ergebnis: sichtbare Warnung, keine
+ * Navigation, keine Rejection, die allgemeine Mutationsfehlermeldung bleibt
+ * aus. Zusaetzlich prueft `getSession()` nach einem fehlerfreien `signOut()`
+ * gegen, ob tatsaechlich keine Sitzung mehr besteht (etwa bei einem Race mit
+ * einer parallelen Anfrage); wirft auch diese Abfrage oder liefert sie einen
+ * Fehler, gilt das als nicht abgemeldet -- nur `data === null` ohne Fehler
+ * zaehlt als abgemeldet. Schlaegt eine der beiden Pruefungen fehl, bleibt die
+ * Seite stehen, zeigt eine Meldung und erlaubt eine gezielte Wiederholung
+ * (waehrenddessen ist der Wiederholen-Knopf deaktiviert, ein `ref`-Flag
+ * verhindert zusaetzlich parallele Aufrufe bei doppeltem Klick) -- die
+ * Kopplung selbst bleibt dabei gueltig.
  */
 export function BoardDevicesSection({ organizationId, organizationName, role }: {
   readonly organizationId: string;
@@ -114,6 +128,12 @@ export function BoardDevicesSection({ organizationId, organizationName, role }: 
   };
 
   const [signOutFailed, setSignOutFailed] = useState(false);
+  const [signOutPending, setSignOutPending] = useState(false);
+  // Synchrones Gegenstueck zu `signOutPending`: der State-Update wirkt erst
+  // nach dem naechsten Render, ein zweiter Klick auf "Abmelden wiederholen"
+  // kann also noch denselben (alten) `disabled`-Wert sehen. Das `ref`-Flag
+  // greift sofort und verhindert einen zweiten parallelen `signOut()`-Aufruf.
+  const signOutInFlight = useRef(false);
 
   /**
    * Abmelden und erst danach in den Kiosk wechseln -- siehe JSDoc oben.
@@ -121,20 +141,44 @@ export function BoardDevicesSection({ organizationId, organizationName, role }: 
    * «Abmelden wiederholen»-Knopf aufgerufen.
    */
   const attemptSignOut = async (): Promise<void> => {
-    const signOutResult = await authClient.signOut();
-    if (signOutResult.error !== null) {
-      setSignOutFailed(true);
-      return;
+    if (signOutInFlight.current) return;
+    signOutInFlight.current = true;
+    setSignOutPending(true);
+    try {
+      let signOutFailedHere: boolean;
+      try {
+        const signOutResult = await authClient.signOut();
+        signOutFailedHere = signOutResult.error !== null;
+      } catch {
+        // better-fetch wirft ohne `catchAllError` bei Netzwerkfehlern
+        // (`TypeError: Failed to fetch`) statt `{ error }` zu liefern --
+        // siehe JSDoc oben. Als Fehlschlag behandeln statt die Ausnahme
+        // weiterzureichen.
+        signOutFailedHere = true;
+      }
+      if (signOutFailedHere) {
+        setSignOutFailed(true);
+        return;
+      }
+
+      let sessionOk: boolean;
+      try {
+        const sessionResult = await authClient.getSession();
+        sessionOk = sessionResult.error === null && sessionResult.data === null;
+      } catch {
+        sessionOk = false;
+      }
+      if (!sessionOk) {
+        setSignOutFailed(true);
+        return;
+      }
+
+      setSignOutFailed(false);
+      router.replace("/scheibe");
+    } finally {
+      signOutInFlight.current = false;
+      setSignOutPending(false);
     }
-    // Best effort: schlaegt diese Nachfrage selbst fehl, blockiert sie den
-    // ansonsten erfolgreichen Abmelde-Vorgang nicht zusaetzlich.
-    const sessionResult = await authClient.getSession().catch(() => null);
-    if (sessionResult !== null && sessionResult.error === null && sessionResult.data !== null) {
-      setSignOutFailed(true);
-      return;
-    }
-    setSignOutFailed(false);
-    router.replace("/scheibe");
   };
 
   const pairDevice = useMutation({
@@ -218,8 +262,8 @@ export function BoardDevicesSection({ organizationId, organizationName, role }: 
       ) : signOutFailed ? (
         <div className="space-y-2">
           <p className="text-body text-rose-300" role="alert">{SIGN_OUT_FAILED_MESSAGE}</p>
-          <Button onClick={() => void attemptSignOut()} type="button" variant="outline">
-            Abmelden wiederholen
+          <Button disabled={signOutPending} onClick={() => void attemptSignOut()} type="button" variant="outline">
+            {signOutPending ? "Abmelden läuft …" : "Abmelden wiederholen"}
           </Button>
         </div>
       ) : pairDevice.isError ? (

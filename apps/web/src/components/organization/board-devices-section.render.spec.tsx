@@ -322,6 +322,108 @@ describe("BoardDevicesSection", () => {
     expect(routerReplace).not.toHaveBeenCalled();
   });
 
+  it("faengt eine Ausnahme von signOut() ab, zeigt die Warnung ohne allgemeine Fehlermeldung und erlaubt erfolgreiche Wiederholung", async () => {
+    // better-fetch wirft ohne `catchAllError` bei Netzwerkfehlern
+    // (`TypeError: Failed to fetch`) statt `{ error }` zu liefern. Ein
+    // unbehandeltes `onSuccess` der Pair-Mutation wuerde die Mutation auf
+    // `isError` setzen (allgemeine Meldung) UND den Fehler erneut werfen
+    // (unbehandelte Promise-Rejection) -- vitest laesst so einen Leak den
+    // Testlauf scheitern, der Test faengt also implizit auch das ab.
+    environment.standalone = true;
+    signOut.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    renderSection();
+
+    const setupButton = await screen.findByRole("button", { name: "Dieses Gerät einrichten" });
+    fireEvent.click(setupButton);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(
+      "Die Anmeldung auf diesem Tablet konnte nicht beendet werden. Melde dich ab, bevor du das Tablet im Raum lässt.",
+    );
+    expect(routerReplace).not.toHaveBeenCalled();
+    // Keine allgemeine Mutationsfehlermeldung: die Kopplung selbst gilt als
+    // erfolgreich, nur das Abmelden ist gescheitert.
+    expect(screen.queryByText("Fehler")).toBeNull();
+
+    const retryButton = screen.getByRole("button", { name: "Abmelden wiederholen" });
+    fireEvent.click(retryButton);
+
+    await waitFor(() => {
+      expect(routerReplace).toHaveBeenCalledWith("/scheibe");
+    });
+  });
+
+  it("zeigt eine Meldung, wenn getSession() nach dem Abmelden wirft", async () => {
+    environment.standalone = true;
+    getSession.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    renderSection();
+
+    const setupButton = await screen.findByRole("button", { name: "Dieses Gerät einrichten" });
+    fireEvent.click(setupButton);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(
+      "Die Anmeldung auf diesem Tablet konnte nicht beendet werden. Melde dich ab, bevor du das Tablet im Raum lässt.",
+    );
+    expect(routerReplace).not.toHaveBeenCalled();
+  });
+
+  it("zeigt eine Meldung, wenn getSession() nach dem Abmelden ein Fehlerobjekt liefert", async () => {
+    environment.standalone = true;
+    getSession.mockResolvedValueOnce({ data: null, error: { message: "network", status: 0, statusText: "" } });
+    renderSection();
+
+    const setupButton = await screen.findByRole("button", { name: "Dieses Gerät einrichten" });
+    fireEvent.click(setupButton);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(
+      "Die Anmeldung auf diesem Tablet konnte nicht beendet werden. Melde dich ab, bevor du das Tablet im Raum lässt.",
+    );
+    expect(routerReplace).not.toHaveBeenCalled();
+  });
+
+  it("deaktiviert den Wiederholen-Knopf waehrend des Versuchs und loest bei doppeltem Klick nur einen signOut()-Aufruf aus", async () => {
+    environment.standalone = true;
+    signOut.mockResolvedValueOnce({ error: { message: "network", status: 0, statusText: "" } });
+    renderSection();
+
+    const setupButton = await screen.findByRole("button", { name: "Dieses Gerät einrichten" });
+    fireEvent.click(setupButton);
+
+    const retryButton = await screen.findByRole("button", { name: "Abmelden wiederholen" });
+    signOut.mockClear();
+
+    // Der zweite Abmelde-Versuch bleibt haengen, bis der Test ihn aufloest --
+    // so laesst sich der Pending-Zustand sicher beobachten, bevor die
+    // Wiederholung abschliesst.
+    let resolveSignOut: (() => void) | undefined;
+    signOut.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSignOut = () => resolve({ error: null });
+        }),
+    );
+
+    fireEvent.click(retryButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Abmelden läuft …" })).not.toBeNull();
+    });
+    const pendingButton = screen.getByRole("button", { name: "Abmelden läuft …" }) as HTMLButtonElement;
+    expect(pendingButton.disabled).toBe(true);
+
+    fireEvent.click(pendingButton);
+    expect(signOut).toHaveBeenCalledTimes(1);
+
+    resolveSignOut?.();
+
+    await waitFor(() => {
+      expect(routerReplace).toHaveBeenCalledWith("/scheibe");
+    });
+    expect(signOut).toHaveBeenCalledTimes(1);
+  });
+
   it("fragt vor dem Ersatz-Einrichten eines bereits gekoppelten Boards nach", async () => {
     environment.standalone = true;
     renderSection();
