@@ -27,12 +27,14 @@ Neues Format `CLUB_DUEL` mit drei Phasen: Qualifikation im Schweizer System
 Platz 3 (`SINGLE_ELIMINATION`). Engine: `packages/tournament-engine/src/club-duel.ts`.
 
 - **Paarung in der Transaktion des letzten Rundenspiels.**
-  `advance-club-duel.ts` läuft innerhalb von `updateTournamentProgress`. Die
-  Turnierzeile wird `FOR UPDATE` gesperrt, bevor offene Spiele gezählt werden;
-  parallel abgeschlossene letzte Spiele erzeugen so genau eine Folgerunde.
-  Danach: Spiele einfügen, `tournaments.version` erhöhen, Audit und Outbox
-  `TOURNAMENT_ROUND_PAIRED` in derselben Transaktion. Realtime sendet erst
-  nach dem Commit.
+  `advance-club-duel.ts` läuft in der Transaktion des Abschlusses, direkt
+  **vor** `updateTournamentProgress` (in `syncTournamentProgress` des
+  Matches-Repositorys und im Rückzug), nicht darin. Die Turnierzeile wird
+  `FOR UPDATE` gesperrt, bevor offene Spiele gezählt werden; parallel
+  abgeschlossene letzte Spiele erzeugen so genau eine Folgerunde. Danach:
+  Spiele einfügen, Audit und Outbox `TOURNAMENT_ROUND_PAIRED` in derselben
+  Transaktion; `tournaments.version` erhöht der Aufrufer, nicht
+  `advanceClubDuel`. Realtime sendet erst nach dem Commit.
 - **Zuordnungsproblem statt Greedy.** `pairClubSwissRound` löst die Paarung mit
   dem ungarischen Algorithmus (O(n³), deterministisch). Kosten:
   Rangabstand |Rang A − Rang B| plus Strafkosten je Wiederholung. Das findet
@@ -74,14 +76,20 @@ Platz 3 (`SINGLE_ELIMINATION`). Engine: `packages/tournament-engine/src/club-due
   klassische Strukturvorschau akzeptiert `CLUB_DUEL` bewusst nicht (400).
 - **Lesepfad:** `club-duel-projection.ts` liefert den Block `clubDuel`
   (Ranglisten, Pausierende, Finalrunde, Vereinswertung) im Turnier-Dashboard,
-  über die öffentliche Route und den Anzeigeschlüssel.
+  über die öffentliche Route und den Anzeigeschlüssel. `rounds[].matches`
+  liefert die Spiele jeder Quali-Runde mit Spielern, Status, Resultattyp und
+  Legs aus Sicht A/B (`matchIds` bleibt erhalten); `finals` enthält Final und
+  Spiel um Platz 3 (`null`, wenn nicht vorhanden). So rendert die UI
+  vergangene Runden und Finals ohne Zusatzabfragen.
 
 ### Präzisierungen gegenüber der Spec
 
 - **`CLUB_DUEL_SIDE_REQUIRED` entsteht nicht als eigener Code.** Das
   Request-Schema erzwingt die Seite je Teilnehmer; fehlt sie, antwortet die
   API mit dem generischen Validierungsfehler (400). Ein Laufzeitcheck wäre
-  toter Code. Zusätzliche Engine-Codes (`CLUB_DUEL_SIDE_EMPTY`,
+  toter Code. Ebenso erreicht `CLUB_DUEL_SIDE_TOO_SMALL` HTTP-Clients als
+  Request-Validierungsfehler des Zod-Refine; der Engine-Code ist nur die
+  zweite Verteidigungslinie. Zusätzliche Engine-Codes (`CLUB_DUEL_SIDE_EMPTY`,
   `INVALID_CLUB_DUEL_FINAL_ROUND_SIZE`) ergänzen die Spec-Liste.
 - **Seite ohne aktive Spieler beendet die Quali vorzeitig.** Hat beim Paaren
   der nächsten Quali-Runde eine Seite keinen aktiven Spieler mehr (Verein
@@ -89,8 +97,8 @@ Platz 3 (`SINGLE_ELIMINATION`). Engine: `packages/tournament-engine/src/club-due
   werden Walkover. Sonst liesse sich der letzte Rückzug nicht erfassen, weil
   die Transaktion zurückrollte.
 - **Begrenzter zweiter Durchgang statt Rekursion.** `advanceClubDuel` löst
-  Phasenübergänge in höchstens zwei Durchgängen; bleibt danach etwas offen,
-  wirft es einen Invariantenfehler. Die Terminierung hängt so nicht an einer
+  Phasenübergänge in höchstens zwei Durchgängen; verlangt der zweite Durchgang
+  erneut einen Durchgang (`RERUN`), wirft es einen Invariantenfehler (R9). Die Terminierung hängt so nicht an einer
   Datenannahme.
 - **Bei Sätzen darf der Sieger gleich viele oder weniger Legs haben.** Die
   Ergebnisprüfung für die Ranglisten verlangt nur Legs ≥ 0 und Sieger ∈
