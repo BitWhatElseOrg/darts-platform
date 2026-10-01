@@ -12,6 +12,7 @@ import {
   outboxEvents,
   players,
   tournamentMatches,
+  tournamentParticipants,
   tournamentStages,
   tournaments,
   users,
@@ -311,6 +312,16 @@ describe("Vereinsduell Ablauf", () => {
     expect(publicView.clubDuel?.score).toEqual(finalBlock.score);
     expect(publicView.participants.every((participant) => participant.side === "A" || participant.side === "B")).toBe(true);
   }, 300_000);
+
+  it("liefert das Dashboard mit clubDuel null, wenn die Projektion scheitert", async () => {
+    const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });
+    const victim = sideA[0];
+    if (victim === undefined) throw new Error("unexpected");
+    await databaseService.database.update(tournamentParticipants).set({ side: null }).where(and(eq(tournamentParticipants.tournamentId, created.id), eq(tournamentParticipants.playerId, victim)));
+    const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    expect(dashboard.clubDuel).toBeNull();
+    expect(dashboard.participants).toHaveLength(4);
+  }, 60_000);
 
   it("wechselt den Status: GROUP_STAGE → FINAL_ROUND → KNOCKOUT", async () => {
     const created = await service.create({ organizationId, data: clubDuelInput({ qualifyingRounds: 1, finalRoundSize: 2, sideACount: 2, sideBCount: 2 }), auth, audit });

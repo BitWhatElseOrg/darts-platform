@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 
@@ -72,6 +73,8 @@ export class TournamentVersionConflictException extends ConflictException {
 
 @Injectable()
 export class TournamentsService {
+  private readonly logger = new Logger(TournamentsService.name);
+
   public constructor(
     @Inject(TournamentsRepository) private readonly repository: TournamentsRepository,
     @Inject(MatchesRepository) private readonly matchesRepository: MatchesRepository,
@@ -418,7 +421,13 @@ export class TournamentsService {
     );
     const legsOf = (scoringMatchId: string, playerId: string): number | undefined =>
       scoringById.get(scoringMatchId)?.participants.find((participant) => participant.playerId === playerId)?.legsWon;
-    const clubDuel = projectClubDuel({ data, legsOf });
+    // Ruling R11: Lesepfad abschirmen; eine kaputte Projektion darf das Dashboard nicht kippen.
+    let clubDuel: ReturnType<typeof projectClubDuel> = null;
+    try {
+      clubDuel = projectClubDuel({ data, legsOf });
+    } catch (error) {
+      this.logger.error(`Club duel projection failed for tournament ${data.tournament.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     const names = new Map(
       data.participants.map((participant) => [participant.playerId, participant.displayName]),
     );
