@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 
 import type { Locator, Page } from "@playwright/test";
 
@@ -75,13 +76,14 @@ test("Spieler bearbeiten, archivieren, reaktivieren und endgueltig loeschen", as
   await createPlayer(page, organizationId, playerName);
   const row = playerRow(page, playerName);
 
-  // Der Status ("Aktiv"/"Archiviert") steht als Textfragment neben Spitzname,
-  // Team und Konto in EINER `<p class="text-caption">` ohne eigene
-  // Umhuellung -- `getByText(..., { exact: true })` verlangt den gesamten
-  // Text des kleinsten umschliessenden Elements und schluege deshalb fehl.
-  // `toContainText`, gescopet auf genau dieses `<p>`, prueft das
-  // Textfragment ohne diese Falle und ohne Kollision mit Knopftexten wie
-  // "Archivieren"/"Reaktivieren" (siehe `player-list.tsx`).
+  // "Archiviert" steht als Textfragment neben Spitzname, Team und Konto in
+  // EINER `<p class="text-caption">` ohne eigene Umhuellung (aktive Spieler
+  // tragen kein Statuswort) -- `getByText(..., { exact: true })` verlangt den
+  // gesamten Text des kleinsten umschliessenden Elements und schluege
+  // deshalb fehl. `toContainText`, gescopet auf genau dieses `<p>`, prueft
+  // das Textfragment ohne diese Falle und ohne Kollision mit Knopftexten wie
+  // "Archivieren"/"Reaktivieren" (siehe `player-list.tsx`). Die Zeile gibt
+  // es erst, sobald es etwas zu zeigen gibt -- hier ab dem Spitznamen.
   const status = row.locator("p.text-caption");
 
   await row.getByRole("button", { name: "Bearbeiten" }).click();
@@ -102,7 +104,8 @@ test("Spieler bearbeiten, archivieren, reaktivieren und endgueltig loeschen", as
   await expect(status).toContainText("Archiviert");
 
   await row.getByRole("button", { name: "Reaktivieren" }).click();
-  await expect(status).toContainText("Aktiv");
+  await expect(status).not.toContainText("Archiviert");
+  await expect(row.getByRole("button", { name: "Archivieren" })).toBeFocused();
 
   // 3. Endgueltig loeschen: der Spieler hat keine Historie, verschwindet
   // also direkt aus der Liste.
@@ -145,4 +148,76 @@ test("Spieler bearbeiten, archivieren, reaktivieren und endgueltig loeschen", as
   await secondDeleteDialog.getByRole("button", { name: "Stattdessen archivieren" }).click();
   await expect(secondDeleteDialog).toBeHidden();
   await expect(secondRow.locator("p.text-caption")).toContainText("Archiviert");
+});
+
+/**
+ * Opt-in-Bildschirmfoto fuer die Sichtpruefung: nur mit
+ * `PLAYER_LIST_SCREENSHOTS=1`, sonst laeuft der Fall unveraendert. Achtung:
+ * Playwright leert `test-results/` zu Beginn jedes Laufs.
+ */
+const screenshots = Boolean(process.env.PLAYER_LIST_SCREENSHOTS);
+const screenshotDir = path.join(__dirname, "..", "test-results", "player-list");
+
+test("Spielerliste auf dem Telefon: Aktionsmenue statt Knopfreihe, Fokus bleibt am Ausloeser", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const suffix = randomUUID();
+  const short = suffix.slice(0, 8);
+  const email = `e2e-spielerliste-mobil-${suffix}@example.test`;
+  const playerName = `E2E Mobil ${short}`;
+  const secondPlayerName = `E2E Zweitperson ${short}`;
+
+  const invitation = await createRegistrationInvitation(email);
+  registrationSeeds.push(invitation);
+
+  const { organizationId } = await signUpWithOrganization(page, {
+    claimToken: invitation.claimToken,
+    email,
+    organizationName: `E2E Mobil Club ${short}`,
+    organizationSlug: `e2e-mobil-club-${suffix}`,
+    ownerName: `E2E Mobil Leitung ${short}`,
+  });
+
+  await createPlayer(page, organizationId, playerName);
+  await createPlayer(page, organizationId, secondPlayerName);
+  const row = playerRow(page, playerName);
+
+  // Unter `sm` ist die Knopfreihe ausgeblendet, nur der Ausloeser bleibt.
+  await expect(row.getByRole("button", { name: "Bearbeiten" })).toBeHidden();
+  const trigger = row.getByRole("button", { name: `Aktionen für ${playerName}` });
+  await expect(trigger).toBeVisible();
+  await expect(row.locator("p.text-caption")).toHaveCount(0);
+
+  if (screenshots) {
+    await page.screenshot({ fullPage: true, path: path.join(screenshotDir, "spielerliste-mobil.png") });
+  }
+
+  // Escape schliesst und gibt den Fokus zurueck.
+  await trigger.click();
+  await expect(row.getByRole("button", { name: "Bearbeiten" })).toBeVisible();
+  if (screenshots) {
+    await page.screenshot({ path: path.join(screenshotDir, "spielerliste-mobil-menue.png") });
+  }
+  await page.keyboard.press("Escape");
+  await expect(row.getByRole("button", { name: "Bearbeiten" })).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  // Archivieren ueber das Menue: nach dem Dialog steht der Fokus wieder am
+  // Ausloeser derselben Zeile, nicht am unsichtbaren Desktop-Knopf.
+  await trigger.click();
+  await row.getByRole("button", { name: "Archivieren" }).click();
+  const archiveDialog = page.getByRole("dialog", { name: "Spieler archivieren" });
+  await archiveDialog.getByRole("button", { name: "Archivieren" }).click();
+  await expect(archiveDialog).toBeHidden();
+  await expect(row.locator("p.text-caption")).toContainText("Archiviert");
+  await expect(trigger).toBeFocused();
+
+  // Reaktivieren sendet direkt; der Fokus landet ebenfalls am Ausloeser.
+  await trigger.click();
+  await row.getByRole("button", { name: "Reaktivieren" }).click();
+  await expect(row.locator("p.text-caption")).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+
+  // Der Name fuehrt zum Profil.
+  await row.getByRole("link", { name: playerName, exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: playerName })).toBeVisible();
 });

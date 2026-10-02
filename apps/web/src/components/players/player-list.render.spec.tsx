@@ -120,15 +120,113 @@ function renderList(
 
 describe("PlayerList", () => {
   it("zeigt Team und Kontostatus als Text, nicht nur als Farbe", () => {
-    renderList([anna, bruno], new Map([["a", ["Adler 1 (C)"]]]));
+    const archived = player({ id: "c", displayName: "Cora Archiv", nickname: "Pfeil", status: "INACTIVE" });
+    renderList([anna, bruno, archived], new Map([["a", ["Adler 1 (C)"]]]));
 
-    // Anna: Captain-Kuerzel und verknuepftes Konto; Bruno: ohne beides.
-    expect(
-      screen.getByText("Kein Spitzname · Aktiv · Adler 1 (C) · Konto verknüpft"),
-    ).toBeTruthy();
-    expect(
-      screen.getByText("Kein Spitzname · Aktiv · Ohne Team · Kein Konto verknüpft"),
-    ).toBeTruthy();
+    // Anna: Captain-Kuerzel und verknuepftes Konto; Cora: Spitzname und
+    // archiviert. Nur vorhandene Angaben stehen da, "Aktiv" ist der
+    // Normalfall und faellt weg.
+    expect(screen.getByText("Adler 1 (C) · Konto verknüpft")).toBeTruthy();
+    expect(screen.getByText("Pfeil · Archiviert")).toBeTruthy();
+  });
+
+  it("laesst leere Angaben weg und zeigt ohne Angaben keine Metazeile", () => {
+    const { container } = renderList([bruno], new Map());
+
+    const row = container.querySelector("[data-player-id='b']");
+    expect(row?.querySelector("p.text-caption")).toBeNull();
+    for (const empty of ["Kein Spitzname", "Aktiv", "Ohne Team", "Kein Konto verknüpft"]) {
+      expect(row?.textContent).not.toContain(empty);
+    }
+  });
+
+  it("verlinkt Avatar und Name auf das Profil, ohne eigenen Profil-Knopf", () => {
+    renderList([anna], new Map());
+
+    const link = screen.getByRole("link", { name: "Anna Müller" });
+    expect(link.getAttribute("href")).toBe("/spieler/a?organisation=organisation-1");
+    expect(screen.queryByRole("link", { name: "Profil" })).toBeNull();
+  });
+
+  describe("Aktionsmenue fuer schmale Bildschirme", () => {
+    it("bietet je Zeile einen geschlossenen Ausloeser mit Spielername an", () => {
+      renderList([anna, bruno], new Map(), { canEdit: true, canArchive: true, canDelete: true });
+
+      const trigger = screen.getByRole("button", { name: "Aktionen für Anna Müller" });
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(trigger.hasAttribute("aria-controls")).toBe(false);
+      expect(screen.getByRole("button", { name: "Aktionen für Bruno Beispiel" })).toBeTruthy();
+      // Geschlossen steht jede Aktion nur einmal (in der Knopfreihe) im DOM.
+      expect(screen.getAllByRole("button", { name: "Bearbeiten" })).toHaveLength(2);
+    });
+
+    it("zeigt ohne Berechtigung keinen Ausloeser", () => {
+      renderList([anna], new Map());
+      expect(screen.queryByRole("button", { name: "Aktionen für Anna Müller" })).toBeNull();
+    });
+
+    it("oeffnet die Aktionen, Löschen steht zuletzt, Escape schliesst und gibt den Fokus zurueck", () => {
+      renderList([anna], new Map(), { canEdit: true, canArchive: true, canDelete: true });
+
+      const trigger = screen.getByRole("button", { name: "Aktionen für Anna Müller" });
+      trigger.focus();
+      fireEvent.click(trigger);
+
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+      const menuId = trigger.getAttribute("aria-controls");
+      const menu = document.getElementById(menuId ?? "");
+      if (menu === null) throw new Error("Erwartete das Menue unter aria-controls.");
+      const labels = within(menu)
+        .getAllByRole("button")
+        .map((button) => button.textContent);
+      expect(labels).toEqual(["Bearbeiten", "Archivieren", "Löschen"]);
+      expect(document.activeElement).toBe(within(menu).getByRole("button", { name: "Bearbeiten" }));
+
+      fireEvent.keyDown(document.activeElement ?? document, { key: "Escape" });
+
+      expect(document.getElementById(menuId ?? "")).toBeNull();
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(document.activeElement).toBe(trigger);
+    });
+
+    it("bietet bei archivierten Spielern Reaktivieren statt Archivieren an", () => {
+      const archived = player({ id: "c", displayName: "Cora Archiv", status: "INACTIVE" });
+      renderList([archived], new Map(), { canEdit: true, canArchive: true, canDelete: true });
+
+      const trigger = screen.getByRole("button", { name: "Aktionen für Cora Archiv" });
+      fireEvent.click(trigger);
+      const menu = document.getElementById(trigger.getAttribute("aria-controls") ?? "");
+      if (menu === null) throw new Error("Erwartete das Menue.");
+      expect(within(menu).getAllByRole("button").map((button) => button.textContent)).toEqual([
+        "Bearbeiten",
+        "Reaktivieren",
+        "Löschen",
+      ]);
+    });
+
+    it("schliesst bei Klick ausserhalb", () => {
+      renderList([anna], new Map(), { canEdit: true });
+
+      const trigger = screen.getByRole("button", { name: "Aktionen für Anna Müller" });
+      fireEvent.click(trigger);
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+      fireEvent.pointerDown(document.body);
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    });
+
+    it("Löschen im Menue schliesst es und oeffnet den Bestaetigungsdialog", () => {
+      renderList([anna], new Map(), { canDelete: true });
+
+      const trigger = screen.getByRole("button", { name: "Aktionen für Anna Müller" });
+      fireEvent.click(trigger);
+      const menu = document.getElementById(trigger.getAttribute("aria-controls") ?? "");
+      if (menu === null) throw new Error("Erwartete das Menue.");
+      fireEvent.click(within(menu).getByRole("button", { name: "Löschen" }));
+
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(screen.getByRole("dialog", { name: "Spieler endgültig löschen" })).toBeTruthy();
+    });
   });
 
   it("haelt die Statusregion fuer 'Geloescht' dauerhaft im DOM, auch leer (Whole-Branch-Review, Befund 2)", () => {
