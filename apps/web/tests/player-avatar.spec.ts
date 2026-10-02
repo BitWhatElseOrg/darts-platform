@@ -86,7 +86,8 @@ async function openProfileWithAvatar(page: Page, label: string): Promise<{ reado
   await page.getByRole("button", { name: "Spieler hinzufügen" }).click();
   await expect(page.getByText(playerName, { exact: true }).first()).toBeVisible();
 
-  await page.getByRole("link", { name: "Profil" }).click();
+  // Seit der kompakten Spielerliste fuehrt der Name selbst zum Profil.
+  await page.getByRole("link", { name: playerName, exact: true }).click();
   await expect(page.getByRole("heading", { level: 1, name: playerName })).toBeVisible();
 
   await page.getByLabel("Bild auswählen").setInputFiles(avatarFixturePath);
@@ -113,7 +114,7 @@ test("ein Profilbild laesst sich hochladen und erscheint im Profil und in der Sp
   await expect(page.getByRole("heading", { level: 1, name: "Spieler & Team" })).toBeVisible();
 
   const playerRow = page.locator("div").filter({ hasText: playerName }).filter({
-    has: page.getByRole("link", { name: "Profil" }),
+    has: page.getByRole("link", { name: playerName, exact: true }),
   });
   await expectRealImage(playerRow.locator("img").first());
 });
