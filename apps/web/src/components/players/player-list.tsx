@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
 import { z } from "zod";
 
 import { playerSchema, type PlayerResponse } from "@darts-platform/schemas";
@@ -110,8 +110,18 @@ export function PlayerList({
     const row = document.querySelector<HTMLElement>(`[data-player-id="${CSS.escape(playerId)}"]`);
     const buttons = row === null ? [] : Array.from(row.querySelectorAll("button"));
     const preferred = buttons.find((button) => button.textContent?.trim() === label);
-    const target = preferred ?? buttons[0] ?? headingRef.current;
-    target?.focus();
+    // Unter `sm` steht die Knopfreihe per `display: none` im DOM; `focus()`
+    // auf einen solchen Knopf bleibt im Browser wirkungslos. Darum der Reihe
+    // nach versuchen und beim ersten Kandidaten aufhoeren, der den Fokus
+    // tatsaechlich bekommt -- auf dem Telefon ist das der Ausloeser des
+    // Aktionsmenues derselben Zeile.
+    const trigger = row?.querySelector<HTMLElement>("[data-row-actions-trigger]") ?? null;
+    const candidates = [preferred, trigger, buttons[0], headingRef.current];
+    for (const candidate of candidates) {
+      if (candidate === undefined || candidate === null) continue;
+      candidate.focus();
+      if (document.activeElement === candidate) return;
+    }
   }, [rowFocusRequest, players, headingRef]);
 
   const invalidatePlayers = () => queryClient.invalidateQueries({ queryKey: ["players", organizationId] });
@@ -413,6 +423,22 @@ export function PlayerList({
   );
 }
 
+/**
+ * Nur die Angaben, die tatsaechlich vorliegen: auf dem Telefon frass die
+ * alte Zeile "Kein Spitzname · Aktiv · Ohne Team · Kein Konto verknüpft"
+ * eine ganze Zeile pro Spieler, ohne etwas mitzuteilen. "Aktiv" ist der
+ * Normalfall und faellt weg; "Archiviert" bleibt als Wort stehen, nicht nur
+ * als Farbe (AGENTS.md §19).
+ */
+export function playerMetaFacts(player: PlayerResponse, teams: readonly string[]): readonly string[] {
+  const facts: string[] = [];
+  if (player.nickname !== null && player.nickname.trim().length > 0) facts.push(player.nickname);
+  if (teams.length > 0) facts.push(teams.join(", "));
+  if (player.hasAccount) facts.push("Konto verknüpft");
+  if (player.status === "INACTIVE") facts.push("Archiviert");
+  return facts;
+}
+
 function PlayerRow({
   player,
   teams,
@@ -440,53 +466,210 @@ function PlayerRow({
   readonly reactivatePending: boolean;
   readonly reactivateError: string | null;
 }) {
+  const facts = playerMetaFacts(player, teams);
+  const showArchive = canArchive && player.status === "ACTIVE";
+  const showReactivate = canEdit && player.status === "INACTIVE";
+  const hasActions = canEdit || showArchive || showReactivate || canDelete;
+
   return (
     <div
-      className="min-h-16 rounded-xl border border-slate-800 bg-slate-950/50 p-4"
+      className="min-h-16 rounded-xl border border-slate-800 bg-slate-950/50 p-3 sm:p-4"
       data-player-id={player.id}
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <PlayerAvatar decorative organizationId={organizationId} player={player} size={40} />
-          <div>
-            <p className="font-semibold text-white">{player.displayName}</p>
-            <p className="text-caption text-slate-400">
-              {player.nickname ?? "Kein Spitzname"} · {player.status === "ACTIVE" ? "Aktiv" : "Archiviert"}
-              {" · "}
-              {teams.length > 0 ? teams.join(", ") : "Ohne Team"}
-              {" · "}
-              {player.hasAccount ? "Konto verknüpft" : "Kein Konto verknüpft"}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link className="inline-flex min-h-10 items-center rounded-lg border border-slate-700 px-4 text-body font-medium text-slate-100" href={`/spieler/${player.id}?organisation=${organizationId}`}>Profil</Link>
-          {canEdit ? (
-            <Button variant="outline" onClick={() => onEdit(player)}>
-              Bearbeiten
-            </Button>
-          ) : null}
-          {canArchive && player.status === "ACTIVE" ? (
-            <Button variant="outline" onClick={() => onArchive(player)}>
-              Archivieren
-            </Button>
-          ) : null}
-          {canEdit && player.status === "INACTIVE" ? (
-            <Button disabled={reactivatePending} onClick={() => onReactivate(player)} variant="outline">
-              Reaktivieren
-            </Button>
-          ) : null}
-          {canDelete ? (
-            <Button variant="outline" onClick={() => onDelete(player)}>
-              Löschen
-            </Button>
+      <div className="flex items-start justify-between gap-3 sm:items-center sm:gap-4">
+        <div className="min-w-0 flex-1">
+          {/* Ersetzt den frueheren Knopf "Profil": der Name selbst fuehrt zum
+              Profil, das spart auf dem Telefon einen Knopf je Zeile. */}
+          <Link
+            className="inline-flex min-h-11 max-w-full items-center gap-3 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
+            href={`/spieler/${player.id}?organisation=${organizationId}`}
+          >
+            <PlayerAvatar decorative organizationId={organizationId} player={player} size={40} />
+            <span className="min-w-0 font-semibold break-words text-white hover:text-emerald-300">
+              {player.displayName}
+            </span>
+          </Link>
+          {facts.length > 0 ? (
+            <p className="pl-13 text-caption break-words text-slate-400">{facts.join(" · ")}</p>
           ) : null}
         </div>
+        {hasActions ? (
+          <>
+            {/* Ab `sm` wie bisher als Knopfreihe; darunter nur das Aktionsmenue.
+                Beide Varianten stehen im Markup und werden per CSS umgeschaltet
+                (keine JS-Media-Query, damit SSR und Hydrierung gleich bleiben).
+                `display: none` nimmt die jeweils andere Variante auch aus dem
+                Accessibility-Baum. */}
+            <div className="hidden flex-wrap justify-end gap-2 sm:flex">
+              {canEdit ? (
+                <Button variant="outline" onClick={() => onEdit(player)}>
+                  Bearbeiten
+                </Button>
+              ) : null}
+              {showArchive ? (
+                <Button variant="outline" onClick={() => onArchive(player)}>
+                  Archivieren
+                </Button>
+              ) : null}
+              {showReactivate ? (
+                <Button disabled={reactivatePending} onClick={() => onReactivate(player)} variant="outline">
+                  Reaktivieren
+                </Button>
+              ) : null}
+              {canDelete ? (
+                <Button variant="outline" onClick={() => onDelete(player)}>
+                  Löschen
+                </Button>
+              ) : null}
+            </div>
+            <div className="shrink-0 sm:hidden">
+              <PlayerActionsMenu
+                displayName={player.displayName}
+                items={[
+                  ...(canEdit ? [{ label: "Bearbeiten", run: () => onEdit(player) }] : []),
+                  ...(showArchive ? [{ label: "Archivieren", run: () => onArchive(player) }] : []),
+                  ...(showReactivate
+                    ? [{ label: "Reaktivieren", run: () => onReactivate(player), disabled: reactivatePending }]
+                    : []),
+                  ...(canDelete ? [{ label: "Löschen", run: () => onDelete(player), destructive: true }] : []),
+                ]}
+              />
+            </div>
+          </>
+        ) : null}
       </div>
       {reactivateError !== null ? (
         <p className="mt-2 text-body text-rose-300" role="alert">
           {reactivateError}
         </p>
+      ) : null}
+    </div>
+  );
+}
+
+interface PlayerAction {
+  readonly label: string;
+  readonly run: () => void;
+  readonly disabled?: boolean;
+  readonly destructive?: boolean;
+}
+
+/**
+ * Aktionsmenue fuer schmale Bildschirme.
+ *
+ * Bewusst React-Zustand statt nativer Popover-API: das Menue wird nur
+ * gerendert, solange es offen ist. Damit stehen "Bearbeiten"/"Löschen" usw.
+ * geschlossen nicht ein zweites Mal im DOM -- weder in happy-dom (das keine
+ * UA-Regel `[popover]:not(:popover-open) { display: none }` anwendet) noch
+ * fuer Playwrights strikte `getByRole`-Abfragen. Escape, Klick ausserhalb und
+ * Tab aus dem Menue schliessen es; Escape und die Auswahl eines Eintrags
+ * geben den Fokus an den Ausloeser zurueck. Ein Klick ausserhalb laesst den
+ * Fokus dort, wo hingeklickt wurde.
+ *
+ * Die Eintraege sind schlichte Knoepfe (kein `role="menu"`, das eine eigene
+ * Pfeiltasten-Navigation verlangen wuerde); Tab reicht fuer drei Eintraege.
+ * Der Ausloeser traegt `data-row-actions-trigger`, damit die Fokus-Rueckgabe
+ * nach Archivieren/Reaktivieren ihn auf dem Telefon findet.
+ */
+function PlayerActionsMenu({
+  displayName,
+  items,
+}: {
+  readonly displayName: string;
+  readonly items: readonly PlayerAction[];
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+
+  useEffect(() => {
+    if (!open) return undefined;
+    menuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      const container = containerRef.current;
+      if (container !== null && event.target instanceof Node && container.contains(event.target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [open]);
+
+  const select = (item: PlayerAction) => {
+    setOpen(false);
+    // Vor der Aktion: ein danach geoeffneter Dialog merkt sich so den
+    // Ausloeser (und nicht den gleich verschwindenden Menueeintrag) als Ziel
+    // seiner Fokus-Rueckgabe (`useDialogFocusReturn`).
+    triggerRef.current?.focus();
+    item.run();
+  };
+
+  return (
+    <div
+      className="relative"
+      onBlur={(event) => {
+        const next = event.relatedTarget;
+        if (open && next instanceof Node && !event.currentTarget.contains(next)) setOpen(false);
+      }}
+      ref={containerRef}
+    >
+      <button
+        aria-controls={open ? menuId : undefined}
+        aria-expanded={open}
+        aria-label={`Aktionen für ${displayName}`}
+        className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-700 px-3 text-body font-semibold text-slate-100 transition-colors hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring-green"
+        data-row-actions-trigger=""
+        onClick={() => setOpen((current) => !current)}
+        ref={triggerRef}
+        type="button"
+      >
+        Aktionen
+        <svg
+          aria-hidden="true"
+          className={`size-4 transition-transform ${open ? "rotate-180" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      {open ? (
+        <div
+          className="absolute top-full right-0 z-20 mt-1 w-48 rounded-xl border border-slate-700 bg-slate-950 p-1 shadow-2xl"
+          id={menuId}
+          ref={menuRef}
+        >
+          {items.map((item) => (
+            <Fragment key={item.label}>
+              {item.destructive === true ? <div aria-hidden="true" className="mx-2 my-1 border-t border-slate-800" /> : null}
+              <button
+                className={`flex min-h-11 w-full items-center rounded-lg px-3 text-left text-body font-medium transition-colors hover:bg-slate-800 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring-green disabled:opacity-50 ${
+                  item.destructive === true ? "text-ring-red" : "text-slate-100"
+                }`}
+                disabled={item.disabled}
+                onClick={() => select(item)}
+                type="button"
+              >
+                {item.label}
+              </button>
+            </Fragment>
+          ))}
+        </div>
       ) : null}
     </div>
   );
