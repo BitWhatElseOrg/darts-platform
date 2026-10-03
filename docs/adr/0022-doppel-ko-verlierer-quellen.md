@@ -42,6 +42,14 @@ Engine: `packages/tournament-engine/src/double-elimination.ts`; Weitergabe:
   Teilnehmer sind direkt gesetzt). Die Korrektur des ersten Finals prüft es
   deshalb gesondert und löscht es, solange es nicht gestartet ist; ist es
   gestartet, wird die Korrektur abgelehnt.
+- **Korrektur über Byes hinweg.** Ein abhängiges Bye oder abgesagtes Spiel hat
+  sein Ergebnis schon weitergereicht. `planCorrectionCascade` (Engine) öffnet
+  solche Spiele wieder und leert die Plätze, die sie gespeist haben, bis ein
+  wartendes Spiel die Kette auffängt; läuft darin ein Spiel oder ist es
+  abgeschlossen, wird die Korrektur abgelehnt. Beim erneuten Abschluss
+  entscheidet die Rückzugslogik die Byes neu. Gilt für alle K.-o.-Formate;
+  vorher blieb ein veralteter Teilnehmer stehen bzw. die Korrektur brach am
+  Check `tournament_matches_result_type_consistency` ab.
 - **Platzierung berechnet, nicht gespeichert.** 1 und 2 aus Final bzw.
   Rückspiel, 3 und folgende aus der Runde des Ausscheidens im Verlierer-Tableau.
   Das Lesemodell leitet sie bei jeder Projektion neu ab.

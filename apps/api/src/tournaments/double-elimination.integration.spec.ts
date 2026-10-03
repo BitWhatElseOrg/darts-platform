@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import {
   auditEvents, boards, matches, memberships, outboxEvents, organizations, players,
-  tournamentMatches, tournamentStages, tournaments, users,
+  tournamentMatches, tournamentParticipants, tournamentStages, tournaments, users,
 } from "@darts-platform/database";
 import type { CreateClassicTournamentInput } from "@darts-platform/schemas";
 
@@ -369,6 +369,41 @@ describe("Doppel-K.-o. Korrektur", () => {
     await finishReopenedMatch(upper.id, upper.participantTwoId);
     expect((await rows(created.id)).find((row) => row.key === "lower:r1:m1")?.participantOneId).toBe(upper.participantOneId);
   });
+
+  it("öffnet Byes, die aus dem korrigierten Spiel entstanden sind, und lässt keinen veralteten Teilnehmer stehen", async () => {
+    // Seltener Zustand, direkt hergestellt: Beide Spieler von upper:r1:m2 sind
+    // zurückgezogen, das Spiel ist abgesagt. Damit werden upper:r2:m1 und
+    // lower:r1:m1 nach upper:r1:m1 zu Byes und reichen ihren Sieger weiter.
+    const created = await service.create({ organizationId, data: doubleEliminationInput(8, 8), auth, audit });
+    const cancelled = (await rows(created.id)).find((row) => row.key === "upper:r1:m2");
+    if (!cancelled?.participantOneId || !cancelled.participantTwoId) throw new Error("unexpected");
+    await databaseService.database.update(tournamentMatches).set({ status: "CANCELLED" }).where(eq(tournamentMatches.id, cancelled.id));
+    await databaseService.database.update(tournamentParticipants)
+      .set({ status: "WITHDRAWN", withdrawnAt: new Date(), withdrawalReason: "Testaufbau" })
+      .where(and(eq(tournamentParticipants.tournamentId, created.id), inArray(tournamentParticipants.playerId, [cancelled.participantOneId, cancelled.participantTwoId])));
+
+    const upper = (await rows(created.id)).find((row) => row.key === "upper:r1:m1");
+    if (!upper?.participantOneId || !upper.participantTwoId) throw new Error("unexpected");
+    const [first, second] = [upper.participantOneId, upper.participantTwoId];
+    await playMatch(created.id, upper.id, first);
+    const before = await rows(created.id);
+    expect(before.find((row) => row.key === "upper:r2:m1")).toMatchObject({ status: "BYE", winnerPlayerId: first });
+    expect(before.find((row) => row.key === "lower:r1:m1")).toMatchObject({ status: "BYE", winnerPlayerId: second });
+
+    await correct(created.id, upper.id);
+    await finishReopenedMatch(upper.id, second);
+
+    const after = await rows(created.id);
+    const holds = (row: (typeof after)[number], playerId: string) => row.participantOneId === playerId || row.participantTwoId === playerId;
+    expect(after.find((row) => row.key === "upper:r2:m1")).toMatchObject({ status: "BYE", winnerPlayerId: second });
+    const upperFinal = after.find((row) => row.key === "upper:r3:m1");
+    if (upperFinal === undefined) throw new Error("kein Gewinnerrunden-Final");
+    expect(holds(upperFinal, second)).toBe(true);
+    expect(holds(upperFinal, first)).toBe(false);
+    const lowerRoundTwo = after.filter((row) => row.key.startsWith("lower:r2:"));
+    expect(lowerRoundTwo.some((row) => holds(row, first))).toBe(true);
+    expect(lowerRoundTwo.some((row) => holds(row, second))).toBe(false);
+  }, 30_000);
 });
 
 describe("Doppel-K.-o. Warteschlange", () => {

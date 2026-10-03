@@ -79,3 +79,9 @@ export {
   type DoubleEliminationBracketSize,
   type DoubleEliminationMatchResult,
 } from "./double-elimination.js";
+export {
+  planCorrectionCascade,
+  type CorrectionCascade,
+  type CorrectionCascadeMatch,
+  type CorrectionCascadeStep,
+} from "./correction-cascade.js";
