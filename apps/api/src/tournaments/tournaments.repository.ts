@@ -672,6 +672,8 @@ export class TournamentsRepository {
           .set({
             sourceOneMatchId: firstSource?.id ?? null,
             sourceTwoMatchId: secondSource?.id ?? null,
+            sourceOneKind: firstSource === undefined ? null : "WINNER",
+            sourceTwoKind: secondSource === undefined ? null : "WINNER",
             participantOneId,
             participantTwoId,
             status:
