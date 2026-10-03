@@ -101,6 +101,17 @@ describe("planDoubleElimination", () => {
     });
   });
 
+  it.each([4, 5, 6, 7, 9, 13, 17, 33, 64])(
+    "%i Teilnehmer: Runden der Verliererrunde fortlaufend ab 1, Keys passend zur Runde",
+    (count) => {
+      const lower = planDoubleElimination({ participants: participants(count), bracketSize: bracketSizeFor(count) })
+        .filter((match) => match.stageType === "DOUBLE_ELIMINATION_LOWER");
+      const rounds = [...new Set(lower.map((match) => match.round))].sort((left, right) => left - right);
+      expect(rounds).toEqual(Array.from({ length: rounds.length }, (_, index) => index + 1));
+      for (const match of lower) expect(match.key).toBe(`lower:r${match.round}:m${match.position}`);
+    },
+  );
+
   it("kürzt Verlierer-Spiele weg, deren Zubringer ein Bye ist", () => {
     // 5 Teilnehmer im 8er-Tableau: drei Byes in Runde 1 der Gewinnerrunde.
     const plan = planDoubleElimination({ participants: participants(5), bracketSize: 8 });

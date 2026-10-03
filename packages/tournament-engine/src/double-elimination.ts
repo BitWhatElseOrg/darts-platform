@@ -147,7 +147,37 @@ export function planDoubleElimination(input: {
     state: "WAITING",
     byeWinnerPlayerId: null,
   };
-  return [...upper, ...lower, grandFinal];
+  return [...upper, ...renumberLowerRounds([...lower, grandFinal])];
+}
+
+/**
+ * Nach dem Wegkürzen kann eine ganze Runde des Verlierer-Tableaus fehlen
+ * (5 Teilnehmer im 8er-Tableau: keine Runde 1). Angezeigt würde sonst
+ * «Verliererrunde · Runde 2» als erste Runde. Die verbliebenen Runden werden
+ * deshalb fortlaufend ab 1 nummeriert; Keys und Verweise ziehen mit.
+ */
+function renumberLowerRounds(matches: readonly PlannedMatch[]): readonly PlannedMatch[] {
+  const rounds = [...new Set(matches.filter((match) => match.stageType === "DOUBLE_ELIMINATION_LOWER").map((match) => match.round))]
+    .sort((left, right) => left - right);
+  const roundMap = new Map(rounds.map((round, index) => [round, index + 1]));
+  const keyMap = new Map<string, string>();
+  for (const match of matches) {
+    const round = roundMap.get(match.round);
+    if (match.stageType === "DOUBLE_ELIMINATION_LOWER" && round !== undefined) {
+      keyMap.set(match.key, `${DOUBLE_ELIMINATION_STAGE_KEYS.lower}:r${round}:m${match.position}`);
+    }
+  }
+  const remap = (reference: KnockoutParticipantReference | null): KnockoutParticipantReference | null =>
+    reference !== null && (reference.type === "MATCH_WINNER" || reference.type === "MATCH_LOSER")
+      ? { ...reference, matchKey: keyMap.get(reference.matchKey) ?? reference.matchKey }
+      : reference;
+  return matches.map((match) => ({
+    ...match,
+    key: keyMap.get(match.key) ?? match.key,
+    round: match.stageType === "DOUBLE_ELIMINATION_LOWER" ? (roundMap.get(match.round) ?? match.round) : match.round,
+    participantOne: remap(match.participantOne),
+    participantTwo: remap(match.participantTwo),
+  }));
 }
 
 export function previewDoubleElimination(input: {
