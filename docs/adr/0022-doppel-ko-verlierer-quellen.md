@@ -59,3 +59,8 @@ Engine: `packages/tournament-engine/src/double-elimination.ts`; Weitergabe:
   bestehen und wird dann entfernt (siehe Nachtrag in ADR 0007).
 - Swiss-Spalten kommen erst mit Plan 2; Migration `0038_double_elimination`
   enthält nur Doppel-K.-o.
+- Rollback: Nach Migration 0038 kann alter API-Code keine K.-o.-Turniere mehr
+  anlegen (er schreibt `source_*_match_id` ohne Quellen-Art, der CHECK lehnt
+  ab). Ein Rollback der API verlangt deshalb zuerst das Entfernen der beiden
+  Checks `tournament_matches_source_one_kind_check` /
+  `tournament_matches_source_two_kind_check`.

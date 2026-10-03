@@ -387,3 +387,11 @@ dieser Spec ab:
 8. **Rückspiel ohne Quell-Verweise.** Die Teilnehmer sind direkt gesetzt; die
    Korrektur des ersten Finals prüft das Rückspiel deshalb gesondert und löscht
    es, solange es nicht gestartet ist.
+9. **Phasenbezeichnung im Kopf.** `tournamentStageLabel` bleibt beim
+   Doppel-K.-o. «K.-o.-Runde»; die feineren Bezeichnungen «Gewinnerrunde ·
+   Runde N», «Verliererrunde · Runde N», «Final» und «Final-Rückspiel» tragen
+   die einzelnen Spiele.
+10. **Kommandozentrale ohne Tableau.** Die Kommandozentrale der Leitung zeigt
+    (wie beim Einfach-K.-o. heute) kein Tableau; die Bäume und die
+    Schlussrangliste stehen in der Live-Ansicht, die die Leitung ebenfalls
+    öffnen kann.
