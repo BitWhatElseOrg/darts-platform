@@ -12,6 +12,7 @@ import {
   calculateGroupStandings,
   generateDoubleElimination,
   previewClubDuel,
+  previewDoubleElimination,
   previewTournamentStructure,
   TournamentValidationError,
   validateStageComposition,
@@ -98,12 +99,11 @@ export class TournamentsService {
   }): Promise<TournamentStructurePreview> {
     await this.require(input, "tournament:read");
     try {
-      // Vorläufig: Doppel-K.-o.-Vorschau wird in einem späteren Task angebunden.
-      const { format, ...rest } = input.data;
-      if (format === "DOUBLE_ELIMINATION") {
-        throw new TournamentValidationError("FORMAT_NOT_SUPPORTED", "Doppel-K.-o. kann noch nicht angelegt werden.");
-      }
-      return tournamentStructurePreviewSchema.parse(previewTournamentStructure({ ...rest, format }));
+      return tournamentStructurePreviewSchema.parse(
+        input.data.format === "DOUBLE_ELIMINATION"
+          ? previewDoubleElimination({ participantCount: input.data.participantCount, knockoutSize: input.data.knockoutSize })
+          : previewTournamentStructure({ ...input.data, format: input.data.format }),
+      );
     } catch (error) {
       this.rethrowDomainError(error);
     }
