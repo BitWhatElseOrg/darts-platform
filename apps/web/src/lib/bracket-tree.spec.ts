@@ -12,6 +12,7 @@ import { buildBracketRounds, knockoutLeadsLiveView } from "./bracket-tree";
 function match(overrides: Partial<BracketMatch> & Pick<BracketMatch, "round" | "position">): BracketMatch {
   return {
     matchId: `r${overrides.round}p${overrides.position}`,
+    section: "MAIN",
     stageLabel: `K.-o. · Runde ${overrides.round}`,
     status: "WAITING",
     resultType: null,

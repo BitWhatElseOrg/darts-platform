@@ -97,7 +97,12 @@ export class TournamentsService {
     readonly auth: AuthContext;
   }): Promise<TournamentStructurePreview> {
     await this.require(input, "tournament:read");
-    return tournamentStructurePreviewSchema.parse(previewTournamentStructure(input.data));
+    // Vorläufig: Doppel-K.-o.-Vorschau wird in einem späteren Task angebunden.
+    const { format, ...rest } = input.data;
+    if (format === "DOUBLE_ELIMINATION") {
+      throw new TournamentValidationError("FORMAT_NOT_SUPPORTED", "Doppel-K.-o. kann noch nicht angelegt werden.");
+    }
+    return tournamentStructurePreviewSchema.parse(previewTournamentStructure({ ...rest, format }));
   }
 
   public async advancedPreview(input: {
@@ -238,6 +243,7 @@ export class TournamentsService {
       bracket: dashboard.bracket,
       recentResults: dashboard.recentResults,
       clubDuel: dashboard.clubDuel,
+      doubleElimination: dashboard.doubleElimination,
       generatedAt: dashboard.generatedAt,
     });
   }
@@ -718,6 +724,7 @@ export class TournamentsService {
         side: participant.side === "A" || participant.side === "B" ? participant.side : null,
       })),
       clubDuel,
+      doubleElimination: null, // vorläufig, Task 8 ersetzt
       boards,
       queue,
       conflicts,
@@ -727,6 +734,7 @@ export class TournamentsService {
         .sort((left, right) => left.round - right.round || left.position - right.position)
         .map((match) => ({
           matchId: match.id,
+          section: "MAIN" as const, // vorläufig, Task 8 ersetzt
           stageLabel: match.stageLabel,
           round: match.round,
           position: match.position,

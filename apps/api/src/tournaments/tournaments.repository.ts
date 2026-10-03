@@ -473,6 +473,10 @@ export class TournamentsRepository {
       playerId,
       seed: index + 1,
     }));
+    // Vorläufig: Doppel-K.-o. wird in einem späteren Task angebunden.
+    if (input.data.format === "DOUBLE_ELIMINATION") {
+      throw new TournamentValidationError("FORMAT_NOT_SUPPORTED", "Doppel-K.-o. kann noch nicht angelegt werden.");
+    }
     const plan = createTournamentPlan({
       format: input.data.format,
       participants: engineParticipants,
