@@ -359,3 +359,31 @@ bestehenden Formate und folgen der Turnier-Sichtbarkeit (ADR 0013).
 - Spielmodus je Phase.
 - Weitere Formate (Leben/Kratzer, kombinierbare Stages).
 - Manuelle Paarungskorrektur durch die Turnierleitung.
+
+## Umsetzung Plan 1 (Doppel-K.-o.) – Abweichungen
+
+Stand: 03.10.2026. Die Umsetzung von Plan 1 weicht in folgenden Punkten von
+dieser Spec ab:
+
+1. **Höchstens 64 Teilnehmer statt 256.** Grenze von `generateKnockoutBracket`
+   und `tournaments_knockout_size_check`, wie beim Einfach-K.-o.
+2. **Swiss-Spalten erst mit Plan 2.** `swiss_pairing`, `swiss_qualifiers` und
+   der Check `qualifying_rounds` fehlen; Migration `0038_double_elimination`
+   enthält nur Doppel-K.-o. (nicht `0038_double_elimination_swiss`).
+3. **Lesemodell.** Statt eigener `upper[]`/`lower[]` trägt jede Zeile der
+   bestehenden Liste `bracket` ein Feld `section` (`MAIN`, `UPPER`, `LOWER`,
+   `GRAND_FINAL`). Der Block `doubleElimination` enthält nur `placements` und
+   `resetPossible`.
+4. **Setzung `RANDOM`.** Verhält sich wie beim Einfach-K.-o. (Anmeldereihenfolge
+   ist die Setzliste). Das ist bestehendes Verhalten aller K.-o.-Formate und
+   nicht Teil des Plans.
+5. **Check `source_*_kind`.** Verlangt zusätzlich `kind is not null`, weil ein
+   CHECK bei NULL besteht.
+6. **Migration von Hand geschrieben.** Die drizzle-Snapshots enden bei 0029,
+   wie bei 0030–0037.
+7. **Live-Ansicht.** Drei Abschnitte untereinander (Gewinnerrunde,
+   Verliererrunde, Final) statt Tabs auf dem Telefon; der Baum stapelt bis `lg`
+   ohnehin.
+8. **Rückspiel ohne Quell-Verweise.** Die Teilnehmer sind direkt gesetzt; die
+   Korrektur des ersten Finals prüft das Rückspiel deshalb gesondert und löscht
+   es, solange es nicht gestartet ist.

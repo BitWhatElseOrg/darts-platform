@@ -25,3 +25,8 @@ Neustart mit exakt denselben Regeln rekonstruiert wird.
 - Double Elimination enthält ausschliesslich topologisch gültige Winner- und
   Loser-Abhängigkeiten.
 - Formatkonfiguration und Scoring-Regeln bleiben unabhängig von der UI.
+
+## Nachtrag 03.10.2026
+
+Doppel-K.-o. ist seit ADR 0022 spielbar. `generateDoubleElimination` in
+`advanced.ts` ist überholt und wird mit Plan 2 (Swiss) entfernt.

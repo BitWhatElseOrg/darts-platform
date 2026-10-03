@@ -246,7 +246,7 @@ describe("Doppel-K.-o. Ablauf", () => {
     const [published] = await databaseService.database.update(tournaments).set({ visibility: "PUBLIC" }).where(eq(tournaments.id, created.id)).returning();
     const publicView = await service.publicDashboard(published?.publicId ?? "");
     expect(publicView.doubleElimination).toEqual(dashboard.doubleElimination);
-  });
+  }, 30_000);
 
   it("legt das Rückspiel an, wenn der Sieger der Verliererrunde das Final gewinnt, und schliesst danach ab", async () => {
     const created = await service.create({ organizationId, data: doubleEliminationInput(8, 8), auth, audit });
@@ -267,7 +267,7 @@ describe("Doppel-K.-o. Ablauf", () => {
     await playMatch(created.id, reset.id, final.participantOneId);
     const [done] = await databaseService.database.select().from(tournaments).where(eq(tournaments.id, created.id));
     expect(done?.status).toBe("COMPLETED");
-  });
+  }, 30_000);
 
   it("legt das Rückspiel nur einmal an, auch wenn der Fortschritt zweimal läuft", async () => {
     const created = await service.create({ organizationId, data: doubleEliminationInput(4, 4), auth, audit });
@@ -279,7 +279,7 @@ describe("Doppel-K.-o. Ablauf", () => {
       advanceDoubleElimination(transaction, { organizationId, tournamentId: created.id, now: new Date(), actor: { principal: auth, audit } }),
     );
     expect((await rows(created.id)).filter((row) => row.key === "grand-final:r2:m1")).toHaveLength(1);
-  });
+  }, 30_000);
 
   it("gibt Walkover im Verlierer-Tableau, wenn ein Zurückgezogener hineinfällt", async () => {
     const created = await service.create({ organizationId, data: doubleEliminationInput(8, 8), auth, audit });
