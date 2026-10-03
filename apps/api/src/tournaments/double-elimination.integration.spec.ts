@@ -4,8 +4,8 @@ import { randomUUID } from "node:crypto";
 
 import { parseApplicationEnvironment } from "@darts-platform/config";
 import {
-  boards, matches, memberships, organizations, players,
-  tournamentMatches, tournamentStages, users,
+  auditEvents, boards, matches, memberships, outboxEvents, organizations, players,
+  tournamentMatches, tournamentStages, tournaments, users,
 } from "@darts-platform/database";
 import type { CreateClassicTournamentInput } from "@darts-platform/schemas";
 
@@ -15,6 +15,7 @@ import { MatchesRepository } from "../matches/matches.repository.js";
 import { MatchesService } from "../matches/matches.service.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { OrganizationsRepository } from "../organizations/organizations.repository.js";
+import { advanceDoubleElimination } from "./advance-double-elimination.js";
 import { DisplayKeysRepository } from "./display-keys.repository.js";
 import { DisplayKeysService } from "./display-keys.service.js";
 import { TournamentsRepository } from "./tournaments.repository.js";
@@ -151,7 +152,6 @@ async function submitSteps(initial: ScoringState, steps: readonly VisitStep[]): 
 }
 
 /** Spielt ein per Korrektur wieder geoeffnetes Match anhand des laufenden Zustands zu Ende. */
-// Helfer für die folgenden Tests (Task 6–8).
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function finishReopenedMatch(tournamentMatchId: string, winnerPlayerId: string): Promise<void> {
   const [scheduled] = await databaseService.database.select().from(tournamentMatches).where(eq(tournamentMatches.id, tournamentMatchId));
@@ -160,7 +160,6 @@ async function finishReopenedMatch(tournamentMatchId: string, winnerPlayerId: st
   const final = await submitSteps(state, scriptToFinish(state, winnerPlayerId));
   expect(final.status).toBe("COMPLETED");
 }
-
 
 /** Spielt ein READY-Turniermatch auf `boardId` bis zum Sieg von `winnerPlayerId` durch (501, Double Out, Best of 1). */
 async function playMatch(tournamentId: string, tournamentMatchId: string, winnerPlayerId: string, boardId: string = boardIds[0]): Promise<void> {
@@ -179,8 +178,6 @@ async function rows(tournamentId: string) {
 }
 
 /** Spielt READY-Spiele, bis keines mehr bereit ist oder `stopKey` als nächstes bereit wäre. */
-// Helfer für die folgenden Tests (Task 6–8).
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function playUntil(tournamentId: string, stopKey: string | null, pick = favourite): Promise<number> {
   let played = 0;
   for (let guard = 0; guard < 200; guard += 1) {
@@ -222,5 +219,75 @@ describe("Doppel-K.-o. anlegen", () => {
   it("verweigert einer fremden Organisation den Zugriff", async () => {
     const created = await service.create({ organizationId, data: doubleEliminationInput(4, 4), auth, audit });
     await expect(service.dashboard({ organizationId: foreignOrganizationId, tournamentId: created.id, auth })).rejects.toThrow();
+  });
+});
+
+describe("Doppel-K.-o. Ablauf", () => {
+  it("spielt 13 Teilnehmer ohne Rückspiel durch: 24 Spiele, Verlierer wandern ins Verlierer-Tableau", async () => {
+    const created = await service.create({ organizationId, data: doubleEliminationInput(13, 16), auth, audit });
+    const firstUpper = (await rows(created.id)).find((row) => row.key === "upper:r1:m2");
+    if (!firstUpper?.participantOneId || !firstUpper.participantTwoId) throw new Error("unexpected");
+    const loser = favourite(firstUpper.participantOneId, firstUpper.participantTwoId) === firstUpper.participantOneId
+      ? firstUpper.participantTwoId : firstUpper.participantOneId;
+    await playMatch(created.id, firstUpper.id, favourite(firstUpper.participantOneId, firstUpper.participantTwoId));
+    const lowerSlots = (await rows(created.id)).filter((row) => row.stageLabel.startsWith("Verliererrunde") && (row.participantOneId === loser || row.participantTwoId === loser));
+    expect(lowerSlots).toHaveLength(1);
+
+    const played = 1 + (await playUntil(created.id, null));
+    expect(played).toBe(24);
+    const [tournament] = await databaseService.database.select().from(tournaments).where(eq(tournaments.id, created.id));
+    expect(tournament?.status).toBe("COMPLETED");
+    expect((await rows(created.id)).some((row) => row.key === "grand-final:r2:m1")).toBe(false);
+  });
+
+  it("legt das Rückspiel an, wenn der Sieger der Verliererrunde das Final gewinnt, und schliesst danach ab", async () => {
+    const created = await service.create({ organizationId, data: doubleEliminationInput(8, 8), auth, audit });
+    await playUntil(created.id, "grand-final:r1:m1");
+    const final = (await rows(created.id)).find((row) => row.key === "grand-final:r1:m1");
+    if (final?.status !== "READY" || !final.participantTwoId || !final.participantOneId) throw new Error("Final nicht bereit");
+    await playMatch(created.id, final.id, final.participantTwoId);
+    const reset = (await rows(created.id)).find((row) => row.key === "grand-final:r2:m1");
+    expect(reset).toMatchObject({ status: "READY", stageLabel: "Final-Rückspiel", participantOneId: final.participantOneId, participantTwoId: final.participantTwoId });
+    const [running] = await databaseService.database.select().from(tournaments).where(eq(tournaments.id, created.id));
+    expect(running?.status).toBe("KNOCKOUT");
+    const outbox = await databaseService.database.select().from(outboxEvents).where(and(eq(outboxEvents.aggregateId, created.id), eq(outboxEvents.eventType, "TOURNAMENT_GRAND_FINAL_RESET")));
+    expect(outbox).toHaveLength(1);
+    const audits = await databaseService.database.select().from(auditEvents).where(and(eq(auditEvents.entityId, created.id), eq(auditEvents.action, "TOURNAMENT_GRAND_FINAL_RESET")));
+    expect(audits[0]).toMatchObject({ organizationId, actorUserId: userId, correlationId: audit.correlationId });
+
+    if (reset === undefined) throw new Error("unreachable");
+    await playMatch(created.id, reset.id, final.participantOneId);
+    const [done] = await databaseService.database.select().from(tournaments).where(eq(tournaments.id, created.id));
+    expect(done?.status).toBe("COMPLETED");
+  });
+
+  it("legt das Rückspiel nur einmal an, auch wenn der Fortschritt zweimal läuft", async () => {
+    const created = await service.create({ organizationId, data: doubleEliminationInput(4, 4), auth, audit });
+    await playUntil(created.id, "grand-final:r1:m1");
+    const final = (await rows(created.id)).find((row) => row.key === "grand-final:r1:m1");
+    if (!final?.participantTwoId) throw new Error("Final nicht bereit");
+    await playMatch(created.id, final.id, final.participantTwoId);
+    await databaseService.database.transaction((transaction) =>
+      advanceDoubleElimination(transaction, { organizationId, tournamentId: created.id, now: new Date(), actor: { principal: auth, audit } }),
+    );
+    expect((await rows(created.id)).filter((row) => row.key === "grand-final:r2:m1")).toHaveLength(1);
+  });
+
+  it("gibt Walkover im Verlierer-Tableau, wenn ein Zurückgezogener hineinfällt", async () => {
+    const created = await service.create({ organizationId, data: doubleEliminationInput(8, 8), auth, audit });
+    const upper = (await rows(created.id)).find((row) => row.key === "upper:r1:m1");
+    if (!upper?.participantOneId || !upper.participantTwoId) throw new Error("unexpected");
+    const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    await service.withdrawParticipant({
+      organizationId, tournamentId: created.id, auth, audit,
+      data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, playerId: upper.participantTwoId, reason: "Verletzung" },
+    });
+    const lower = (await rows(created.id)).find((row) => row.key === "lower:r1:m1");
+    expect(lower?.participantOneId === upper.participantTwoId || lower?.participantTwoId === upper.participantTwoId).toBe(true);
+    // Gegner im Verlierer-Tableau steht erst nach upper:r1:m2 fest; danach Walkover.
+    const second = (await rows(created.id)).find((row) => row.key === "upper:r1:m2");
+    if (!second?.participantOneId || !second.participantTwoId) throw new Error("unexpected");
+    await playMatch(created.id, second.id, favourite(second.participantOneId, second.participantTwoId));
+    expect((await rows(created.id)).find((row) => row.key === "lower:r1:m1")).toMatchObject({ status: "COMPLETED", resultType: "WALKOVER" });
   });
 });

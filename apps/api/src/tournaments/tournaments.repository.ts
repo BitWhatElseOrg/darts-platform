@@ -58,6 +58,7 @@ import { abortScoringMatch } from "../matches/abort-match.js";
 import { stageLabel } from "./planned-match-label.js";
 import { resolveCompletedTournamentGroup } from "./resolve-completed-group.js";
 import { advanceClubDuel } from "./advance-club-duel.js";
+import { advanceDoubleElimination } from "./advance-double-elimination.js";
 import { updateTournamentProgress } from "./update-tournament-progress.js";
 import { getWalkoverWithdrawnPlayerId } from "./walkover-provenance.js";
 
@@ -1162,6 +1163,8 @@ export class TournamentsRepository {
         participantTwoResolved: match.participantTwoId !== null || match.participantTwoRef === null,
         sourceOneMatchId: match.sourceOneMatchId,
         sourceTwoMatchId: match.sourceTwoMatchId,
+        sourceOneKind: match.sourceOneKind === "LOSER" ? ("LOSER" as const) : ("WINNER" as const),
+        sourceTwoKind: match.sourceTwoKind === "LOSER" ? ("LOSER" as const) : ("WINNER" as const),
         winnerPlayerId: match.winnerPlayerId,
       }));
       let discardedVisitCount = 0;
@@ -1220,6 +1223,7 @@ export class TournamentsRepository {
       const automaticDecisions = resolveTournamentWithdrawals({ withdrawnPlayerIds, matches: snapshots(refreshedMatchRows) });
       await applyDecisions(automaticDecisions, refreshedMatchRows);
       await advanceClubDuel(transaction, { organizationId: input.organizationId, tournamentId: input.tournamentId, now: withdrawnAt, actor: { principal: input.auth, audit: input.audit } });
+      await advanceDoubleElimination(transaction, { organizationId: input.organizationId, tournamentId: input.tournamentId, now: withdrawnAt, actor: { principal: input.auth, audit: input.audit } });
       await updateTournamentProgress(transaction, input.organizationId, input.tournamentId, withdrawnAt);
       const nextVersion = tournament.version + 1;
       await transaction.update(tournaments).set({ version: nextVersion, updatedAt: withdrawnAt }).where(and(eq(tournaments.organizationId, input.organizationId), eq(tournaments.id, input.tournamentId)));

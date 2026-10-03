@@ -42,6 +42,8 @@ export async function applyWithdrawalPropagation(
       participantTwoResolved: match.participantTwoId !== null || match.participantTwoRef === null,
       sourceOneMatchId: match.sourceOneMatchId,
       sourceTwoMatchId: match.sourceTwoMatchId,
+      sourceOneKind: match.sourceOneKind === "LOSER" ? ("LOSER" as const) : ("WINNER" as const),
+      sourceTwoKind: match.sourceTwoKind === "LOSER" ? ("LOSER" as const) : ("WINNER" as const),
       winnerPlayerId: match.winnerPlayerId,
     })),
   });

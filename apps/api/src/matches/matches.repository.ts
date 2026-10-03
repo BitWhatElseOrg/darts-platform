@@ -19,6 +19,7 @@ import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
 import { DatabaseService } from "../database/database.service.js";
 import { isClubDuelResultLocked } from "../tournaments/club-duel-correction-lock.js";
 import { advanceClubDuel } from "../tournaments/advance-club-duel.js";
+import { advanceDoubleElimination } from "../tournaments/advance-double-elimination.js";
 import { applyWithdrawalPropagation } from "../tournaments/apply-withdrawal-propagation.js";
 import { resolveCompletedTournamentGroup } from "../tournaments/resolve-completed-group.js";
 import { updateTournamentProgress } from "../tournaments/update-tournament-progress.js";
@@ -1806,14 +1807,17 @@ export class MatchesRepository {
         ),
       )
       .for("update");
+    const loserPlayerId =
+      scheduled.participantOneId === winnerPlayerId ? scheduled.participantTwoId : scheduled.participantOneId;
+    const advancing = (kind: string | null): string | null => (kind === "LOSER" ? loserPlayerId : winnerPlayerId);
     for (const dependent of dependents) {
       const participantOneId =
         dependent.sourceOneMatchId === scheduled.id
-          ? winnerPlayerId
+          ? advancing(dependent.sourceOneKind)
           : dependent.participantOneId;
       const participantTwoId =
         dependent.sourceTwoMatchId === scheduled.id
-          ? winnerPlayerId
+          ? advancing(dependent.sourceTwoKind)
           : dependent.participantTwoId;
       await transaction
         .update(tournamentMatches)
@@ -1848,6 +1852,7 @@ export class MatchesRepository {
     const now = new Date();
     await applyWithdrawalPropagation(transaction, organizationId, scheduled.tournamentId, now);
     await advanceClubDuel(transaction, { organizationId, tournamentId: scheduled.tournamentId, now, actor });
+    await advanceDoubleElimination(transaction, { organizationId, tournamentId: scheduled.tournamentId, now, actor });
     await updateTournamentProgress(transaction, organizationId, scheduled.tournamentId, now);
     await transaction
       .update(tournaments)
