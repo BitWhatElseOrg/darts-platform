@@ -64,4 +64,13 @@ describe("tournamentWinner", () => {
   it("nimmt im klassischen Tableau ohne Vereinsduell den Sieger der letzten Runde", () => {
     expect(tournamentWinner({ tournament: { status: "COMPLETED" }, bracket, groups, clubDuel: null })).toBe("Melanie Lüthi");
   });
+
+  it("nimmt beim Doppel-K.-o. den Sieger aus der Schlussrangliste", () => {
+    const doubleElimination = { resetPossible: false, placements: [{ rank: 2, playerId: "b", displayName: "Beat" }, { rank: 1, playerId: "a", displayName: "Anna" }] };
+    expect(tournamentWinner({ tournament: { status: "COMPLETED" }, bracket, groups: [], doubleElimination })).toBe("Anna");
+  });
+
+  it("bleibt beim Doppel-K.-o. ohne Rang 1 unbestimmt", () => {
+    expect(tournamentWinner({ tournament: { status: "COMPLETED" }, bracket, groups: [], doubleElimination: { resetPossible: false, placements: [] } })).toBeNull();
+  });
 });

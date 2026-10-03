@@ -396,8 +396,14 @@ export function SetupSheet({ organizationId, organizationName, players, boards }
                         <option value="GROUPS_THEN_KNOCKOUT">Gruppen, dann K.-o.</option>
                         <option value="ROUND_ROBIN">Jeder gegen jeden</option>
                         <option value="SINGLE_ELIMINATION">Einfach-K.-o.</option>
+                        <option value="DOUBLE_ELIMINATION">Doppel-K.-o.</option>
                         <option value="CLUB_DUEL">Vereinsduell</option>
                       </SelectInput>
+                      {values.format === "DOUBLE_ELIMINATION" ? (
+                        <p className="mt-2 text-caption text-sisal-500">
+                          Wer zweimal verliert, scheidet aus. Gewinnt der Sieger der Verliererrunde das Final, folgt ein Rückspiel.
+                        </p>
+                      ) : null}
                     </Field>
                     <Field htmlFor="startingScore" label="Startscore">
                       <SelectInput id="startingScore" {...register("startingScore")}>
