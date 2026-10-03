@@ -237,6 +237,15 @@ describe("Doppel-K.-o. Ablauf", () => {
     const [tournament] = await databaseService.database.select().from(tournaments).where(eq(tournaments.id, created.id));
     expect(tournament?.status).toBe("COMPLETED");
     expect((await rows(created.id)).some((row) => row.key === "grand-final:r2:m1")).toBe(false);
+
+    const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    expect(new Set(dashboard.bracket.map((match) => match.section))).toEqual(new Set(["UPPER", "LOWER", "GRAND_FINAL"]));
+    expect(dashboard.doubleElimination?.resetPossible).toBe(false);
+    expect(dashboard.doubleElimination?.placements[0]?.rank).toBe(1);
+    expect(dashboard.doubleElimination?.placements).toHaveLength(13);
+    const [published] = await databaseService.database.update(tournaments).set({ visibility: "PUBLIC" }).where(eq(tournaments.id, created.id)).returning();
+    const publicView = await service.publicDashboard(published?.publicId ?? "");
+    expect(publicView.doubleElimination).toEqual(dashboard.doubleElimination);
   });
 
   it("legt das Rückspiel an, wenn der Sieger der Verliererrunde das Final gewinnt, und schliesst danach ab", async () => {
