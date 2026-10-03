@@ -845,6 +845,17 @@ export class MatchesRepository {
           eq(tournamentMatches.organizationId, input.organizationId),
           eq(tournamentMatches.id, resetRow.id),
         ));
+        await transaction.insert(auditEvents).values({
+          organizationId: input.organizationId,
+          actorUserId: input.auth.user.id,
+          action: "TOURNAMENT_GRAND_FINAL_RESET_REMOVED",
+          entityType: "Tournament",
+          entityId: input.tournamentId,
+          oldValue: resetRow,
+          ip: input.audit.ip,
+          userAgent: input.audit.userAgent,
+          correlationId: input.audit.correlationId,
+        });
       }
       const nextTournamentVersion = tournament.version + 1;
       const nextMatchVersion = await this.applyResultReopen(
