@@ -97,12 +97,16 @@ export class TournamentsService {
     readonly auth: AuthContext;
   }): Promise<TournamentStructurePreview> {
     await this.require(input, "tournament:read");
-    // Vorläufig: Doppel-K.-o.-Vorschau wird in einem späteren Task angebunden.
-    const { format, ...rest } = input.data;
-    if (format === "DOUBLE_ELIMINATION") {
-      throw new TournamentValidationError("FORMAT_NOT_SUPPORTED", "Doppel-K.-o. kann noch nicht angelegt werden.");
+    try {
+      // Vorläufig: Doppel-K.-o.-Vorschau wird in einem späteren Task angebunden.
+      const { format, ...rest } = input.data;
+      if (format === "DOUBLE_ELIMINATION") {
+        throw new TournamentValidationError("FORMAT_NOT_SUPPORTED", "Doppel-K.-o. kann noch nicht angelegt werden.");
+      }
+      return tournamentStructurePreviewSchema.parse(previewTournamentStructure({ ...rest, format }));
+    } catch (error) {
+      this.rethrowDomainError(error);
     }
-    return tournamentStructurePreviewSchema.parse(previewTournamentStructure({ ...rest, format }));
   }
 
   public async advancedPreview(input: {
