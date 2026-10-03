@@ -108,6 +108,8 @@ export function formatLabel(format: TournamentFormat): string {
       return "K.-o.";
     case "CLUB_DUEL":
       return "Vereinsduell";
+    case "DOUBLE_ELIMINATION":
+      return "Doppel-K.-o.";
   }
 }
 

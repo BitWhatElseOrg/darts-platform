@@ -46,6 +46,7 @@ const dashboard = {
   bracket: [],
   participants: [],
   clubDuel: null,
+  doubleElimination: null,
 };
 
 function renderLiveTournament(props: {

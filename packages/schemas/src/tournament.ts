@@ -15,6 +15,7 @@ export const classicTournamentFormatSchema = z.enum([
   "GROUPS_THEN_KNOCKOUT",
   "ROUND_ROBIN",
   "SINGLE_ELIMINATION",
+  "DOUBLE_ELIMINATION",
 ]);
 
 export const tournamentFormatSchema = z.enum([
@@ -22,6 +23,7 @@ export const tournamentFormatSchema = z.enum([
   "ROUND_ROBIN",
   "SINGLE_ELIMINATION",
   "CLUB_DUEL",
+  "DOUBLE_ELIMINATION",
 ]);
 
 export const seedingModeSchema = z.enum(["SEEDED", "RANDOM"]);
@@ -167,8 +169,20 @@ export const tournamentResultSchema = z.object({
   completedAt: z.coerce.date(),
 });
 
+export const bracketSectionSchema = z.enum(["MAIN", "UPPER", "LOWER", "GRAND_FINAL"]);
+
+export const doubleEliminationDashboardSchema = z.object({
+  placements: z.array(
+    z.object({ rank: z.number().int().positive(), playerId: z.uuid(), displayName: z.string() }),
+  ),
+  /** Erstes Final noch offen: ein Rückspiel ist noch möglich. */
+  resetPossible: z.boolean(),
+});
+
 export const bracketMatchSchema = z.object({
   matchId: z.uuid(),
+  /** MAIN = Einfach-K.-o.; UPPER/LOWER/GRAND_FINAL = Doppel-K.-o. */
+  section: bracketSectionSchema,
   stageLabel: z.string(),
   round: z.number().int().positive(),
   position: z.number().int().positive(),
@@ -224,6 +238,7 @@ export const tournamentDashboardSchema = z.object({
   bracket: z.array(bracketMatchSchema),
   recentResults: z.array(tournamentResultSchema),
   clubDuel: clubDuelDashboardSchema.nullable(),
+  doubleElimination: doubleEliminationDashboardSchema.nullable(),
   generatedAt: z.coerce.date(),
 });
 
@@ -276,6 +291,7 @@ export const publicTournamentDashboardSchema = z.object({
   bracket: tournamentDashboardSchema.shape.bracket,
   recentResults: tournamentDashboardSchema.shape.recentResults,
   clubDuel: tournamentDashboardSchema.shape.clubDuel,
+  doubleElimination: tournamentDashboardSchema.shape.doubleElimination,
   generatedAt: tournamentDashboardSchema.shape.generatedAt,
 });
 
@@ -391,13 +407,17 @@ export const createClassicTournamentSchema = tournamentMatchSettingsSchema
   )
   .refine(
     (value) =>
-      value.format !== "SINGLE_ELIMINATION" ||
+      (value.format !== "SINGLE_ELIMINATION" && value.format !== "DOUBLE_ELIMINATION") ||
       value.participantIds.length <= value.knockoutSize,
     {
       message: "The knockout bracket must fit every participant.",
       path: ["knockoutSize"],
     },
   )
+  .refine((value) => value.format !== "DOUBLE_ELIMINATION" || value.knockoutSize >= 4, {
+    message: "A double elimination bracket needs at least four places.",
+    path: ["knockoutSize"],
+  })
   .refine(
     (value) => {
       const entrants =
@@ -509,6 +529,8 @@ export type TournamentConflict = z.infer<typeof tournamentConflictSchema>;
 export type GroupStanding = z.infer<typeof groupStandingSchema>;
 export type GroupStandingRow = z.infer<typeof groupStandingRowSchema>;
 export type TournamentResult = z.infer<typeof tournamentResultSchema>;
+export type BracketSection = z.infer<typeof bracketSectionSchema>;
+export type DoubleEliminationDashboard = z.infer<typeof doubleEliminationDashboardSchema>;
 export type BracketMatch = z.infer<typeof bracketMatchSchema>;
 export type TournamentDashboard = z.infer<typeof tournamentDashboardSchema>;
 export type PublicBoardSlot = z.infer<typeof publicBoardSlotSchema>;

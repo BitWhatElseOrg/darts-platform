@@ -62,16 +62,27 @@ function nodeOf(match: BracketMatch): BracketNode {
   };
 }
 
+export type BracketRoundNaming = "FROM_FINAL" | "NUMBERED" | "GRAND_FINAL";
+
 /**
- * Der Rundenname zählt vom Final rückwärts, nicht von vorne: erst dadurch
- * heisst die letzte Runde eines Tableaus mit vier Qualifizierten «Final» und
- * nicht «Runde 2».
+ * Im Einfach-K.-o. zählt der Rundenname vom Final rückwärts, nicht von vorne:
+ * erst dadurch heisst die letzte Runde eines Tableaus mit vier Qualifizierten
+ * «Final» und nicht «Runde 2». Beim Doppel-K.-o. gibt es keine feste
+ * Rundenzahl bis zum Final; dort wird nummeriert, das Final heisst «Final»
+ * und «Rückspiel».
  */
-function labelOf(round: number, lastRound: number): string {
-  return ROUND_NAMES_FROM_FINAL[lastRound - round] ?? `Runde ${round}`;
+function labelOf(round: number, lastRound: number, naming: BracketRoundNaming): string {
+  switch (naming) {
+    case "FROM_FINAL":
+      return ROUND_NAMES_FROM_FINAL[lastRound - round] ?? `Runde ${round}`;
+    case "NUMBERED":
+      return `Runde ${round}`;
+    case "GRAND_FINAL":
+      return round === 1 ? "Final" : "Rückspiel";
+  }
 }
 
-export function buildBracketRounds(matches: readonly BracketMatch[]): readonly BracketRound[] {
+export function buildBracketRounds(matches: readonly BracketMatch[], naming: BracketRoundNaming = "FROM_FINAL"): readonly BracketRound[] {
   if (matches.length === 0) return [];
   const byRound = new Map<number, BracketMatch[]>();
   for (const match of matches) {
@@ -83,7 +94,7 @@ export function buildBracketRounds(matches: readonly BracketMatch[]): readonly B
   const lastRound = rounds[rounds.length - 1] ?? 0;
   return rounds.map((round) => ({
     round,
-    label: labelOf(round, lastRound),
+    label: labelOf(round, lastRound, naming),
     matches: (byRound.get(round) ?? [])
       .slice()
       .sort((left, right) => left.position - right.position)

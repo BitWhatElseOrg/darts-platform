@@ -14,7 +14,7 @@ import { ApiClientError } from "@/lib/api-error";
 import { ClubDuelPanel, clubDuelTabForStatus } from "@/components/tournament/club-duel/club-duel-panel";
 import { ClubDuelUnavailableNotice } from "@/components/tournament/club-duel/club-duel-unavailable";
 import { ClubScoreBanner } from "@/components/tournament/club-duel/club-score-banner";
-import { buildBracketRounds, knockoutLeadsLiveView, type BracketNode, type BracketRound, type BracketSlot } from "@/lib/bracket-tree";
+import { buildBracketRounds, knockoutLeadsLiveView, type BracketNode, type BracketRoundNaming, type BracketRound, type BracketSlot } from "@/lib/bracket-tree";
 import { recallDisplayKey, rememberDisplayKey } from "@/lib/display-key-storage";
 import { resolvePublicId } from "@/lib/live-address";
 import { legsLabel, participantNames, roundMatchStateLabel } from "@/lib/club-duel-view";
@@ -188,9 +188,40 @@ export function LiveTournament({ boardId, displayKeySecret, mode, publicId }: Li
     </LiveSection>
   ) : null;
   const winner = tournamentWinner(dashboard);
-  const bracketSection = dashboard.bracket.length > 0 ? (
+  const sectionRounds = (section: "UPPER" | "LOWER" | "GRAND_FINAL" | "MAIN", naming: BracketRoundNaming = "FROM_FINAL") =>
+    buildBracketRounds(dashboard.bracket.filter((match) => match.section === section), naming);
+  const mainRounds = sectionRounds("MAIN");
+  const doubleElimination = dashboard.doubleElimination;
+  const bracketSection = doubleElimination !== null ? (
+    <>
+      <LiveSection title="Gewinnerrunde">
+        <BracketTree rounds={sectionRounds("UPPER", "NUMBERED")} />
+      </LiveSection>
+      <LiveSection title="Verliererrunde">
+        <BracketTree rounds={sectionRounds("LOWER", "NUMBERED")} />
+      </LiveSection>
+      <LiveSection title="Final">
+        <BracketTree rounds={sectionRounds("GRAND_FINAL", "GRAND_FINAL")} />
+        {doubleElimination.resetPossible ? (
+          <p className="mt-3 text-body text-sisal-500">Ein Rückspiel folgt nur, falls der Sieger der Verliererrunde das Final gewinnt.</p>
+        ) : null}
+      </LiveSection>
+      {doubleElimination.placements.length > 0 ? (
+        <LiveSection title="Schlussrangliste">
+          <ol>
+            {doubleElimination.placements.map((entry) => (
+              <li className="grid grid-cols-[3rem_1fr] border-t border-sisal-300 px-4 py-2 text-body tabular" key={entry.playerId}>
+                <span>{entry.rank}.</span>
+                <span>{entry.displayName}</span>
+              </li>
+            ))}
+          </ol>
+        </LiveSection>
+      ) : null}
+    </>
+  ) : mainRounds.length > 0 ? (
     <LiveSection title="K.-o.-Tableau">
-      <BracketTree rounds={buildBracketRounds(dashboard.bracket)} />
+      <BracketTree rounds={mainRounds} />
     </LiveSection>
   ) : null;
   const clubDuel = dashboard.clubDuel;

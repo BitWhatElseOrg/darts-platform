@@ -12,6 +12,7 @@ import {
   calculateGroupStandings,
   generateDoubleElimination,
   previewClubDuel,
+  previewDoubleElimination,
   previewTournamentStructure,
   TournamentValidationError,
   validateStageComposition,
@@ -28,6 +29,7 @@ import {
   tournamentStructurePreviewSchema,
   tournamentSummarySchema,
   type AssignMatchInput,
+  type BracketSection,
   type ClubDuelPreviewInput,
   type ClubDuelPreviewResponse,
   type AdvancedFormatPreview,
@@ -52,6 +54,7 @@ import { MatchesRepository } from "../matches/matches.repository.js";
 import type { TournamentCorrectionResult } from "../matches/matches.repository.js";
 import { OrganizationAccessService } from "../organizations/organization-access.service.js";
 import { projectClubDuel } from "./club-duel-projection.js";
+import { bracketSectionOf, projectDoubleElimination } from "./double-elimination-projection.js";
 import { DisplayKeysService } from "./display-keys.service.js";
 import { isMatchOverrunning } from "./match-overrun.js";
 import { ROUND_ROBIN_LABEL, tournamentStageLabel } from "./tournament-stage-label.js";
@@ -71,6 +74,8 @@ export class TournamentVersionConflictException extends ConflictException {
     });
   }
 }
+
+const SECTION_ORDER: Record<BracketSection, number> = { MAIN: 0, UPPER: 1, LOWER: 2, GRAND_FINAL: 3 };
 
 @Injectable()
 export class TournamentsService {
@@ -97,7 +102,15 @@ export class TournamentsService {
     readonly auth: AuthContext;
   }): Promise<TournamentStructurePreview> {
     await this.require(input, "tournament:read");
-    return tournamentStructurePreviewSchema.parse(previewTournamentStructure(input.data));
+    try {
+      return tournamentStructurePreviewSchema.parse(
+        input.data.format === "DOUBLE_ELIMINATION"
+          ? previewDoubleElimination({ participantCount: input.data.participantCount, knockoutSize: input.data.knockoutSize })
+          : previewTournamentStructure({ ...input.data, format: input.data.format }),
+      );
+    } catch (error) {
+      this.rethrowDomainError(error);
+    }
   }
 
   public async advancedPreview(input: {
@@ -238,6 +251,7 @@ export class TournamentsService {
       bracket: dashboard.bracket,
       recentResults: dashboard.recentResults,
       clubDuel: dashboard.clubDuel,
+      doubleElimination: dashboard.doubleElimination,
       generatedAt: dashboard.generatedAt,
     });
   }
@@ -685,6 +699,7 @@ export class TournamentsService {
           ]
         : [],
     );
+    const stageTypeById = new Map(data.stages.map((stage) => [stage.id, stage.type]));
     return tournamentDashboardSchema.parse({
       tournament: {
         id: data.tournament.id,
@@ -718,15 +733,32 @@ export class TournamentsService {
         side: participant.side === "A" || participant.side === "B" ? participant.side : null,
       })),
       clubDuel,
+      doubleElimination:
+        data.tournament.format === "DOUBLE_ELIMINATION"
+          ? projectDoubleElimination({
+              participants: data.participants.map((participant) => ({ playerId: participant.playerId, displayName: participant.displayName })),
+              matches: data.matches,
+              stageTypeById,
+            })
+          : null,
       boards,
       queue,
       conflicts,
       groups,
       bracket: data.matches
-        .filter((match) => match.stageLabel.startsWith("K.-o."))
-        .sort((left, right) => left.round - right.round || left.position - right.position)
-        .map((match) => ({
+        .flatMap((match) => {
+          const section = bracketSectionOf(stageTypeById.get(match.stageId), match.stageLabel);
+          return section === null ? [] : [{ match, section }];
+        })
+        .sort(
+          (left, right) =>
+            SECTION_ORDER[left.section] - SECTION_ORDER[right.section] ||
+            left.match.round - right.match.round ||
+            left.match.position - right.match.position,
+        )
+        .map(({ match, section }) => ({
           matchId: match.id,
+          section,
           stageLabel: match.stageLabel,
           round: match.round,
           position: match.position,

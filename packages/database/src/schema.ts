@@ -929,7 +929,7 @@ export const tournaments = pgTable(
     ),
     check(
       "tournaments_format_check",
-      sql`${table.format} in ('GROUPS_THEN_KNOCKOUT', 'ROUND_ROBIN', 'SINGLE_ELIMINATION', 'CLUB_DUEL')`,
+      sql`${table.format} in ('GROUPS_THEN_KNOCKOUT', 'ROUND_ROBIN', 'SINGLE_ELIMINATION', 'CLUB_DUEL', 'DOUBLE_ELIMINATION')`,
     ),
     check(
       "tournaments_qualifying_rounds_check",
@@ -1106,7 +1106,7 @@ export const tournamentStages = pgTable(
     check("tournament_stages_sequence_check", sql`${table.sequence} > 0`),
     check(
       "tournament_stages_type_check",
-      sql`${table.type} in ('GROUP', 'ROUND_ROBIN', 'SINGLE_ELIMINATION', 'CLUB_SWISS', 'CLUB_CROSS_ROUND_ROBIN')`,
+      sql`${table.type} in ('GROUP', 'ROUND_ROBIN', 'SINGLE_ELIMINATION', 'CLUB_SWISS', 'CLUB_CROSS_ROUND_ROBIN', 'DOUBLE_ELIMINATION_UPPER', 'DOUBLE_ELIMINATION_LOWER', 'GRAND_FINAL')`,
     ),
     check(
       "tournament_stages_status_check",
@@ -1203,6 +1203,9 @@ export const tournamentMatches = pgTable(
     participantTwoRef: jsonb("participant_two_ref"),
     sourceOneMatchId: uuid("source_one_match_id"),
     sourceTwoMatchId: uuid("source_two_match_id"),
+    /** Doppel-K.-o.: rückt der Sieger oder der Verlierer der Quelle nach (ADR 0022). */
+    sourceOneKind: varchar("source_one_kind", { length: 10 }),
+    sourceTwoKind: varchar("source_two_kind", { length: 10 }),
     boardId: uuid("board_id").references(() => boards.id, { onDelete: "set null" }),
     scoringMatchId: uuid("scoring_match_id").references(() => matches.id, {
       onDelete: "set null",
@@ -1240,6 +1243,14 @@ export const tournamentMatches = pgTable(
       ),
     index("tournament_matches_source_one_idx").on(table.sourceOneMatchId),
     index("tournament_matches_source_two_idx").on(table.sourceTwoMatchId),
+    check(
+      "tournament_matches_source_one_kind_check",
+      sql`(${table.sourceOneMatchId} is null and ${table.sourceOneKind} is null) or (${table.sourceOneMatchId} is not null and ${table.sourceOneKind} is not null and ${table.sourceOneKind} in ('WINNER', 'LOSER'))`,
+    ),
+    check(
+      "tournament_matches_source_two_kind_check",
+      sql`(${table.sourceTwoMatchId} is null and ${table.sourceTwoKind} is null) or (${table.sourceTwoMatchId} is not null and ${table.sourceTwoKind} is not null and ${table.sourceTwoKind} in ('WINNER', 'LOSER'))`,
+    ),
     check("tournament_matches_round_check", sql`${table.round} > 0`),
     check("tournament_matches_position_check", sql`${table.position} > 0`),
     check("tournament_matches_version_check", sql`${table.version} >= 0`),

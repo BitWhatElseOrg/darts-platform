@@ -49,6 +49,7 @@ const dashboard = {
   bracket: [],
   participants: [],
   clubDuel: null,
+  doubleElimination: null,
 };
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -202,5 +203,44 @@ describe("LiveTournament – Vereinsduell ohne Projektion", () => {
     renderLiveTournament("publikum");
     await screen.findByRole("heading", { name: "Herbstcup" });
     expect(screen.queryByText("Vereinsduell-Ansicht derzeit nicht verfügbar.")).toBeNull();
+  });
+});
+
+describe("LiveTournament – Doppel-K.-o.", () => {
+  const dkoMatch = (n: number, section: "UPPER" | "LOWER" | "GRAND_FINAL") => ({
+    matchId: id(100 + n), round: 1, position: 1, section, status: "READY" as const, resultType: null,
+    participantNames: ["Anna", "Beat"] as [string, string], winnerDisplayName: null, boardName: null,
+  });
+  const dko = {
+    ...dashboard,
+    tournament: { ...dashboard.tournament, format: "DOUBLE_ELIMINATION", status: "KNOCKOUT", stageLabel: "Gewinnerrunde" },
+    bracket: [dkoMatch(1, "UPPER"), dkoMatch(2, "LOWER"), dkoMatch(3, "GRAND_FINAL")],
+    doubleElimination: { placements: [], resetPossible: true },
+  };
+
+  it("zeigt Gewinnerrunde, Verliererrunde und Final mit Rückspiel-Hinweis", async () => {
+    client.apiRequest.mockResolvedValueOnce(dko);
+    renderLiveTournament("publikum");
+    expect(await screen.findByRole("heading", { name: "Gewinnerrunde" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Verliererrunde" })).toBeTruthy();
+    // Der Abschnitt und die erste Finalrunde im Baum heissen beide «Final».
+    expect(screen.getAllByRole("heading", { name: "Final", level: 2 })).toHaveLength(1);
+    expect(screen.getByText("Ein Rückspiel folgt nur, falls der Sieger der Verliererrunde das Final gewinnt.")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "K.-o.-Tableau" })).toBeNull();
+  });
+
+  it("zeigt nach Turnierende die Schlussrangliste", async () => {
+    client.apiRequest.mockResolvedValueOnce({
+      ...dko,
+      tournament: { ...dko.tournament, status: "COMPLETED" },
+      doubleElimination: {
+        resetPossible: false,
+        placements: [{ rank: 1, playerId: id(1), displayName: "Anna" }, { rank: 2, playerId: id(2), displayName: "Beat" }],
+      },
+    });
+    renderLiveTournament("publikum");
+    expect(await screen.findByRole("heading", { name: "Schlussrangliste" })).toBeTruthy();
+    expect(screen.getByText("1.")).toBeTruthy();
+    expect(screen.getByText("1.").nextElementSibling?.textContent).toBe("Anna");
   });
 });

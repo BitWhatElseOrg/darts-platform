@@ -38,6 +38,8 @@ export type KnockoutParticipantReference =
   | { readonly type: "PLAYER"; readonly playerId: string }
   | { readonly type: "GROUP_RANK"; readonly groupKey: string; readonly rank: number }
   | { readonly type: "MATCH_WINNER"; readonly matchKey: string }
+  /** Doppel-K.-o.: Verlierer eines Spiels fällt ins Verlierer-Tableau (ADR 0022). */
+  | { readonly type: "MATCH_LOSER"; readonly matchKey: string }
   | {
       /** Vereinsduell: Rang `rank` der Seite `side` in der Phase `stageKey` (Spec, Datenmodell). */
       readonly type: "SIDE_RANK";
@@ -51,7 +53,10 @@ export type PlannedStageType =
   | "ROUND_ROBIN"
   | "SINGLE_ELIMINATION"
   | "CLUB_SWISS"
-  | "CLUB_CROSS_ROUND_ROBIN";
+  | "CLUB_CROSS_ROUND_ROBIN"
+  | "DOUBLE_ELIMINATION_UPPER"
+  | "DOUBLE_ELIMINATION_LOWER"
+  | "GRAND_FINAL";
 
 export interface PlannedMatch {
   readonly key: string;
@@ -91,7 +96,12 @@ export interface TournamentStructurePreview {
   readonly warnings: readonly string[];
 }
 
-export type TournamentFormatKey = "GROUPS_THEN_KNOCKOUT" | "ROUND_ROBIN" | "SINGLE_ELIMINATION" | "CLUB_DUEL";
+export type TournamentFormatKey =
+  | "GROUPS_THEN_KNOCKOUT"
+  | "ROUND_ROBIN"
+  | "SINGLE_ELIMINATION"
+  | "CLUB_DUEL"
+  | "DOUBLE_ELIMINATION";
 
 export interface TournamentLifecycleStage {
   readonly id: string;
@@ -142,6 +152,7 @@ export function calculateTournamentLifecycle(input: {
   const tournamentStatus = !hasOpenMatches
     ? "COMPLETED"
     : input.format === "SINGLE_ELIMINATION" ||
+        input.format === "DOUBLE_ELIMINATION" ||
         (input.format === "GROUPS_THEN_KNOCKOUT" && !groupsHaveOpenMatches)
       ? "KNOCKOUT"
       : "GROUP_STAGE";
@@ -202,6 +213,16 @@ export interface WithdrawalMatchSnapshot {
   readonly winnerPlayerId: string | null;
   readonly participantOneResolved?: boolean;
   readonly participantTwoResolved?: boolean;
+  /** Doppel-K.-o.: welcher Teilnehmer der Quelle nachrückt. Fehlt = Sieger. */
+  readonly sourceOneKind?: "WINNER" | "LOSER";
+  readonly sourceTwoKind?: "WINNER" | "LOSER";
+}
+
+function advancingFrom(source: WithdrawalMatchSnapshot | null | undefined, kind: "WINNER" | "LOSER" | undefined): string | null {
+  if (source === null || source === undefined) return null;
+  if (kind !== "LOSER") return source.winnerPlayerId;
+  if (source.status !== "COMPLETED" || source.winnerPlayerId === null) return null;
+  return source.participantOneId === source.winnerPlayerId ? source.participantTwoId : source.participantOneId;
 }
 
 export interface WithdrawalMatchDecision {
@@ -639,8 +660,8 @@ export function resolveTournamentWithdrawals(input: {
 
       const firstSource = match.sourceOneMatchId === null ? null : matches.get(match.sourceOneMatchId);
       const secondSource = match.sourceTwoMatchId === null ? null : matches.get(match.sourceTwoMatchId);
-      const participantOneId = match.participantOneId ?? firstSource?.winnerPlayerId ?? null;
-      const participantTwoId = match.participantTwoId ?? secondSource?.winnerPlayerId ?? null;
+      const participantOneId = match.participantOneId ?? advancingFrom(firstSource, match.sourceOneKind);
+      const participantTwoId = match.participantTwoId ?? advancingFrom(secondSource, match.sourceTwoKind);
       const firstResolved = participantOneId !== null || match.participantOneResolved === true || (firstSource !== null && firstSource !== undefined && ["COMPLETED", "BYE", "CANCELLED"].includes(firstSource.status));
       const secondResolved = participantTwoId !== null || match.participantTwoResolved === true || (secondSource !== null && secondSource !== undefined && ["COMPLETED", "BYE", "CANCELLED"].includes(secondSource.status));
       if (

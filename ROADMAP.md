@@ -246,8 +246,8 @@ Komplexere Turnierformate.
 
 ## Scope
 
-- Double Elimination
-- Swiss System
+- Double Elimination (spielbar seit 03.10.2026, ADR 0022)
+- Swiss System (in Arbeit, Plan 2)
 - Sets
 - Teams
 - Pairs

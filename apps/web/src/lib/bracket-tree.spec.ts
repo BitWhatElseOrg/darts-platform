@@ -12,6 +12,7 @@ import { buildBracketRounds, knockoutLeadsLiveView } from "./bracket-tree";
 function match(overrides: Partial<BracketMatch> & Pick<BracketMatch, "round" | "position">): BracketMatch {
   return {
     matchId: `r${overrides.round}p${overrides.position}`,
+    section: "MAIN",
     stageLabel: `K.-o. · Runde ${overrides.round}`,
     status: "WAITING",
     resultType: null,
@@ -153,5 +154,15 @@ describe("Vorrang in der Live-Ansicht", () => {
   it("führt vor dem Start mit den Gruppen", () => {
     expect(knockoutLeadsLiveView("DRAFT")).toBe(false);
     expect(knockoutLeadsLiveView("READY")).toBe(false);
+  });
+
+  it("nummeriert Gewinner- und Verliererrunden statt vom Final her", () => {
+    const rounds = buildBracketRounds([match({ round: 1, position: 1, section: "LOWER" }), match({ round: 2, position: 1, section: "LOWER" })], "NUMBERED");
+    expect(rounds.map((round) => round.label)).toEqual(["Runde 1", "Runde 2"]);
+  });
+
+  it("nennt die Finalspiele Final und Rückspiel", () => {
+    const rounds = buildBracketRounds([match({ round: 1, position: 1, section: "GRAND_FINAL" }), match({ round: 2, position: 1, section: "GRAND_FINAL" })], "GRAND_FINAL");
+    expect(rounds.map((round) => round.label)).toEqual(["Final", "Rückspiel"]);
   });
 });

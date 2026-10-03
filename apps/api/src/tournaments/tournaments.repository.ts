@@ -23,11 +23,13 @@ import {
 import {
   CLUB_DUEL_STAGE_KEYS,
   createTournamentPlan,
+  DOUBLE_ELIMINATION_STAGE_KEYS,
   planClubDuel,
+  planDoubleElimination,
   resolveTournamentWithdrawals,
   TournamentValidationError,
+  type DoubleEliminationBracketSize,
   type KnockoutParticipantReference,
-  type PlannedMatch,
 } from "@darts-platform/tournament-engine";
 import type { TournamentVisibility } from "@darts-platform/domain";
 import type {
@@ -53,9 +55,10 @@ import type { AuditContext } from "../common/audit-context.js";
 import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
 import { DatabaseService } from "../database/database.service.js";
 import { abortScoringMatch } from "../matches/abort-match.js";
-import { clubDuelStageLabel } from "./club-duel-labels.js";
+import { stageLabel } from "./planned-match-label.js";
 import { resolveCompletedTournamentGroup } from "./resolve-completed-group.js";
 import { advanceClubDuel } from "./advance-club-duel.js";
+import { advanceDoubleElimination } from "./advance-double-elimination.js";
 import { updateTournamentProgress } from "./update-tournament-progress.js";
 import { getWalkoverWithdrawnPlayerId } from "./walkover-provenance.js";
 
@@ -112,16 +115,6 @@ export interface TournamentDashboardData {
 
 function playerIdFrom(reference: KnockoutParticipantReference | null): string | null {
   return reference?.type === "PLAYER" ? reference.playerId : null;
-}
-
-function stageLabel(match: PlannedMatch, groupLabels: ReadonlyMap<string, string>): string {
-  const clubDuelLabel = clubDuelStageLabel(match);
-  if (clubDuelLabel !== null) return clubDuelLabel;
-  if (match.stageType === "GROUP" && match.groupKey !== null) {
-    return `Gruppe ${groupLabels.get(match.groupKey) ?? match.groupKey}`;
-  }
-  if (match.stageType === "ROUND_ROBIN") return "Jeder gegen jeden";
-  return `K.-o. · Runde ${match.round}`;
 }
 
 function derivedCommandId(parentCommandId: string, aggregateId: string): string {
@@ -402,13 +395,21 @@ export class TournamentsRepository {
             ),
           )
           .orderBy(
-            asc(tournamentMatches.stageId),
             asc(tournamentMatches.round),
             asc(tournamentMatches.position),
           ),
         loadOccupiedBoardIds(this.databaseService.database, organizationId),
         loadActivePlayerIds(this.databaseService.database, organizationId),
       ]);
+    // Reihenfolge der Warteschlange nachvollziehbar: Stage-Reihenfolge (sequence),
+    // dann Runde, dann Position. stageId ist eine Zufalls-UUID und taugt nicht dazu.
+    const stageSequence = new Map(stageRows.map((stage) => [stage.id, stage.sequence]));
+    const orderedMatches = [...matchRows].sort(
+      (left, right) =>
+        (stageSequence.get(left.stageId) ?? 0) - (stageSequence.get(right.stageId) ?? 0) ||
+        left.round - right.round ||
+        left.position - right.position,
+    );
     return {
       tournament,
       participants: participantRows,
@@ -416,7 +417,7 @@ export class TournamentsRepository {
       boards: boardRows,
       groups: groupRows,
       groupParticipants: groupParticipantRows,
-      matches: matchRows,
+      matches: orderedMatches,
       occupiedBoardIds,
       activePlayerIds,
     };
@@ -473,19 +474,29 @@ export class TournamentsRepository {
       playerId,
       seed: index + 1,
     }));
-    const plan = createTournamentPlan({
-      format: input.data.format,
-      participants: engineParticipants,
-      groupCount: input.data.groupCount,
-      qualifyPerGroup: input.data.qualifyPerGroup,
-      knockoutSize: input.data.knockoutSize,
-      seeding: input.data.seeding,
-      randomSeed: input.audit.correlationId
-        .replaceAll("-", "")
-        .slice(0, 8)
-        .split("")
-        .reduce((seed, character) => seed + character.charCodeAt(0), 0),
-    });
+    const plan =
+      input.data.format === "DOUBLE_ELIMINATION"
+        ? {
+            groups: [],
+            // Das Schema (knockoutSize 4..64) garantiert eine gültige Tableaugrösse; der Cast ist dadurch gedeckt.
+            matches: planDoubleElimination({
+              participants: engineParticipants,
+              bracketSize: input.data.knockoutSize as DoubleEliminationBracketSize,
+            }),
+          }
+        : createTournamentPlan({
+            format: input.data.format,
+            participants: engineParticipants,
+            groupCount: input.data.groupCount,
+            qualifyPerGroup: input.data.qualifyPerGroup,
+            knockoutSize: input.data.knockoutSize,
+            seeding: input.data.seeding,
+            randomSeed: input.audit.correlationId
+              .replaceAll("-", "")
+              .slice(0, 8)
+              .split("")
+              .reduce((seed, character) => seed + character.charCodeAt(0), 0),
+          });
 
     return this.databaseService.database.transaction(async (transaction) => {
       await this.assertParticipantsAndBoards(
@@ -496,7 +507,9 @@ export class TournamentsRepository {
       );
 
       const initialStatus =
-        input.data.format === "SINGLE_ELIMINATION" ? "KNOCKOUT" : "GROUP_STAGE";
+        input.data.format === "SINGLE_ELIMINATION" || input.data.format === "DOUBLE_ELIMINATION"
+          ? "KNOCKOUT"
+          : "GROUP_STAGE";
       const [created] = await transaction
         .insert(tournaments)
         .values({
@@ -549,6 +562,12 @@ export class TournamentsRepository {
                 status: "WAITING",
               },
             ]
+          : input.data.format === "DOUBLE_ELIMINATION"
+            ? [
+                { key: DOUBLE_ELIMINATION_STAGE_KEYS.upper, sequence: 1, name: "Gewinnerrunde", type: "DOUBLE_ELIMINATION_UPPER", status: "OPEN" },
+                { key: DOUBLE_ELIMINATION_STAGE_KEYS.lower, sequence: 2, name: "Verliererrunde", type: "DOUBLE_ELIMINATION_LOWER", status: "OPEN" },
+                { key: DOUBLE_ELIMINATION_STAGE_KEYS.grandFinal, sequence: 3, name: "Final", type: "GRAND_FINAL", status: "OPEN" },
+              ]
           : input.data.format === "ROUND_ROBIN"
             ? [
                 {
@@ -648,17 +667,22 @@ export class TournamentsRepository {
             : [],
         ),
       );
+      const sourceOf = (reference: KnockoutParticipantReference | null) =>
+        reference?.type === "MATCH_WINNER" || reference?.type === "MATCH_LOSER"
+          ? {
+              match: matchByKey.get(reference.matchKey),
+              kind: reference.type === "MATCH_WINNER" ? ("WINNER" as const) : ("LOSER" as const),
+            }
+          : null;
       for (const planned of plan.matches) {
         const stored = matchByKey.get(planned.key);
         if (stored === undefined) throw new Error("Stored match invariant violated.");
-        const firstSource =
-          planned.participantOne?.type === "MATCH_WINNER"
-            ? matchByKey.get(planned.participantOne.matchKey)
-            : undefined;
-        const secondSource =
-          planned.participantTwo?.type === "MATCH_WINNER"
-            ? matchByKey.get(planned.participantTwo.matchKey)
-            : undefined;
+        const first = sourceOf(planned.participantOne);
+        const second = sourceOf(planned.participantTwo);
+        if ((first !== null && first.match === undefined) || (second !== null && second.match === undefined)) {
+          throw new Error("Stored source match invariant violated.");
+        }
+        // Ein Bye hat keinen Verlierer; die Engine plant deshalb nie eine Verlierer-Quelle auf ein Bye.
         const participantOneId =
           planned.participantOne?.type === "MATCH_WINNER"
             ? (automaticWinners.get(planned.participantOne.matchKey) ?? null)
@@ -670,8 +694,10 @@ export class TournamentsRepository {
         await transaction
           .update(tournamentMatches)
           .set({
-            sourceOneMatchId: firstSource?.id ?? null,
-            sourceTwoMatchId: secondSource?.id ?? null,
+            sourceOneMatchId: first?.match?.id ?? null,
+            sourceOneKind: first?.kind ?? null,
+            sourceTwoMatchId: second?.match?.id ?? null,
+            sourceTwoKind: second?.kind ?? null,
             participantOneId,
             participantTwoId,
             status:
@@ -1145,6 +1171,8 @@ export class TournamentsRepository {
         participantTwoResolved: match.participantTwoId !== null || match.participantTwoRef === null,
         sourceOneMatchId: match.sourceOneMatchId,
         sourceTwoMatchId: match.sourceTwoMatchId,
+        sourceOneKind: match.sourceOneKind === "LOSER" ? ("LOSER" as const) : ("WINNER" as const),
+        sourceTwoKind: match.sourceTwoKind === "LOSER" ? ("LOSER" as const) : ("WINNER" as const),
         winnerPlayerId: match.winnerPlayerId,
       }));
       let discardedVisitCount = 0;
@@ -1203,6 +1231,7 @@ export class TournamentsRepository {
       const automaticDecisions = resolveTournamentWithdrawals({ withdrawnPlayerIds, matches: snapshots(refreshedMatchRows) });
       await applyDecisions(automaticDecisions, refreshedMatchRows);
       await advanceClubDuel(transaction, { organizationId: input.organizationId, tournamentId: input.tournamentId, now: withdrawnAt, actor: { principal: input.auth, audit: input.audit } });
+      await advanceDoubleElimination(transaction, { organizationId: input.organizationId, tournamentId: input.tournamentId, now: withdrawnAt, actor: { principal: input.auth, audit: input.audit } });
       await updateTournamentProgress(transaction, input.organizationId, input.tournamentId, withdrawnAt);
       const nextVersion = tournament.version + 1;
       await transaction.update(tournaments).set({ version: nextVersion, updatedAt: withdrawnAt }).where(and(eq(tournaments.organizationId, input.organizationId), eq(tournaments.id, input.tournamentId)));

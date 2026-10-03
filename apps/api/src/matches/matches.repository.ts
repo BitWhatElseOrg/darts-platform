@@ -8,7 +8,7 @@ import {
   visitDarts, visits,
 } from "@darts-platform/database";
 import { clubAbbreviation, decideDeviceMatchAccess, matchTargets, type DeviceMatchAction } from "@darts-platform/domain";
-import { CLUB_DUEL_STAGE_KEYS } from "@darts-platform/tournament-engine";
+import { CLUB_DUEL_STAGE_KEYS, GRAND_FINAL_KEY, GRAND_FINAL_RESET_KEY, planCorrectionCascade, type CorrectionCascadeMatch, type CorrectionCascadeStep } from "@darts-platform/tournament-engine";
 import { ScoringValidationError, createX01Match, defaultCheckoutAttempts, executeX01Command, projectX01Match, type InRule, type LegStartRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
 import type { AbortMatchInput, AbortMatchResponse, CorrectEncounterResultInput, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
 import { isDevicePrincipal, type AuthContext, type Principal } from "../auth/auth.types.js";
@@ -19,6 +19,7 @@ import { retryOnDeadlock } from "../common/retry-on-deadlock.js";
 import { DatabaseService } from "../database/database.service.js";
 import { isClubDuelResultLocked } from "../tournaments/club-duel-correction-lock.js";
 import { advanceClubDuel } from "../tournaments/advance-club-duel.js";
+import { advanceDoubleElimination } from "../tournaments/advance-double-elimination.js";
 import { applyWithdrawalPropagation } from "../tournaments/apply-withdrawal-propagation.js";
 import { resolveCompletedTournamentGroup } from "../tournaments/resolve-completed-group.js";
 import { updateTournamentProgress } from "../tournaments/update-tournament-progress.js";
@@ -785,6 +786,7 @@ export class MatchesRepository {
         .limit(1);
       if (board === undefined || board.status !== "AVAILABLE") return "board-unavailable";
 
+      let cascadeSteps: readonly CorrectionCascadeStep[] = [];
       if (scheduled.groupId !== null) {
         const [startedKnockout] = await transaction
           .select({ id: tournamentMatches.id })
@@ -800,26 +802,70 @@ export class MatchesRepository {
           .limit(1);
         if (startedKnockout !== undefined) return "downstream-started";
       } else {
-        const [startedDependent] = await transaction
-          .select({ id: tournamentMatches.id })
+        // Nicht nur die direkten Abhängigen: Ein Bye oder abgesagtes Spiel hat
+        // sein Ergebnis schon weitergereicht und muss mit (planCorrectionCascade).
+        const tournamentMatchRows = await transaction
+          .select({
+            id: tournamentMatches.id,
+            status: tournamentMatches.status,
+            sourceOneMatchId: tournamentMatches.sourceOneMatchId,
+            sourceTwoMatchId: tournamentMatches.sourceTwoMatchId,
+          })
           .from(tournamentMatches)
           .where(
             and(
               eq(tournamentMatches.organizationId, input.organizationId),
               eq(tournamentMatches.tournamentId, input.tournamentId),
-              or(
-                eq(tournamentMatches.sourceOneMatchId, scheduled.id),
-                eq(tournamentMatches.sourceTwoMatchId, scheduled.id),
-              ),
-              inArray(tournamentMatches.status, ["IN_PROGRESS", "COMPLETED"]),
             ),
           )
-          .limit(1);
-        if (startedDependent !== undefined) return "downstream-started";
+          .for("update");
+        const cascade = planCorrectionCascade(
+          // Die Status-Werte garantiert tournament_matches_status_check.
+          tournamentMatchRows.map((row) => ({ ...row, status: row.status as CorrectionCascadeMatch["status"] })),
+          scheduled.id,
+        );
+        if (cascade.blocked) return "downstream-started";
+        cascadeSteps = cascade.steps;
+      }
+
+      // Doppel-K.-o.: Das Rückspiel hat keine Quelle (es entsteht aus dem Ausgang
+      // des ersten Finals), deshalb prüft der Quellen-Block oben es nicht.
+      const resetRow =
+        tournament.format === "DOUBLE_ELIMINATION" && scheduled.key === GRAND_FINAL_KEY
+          ? (await transaction
+              .select()
+              .from(tournamentMatches)
+              .where(and(
+                eq(tournamentMatches.organizationId, input.organizationId),
+                eq(tournamentMatches.tournamentId, input.tournamentId),
+                eq(tournamentMatches.key, GRAND_FINAL_RESET_KEY),
+              ))
+              .for("update")
+              .limit(1))[0]
+          : undefined;
+      if (resetRow !== undefined && (resetRow.status === "IN_PROGRESS" || resetRow.status === "COMPLETED")) {
+        return "downstream-started";
       }
 
       const plan = await this.planResultReopen(transaction, input.organizationId, scoringMatch, input.data.commandId);
       if (plan === null) return "result-not-correctable";
+      if (resetRow !== undefined) {
+        await transaction.delete(tournamentMatches).where(and(
+          eq(tournamentMatches.organizationId, input.organizationId),
+          eq(tournamentMatches.id, resetRow.id),
+        ));
+        await transaction.insert(auditEvents).values({
+          organizationId: input.organizationId,
+          actorUserId: input.auth.user.id,
+          action: "TOURNAMENT_GRAND_FINAL_RESET_REMOVED",
+          entityType: "Tournament",
+          entityId: input.tournamentId,
+          oldValue: resetRow,
+          ip: input.audit.ip,
+          userAgent: input.audit.userAgent,
+          correlationId: input.audit.correlationId,
+        });
+      }
       const nextTournamentVersion = tournament.version + 1;
       const nextMatchVersion = await this.applyResultReopen(
         transaction,
@@ -852,39 +898,22 @@ export class MatchesRepository {
           scheduled.groupId,
         );
       } else {
-        const dependents = await transaction
-          .select()
-          .from(tournamentMatches)
-          .where(
-            and(
-              eq(tournamentMatches.organizationId, input.organizationId),
-              eq(tournamentMatches.tournamentId, input.tournamentId),
-              or(
-                eq(tournamentMatches.sourceOneMatchId, scheduled.id),
-                eq(tournamentMatches.sourceTwoMatchId, scheduled.id),
-              ),
-            ),
-          )
-          .for("update");
-        for (const dependent of dependents) {
+        // Wieder geöffnete Byes und abgesagte Spiele entscheidet beim erneuten
+        // Abschluss die Rückzugslogik neu (applyWithdrawalPropagation).
+        for (const step of cascadeSteps) {
           await transaction
             .update(tournamentMatches)
             .set({
-              participantOneId:
-                dependent.sourceOneMatchId === scheduled.id
-                  ? null
-                  : dependent.participantOneId,
-              participantTwoId:
-                dependent.sourceTwoMatchId === scheduled.id
-                  ? null
-                  : dependent.participantTwoId,
+              ...(step.clearSlotOne ? { participantOneId: null } : {}),
+              ...(step.clearSlotTwo ? { participantTwoId: null } : {}),
+              ...(step.reopen ? { winnerPlayerId: null, resultType: null, completedAt: null } : {}),
               status: "WAITING",
               updatedAt: new Date(),
             })
             .where(
               and(
                 eq(tournamentMatches.organizationId, input.organizationId),
-                eq(tournamentMatches.id, dependent.id),
+                eq(tournamentMatches.id, step.matchId),
               ),
             );
         }
@@ -1806,14 +1835,17 @@ export class MatchesRepository {
         ),
       )
       .for("update");
+    const loserPlayerId =
+      scheduled.participantOneId === winnerPlayerId ? scheduled.participantTwoId : scheduled.participantOneId;
+    const advancing = (kind: string | null): string | null => (kind === "LOSER" ? loserPlayerId : winnerPlayerId);
     for (const dependent of dependents) {
       const participantOneId =
         dependent.sourceOneMatchId === scheduled.id
-          ? winnerPlayerId
+          ? advancing(dependent.sourceOneKind)
           : dependent.participantOneId;
       const participantTwoId =
         dependent.sourceTwoMatchId === scheduled.id
-          ? winnerPlayerId
+          ? advancing(dependent.sourceTwoKind)
           : dependent.participantTwoId;
       await transaction
         .update(tournamentMatches)
@@ -1848,6 +1880,7 @@ export class MatchesRepository {
     const now = new Date();
     await applyWithdrawalPropagation(transaction, organizationId, scheduled.tournamentId, now);
     await advanceClubDuel(transaction, { organizationId, tournamentId: scheduled.tournamentId, now, actor });
+    await advanceDoubleElimination(transaction, { organizationId, tournamentId: scheduled.tournamentId, now, actor });
     await updateTournamentProgress(transaction, organizationId, scheduled.tournamentId, now);
     await transaction
       .update(tournaments)

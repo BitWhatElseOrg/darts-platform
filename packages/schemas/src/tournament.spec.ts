@@ -95,9 +95,10 @@ describe("tournament disruption projection", () => {
       tournament: { id: id(1), publicId: id(6), visibility: "PUBLIC", organizationId: id(2), name: "Cup", status: "KNOCKOUT", format: "SINGLE_ELIMINATION", version: 4, stageLabel: "K.-o.-Runde", startingScore: 501, inRule: "STRAIGHT", outRule: "DOUBLE", playedMatches: 1, totalMatches: 3, startsAt: new Date() },
       participants: [{ playerId: id(3), displayName: "Alex", seed: 1, status: "WITHDRAWN", withdrawnAt: new Date(), withdrawalReason: "Verletzung", side: null }],
       boards: [], queue: [], conflicts: [], groups: [],
-      bracket: [{ matchId: id(4), stageLabel: "K.-o. · Runde 1", round: 1, position: 1, status: "COMPLETED", resultType: "WALKOVER", participantNames: ["Alex", "Bea"], winnerDisplayName: "Bea" }],
+      bracket: [{ matchId: id(4), section: "MAIN" as const, stageLabel: "K.-o. · Runde 1", round: 1, position: 1, status: "COMPLETED", resultType: "WALKOVER", participantNames: ["Alex", "Bea"], winnerDisplayName: "Bea" }],
       recentResults: [{ matchId: id(4), stageLabel: "K.-o. · Runde 1", resultType: "WALKOVER", participantNames: ["Alex", "Bea"], winnerPlayerId: id(5), winnerDisplayName: "Bea", completedAt: new Date() }],
       clubDuel: null,
+      doubleElimination: null,
       generatedAt: new Date(),
     });
     expect(parsed.participants).toEqual([
@@ -188,5 +189,37 @@ describe("club duel contracts", () => {
     expect(clubDuelDashboardSchema.safeParse(block).success).toBe(true);
     expect(clubDuelDashboardSchema.safeParse({ ...block, finals: { final: null, thirdPlace: null } }).success).toBe(true);
     expect(clubDuelDashboardSchema.safeParse({ ...block, rounds: [{ ...block.rounds[0], matches: [{ ...roundMatch, legs: [2] }] }] }).success).toBe(false);
+  });
+});
+
+const doubleElimination = (count: number, knockoutSize: number) => ({
+  name: "Doppel-KO",
+  startsAt: "2026-10-10T18:00:00.000Z",
+  format: "DOUBLE_ELIMINATION",
+  startingScore: 501,
+  inRule: "STRAIGHT",
+  outRule: "DOUBLE",
+  bestOfLegs: 3,
+  boardIds: ["00000000-0000-4000-8000-000000000001"],
+  participantIds: Array.from({ length: count }, (_, index) => `00000000-0000-4000-8000-${String(index + 100).padStart(12, "0")}`),
+  groupCount: 1,
+  qualifyPerGroup: 1,
+  knockoutSize,
+  seeding: "SEEDED",
+});
+
+describe("Doppel-K.-o. anlegen", () => {
+  it("akzeptiert 13 Teilnehmer im 16er-Tableau", () => {
+    expect(createTournamentSchema.safeParse(doubleElimination(13, 16)).success).toBe(true);
+  });
+
+  it("lehnt ein 2er-Tableau ab", () => {
+    const result = createTournamentSchema.safeParse(doubleElimination(4, 2));
+    expect(result.success).toBe(false);
+  });
+
+  it("lehnt mehr Teilnehmer als Plätze und leere Erstrundenpaarungen ab", () => {
+    expect(createTournamentSchema.safeParse(doubleElimination(17, 16)).success).toBe(false);
+    expect(createTournamentSchema.safeParse(doubleElimination(7, 16)).success).toBe(false);
   });
 });

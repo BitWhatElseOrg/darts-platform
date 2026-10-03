@@ -79,6 +79,8 @@ function match(overrides: Partial<MatchRow> & Pick<MatchRow, "id" | "stageId" | 
     participantTwoRef: null,
     sourceOneMatchId: null,
     sourceTwoMatchId: null,
+    sourceOneKind: null,
+    sourceTwoKind: null,
     boardId: null,
     scoringMatchId: null,
     winnerPlayerId: null,
