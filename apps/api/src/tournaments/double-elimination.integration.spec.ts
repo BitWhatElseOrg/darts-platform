@@ -152,7 +152,6 @@ async function submitSteps(initial: ScoringState, steps: readonly VisitStep[]): 
 }
 
 /** Spielt ein per Korrektur wieder geoeffnetes Match anhand des laufenden Zustands zu Ende. */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function finishReopenedMatch(tournamentMatchId: string, winnerPlayerId: string): Promise<void> {
   const [scheduled] = await databaseService.database.select().from(tournamentMatches).where(eq(tournamentMatches.id, tournamentMatchId));
   if (!scheduled?.scoringMatchId) throw new Error("Expected a scoring match.");
@@ -289,5 +288,55 @@ describe("Doppel-K.-o. Ablauf", () => {
     if (!second?.participantOneId || !second.participantTwoId) throw new Error("unexpected");
     await playMatch(created.id, second.id, favourite(second.participantOneId, second.participantTwoId));
     expect((await rows(created.id)).find((row) => row.key === "lower:r1:m1")).toMatchObject({ status: "COMPLETED", resultType: "WALKOVER" });
+  });
+});
+
+describe("Doppel-K.-o. Korrektur", () => {
+  async function toResetPending() {
+    const created = await service.create({ organizationId, data: doubleEliminationInput(4, 4), auth, audit });
+    await playUntil(created.id, "grand-final:r1:m1");
+    const final = (await rows(created.id)).find((row) => row.key === "grand-final:r1:m1");
+    if (!final?.participantOneId || !final.participantTwoId) throw new Error("Final nicht bereit");
+    await playMatch(created.id, final.id, final.participantTwoId);
+    return { created, final };
+  }
+
+  async function correct(tournamentId: string, matchId: string) {
+    const dashboard = await service.dashboard({ organizationId, tournamentId, auth });
+    return service.correctResult({
+      organizationId, tournamentId, auth, audit,
+      data: { commandId: randomUUID(), expectedVersion: dashboard.tournament.version, matchId, reason: "Falsch erfasst" },
+    });
+  }
+
+  it("löscht ein noch nicht gestartetes Rückspiel, wenn das erste Final korrigiert wird", async () => {
+    const { created, final } = await toResetPending();
+    await correct(created.id, final.id);
+    expect((await rows(created.id)).some((row) => row.key === "grand-final:r2:m1")).toBe(false);
+    if (!final.participantOneId) throw new Error("unexpected");
+    await finishReopenedMatch(final.id, final.participantOneId);
+    const [tournament] = await databaseService.database.select().from(tournaments).where(eq(tournaments.id, created.id));
+    expect(tournament?.status).toBe("COMPLETED");
+  });
+
+  it("verweigert die Korrektur des ersten Finals, wenn das Rückspiel läuft", async () => {
+    const { created, final } = await toResetPending();
+    const reset = (await rows(created.id)).find((row) => row.key === "grand-final:r2:m1");
+    if (reset === undefined) throw new Error("kein Rückspiel");
+    await startOnBoard(created.id, reset.id, boardIds[1]);
+    await expect(correct(created.id, final.id)).rejects.toMatchObject({ status: 409 });
+    expect((await rows(created.id)).some((row) => row.key === "grand-final:r2:m1")).toBe(true);
+  });
+
+  it("leert den Verlierer-Platz, wenn ein Gewinnerrunden-Spiel korrigiert wird", async () => {
+    const created = await service.create({ organizationId, data: doubleEliminationInput(4, 4), auth, audit });
+    const upper = (await rows(created.id)).find((row) => row.key === "upper:r1:m1");
+    if (!upper?.participantOneId || !upper.participantTwoId) throw new Error("unexpected");
+    await playMatch(created.id, upper.id, upper.participantOneId);
+    await correct(created.id, upper.id);
+    const lower = (await rows(created.id)).find((row) => row.key === "lower:r1:m1");
+    expect(lower?.participantOneId).toBeNull();
+    await finishReopenedMatch(upper.id, upper.participantTwoId);
+    expect((await rows(created.id)).find((row) => row.key === "lower:r1:m1")?.participantOneId).toBe(upper.participantOneId);
   });
 });

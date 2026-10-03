@@ -8,7 +8,7 @@ import {
   visitDarts, visits,
 } from "@darts-platform/database";
 import { clubAbbreviation, decideDeviceMatchAccess, matchTargets, type DeviceMatchAction } from "@darts-platform/domain";
-import { CLUB_DUEL_STAGE_KEYS } from "@darts-platform/tournament-engine";
+import { CLUB_DUEL_STAGE_KEYS, GRAND_FINAL_KEY, GRAND_FINAL_RESET_KEY } from "@darts-platform/tournament-engine";
 import { ScoringValidationError, createX01Match, defaultCheckoutAttempts, executeX01Command, projectX01Match, type InRule, type LegStartRule, type OutRule, type X01Command, type X01Match, type X01MatchState, type X01Side } from "@darts-platform/scoring-engine";
 import type { AbortMatchInput, AbortMatchResponse, CorrectEncounterResultInput, CorrectTournamentResultInput, CreateMatchInput, DecideLegByBullInput, DecideLegStartInput, MatchStateResponse, SubmitVisitInput, UndoVisitInput } from "@darts-platform/schemas";
 import { isDevicePrincipal, type AuthContext, type Principal } from "../auth/auth.types.js";
@@ -819,8 +819,33 @@ export class MatchesRepository {
         if (startedDependent !== undefined) return "downstream-started";
       }
 
+      // Doppel-K.-o.: Das Rückspiel hat keine Quelle (es entsteht aus dem Ausgang
+      // des ersten Finals), deshalb prüft der Quellen-Block oben es nicht.
+      const resetRow =
+        tournament.format === "DOUBLE_ELIMINATION" && scheduled.key === GRAND_FINAL_KEY
+          ? (await transaction
+              .select()
+              .from(tournamentMatches)
+              .where(and(
+                eq(tournamentMatches.organizationId, input.organizationId),
+                eq(tournamentMatches.tournamentId, input.tournamentId),
+                eq(tournamentMatches.key, GRAND_FINAL_RESET_KEY),
+              ))
+              .for("update")
+              .limit(1))[0]
+          : undefined;
+      if (resetRow !== undefined && (resetRow.status === "IN_PROGRESS" || resetRow.status === "COMPLETED")) {
+        return "downstream-started";
+      }
+
       const plan = await this.planResultReopen(transaction, input.organizationId, scoringMatch, input.data.commandId);
       if (plan === null) return "result-not-correctable";
+      if (resetRow !== undefined) {
+        await transaction.delete(tournamentMatches).where(and(
+          eq(tournamentMatches.organizationId, input.organizationId),
+          eq(tournamentMatches.id, resetRow.id),
+        ));
+      }
       const nextTournamentVersion = tournament.version + 1;
       const nextMatchVersion = await this.applyResultReopen(
         transaction,
