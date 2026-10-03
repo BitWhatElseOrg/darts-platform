@@ -4,9 +4,14 @@ import { describe, expect, it } from "vitest";
 import {
   DOUBLE_ELIMINATION_STAGE_KEYS,
   GRAND_FINAL_KEY,
+  GRAND_FINAL_RESET_KEY,
+  doubleEliminationChampion,
+  doubleEliminationPlacements,
   planDoubleElimination,
+  planGrandFinalReset,
   previewDoubleElimination,
   type DoubleEliminationBracketSize,
+  type DoubleEliminationMatchResult,
 } from "./double-elimination";
 import { TournamentValidationError, type PlannedMatch } from "./tournament";
 
@@ -178,5 +183,86 @@ describe("previewDoubleElimination", () => {
     const preview = previewDoubleElimination({ participantCount: 20, knockoutSize: 16 });
     expect(preview.totalMatches).toBe(0);
     expect(preview.warnings).toContain("Das K.-o.-Tableau bietet nicht genug Plätze für alle Teilnehmer.");
+  });
+});
+
+const played = (overrides: Partial<DoubleEliminationMatchResult> & Pick<DoubleEliminationMatchResult, "key" | "stageType" | "round">): DoubleEliminationMatchResult => ({
+  status: "COMPLETED",
+  resultType: "PLAYED",
+  participantOneId: null,
+  participantTwoId: null,
+  winnerPlayerId: null,
+  ...overrides,
+});
+
+describe("planGrandFinalReset", () => {
+  const final = { status: "COMPLETED", resultType: "PLAYED", participantOneId: "upper", participantTwoId: "lower" } as const;
+
+  it("legt das Rückspiel an, wenn der Sieger der Verliererrunde gewinnt", () => {
+    expect(planGrandFinalReset({ ...final, winnerPlayerId: "lower" })).toMatchObject({
+      key: GRAND_FINAL_RESET_KEY,
+      stageType: "GRAND_FINAL",
+      round: 2,
+      position: 1,
+      participantOne: { type: "PLAYER", playerId: "upper" },
+      participantTwo: { type: "PLAYER", playerId: "lower" },
+      state: "READY",
+    });
+  });
+
+  it("kein Rückspiel, wenn der Sieger der Gewinnerrunde gewinnt", () => {
+    expect(planGrandFinalReset({ ...final, winnerPlayerId: "upper" })).toBeNull();
+  });
+
+  it("kein Rückspiel nach Walkover oder vor Abschluss", () => {
+    expect(planGrandFinalReset({ ...final, resultType: "WALKOVER", winnerPlayerId: "lower" })).toBeNull();
+    expect(planGrandFinalReset({ ...final, status: "IN_PROGRESS", resultType: null, winnerPlayerId: null })).toBeNull();
+  });
+});
+
+describe("doubleEliminationPlacements", () => {
+  // 4 Teilnehmer: a gewinnt oben, d scheidet in Verliererrunde 1 aus, c in Runde 2, b verliert das Final.
+  const base: DoubleEliminationMatchResult[] = [
+    played({ key: "upper:r1:m1", stageType: "DOUBLE_ELIMINATION_UPPER", round: 1, participantOneId: "a", participantTwoId: "d", winnerPlayerId: "a" }),
+    played({ key: "upper:r1:m2", stageType: "DOUBLE_ELIMINATION_UPPER", round: 1, participantOneId: "b", participantTwoId: "c", winnerPlayerId: "b" }),
+    played({ key: "upper:r2:m1", stageType: "DOUBLE_ELIMINATION_UPPER", round: 2, participantOneId: "a", participantTwoId: "b", winnerPlayerId: "a" }),
+    played({ key: "lower:r1:m1", stageType: "DOUBLE_ELIMINATION_LOWER", round: 1, participantOneId: "d", participantTwoId: "c", winnerPlayerId: "c" }),
+    played({ key: "lower:r2:m1", stageType: "DOUBLE_ELIMINATION_LOWER", round: 2, participantOneId: "c", participantTwoId: "b", winnerPlayerId: "b" }),
+  ];
+
+  it("ist leer, solange kein Sieger feststeht", () => {
+    expect(doubleEliminationPlacements({ playerIds: ["a", "b", "c", "d"], matches: base })).toEqual([]);
+  });
+
+  it("rangiert nach Ausscheiderunde", () => {
+    const matches = [...base, played({ key: "grand-final:r1:m1", stageType: "GRAND_FINAL", round: 1, participantOneId: "a", participantTwoId: "b", winnerPlayerId: "a" })];
+    expect(doubleEliminationChampion(matches)).toBe("a");
+    expect(doubleEliminationPlacements({ playerIds: ["a", "b", "c", "d"], matches })).toEqual([
+      { rank: 1, playerId: "a" },
+      { rank: 2, playerId: "b" },
+      { rank: 3, playerId: "c" },
+      { rank: 4, playerId: "d" },
+    ]);
+  });
+
+  it("wartet nach gewonnenem erstem Final der Verliererseite auf das Rückspiel", () => {
+    const matches = [...base, played({ key: "grand-final:r1:m1", stageType: "GRAND_FINAL", round: 1, participantOneId: "a", participantTwoId: "b", winnerPlayerId: "b" })];
+    expect(doubleEliminationChampion(matches)).toBeNull();
+    const withReset = [...matches, played({ key: GRAND_FINAL_RESET_KEY, stageType: "GRAND_FINAL", round: 2, participantOneId: "a", participantTwoId: "b", winnerPlayerId: "a" })];
+    expect(doubleEliminationChampion(withReset)).toBe("a");
+    expect(doubleEliminationPlacements({ playerIds: ["a", "b", "c", "d"], matches: withReset }).slice(0, 2)).toEqual([
+      { rank: 1, playerId: "a" },
+      { rank: 2, playerId: "b" },
+    ]);
+  });
+
+  it("teilt Ränge bei gleicher Ausscheiderunde", () => {
+    const matches: DoubleEliminationMatchResult[] = [
+      played({ key: "lower:r1:m1", stageType: "DOUBLE_ELIMINATION_LOWER", round: 1, participantOneId: "e", participantTwoId: "f", winnerPlayerId: "f" }),
+      played({ key: "lower:r1:m2", stageType: "DOUBLE_ELIMINATION_LOWER", round: 1, participantOneId: "g", participantTwoId: "h", winnerPlayerId: "h" }),
+      played({ key: "grand-final:r1:m1", stageType: "GRAND_FINAL", round: 1, participantOneId: "a", participantTwoId: "f", winnerPlayerId: "a" }),
+    ];
+    const ranks = doubleEliminationPlacements({ playerIds: ["a", "e", "f", "g", "h"], matches });
+    expect(ranks.filter((entry) => entry.playerId === "e" || entry.playerId === "g").map((entry) => entry.rank)).toEqual([3, 3]);
   });
 });

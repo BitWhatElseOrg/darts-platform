@@ -19,6 +19,24 @@ const participants = (count: number) =>
   }));
 
 describe("tournament lifecycle", () => {
+  it("führt einen Doppel-K.-o. über alle drei Stages im Status KNOCKOUT", () => {
+    expect(calculateTournamentLifecycle({
+      format: "DOUBLE_ELIMINATION",
+      stages: [
+        { id: "upper", type: "DOUBLE_ELIMINATION_UPPER", hasOpenMatches: false },
+        { id: "lower", type: "DOUBLE_ELIMINATION_LOWER", hasOpenMatches: true },
+        { id: "final", type: "GRAND_FINAL", hasOpenMatches: true },
+      ],
+    })).toEqual({
+      tournamentStatus: "KNOCKOUT",
+      stages: [
+        { id: "upper", status: "COMPLETED" },
+        { id: "lower", status: "OPEN" },
+        { id: "final", status: "OPEN" },
+      ],
+    });
+  });
+
   it("completes a knockout stage and tournament after its final terminal result", () => {
     expect(calculateTournamentLifecycle({
       format: "SINGLE_ELIMINATION",
@@ -228,6 +246,23 @@ describe("group ranking", () => {
 });
 
 describe("withdrawal progression", () => {
+  it("setzt bei einer Verlierer-Quelle den Verlierer ein und gibt Walkover, wenn er zurückgezogen ist", () => {
+    const decisions = resolveTournamentWithdrawals({
+      withdrawnPlayerIds: ["w"],
+      matches: [
+        { id: "upper", status: "COMPLETED", participantOneId: "a", participantTwoId: "w", sourceOneMatchId: null, sourceTwoMatchId: null, winnerPlayerId: "a" },
+        { id: "lower-other", status: "COMPLETED", participantOneId: "b", participantTwoId: "c", sourceOneMatchId: null, sourceTwoMatchId: null, winnerPlayerId: "b" },
+        {
+          id: "lower", status: "WAITING", participantOneId: null, participantTwoId: null,
+          sourceOneMatchId: "lower-other", sourceTwoMatchId: "upper", sourceOneKind: "WINNER", sourceTwoKind: "LOSER", winnerPlayerId: null,
+        },
+      ],
+    });
+    expect(decisions).toEqual([
+      { matchId: "lower", status: "COMPLETED", participantOneId: "b", participantTwoId: "w", winnerPlayerId: "b", resultType: "WALKOVER" },
+    ]);
+  });
+
   it("leaves an unrelated active match untouched", () => {
     expect(resolveTournamentWithdrawals({ withdrawnPlayerIds: ["p2"], matches: [
       { id: "affected", status: "READY", participantOneId: "p1", participantTwoId: "p2", sourceOneMatchId: null, sourceTwoMatchId: null, winnerPlayerId: null },

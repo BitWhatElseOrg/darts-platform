@@ -152,6 +152,7 @@ export function calculateTournamentLifecycle(input: {
   const tournamentStatus = !hasOpenMatches
     ? "COMPLETED"
     : input.format === "SINGLE_ELIMINATION" ||
+        input.format === "DOUBLE_ELIMINATION" ||
         (input.format === "GROUPS_THEN_KNOCKOUT" && !groupsHaveOpenMatches)
       ? "KNOCKOUT"
       : "GROUP_STAGE";
@@ -212,6 +213,16 @@ export interface WithdrawalMatchSnapshot {
   readonly winnerPlayerId: string | null;
   readonly participantOneResolved?: boolean;
   readonly participantTwoResolved?: boolean;
+  /** Doppel-K.-o.: welcher Teilnehmer der Quelle nachrückt. Fehlt = Sieger. */
+  readonly sourceOneKind?: "WINNER" | "LOSER";
+  readonly sourceTwoKind?: "WINNER" | "LOSER";
+}
+
+function advancingFrom(source: WithdrawalMatchSnapshot | null | undefined, kind: "WINNER" | "LOSER" | undefined): string | null {
+  if (source === null || source === undefined) return null;
+  if (kind !== "LOSER") return source.winnerPlayerId;
+  if (source.status !== "COMPLETED" || source.winnerPlayerId === null) return null;
+  return source.participantOneId === source.winnerPlayerId ? source.participantTwoId : source.participantOneId;
 }
 
 export interface WithdrawalMatchDecision {
@@ -649,8 +660,8 @@ export function resolveTournamentWithdrawals(input: {
 
       const firstSource = match.sourceOneMatchId === null ? null : matches.get(match.sourceOneMatchId);
       const secondSource = match.sourceTwoMatchId === null ? null : matches.get(match.sourceTwoMatchId);
-      const participantOneId = match.participantOneId ?? firstSource?.winnerPlayerId ?? null;
-      const participantTwoId = match.participantTwoId ?? secondSource?.winnerPlayerId ?? null;
+      const participantOneId = match.participantOneId ?? advancingFrom(firstSource, match.sourceOneKind);
+      const participantTwoId = match.participantTwoId ?? advancingFrom(secondSource, match.sourceTwoKind);
       const firstResolved = participantOneId !== null || match.participantOneResolved === true || (firstSource !== null && firstSource !== undefined && ["COMPLETED", "BYE", "CANCELLED"].includes(firstSource.status));
       const secondResolved = participantTwoId !== null || match.participantTwoResolved === true || (secondSource !== null && secondSource !== undefined && ["COMPLETED", "BYE", "CANCELLED"].includes(secondSource.status));
       if (

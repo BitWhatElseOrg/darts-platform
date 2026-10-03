@@ -179,3 +179,86 @@ export function previewDoubleElimination(input: {
     warnings,
   };
 }
+
+export interface DoubleEliminationMatchResult {
+  readonly key: string;
+  readonly stageType: "DOUBLE_ELIMINATION_UPPER" | "DOUBLE_ELIMINATION_LOWER" | "GRAND_FINAL";
+  readonly round: number;
+  readonly status: "WAITING" | "READY" | "IN_PROGRESS" | "COMPLETED" | "BYE" | "CANCELLED";
+  readonly resultType: "PLAYED" | "BYE" | "WALKOVER" | null;
+  readonly participantOneId: string | null;
+  readonly participantTwoId: string | null;
+  readonly winnerPlayerId: string | null;
+}
+
+/**
+ * Rückspiel, wenn der Sieger der Verliererrunde (Platz zwei des Finals) das
+ * erste Final gespielt gewinnt: Beide stehen dann bei einer Niederlage. Ein
+ * Walkover löst kein Rückspiel aus – wer sich zurückzieht, spielt auch das
+ * Rückspiel nicht.
+ */
+export function planGrandFinalReset(
+  final: Pick<DoubleEliminationMatchResult, "status" | "resultType" | "participantOneId" | "participantTwoId" | "winnerPlayerId">,
+): PlannedMatch | null {
+  if (final.status !== "COMPLETED" || final.resultType !== "PLAYED") return null;
+  if (final.participantOneId === null || final.participantTwoId === null) return null;
+  if (final.winnerPlayerId !== final.participantTwoId) return null;
+  return {
+    key: GRAND_FINAL_RESET_KEY,
+    stageKey: DOUBLE_ELIMINATION_STAGE_KEYS.grandFinal,
+    stageType: "GRAND_FINAL",
+    groupKey: null,
+    round: 2,
+    position: 1,
+    participantOne: { type: "PLAYER", playerId: final.participantOneId },
+    participantTwo: { type: "PLAYER", playerId: final.participantTwoId },
+    state: "READY",
+    byeWinnerPlayerId: null,
+  };
+}
+
+export function doubleEliminationChampion(matches: readonly DoubleEliminationMatchResult[]): string | null {
+  const reset = matches.find((match) => match.key === GRAND_FINAL_RESET_KEY);
+  if (reset !== undefined) return reset.status === "COMPLETED" ? reset.winnerPlayerId : null;
+  const final = matches.find((match) => match.key === GRAND_FINAL_KEY);
+  if (final === undefined || final.status !== "COMPLETED") return null;
+  return planGrandFinalReset(final) === null ? final.winnerPlayerId : null;
+}
+
+/**
+ * Endrangliste, sobald der Sieger feststeht. Rang = 1 + Anzahl Spieler, die
+ * später ausgeschieden sind. Ausscheiden heisst: Niederlage im
+ * Verlierer-Tableau (Stufe = Runde) oder im Final (Stufe hinter der letzten
+ * Verliererrunde). Wer gleichzeitig ausscheidet, teilt den Rang. Ohne
+ * Ausscheide-Spiel (beide zurückgezogen, Spiel entfällt) steht man am Ende.
+ */
+export function doubleEliminationPlacements(input: {
+  readonly playerIds: readonly string[];
+  readonly matches: readonly DoubleEliminationMatchResult[];
+}): readonly { readonly rank: number; readonly playerId: string }[] {
+  const champion = doubleEliminationChampion(input.matches);
+  if (champion === null) return [];
+  const lowerRounds = Math.max(
+    0,
+    ...input.matches.filter((match) => match.stageType === "DOUBLE_ELIMINATION_LOWER").map((match) => match.round),
+  );
+  const level = new Map<string, number>();
+  // Nach Runde sortiert, damit das Rückspiel (Runde 2) die Stufe aus Runde 1 überschreibt.
+  const ordered = [...input.matches].sort((left, right) => left.round - right.round);
+  for (const match of ordered) {
+    if (match.status !== "COMPLETED" || match.winnerPlayerId === null) continue;
+    if (match.stageType === "DOUBLE_ELIMINATION_UPPER") continue;
+    const loser = match.participantOneId === match.winnerPlayerId ? match.participantTwoId : match.participantOneId;
+    if (loser === null) continue;
+    level.set(loser, match.stageType === "GRAND_FINAL" ? lowerRounds + match.round : match.round);
+  }
+  level.set(champion, Number.POSITIVE_INFINITY);
+  const levelOf = (playerId: string): number => level.get(playerId) ?? 0;
+  return input.playerIds
+    .map((playerId) => ({
+      playerId,
+      rank: 1 + input.playerIds.filter((other) => levelOf(other) > levelOf(playerId)).length,
+    }))
+    .sort((left, right) => left.rank - right.rank || left.playerId.localeCompare(right.playerId))
+    .map(({ rank, playerId }) => ({ rank, playerId }));
+}

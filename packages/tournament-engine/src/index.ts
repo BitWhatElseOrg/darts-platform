@@ -71,7 +71,11 @@ export {
   DOUBLE_ELIMINATION_STAGE_KEYS,
   GRAND_FINAL_KEY,
   GRAND_FINAL_RESET_KEY,
+  doubleEliminationChampion,
+  doubleEliminationPlacements,
   planDoubleElimination,
+  planGrandFinalReset,
   previewDoubleElimination,
   type DoubleEliminationBracketSize,
+  type DoubleEliminationMatchResult,
 } from "./double-elimination.js";
