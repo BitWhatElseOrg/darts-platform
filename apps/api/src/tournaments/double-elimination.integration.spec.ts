@@ -322,6 +322,9 @@ describe("Doppel-K.-o. Korrektur", () => {
     const { created, final } = await toResetPending();
     await correct(created.id, final.id);
     expect((await rows(created.id)).some((row) => row.key === "grand-final:r2:m1")).toBe(false);
+    const removed = await databaseService.database.select().from(auditEvents).where(and(eq(auditEvents.entityId, created.id), eq(auditEvents.action, "TOURNAMENT_GRAND_FINAL_RESET_REMOVED")));
+    expect(removed).toHaveLength(1);
+    expect(removed[0]).toMatchObject({ organizationId, correlationId: audit.correlationId });
     if (!final.participantOneId) throw new Error("unexpected");
     await finishReopenedMatch(final.id, final.participantOneId);
     const [tournament] = await databaseService.database.select().from(tournaments).where(eq(tournaments.id, created.id));
@@ -337,6 +340,24 @@ describe("Doppel-K.-o. Korrektur", () => {
     expect((await rows(created.id)).some((row) => row.key === "grand-final:r2:m1")).toBe(true);
   });
 
+  it("verweigert die Korrektur eines Gewinnerrunden-Spiels, wenn das davon gespeiste Verlierer-Spiel läuft", async () => {
+    const created = await service.create({ organizationId, data: doubleEliminationInput(4, 4), auth, audit });
+    const all = await rows(created.id);
+    const upperOne = all.find((row) => row.key === "upper:r1:m1");
+    const upperTwo = all.find((row) => row.key === "upper:r1:m2");
+    if (!upperOne?.participantOneId || !upperTwo?.participantOneId) throw new Error("unexpected");
+    await playMatch(created.id, upperOne.id, upperOne.participantOneId);
+    await playMatch(created.id, upperTwo.id, upperTwo.participantOneId);
+    const lower = (await rows(created.id)).find((row) => row.key === "lower:r1:m1");
+    if (lower === undefined) throw new Error("kein Verlierer-Spiel");
+    await startOnBoard(created.id, lower.id, boardIds[1]);
+    const before = (await rows(created.id)).find((row) => row.id === lower.id);
+    await expect(correct(created.id, upperOne.id)).rejects.toMatchObject({ status: 409 });
+    const after = (await rows(created.id)).find((row) => row.id === lower.id);
+    expect(after).toEqual(before);
+    expect(after?.status).toBe("IN_PROGRESS");
+  });
+
   it("leert den Verlierer-Platz, wenn ein Gewinnerrunden-Spiel korrigiert wird", async () => {
     const created = await service.create({ organizationId, data: doubleEliminationInput(4, 4), auth, audit });
     const upper = (await rows(created.id)).find((row) => row.key === "upper:r1:m1");
@@ -347,5 +368,26 @@ describe("Doppel-K.-o. Korrektur", () => {
     expect(lower?.participantOneId).toBeNull();
     await finishReopenedMatch(upper.id, upper.participantTwoId);
     expect((await rows(created.id)).find((row) => row.key === "lower:r1:m1")?.participantOneId).toBe(upper.participantOneId);
+  });
+});
+
+describe("Doppel-K.-o. Warteschlange", () => {
+  it("ordnet die Warteschlange nach Stage-Reihenfolge, Runde und Position (Gewinner- vor Verliererrunde)", async () => {
+    const created = await service.create({ organizationId, data: doubleEliminationInput(8, 8), auth, audit });
+    const dashboard = await service.dashboard({ organizationId, tournamentId: created.id, auth });
+    const stageRows = await databaseService.database.select().from(tournamentStages).where(eq(tournamentStages.tournamentId, created.id));
+    const sequenceOf = new Map(stageRows.map((stage) => [stage.id, stage.sequence]));
+    const byId = new Map((await rows(created.id)).map((row) => [row.id, row]));
+    const queued = dashboard.queue.map((entry) => {
+      const row = byId.get(entry.matchId);
+      if (row === undefined) throw new Error("unbekanntes Match");
+      return row;
+    });
+    const expected = [...queued].sort((left, right) =>
+      (sequenceOf.get(left.stageId) ?? 0) - (sequenceOf.get(right.stageId) ?? 0) || left.round - right.round || left.position - right.position);
+    expect(queued.map((row) => row.key)).toEqual(expected.map((row) => row.key));
+    const keys = queued.map((row) => row.key);
+    expect(keys.indexOf("upper:r1:m1")).toBeGreaterThanOrEqual(0);
+    expect(keys.indexOf("upper:r1:m1")).toBeLessThan(keys.indexOf("lower:r1:m1"));
   });
 });

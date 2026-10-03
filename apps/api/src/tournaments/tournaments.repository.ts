@@ -395,13 +395,21 @@ export class TournamentsRepository {
             ),
           )
           .orderBy(
-            asc(tournamentMatches.stageId),
             asc(tournamentMatches.round),
             asc(tournamentMatches.position),
           ),
         loadOccupiedBoardIds(this.databaseService.database, organizationId),
         loadActivePlayerIds(this.databaseService.database, organizationId),
       ]);
+    // Reihenfolge der Warteschlange nachvollziehbar: Stage-Reihenfolge (sequence),
+    // dann Runde, dann Position. stageId ist eine Zufalls-UUID und taugt nicht dazu.
+    const stageSequence = new Map(stageRows.map((stage) => [stage.id, stage.sequence]));
+    const orderedMatches = [...matchRows].sort(
+      (left, right) =>
+        (stageSequence.get(left.stageId) ?? 0) - (stageSequence.get(right.stageId) ?? 0) ||
+        left.round - right.round ||
+        left.position - right.position,
+    );
     return {
       tournament,
       participants: participantRows,
@@ -409,7 +417,7 @@ export class TournamentsRepository {
       boards: boardRows,
       groups: groupRows,
       groupParticipants: groupParticipantRows,
-      matches: matchRows,
+      matches: orderedMatches,
       occupiedBoardIds,
       activePlayerIds,
     };
