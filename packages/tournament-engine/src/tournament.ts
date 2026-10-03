@@ -38,6 +38,8 @@ export type KnockoutParticipantReference =
   | { readonly type: "PLAYER"; readonly playerId: string }
   | { readonly type: "GROUP_RANK"; readonly groupKey: string; readonly rank: number }
   | { readonly type: "MATCH_WINNER"; readonly matchKey: string }
+  /** Doppel-K.-o.: Verlierer eines Spiels fällt ins Verlierer-Tableau (ADR 0022). */
+  | { readonly type: "MATCH_LOSER"; readonly matchKey: string }
   | {
       /** Vereinsduell: Rang `rank` der Seite `side` in der Phase `stageKey` (Spec, Datenmodell). */
       readonly type: "SIDE_RANK";
@@ -51,7 +53,10 @@ export type PlannedStageType =
   | "ROUND_ROBIN"
   | "SINGLE_ELIMINATION"
   | "CLUB_SWISS"
-  | "CLUB_CROSS_ROUND_ROBIN";
+  | "CLUB_CROSS_ROUND_ROBIN"
+  | "DOUBLE_ELIMINATION_UPPER"
+  | "DOUBLE_ELIMINATION_LOWER"
+  | "GRAND_FINAL";
 
 export interface PlannedMatch {
   readonly key: string;
@@ -91,7 +96,12 @@ export interface TournamentStructurePreview {
   readonly warnings: readonly string[];
 }
 
-export type TournamentFormatKey = "GROUPS_THEN_KNOCKOUT" | "ROUND_ROBIN" | "SINGLE_ELIMINATION" | "CLUB_DUEL";
+export type TournamentFormatKey =
+  | "GROUPS_THEN_KNOCKOUT"
+  | "ROUND_ROBIN"
+  | "SINGLE_ELIMINATION"
+  | "CLUB_DUEL"
+  | "DOUBLE_ELIMINATION";
 
 export interface TournamentLifecycleStage {
   readonly id: string;

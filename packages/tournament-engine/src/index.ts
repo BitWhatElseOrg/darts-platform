@@ -67,3 +67,11 @@ export {
   type CrossRoundEntrant,
   type CrossRoundStandingRow,
 } from "./club-duel.js";
+export {
+  DOUBLE_ELIMINATION_STAGE_KEYS,
+  GRAND_FINAL_KEY,
+  GRAND_FINAL_RESET_KEY,
+  planDoubleElimination,
+  previewDoubleElimination,
+  type DoubleEliminationBracketSize,
+} from "./double-elimination.js";
